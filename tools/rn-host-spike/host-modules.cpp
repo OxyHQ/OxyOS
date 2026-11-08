@@ -652,7 +652,7 @@ std::shared_ptr<TurboModule> createHostModule(
           isFatal = isFatal || (fatalData.isBool() && fatalData.getBool());
         } else if (count > 0) {
           // reportFatalException(message, stack, id) and reportSoftException's.
-          text_ = said(rt, args[0], count > 1 ? args[1] : jsi::Value::undefined());
+          text_ = count > 1 ? said(rt, args[0], args[1]) : said(rt, args[0], jsi::Value::undefined());
         }
         if (isFatal) oxyos::endForFatalJavaScriptError(text_);
         std::cerr << "[js exception] " << text_;
