@@ -80,21 +80,21 @@ export type FailureReason =
   | "timeout"
   | "failed";
 
-/** The session's answer to a join or a forget (or its refusal, without the grant). */
-export type NetworkAnswer =
-  | { joined: { ssid: string } }
-  | { forgotten: Record<string, never> }
-  | { failed: { reason: string } }
-  | { refused: { reason: string } };
+/**
+ * How a join or a forget fails: the platform API's error (`@oxyos/platform`'s PlatformError,
+ * docs/adr/0058-the-platform-api.mdx, decision 3), its code and the session's own reason.
+ */
+export type NetworkFailure = { code?: string; reason?: string };
 
 /**
- * Intents. The session answers a join once it is done (a password asked on the way, in its own
- * sheet) and a forget once the connection is gone; the state it then tells says what is so.
+ * Intents. A join resolves once it is done (a password asked on the way, in the session's own
+ * sheet) and a forget once the connection is gone; each rejects with a NetworkFailure. The state
+ * the session then tells says what is so.
  */
 export type NetworkActions = {
   setWifi: (enabled: boolean) => void;
-  join: (ssid: string) => Promise<NetworkAnswer>;
-  forget: (id: string) => Promise<NetworkAnswer>;
+  join: (ssid: string) => Promise<void>;
+  forget: (id: string) => Promise<void>;
   /** NetworkManager refuses scans more often than every ten seconds or so. */
   scan: () => void;
 };
@@ -127,12 +127,13 @@ export function isLocked(security: Security): boolean {
   return security !== "open" && security !== "owe";
 }
 
-/** A failure's reason, known or not, as one of the session's. */
-export function failureOf(answer: NetworkAnswer | null | undefined): FailureReason | null {
-  if (!answer) return "failed";
-  if ("refused" in answer) return "notPermitted";
-  if (!("failed" in answer)) return null;
-  const reason = answer.failed.reason;
+/** The codes of a session's refusal (no grant, no input to cite, locked...): Settings may not. */
+const REFUSALS = new Set(["notPermitted", "needsInput", "locked", "invalid", "busy"]);
+
+/** A failure's reason, known or not, as one of the session's: its own word where Settings knows
+    it, else its code, a refusal as not permitted. */
+export function failureOf(error: unknown): FailureReason {
+  const { code, reason } = (error ?? {}) as NetworkFailure;
   const known: readonly FailureReason[] = [
     "wrongPassword",
     "cancelled",
@@ -143,7 +144,11 @@ export function failureOf(answer: NetworkAnswer | null | undefined): FailureReas
     "timeout",
     "failed",
   ];
-  return (known as readonly string[]).includes(reason) ? (reason as FailureReason) : "failed";
+  const isKnown = (word: string | undefined): word is FailureReason =>
+    word !== undefined && (known as readonly string[]).includes(word);
+  if (isKnown(reason)) return reason;
+  if (code !== undefined && REFUSALS.has(code)) return "notPermitted";
+  return isKnown(code) ? code : "failed";
 }
 
 /** Whether Settings must say a join's failure itself: the session's own sheet says a wrong password,

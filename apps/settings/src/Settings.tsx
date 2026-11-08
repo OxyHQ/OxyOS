@@ -2098,7 +2098,7 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
   const nearby = (ssid: string) => wifi.networks.find((network) => network.ssid === ssid);
   const others = otherNetworks(wifi.networks);
   const join = async (ssid: string) => {
-    const reason = failureOf(await act.join(ssid));
+    const reason = await act.join(ssid).then(() => null, failureOf);
     if (joinFailureNeedsNote(reason)) {
       const note = { title: words.couldNotJoin(ssid), description: failureLabel(reason, words.failures, "join") };
       showNote(note);
@@ -2107,7 +2107,7 @@ function WifiPage({ snapshot, actions, strings }: PageProps) {
     }
   };
   const forget = async (known: KnownNetwork) => {
-    const reason = failureOf(await act.forget(known.id));
+    const reason = await act.forget(known.id).then(() => null, failureOf);
     if (reason) showNote({ title: words.couldNotForget, description: failureLabel(reason, words.failures, "forget") });
   };
   return (

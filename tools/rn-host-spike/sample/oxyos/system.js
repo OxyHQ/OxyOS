@@ -1,7 +1,7 @@
 // Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
 // and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), Wi-Fi and networks
-// (`network`), Bluetooth (`bluetooth`), the shell's system sheets, and the capabilities an
+// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), Bluetooth (`bluetooth`),
+// the shell's system sheets, and the capabilities an
 // application asks for at first use. The session decides; nothing here
 // grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
@@ -59,28 +59,6 @@ export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
 };
-
-/**
- * Wi-Fi and networks (docs/adr/0038-networks.mdx): the shell (its `shell` grant) and Settings (the
- * `network` grant) ask the session, which alone speaks to NetworkManager. The state is told as it
- * changes; a join is answered once it is done (`{joined}` or `{failed: {reason}}`), a password
- * asked in the shell's system sheet on the way. Nothing here ever holds a password but the
- * shell's own answer to that sheet.
- */
-export const network = {
-  state: () => ask({ networks: {} }),
-  scan: () => ask({ scan: {} }),
-  join: (ssid) => ask({ join: { ssid } }),
-  forget: (id) => ask({ forget: { id } }),
-  setWifi: (enabled) => ask({ wifi: { enabled } }),
-  current: state.network.current,
-  subscribe: state.network.subscribe,
-};
-
-/** The network as it changes, for a view: asked once, then followed. */
-export function useNetworkState() {
-  return useFollowed(network);
-}
 
 /**
  * Bluetooth (docs/adr/0055-bluetooth.mdx): the shell (its `shell` grant) and Settings (the

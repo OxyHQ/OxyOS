@@ -69,12 +69,14 @@ test("a lock for every network that asks a password, none for open and OWE ones"
 });
 
 test("failures: the session's reasons, an unknown one as a failure, a refusal as not permitted", () => {
-  assert.equal(failureOf({ joined: { ssid: "Casa" } }), null);
-  assert.equal(failureOf({ forgotten: {} }), null);
-  assert.equal(failureOf({ failed: { reason: "wrongPassword" } }), "wrongPassword");
-  assert.equal(failureOf({ failed: { reason: "notPermitted" } }), "notPermitted");
-  assert.equal(failureOf({ failed: { reason: "somethingNew" } }), "failed");
-  assert.equal(failureOf({ refused: { reason: "network" } }), "notPermitted");
+  // As the platform API rejects: a code, and the session's own reason when it said one.
+  assert.equal(failureOf({ code: "failed", reason: "wrongPassword" }), "wrongPassword");
+  assert.equal(failureOf({ code: "notPermitted", reason: "notPermitted" }), "notPermitted");
+  assert.equal(failureOf({ code: "failed", reason: "somethingNew" }), "failed");
+  assert.equal(failureOf({ code: "needsInput", reason: "needsInput" }), "notPermitted");
+  assert.equal(failureOf({ code: "cancelled" }), "cancelled");
+  assert.equal(failureOf({ code: "unavailable", reason: "notSent" }), "unavailable");
+  assert.equal(failureOf(new Error("anything")), "failed");
   assert.equal(failureOf(null), "failed");
 });
 

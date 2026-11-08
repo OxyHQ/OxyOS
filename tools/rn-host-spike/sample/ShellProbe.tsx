@@ -14,17 +14,17 @@ import {
   bluetooth,
   autofill as autofillApi,
   inputSources,
-  network,
   power,
   sound as soundApi,
   useBluetoothState,
   useAutofillState,
   useInputSourcesState,
-  useNetworkState,
   usePowerState,
   useSoundState,
   useSystemSheets,
 } from './oxyos/system';
+import { network } from '@oxyos/platform';
+import { useFollowed } from '@oxyos/platform/react';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
 import { Shell } from '../../../apps/shell/src/Shell';
@@ -438,7 +438,7 @@ function SessionShell() {
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
   const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
-  const networks = useNetworkState();
+  const networks = useFollowed(network.wifi);
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
   const sound = useSoundState();
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
@@ -692,11 +692,12 @@ function SessionShell() {
       // failed in its own sheets. Settings has no page of its own to open at yet, so Wi-Fi
       // Settings opens Settings as the Oxy menu does.
       networks,
+      // A join's failure is said in the session's own sheet; a refusal by the state it tells.
       scanNetworks: () => {
-        network.scan();
+        network.scan().catch(() => {});
       },
       joinNetwork: (ssid) => {
-        network.join(ssid);
+        network.join(ssid).catch(() => {});
       },
       openWifiSettings: () => act.menuCommand('system.settings'),
       // The outputs (ADR 0056): the session plays to the one chosen. Sound Settings opens
