@@ -5151,14 +5151,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         )?);
     }
     if let Some(address) = &launch.network_bus {
-        // The session's networks, over the played daemon on the run's own bus.
-        let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
+        // The session's networks, over the played daemon on the run's own bus, Wi-Fi Diagnostics
+        // probing the played network behind it.
+        let control = zbus::blocking::connection::Builder::address(address.as_str())?.build()?;
+        let networks = oxyos_compositor::networks::Networks::on_bus_probed(
+            Some(address.clone()),
+            std::sync::Arc::new(crate::played_network::PlayedProbe {
+                bus: control.clone(),
+            }),
+        )?;
         let waker = networks.wake_fd()?;
         session.networks_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.networks = Some(networks);
-        session.network_control =
-            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+        session.network_control = Some(control);
     }
     if let Some(address) = &launch.bluetooth_bus {
         // The session's Bluetooth and its pairing agent, over the played BlueZ on the run's own

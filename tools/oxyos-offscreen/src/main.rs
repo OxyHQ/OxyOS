@@ -17,6 +17,7 @@ mod input_sources;
 mod launch;
 mod lock;
 mod pasteboard;
+mod played_network;
 mod png;
 mod reader;
 mod uinput;
