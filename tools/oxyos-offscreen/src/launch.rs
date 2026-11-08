@@ -59,7 +59,8 @@ pub enum Step {
     /// second, through the compositor's input as libinput's swipe gesture is (Mission Control, App
     /// Exposé and the desktops, ADR 0045, ADR 0046): `fingers` put down first (none: they are down
     /// since an earlier step's), and lifted `lift` milliseconds after their last motion (none:
-    /// they stay down into the next steps, the swipe partway).
+    /// they stay down into the next steps, the swipe partway). Through the virtual devices, a
+    /// whole swipe is the fingers on the virtual touchpad, which libinput recognizes and counts.
     Swipe {
         fingers: Option<u8>,
         dx: i32,
@@ -121,14 +122,16 @@ pub enum Step {
         dy: i32,
         events: u32,
     },
-    /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
-    /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`) on the
-    /// scene, or through the virtual touchpad, where libinput recognizes it.
+    /// A touchpad pinch of `fingers` with the pointer at a window-local point: the fingers spread
+    /// to `percent` of their spread and turn `degrees` clockwise, in eight even steps
+    /// (`drag_points`) on the scene, or through the virtual touchpad, where libinput recognizes
+    /// it and counts them (the thumb and three fingers: Launchpad's, ADR 0046).
     Pinch {
         x: i32,
         y: i32,
         percent: i32,
         degrees: i32,
+        fingers: u8,
     },
     /// Text typed into the focused surface: committed as it is, or, through the virtual
     /// devices, typed key by key on the layout.
@@ -392,7 +395,10 @@ impl Step {
                 y,
                 percent,
                 degrees,
-            } => format!("pinch to {percent}% turning {degrees} degrees at ({x}, {y})"),
+                fingers,
+            } => format!(
+                "{fingers}-finger pinch to {percent}% turning {degrees} degrees at ({x}, {y})"
+            ),
             Step::Type(text) => format!("typing {text:?}"),
             Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
@@ -564,7 +570,15 @@ impl Step {
                 y,
                 percent,
                 degrees,
+                fingers: 2,
             } => format!("\"pinch\":[{x},{y},{percent},{degrees}]"),
+            Step::Pinch {
+                x,
+                y,
+                percent,
+                degrees,
+                fingers,
+            } => format!("\"pinch\":[{x},{y},{percent},{degrees},{fingers}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
             Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
@@ -1434,12 +1448,14 @@ impl Launch {
                     }
                 }
                 Some("--pinch") => {
-                    let n = numbers(args.next(), 4)?;
+                    // X,Y,PERCENT,DEGREES[,FINGERS]: two fingers unless said.
+                    let n = numbers_within(args.next(), 4, 5)?;
                     Step::Pinch {
                         x: n[0],
                         y: n[1],
                         percent: n[2],
                         degrees: n[3],
+                        fingers: n.get(4).map_or(Ok(2), |f| u8::try_from(*f))?,
                     }
                 }
                 Some("--type") => {
@@ -3647,12 +3663,13 @@ fn inject_through(
             y,
             percent,
             degrees,
+            fingers,
         } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
             compositor.read_input();
-            devices.pinch(*percent, *degrees, || compositor.read_input())?;
+            devices.pinch(*fingers, *percent, *degrees, || compositor.read_input())?;
         }
         Step::Drag { from, to } => {
             inside(window, from.0, from.1)?;
@@ -4726,14 +4743,16 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             y,
             percent,
             degrees,
+            fingers,
         } => {
             inside(window, *x, *y)?;
             if *percent <= 0 {
                 return Err("a pinch spreads to more than 0%".into());
             }
+            let fingers = *fingers;
             let scene = &mut compositor.scene;
             scene.pointer_motion(window.x + x, window.y + y);
-            scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
+            scene.pointer_pinch(GesturePhase::Begin, fingers, 65536, 0);
             // libinput's scale and turn are since the pinch began: the spread changes by an even
             // factor at each step, as fingers moving steadily apart do.
             const STEPS: i32 = 8;
@@ -4742,12 +4761,14 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 let scale = (f64::from(*percent) / 100.0).powf(done);
                 scene.pointer_pinch(
                     GesturePhase::Update,
+                    fingers,
                     (scale * 65536.0).round() as u32,
                     (f64::from(*degrees) * done * 256.0).round() as i32,
                 );
             }
             scene.pointer_pinch(
                 GesturePhase::End,
+                fingers,
                 (f64::from(*percent) / 100.0 * 65536.0).round() as u32,
                 degrees.saturating_mul(256),
             );
@@ -5711,6 +5732,34 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            // A whole swipe through the virtual touchpad (`--uinput`): its fingers moving together,
+            // which libinput recognizes and counts, as a person's.
+            Some(devices)
+                if matches!(
+                    step,
+                    Step::Swipe {
+                        fingers: Some(_),
+                        lift: Some(0),
+                        ..
+                    }
+                ) =>
+            {
+                if let Step::Swipe {
+                    fingers: Some(fingers),
+                    dx,
+                    dy,
+                    steps,
+                    hz,
+                    ..
+                } = step
+                {
+                    let compositor = &mut session.compositor;
+                    devices.swipe(*fingers, (*dx, *dy), *steps, *hz, || {
+                        compositor.read_input()
+                    })?;
+                }
+                0
+            }
             _ if matches!(step, Step::Swipe { .. }) => {
                 if let Step::Swipe {
                     fingers,
@@ -6214,7 +6263,8 @@ mod tests {
                     x: 5,
                     y: 6,
                     percent: 150,
-                    degrees: -30
+                    degrees: -30,
+                    fingers: 2,
                 },
                 Step::Type("hi".into()),
                 Step::Commit("mundo".into()),

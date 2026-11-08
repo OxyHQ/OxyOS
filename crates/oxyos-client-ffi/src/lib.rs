@@ -283,12 +283,14 @@ pub const OXYOS_SHORTCUT_REVEAL: u32 = 15;
 pub const OXYOS_SHORTCUT_INTENT_TOGGLE: u8 = 0;
 pub const OXYOS_SHORTCUT_INTENT_OPEN: u8 = 1;
 pub const OXYOS_SHORTCUT_INTENT_CLOSE: u8 = 2;
-/// Which view a touchpad's vertical swipe drives a shell surface is
+/// Which view a touchpad's gesture drives a shell surface is
 /// (`oxyos_client_set_gesture_overlay`, protocol version 25): none, Mission Control's or App
-/// Exposé's.
+/// Exposé's (swiped up and down); and Launchpad's (pinched with the thumb and three fingers),
+/// since version 32.
 pub const OXYOS_GESTURE_OVERLAY_NONE: u8 = 0;
 pub const OXYOS_GESTURE_OVERLAY_MISSION_CONTROL: u8 = 1;
 pub const OXYOS_GESTURE_OVERLAY_APP_EXPOSE: u8 = 2;
+pub const OXYOS_GESTURE_OVERLAY_LAUNCHPAD: u8 = 3;
 /// Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10), to the session's shell: the
 /// screenshot interface to show or change (serial: a user input of its own, the same until the
 /// interface ends, which oxyos_client_capture and oxyos_client_focus_shell_surface cite; detail:
@@ -3887,13 +3889,13 @@ pub unsafe extern "C" fn oxyos_client_move_windows_to_views(
     unsafe { send(client, Request::MoveWindowsToViews { surface, moved }) }
 }
 
-/// Says which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
-/// (`overlay`, OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, its backdrop and its
-/// overlay alike, or none (docs/adr/0046-interactive-gestures.mdx). While such a surface is shown,
-/// the swipe back closes it as far as the fingers go; while a swipe opening it drives it, it
-/// arrives as far as they have gone. Said before the surface's first frame, it holds from its
-/// arrival. 0 on success; -1 for an overlay the protocol does not have, or to a compositor of
-/// version 24 or older, which is sent nothing.
+/// Says which view a touchpad's gesture drives one of the shell's own shell surfaces is
+/// (`overlay`, OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, its
+/// backdrop and its overlay alike, or none (docs/adr/0046-interactive-gestures.mdx). While such a
+/// surface is shown, the gesture back closes it as far as the fingers go; while a gesture opening
+/// it drives it, it arrives as far as they have gone. Said before the surface's first frame, it
+/// holds from its arrival. 0 on success; -1 for an overlay the protocol does not have, or to a
+/// compositor of version 24 or older (31 or older for Launchpad's), which is sent nothing.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.

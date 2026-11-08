@@ -216,11 +216,12 @@ wire_enum! {
     ShortcutIntent: u8 { Toggle = 0, Open = 1, Close = 2 }
 }
 wire_enum! {
-    /// Which of the views a touchpad's vertical swipe drives a shell surface is
-    /// (docs/adr/0046-interactive-gestures.mdx, version 25): none, Mission Control's (three or four
-    /// fingers up) or App Exposé's (down). While a swipe drives it, such a surface arrives, and goes,
-    /// as far as the fingers have gone, its moved windows with it.
-    GestureOverlay: u8 { None = 0, MissionControl = 1, AppExpose = 2 }
+    /// Which of the views a touchpad's gesture drives a shell surface is
+    /// (docs/adr/0046-interactive-gestures.mdx, version 25): none, Mission Control's (fingers
+    /// swiped up) or App Exposé's (down); and since version 32 Launchpad's (the thumb and three
+    /// fingers pinched, the 8 November 2026 amendment). While a gesture drives it, such a surface
+    /// arrives, and goes, as far as the fingers have gone, its moved windows with it.
+    GestureOverlay: u8 { None = 0, MissionControl = 1, AppExpose = 2, Launchpad = 3 }
 }
 // No overlay is the default; `wire_enum!` derives its own set, so it is written here.
 #[allow(clippy::derivable_impls)]

@@ -84,8 +84,10 @@ import {
 } from '../../../apps/settings/src/input-sources';
 import {
   ENERGY_DEFAULTS,
+  GESTURE_DEFAULTS,
   PREFERENCE_KEYS,
   preferenceText,
+  swipeFingersOf,
   TRIAL_SECONDS,
   type Appearance,
   type DisplaysSnapshot,
@@ -127,6 +129,7 @@ const FIXTURE: SettingsSnapshot = {
     uiSounds: true,
     trackpadNaturalScrolling: true,
     mouseNaturalScrolling: false,
+    ...GESTURE_DEFAULTS,
     wallpaper: '',
     wallpaperAllDesktops: true,
     lockAfter: 5,
@@ -301,6 +304,12 @@ function preferencesOf(values: Record<string, string>): Preferences {
     // (docs/adr/0042-scrolling.mdx, decision 6).
     trackpadNaturalScrolling: values[PREFERENCE_KEYS.trackpadNaturalScrolling] !== 'false',
     mouseNaturalScrolling: flag(PREFERENCE_KEYS.mouseNaturalScrolling),
+    // Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx): three fingers for each swipe
+    // unless the session keeps four or off, and Launchpad's pinch on unless it keeps it off.
+    missionControlSwipe: swipeFingersOf(values[PREFERENCE_KEYS.missionControlSwipe]),
+    appExposeSwipe: swipeFingersOf(values[PREFERENCE_KEYS.appExposeSwipe]),
+    desktopsSwipe: swipeFingersOf(values[PREFERENCE_KEYS.desktopsSwipe]),
+    launchpadPinch: values[PREFERENCE_KEYS.launchpadPinch] !== 'false',
     // The choice where Settings' window is (docs/adr/0048-wallpapers.mdx, decision 4).
     wallpaper: values[PREFERENCE_KEYS.wallpaper] ?? '',
     // On unless the session keeps it off.

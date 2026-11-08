@@ -2498,8 +2498,34 @@ fn version_25_a_swipe_opens_and_closes_and_marks_its_overlays_only_for_version_2
     write_request(&mut bytes, &marked).unwrap();
     assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), marked);
     assert_eq!(GestureOverlay::from_raw(0), Some(GestureOverlay::None));
-    assert!(GestureOverlay::from_raw(3).is_none());
+    assert!(GestureOverlay::from_raw(4).is_none());
     assert!(ShortcutIntent::from_raw(3).is_none());
+}
+
+#[test]
+fn version_32_launchpad_driven_by_a_pinch_is_only_a_peer_of_version_32s() {
+    // Launchpad's surfaces said to be what the thumb and three fingers pinched drive
+    // (docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026): a value a compositor of
+    // version 31 would refuse, closing the connection, so the client library never sends it one.
+    let launchpad = Request::SetGestureOverlay {
+        surface: 3,
+        overlay: GestureOverlay::Launchpad,
+    };
+    assert_eq!(request_since(&launchpad), 32);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &launchpad).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), launchpad);
+    assert_eq!(GestureOverlay::from_raw(3), Some(GestureOverlay::Launchpad));
+    // Mission Control's and App Exposé's stay version 25's.
+    for overlay in [GestureOverlay::None, GestureOverlay::MissionControl] {
+        assert_eq!(
+            request_since(&Request::SetGestureOverlay {
+                surface: 3,
+                overlay
+            }),
+            25
+        );
+    }
 }
 
 #[test]

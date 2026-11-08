@@ -782,7 +782,7 @@ void Window::moveWindowsToViews(uint32_t id, bool moved) {
 }
 
 void Window::setGestureOverlay(uint32_t id, uint8_t overlay) {
-  if (oxyos_client_set_gesture_overlay(client_, id, overlay) != 0) failed("cannot say which view a swipe drives");
+  if (oxyos_client_set_gesture_overlay(client_, id, overlay) != 0) failed("cannot say which view a gesture drives");
 }
 
 bool Window::openScreenshot(uint32_t screenshot, uint64_t serial) {
