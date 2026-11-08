@@ -60,6 +60,9 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
   const [sheet, setSheet] = React.useState<"files" | "unused" | null>(null);
   const [shownApp, setShownApp] = React.useState<string | null>(null);
   const [failure, setFailure] = React.useState<string | null>(null);
+  // After one of the page's own changes (a file moved to the Trash, an app deleted), until the
+  // index has followed it.
+  const [awaitingIndex, setAwaitingIndex] = React.useState(false);
   const asked = React.useRef(0);
 
   // Measured as the page is shown and after each of its own changes; a measurement asked again
@@ -80,15 +83,18 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
     };
   }, [measure]);
   // While the index is still being built, its sums are asked again each time it changes, so
-  // Documents and Photos grow as it goes; once it is built, nothing is followed.
-  const indexing = indexed?.indexing === true;
+  // Documents and Photos grow as it goes; after one of the page's own changes, once more when the
+  // index has followed it. Otherwise nothing is followed.
+  const following = indexed?.indexing === true || awaitingIndex;
   React.useEffect(() => {
-    if (!indexing || !storage?.watchIndex) return undefined;
+    if (!following || !storage?.watchIndex) return undefined;
     let live = true;
     const unwatch = storage.watchIndex(() => {
       storage.indexed().then(
         (told) => {
-          if (live) setIndexed(told);
+          if (!live) return;
+          setIndexed(told);
+          setAwaitingIndex(false);
         },
         (error: unknown) => console.warn("[settings] the index's sums could not be read:", error),
       );
@@ -97,7 +103,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
       live = false;
       unwatch();
     };
-  }, [indexing, storage]);
+  }, [following, storage]);
 
   if (!storage) {
     return (
@@ -139,6 +145,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
     if (outcome === "removed") {
       setShownApp(null);
       AccessibilityInfo.announceForAccessibility(words.removed(target.name));
+      setAwaitingIndex(true);
       void measure();
     } else if (outcome === "failed") {
       setFailure(words.removeFailed(target.name));
@@ -259,7 +266,10 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
         bytes={bytes}
         locale={locale}
         onClose={() => setSheet(null)}
-        onChanged={() => void measure()}
+        onChanged={() => {
+          setAwaitingIndex(true);
+          void measure();
+        }}
         onFailed={setFailure}
       />
       <UnusedAppsSheet
