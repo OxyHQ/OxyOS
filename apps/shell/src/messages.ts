@@ -528,6 +528,12 @@ const en = (f: Formats) => ({
     bluetoothOtherFailure: "Make sure it's turned on and nearby.",
     /** A code said digit by digit: "Code: 1 2 3 4 5 6". */
     bluetoothCodeSaid: (digits: string) => `Code: ${digits}`,
+    /** An application asks to save a login it used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+        decision 5): its name, then the username (and the website it names). */
+    savePassword: (name: string) => `Save password for ${name}?`,
+    savePasswordNote: "It's kept in your Oxy account's keychain, end-to-end encrypted, and filled in for you next time.",
+    save: "Save",
+    notNow: "Not Now",
     /** An application that quit unexpectedly, and resetting one (docs/adr/0061). */
     crash: (name: string) => `${name} quit unexpectedly`,
     crashBody: "You can reopen it, or see what it reported.",
@@ -979,6 +985,10 @@ const es = (f: Formats): Catalogue => ({
     bluetoothTimeout: "Asegúrate de que está encendido, cerca y en modo de enlace.",
     bluetoothOtherFailure: "Asegúrate de que está encendido y cerca.",
     bluetoothCodeSaid: (digits) => `Código: ${digits}`,
+    savePassword: (name) => `¿Guardar la contraseña para ${name}?`,
+    savePasswordNote: "Se guarda en el llavero de tu cuenta Oxy, cifrado de extremo a extremo, y se rellena por ti la próxima vez.",
+    save: "Guardar",
+    notNow: "Ahora no",
     crash: (name) => `${name} se cerró inesperadamente`,
     crashBody: "Puedes volver a abrirla o ver lo que informó.",
     crashAgain: (name) => `${name} sigue cerrándose inesperadamente`,

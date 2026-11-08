@@ -664,6 +664,17 @@ the step, exactly, in any order: "APPLICATION ASKED: ANSWERED" ("-" for a proces
 `token boot: token`, `token preflight: no token`, `subscribe: snapshot`, `remove: removed`,
 `erasePreview: preview`, `eraseAll: erasing` or the reason it was refused).
 
+Saving a login (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): the development
+compositor (`autofill.saves`) takes the played service's save confirmations as the session takes
+the real one's (`confirmSaves`); an application's `savePassword` is refused `locked` with
+`account.keychain` "locked", `notMember` with "off", and `unavailable` with nobody taking the
+confirmations; otherwise the compositor is asked (`confirmSave`, never the password) and its answer
+is the application's (`saved` or `notSaved`; past `account.save_wait` seconds, 120 by default,
+`notSaved` and the request withdrawn). The service logs `savePassword: saved`, `notSaved` or the
+reason; a scenario's `account_saved` is what it saved once the run ended, exactly, without the
+password ([{"application", "username", "domain"}]), and none of the scenario's `secrets` may be in
+its log.
+
 Every scenario, every step, whatever it says (docs/adr/0016-windows.mdx, decision 11): the person's
 input reached exactly whom it should, once. The development compositor records every input event
 it routes (the pointer's, motion among them, the keyboard's and what it types, touches, scrolls,
@@ -1339,6 +1350,80 @@ def serve_account_session(path, spec, log):
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
     pins_set = [spec.get("local_pin")]
+    # Saving (ADR 0050, decision 5): the compositor's confirmations connection, the requests it
+    # was asked and not yet answered (id -> [event, decision]), and what was saved.
+    confirmer = {"connection": None, "next": 0}
+    deciding = {}
+    ACCOUNT["saved"] = []
+
+    def is_compositor(connection):
+        pid, _, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                                struct.calcsize("3i")))
+        try:
+            return os.path.basename(os.readlink(f"/proc/{pid}/exe")) == "oxyos-offscreen"
+        except OSError:
+            return False
+
+    def confirm_saves(connection):
+        # The development compositor stands for the session's registrar: it takes the save
+        # confirmations, and answers each.
+        with lock:
+            if confirmer["connection"] is not None:
+                connection.send(json.dumps({"refused": {"reason": "tooMany"}}).encode())
+                return
+            confirmer["connection"] = connection
+            connection.send(json.dumps("confirmingSaves").encode())
+        record("session", "confirmSaves", "confirmingSaves")
+        try:
+            while True:
+                try:
+                    packet = connection.recv(16384)
+                except OSError:
+                    return
+                if not packet:
+                    return
+                message = json.loads(packet)
+                decision = message.get("saveDecision") if isinstance(message, dict) else None
+                if isinstance(decision, dict) and decision.get("id") in deciding:
+                    deciding[decision["id"]][1] = bool(decision.get("save"))
+                    deciding[decision["id"]][0].set()
+        finally:
+            with lock:
+                confirmer["connection"] = None
+            for waiting in list(deciding.values()):
+                waiting[0].set()
+
+    def save_password(application, asked):
+        username, domain = asked.get("username"), asked.get("domain")
+        if not isinstance(username, str) or not username or not isinstance(asked.get("password"), str) \
+                or not asked["password"]:
+            return {"refused": {"reason": "invalidRequest"}}
+        keychain = spec.get("keychain", "member")
+        if keychain == "locked":
+            return {"refused": {"reason": "locked"}}
+        if keychain == "off":
+            return {"refused": {"reason": "notMember"}}
+        with lock:
+            connection = confirmer["connection"]
+            if connection is None:
+                return {"refused": {"reason": "unavailable"}}
+            confirmer["next"] += 1
+            id = str(confirmer["next"])
+            waiting = deciding[id] = [threading.Event(), False]
+            ask = {"id": id, "desktopEntryId": application, "username": username}
+            if domain:
+                ask["domain"] = domain
+            connection.send(json.dumps({"confirmSave": ask}).encode())
+        answered = waiting[0].wait(spec.get("save_wait", 120))
+        deciding.pop(id, None)
+        if not answered:
+            with lock:
+                if confirmer["connection"] is not None:
+                    confirmer["connection"].send(json.dumps({"saveWithdrawn": {"id": id}}).encode())
+        if not waiting[1]:
+            return {"notSaved": {}}
+        ACCOUNT["saved"].append({"application": application, "username": username, "domain": domain})
+        return {"saved": {}}
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1416,6 +1501,11 @@ def serve_account_session(path, spec, log):
                     next(iter(message)) if isinstance(message, dict) and len(message) == 1 else "invalid")
                 if asked == "token":
                     asked = f"token {message['token'].get('reason')}"
+                # Known by its program, not its environment: the development compositor carries
+                # the application's OXYOS_APP_ID, which its child inherits.
+                if message == {"confirmSaves": {}} and is_compositor(connection):
+                    confirm_saves(connection)
+                    return
                 if application is None:
                     record(None, asked, "refused")
                     connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
@@ -1498,6 +1588,12 @@ def serve_account_session(path, spec, log):
                         answer = {"localSignIn": dict(local_sign_in)}
                     record(application, asked, next(iter(answer)) if "localSignIn" in answer
                            else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
+                elif asked == "savePassword" and isinstance(message["savePassword"], dict):
+                    # The password is never logged nor kept.
+                    answer = save_password(application, message["savePassword"])
+                    told = next(iter(answer)) if "refused" not in answer else answer["refused"]["reason"]
+                    record(application, asked, told)
                     connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
@@ -5611,6 +5707,10 @@ def main():
         # AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) answered by the development
         # compositor's fixture keychain, its made-up items associated with the application named.
         command += ["--autofill-fixture", scenario["autofill"]["application"]]
+        if scenario["autofill"].get("saves"):
+            # Applications' requests to save a login (decision 5), told by the played accounts'
+            # service (`account`) and asked in the shell's sheet, as the session asks them.
+            command += ["--autofill-saves"]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
@@ -5915,6 +6015,17 @@ def main():
             failures.append("the password is in the login program's record")
     if "installd_final" in scenario:
         check_installd(scenario["installd_final"], failures)
+    # What the played accounts' service saved once the person said yes (ADR 0050, decision 5),
+    # exactly, in order; never the password.
+    if "account_saved" in scenario and ACCOUNT.get("saved") != scenario["account_saved"]:
+        failures.append(f"the accounts' service saved {ACCOUNT.get('saved')}, expected exactly "
+                        f"{scenario['account_saved']}")
+    # Nothing the played service logged holds a secret.
+    if scenario.get("secrets") and ACCOUNT.get("log") and pathlib.Path(ACCOUNT["log"]).exists():
+        logged = pathlib.Path(ACCOUNT["log"]).read_bytes()
+        for secret in scenario["secrets"]:
+            if secret.encode() in logged:
+                failures.append("a secret is in the accounts' service's log")
     # Secrets typed in the scenario (a Wi-Fi password, ADR 0038) reach the daemon alone: never
     # the user's preferences or configuration, nor what the application was told or reported.
     if scenario.get("secrets"):

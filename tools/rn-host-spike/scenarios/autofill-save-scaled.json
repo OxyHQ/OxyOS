@@ -1,0 +1,140 @@
+{
+ "about": "The same ask to save as autofill-save.json in English, dark, at 1.25 (1600 × 1000): “Save password for Allo?”, the username and the website, Not Now and Save; Not Now saves nothing, Save saves it for Allo alone, the password in nothing recorded.",
+ "locale": "en_US.UTF-8",
+ "module": "SavePasswordProbe",
+ "window": [
+  560,
+  320
+ ],
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "shell": "OxyOSShell",
+ "autofill": {
+  "application": "so.oxy.allo",
+  "saves": true
+ },
+ "account": {
+  "registered": [
+   "so.oxy.allo"
+  ]
+ },
+ "secrets": [
+  "fixture-Saved-Passw0rd"
+ ],
+ "account_saved": [
+  {
+   "application": "so.oxy.allo",
+   "username": "bea@example.com",
+   "domain": "example.com"
+  }
+ ],
+ "steps": [
+  {
+   "name": "the probe, launched by the session: the keychain available, nothing asked",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Keychain: available",
+     "Saved: none"
+    ],
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "signed in: the system's sheet asks to save, naming the application and the username",
+   "do": [
+    "press_named",
+    "Sign in"
+   ],
+   "until_sheet": true,
+   "expect": {
+    "texts": [
+     "Asked: 1",
+     "Saved: asking"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Save password for Allo?"
+      }
+     ]
+    },
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "Not Now: nothing saved",
+   "do": [
+    "press_named",
+    "Not Now"
+   ],
+   "expect": {
+    "texts": [
+     "Saved: notSaved"
+    ],
+    "account_session": [
+     "so.oxy.allo savePassword: notSaved"
+    ],
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "signed in again: asked again",
+   "do": [
+    "press_named",
+    "Sign in"
+   ],
+   "until_sheet": true,
+   "expect": {
+    "texts": [
+     "Asked: 2",
+     "Saved: asking"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "Save password for Allo?"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Save: saved, for Allo",
+   "do": [
+    "press_named",
+    "Save"
+   ],
+   "expect": {
+    "texts": [
+     "Saved: saved"
+    ],
+    "account_session": [
+     "so.oxy.allo savePassword: saved"
+    ],
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  }
+ ],
+ "outputs": "1600x1000@1.25",
+ "preferences": {
+  "appearance": "dark",
+  "accent": "jade"
+ }
+}
