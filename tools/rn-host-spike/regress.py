@@ -1378,7 +1378,9 @@ def serve_account_session(path, spec, log):
                     next(iter(message)) if isinstance(message, dict) and len(message) == 1 else "invalid")
                 if asked == "token":
                     asked = f"token {message['token'].get('reason')}"
-                if message == {"confirmSaves": {}} and application is None and is_compositor(connection):
+                # Known by its program, not its environment: the development compositor carries
+                # the application's OXYOS_APP_ID, which its child inherits.
+                if message == {"confirmSaves": {}} and is_compositor(connection):
                     confirm_saves(connection)
                     return
                 if application is None:
