@@ -491,7 +491,10 @@ fn the_charge_limit_survives_a_reboot_and_a_forgotten_one_is_never_claimed() {
     assert!(!limit(&bus).enabled);
     upower::set_charge_limit(&bus, true).unwrap();
     // UPower kept the choice, then wrote the thresholds.
-    assert_eq!(std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(), "1");
+    assert_eq!(
+        std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(),
+        "1"
+    );
     assert_eq!(held(), limited());
     assert!(limit(&bus).enabled);
 
@@ -530,7 +533,10 @@ fn the_charge_limit_survives_a_reboot_and_a_forgotten_one_is_never_claimed() {
 
     // Off, kept off across a reboot: nothing written when UPower starts.
     upower::set_charge_limit(&bus, false).unwrap();
-    assert_eq!(std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(), "0");
+    assert_eq!(
+        std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(),
+        "0"
+    );
     drop(played);
     forget();
     let played = Played::serve(&address, machine()).unwrap();

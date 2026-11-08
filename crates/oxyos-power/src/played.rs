@@ -179,7 +179,8 @@ impl Model {
         else {
             return;
         };
-        let kept = std::fs::read_to_string(state_dir.join(STATE_FILE)).is_ok_and(|kept| kept == "1");
+        let kept =
+            std::fs::read_to_string(state_dir.join(STATE_FILE)).is_ok_and(|kept| kept == "1");
         threshold.enabled = kept
             && sysfs.as_deref().is_none_or(|sysfs| {
                 write_thresholds(sysfs, threshold.start, threshold.end).is_ok()
@@ -411,7 +412,11 @@ impl Device {
 
     #[zbus(property)]
     fn charge_threshold_supported(&self) -> bool {
-        !self.display && self.battery(|battery| battery.present && battery.threshold.is_some(), false)
+        !self.display
+            && self.battery(
+                |battery| battery.present && battery.threshold.is_some(),
+                false,
+            )
     }
 
     /// The battery's sysfs directory (UPower's: its name in `/sys/class/power_supply`).
@@ -431,7 +436,9 @@ impl Device {
     #[zbus(property)]
     fn charge_threshold_enabled(&self) -> bool {
         self.battery(
-            |battery| battery.present && battery.threshold.is_some_and(|threshold| threshold.enabled),
+            |battery| {
+                battery.present && battery.threshold.is_some_and(|threshold| threshold.enabled)
+            },
             false,
         )
     }
