@@ -14,6 +14,8 @@ Status: **accepted; implemented**, except opening a file in another application 
 - **In the service:** every XDG user directory (the six favourites, plus Templates and Public, where `user-dirs.dirs` puts them or at their defaults) is never deleted, moved, renamed, replaced or put in the Trash, whoever asks. This includes the dock's Trash. A Mac's home folders carry the same rule (“can't be modified or deleted because it's required by macOS”).
 - **In Dropsea** ([OxyHQ/Dropsea#39](https://github.com/OxyHQ/Dropsea/pull/39)): a drop on what is being dragged moves nothing ([ADR 0035](./0035-drag-and-drop), decision 13, amended), and Edit › Undo takes a move back.
 
+**8 November 2026: the person's backups** ([ADR 0059](./0059-backups), decision 10): the files service also asks the backup service for an item's versions and what a folder held, and restores one as the person, beside what is there (`NAME (original).EXT`) or in its place, inside this decision's scope; Bloom's adapter gives them as `files.backups`, only to an application granted `files`.
+
 ## Problem
 
 OxyOS needs a file manager, a Mac's Finder: the person's files in a window, their folders and disks in a sidebar, the Trash, items moved, renamed and opened. Any application also needs to read and write its own files and those the person gives it.

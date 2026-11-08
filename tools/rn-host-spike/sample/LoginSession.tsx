@@ -5,12 +5,13 @@
  * background, is the wallpaper; the login screen is a lock surface of its own, the only thing the
  * compositor shows and reaches. The accounts are the accounts' service's; the password goes
  * through the compositor to the login program, never further into JavaScript; a PIN likewise, said
- * as one. Adding an account runs the Oxy SDK's own sign-in (SetupSignIn.tsx) and hands the
- * credential, the password and the PIN chosen to the accounts' service through the host
- * (`OxyOSAccountSession`), never keeping any of them here.
+ * as one. Adding an account is the setup assistant in the Oxy SDK's own frame with its own sign-in
+ * (SetupAssistant.tsx), which hands the credential, the password and the PIN chosen to the
+ * accounts' service through the host (`OxyOSAccountSession`), never keeping any of them here, the
+ * service's stages told as they come (`OxyOSAccountSetupStage`).
  */
 import * as React from 'react';
-import { StyleSheet, TurboModuleRegistry, View } from 'react-native';
+import { DeviceEventEmitter, StyleSheet, TurboModuleRegistry, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
@@ -18,8 +19,8 @@ import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
 import { LoginScreen, type LoginActions, type SetupActions } from '../../../apps/login/src/LoginScreen';
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
-import { enrollAnswerFrom, platformFrom } from '../../../apps/login/src/setup';
-import { SetupSignIn } from './SetupSignIn';
+import { enrollAnswerFrom, platformFrom, stageFrom, type SetupStage } from '../../../apps/login/src/setup';
+import { SetupAssistantFrame } from './SetupAssistant';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useSessionLocale } from './oxyos/locale';
@@ -47,19 +48,41 @@ async function reachable(api: string): Promise<boolean> {
 const accountSession = TurboModuleRegistry.get<{
   getConstants(): { setup: boolean };
   platform(): unknown;
-  enroll(password: string | null, pin: string | null): Promise<unknown>;
+  enroll(password: string | null, pin: string | null, appearance: string | null): Promise<unknown>;
   secondFactor(code: string): Promise<unknown>;
+  retryEnrollment(): Promise<unknown>;
   endEnrollment(): void;
 }>('OxyOSAccountSession');
+
+/** A call of the setup, its stages told to `onStage` while it runs. */
+async function withStages(call: () => Promise<unknown>, onStage: (stage: SetupStage) => void) {
+  const listener = DeviceEventEmitter.addListener('OxyOSAccountSetupStage', (event: { stage?: unknown }) => {
+    const stage = stageFrom(event?.stage);
+    if (stage) onStage(stage);
+  });
+  try {
+    return enrollAnswerFrom(await call());
+  } finally {
+    listener.remove();
+  }
+}
 
 /** Setting an account up through the host: the accounts' service's platform and its setup. */
 const setupActions: SetupActions | undefined =
   accountSession && accountSession.getConstants().setup
     ? {
         platform: () => platformFrom(accountSession.platform()),
-        SignIn: SetupSignIn,
-        enroll: async (password, pin) => enrollAnswerFrom(await accountSession.enroll(password, pin)),
-        secondFactor: async (code) => enrollAnswerFrom(await accountSession.secondFactor(code)),
+        Assistant: SetupAssistantFrame,
+        enroll: ({ password, pin, appearance }, onStage) => {
+          // What the setup sends, for the log; never the secrets.
+          console.info(`[setup] enroll with ${password ? 'the password' : 'no password'} and ${pin ? 'a PIN' : 'no PIN'}, ${appearance}`);
+          return withStages(() => accountSession.enroll(password, pin, appearance), onStage);
+        },
+        secondFactor: (code, onStage) => withStages(() => accountSession.secondFactor(code), onStage),
+        retry: (onStage) => {
+          console.info('[setup] try again with what the service kept');
+          return withStages(() => accountSession.retryEnrollment(), onStage);
+        },
         end: () => accountSession.endEnrollment(),
       }
     : undefined;

@@ -31,7 +31,7 @@ test("every Spanish string is translated, none English pasted in", () => {
 
 test("the login screen speaks the language it is given, Spanish as before", () => {
   assert.equal(loginMessages("es").addAccount, "Añadir cuenta");
-  assert.equal(loginMessages("es").setup.title, "Añadir una cuenta de Oxy");
+  assert.equal(loginMessages("es").setup.title, "Configurar una cuenta de Oxy");
   assert.equal(loginMessages("en").addAccount, "Add Account");
   assert.equal(loginMessages("en").setup.retry, "Try Again");
 });

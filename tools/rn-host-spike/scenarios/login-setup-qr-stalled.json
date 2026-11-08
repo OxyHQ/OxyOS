@@ -1,0 +1,287 @@
+{
+  "about": "The owner's first QR sign-in on 2026-11-08 (docs/adr/0020-oxy-account-login.mdx, the setup assistant's amendment), played: the phone approves, the screen claims the session, and then the link stalls for twenty seconds, Oxy's API answering every request quickly but each answer reaching the screen only once the link is back (`qr.stall_after_claim_ms`), as the ThinkPad's did. The screen as it was waited on the SDK's own work after the sign-in and then said \"Your account couldn't be checked. Try again.\". Now the PIN page comes at once and the whole setup goes on while Oxy is out of reach (nothing in it needs Oxy before the accounts' service), never saying an error, never asking for a second scan.",
+  "shell": "OxyOSLogin",
+  "outputs": "1280x800",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Bea Ramos"
+      }
+    ],
+    "record": [
+      "session would start for oxy-cccccccccccccccccccc (user session): "
+    ],
+    "oxy": {
+      "identifier": "ada",
+      "code": "246810",
+      "id": "0123456789abcdef01234569",
+      "username": "ada",
+      "name": "Ada Lovelace",
+      "has_password": true,
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "qr": {
+        "approve": "socket",
+        "approve_after_ms": 7500,
+        "stall_after_claim_ms": 20000
+      }
+    },
+    "enroll": {
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "password": "played password 1",
+      "account": {
+        "accountId": "0123456789abcdef01234569",
+        "user": "oxy-cccccccccccccccccccc",
+        "uid": 1003,
+        "name": "Ada Lovelace"
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "the login screen with one account",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Add Account: setup, online, the SDK's chooser asking for its QR",
+      "do": [
+        "press_named",
+        "Add Account"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "platform: platform"
+        ],
+        "delivered": {},
+        "oxy_requests": [
+          "POST /auth/session/create 200",
+          "WS /auth-session join {token} 101"
+        ]
+      }
+    },
+    {
+      "name": "the SDK's chooser, its QR beside the form, the field focused",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Sign in",
+            "Email or username",
+            "Scan with Commons to sign in",
+            "Create account",
+            "Step 1 of 4",
+            "Back"
+          ],
+          "absent": [
+            "Get Commons",
+            "Commons isn't installed",
+            "Choose an account",
+            "Use another account"
+          ],
+          "focus_input": "signin-identifier"
+        }
+      }
+    },
+    {
+      "name": "a phone approves the QR and the link stalls: the PIN page at once, its field focused, no error",
+      "do": [
+        "wait",
+        4000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "oxy_requests": [
+          "WS /auth-session auth_update 101",
+          "GET /auth/session/status/{token} 200",
+          "POST /auth/session/claim 200"
+        ],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Create a PIN",
+            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "Step 2 of 4",
+            "Back"
+          ],
+          "absent": [
+            "Choose an account",
+            "Email or username",
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password",
+            "Use another account",
+            "Your account couldn't be checked. Try again.",
+            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Finishing signing in…"
+          ],
+          "focus_input": "login-setup-pin-password"
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 1,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    },
+    {
+      "name": "the PIN chosen: typed again, its field focused",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Enter Your PIN Again",
+            "To be sure it's the one you meant.",
+            "Step 2 of 4"
+          ],
+          "absent": [
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Set a password",
+            "Send code",
+            "Your account couldn't be checked. Try again.",
+            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Finishing signing in…"
+          ],
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "typed again: Choose Your Look, step 3 of 4, Auto chosen",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Select an appearance. You can change it later in Settings.",
+            "Light",
+            "Dark",
+            "Auto",
+            "Continue",
+            "Back",
+            "Step 3 of 4"
+          ],
+          "never": [
+            "482916"
+          ],
+          "absent": [
+            "Your account couldn't be checked. Try again.",
+            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Finishing signing in…"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Dark chosen",
+      "do": [
+        "press_named",
+        "Dark"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Continue"
+          ],
+          "absent": [
+            "Your account couldn't be checked. Try again.",
+            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Finishing signing in…"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Continue pressed",
+      "do": [
+        "press_named",
+        "Continue"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "appearance: dark",
+          "enroll: enrolled",
+          "verifyPin: accepted"
+        ]
+      }
+    },
+    {
+      "name": "Continue: the account set up with its PIN alone and the look chosen, by the credential the QR's sign-in handed over, its stages shown; then signed in with the PIN just chosen, never asked again",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "never": [
+          "482916"
+        ],
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "in_shell": {
+          "never": [
+            "482916"
+          ],
+          "absent": [
+            "Your account couldn't be checked. Try again.",
+            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Finishing signing in…"
+          ]
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 0,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    }
+  ]
+}

@@ -59,7 +59,8 @@ pub enum Step {
     /// second, through the compositor's input as libinput's swipe gesture is (Mission Control, App
     /// Exposé and the desktops, ADR 0045, ADR 0046): `fingers` put down first (none: they are down
     /// since an earlier step's), and lifted `lift` milliseconds after their last motion (none:
-    /// they stay down into the next steps, the swipe partway).
+    /// they stay down into the next steps, the swipe partway). Through the virtual devices, a
+    /// whole swipe is the fingers on the virtual touchpad, which libinput recognizes and counts.
     Swipe {
         fingers: Option<u8>,
         dx: i32,
@@ -121,14 +122,16 @@ pub enum Step {
         dy: i32,
         events: u32,
     },
-    /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
-    /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`) on the
-    /// scene, or through the virtual touchpad, where libinput recognizes it.
+    /// A touchpad pinch of `fingers` with the pointer at a window-local point: the fingers spread
+    /// to `percent` of their spread and turn `degrees` clockwise, in eight even steps
+    /// (`drag_points`) on the scene, or through the virtual touchpad, where libinput recognizes
+    /// it and counts them (the thumb and three fingers: Launchpad's, ADR 0046).
     Pinch {
         x: i32,
         y: i32,
         percent: i32,
         degrees: i32,
+        fingers: u8,
     },
     /// Text typed into the focused surface: committed as it is, or, through the virtual
     /// devices, typed key by key on the layout.
@@ -392,7 +395,10 @@ impl Step {
                 y,
                 percent,
                 degrees,
-            } => format!("pinch to {percent}% turning {degrees} degrees at ({x}, {y})"),
+                fingers,
+            } => format!(
+                "{fingers}-finger pinch to {percent}% turning {degrees} degrees at ({x}, {y})"
+            ),
             Step::Type(text) => format!("typing {text:?}"),
             Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
@@ -564,7 +570,15 @@ impl Step {
                 y,
                 percent,
                 degrees,
+                fingers: 2,
             } => format!("\"pinch\":[{x},{y},{percent},{degrees}]"),
+            Step::Pinch {
+                x,
+                y,
+                percent,
+                degrees,
+                fingers,
+            } => format!("\"pinch\":[{x},{y},{percent},{degrees},{fingers}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
             Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
@@ -868,6 +882,10 @@ pub struct Launch {
     /// `--trash`: the user's Trashes followed for the dock as the session follows them
     /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
     pub trash: bool,
+    /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0062-storage.mdx),
+    /// on the run's own home, the volume's figures and the system's a played disk's (FILE, JSON:
+    /// `name`, `capacity`, `available`, `reserved`, `system`), never the developer's disk.
+    pub storage: Option<PathBuf>,
     /// `--runtimes DIR`: where the runtimes an application's entry names are
     /// (docs/adr/0030-installing-applications.mdx, decision 2): a scenario's, in place of the
     /// image's (`/usr/lib/oxyos/runtimes`).
@@ -933,7 +951,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1046,6 +1064,7 @@ impl Launch {
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
+        let mut storage = None;
         let mut runtimes = None;
         let mut installed_fixture = None;
         let mut screenshots = None;
@@ -1215,6 +1234,10 @@ impl Launch {
                 }
                 Some("--trash") => {
                     trash = true;
+                    continue;
+                }
+                Some("--storage") => {
+                    storage = Some(args.next().ok_or(USAGE)?.into());
                     continue;
                 }
                 Some("--grant-settings") => {
@@ -1443,12 +1466,14 @@ impl Launch {
                     }
                 }
                 Some("--pinch") => {
-                    let n = numbers(args.next(), 4)?;
+                    // X,Y,PERCENT,DEGREES[,FINGERS]: two fingers unless said.
+                    let n = numbers_within(args.next(), 4, 5)?;
                     Step::Pinch {
                         x: n[0],
                         y: n[1],
                         percent: n[2],
                         degrees: n[3],
+                        fingers: n.get(4).map_or(Ok(2), |f| u8::try_from(*f))?,
                     }
                 }
                 Some("--type") => {
@@ -1811,6 +1836,7 @@ impl Launch {
                 grants,
                 installd,
                 trash,
+                storage,
                 runtimes,
                 installed_fixture,
                 screenshots,
@@ -2375,6 +2401,7 @@ fn settle(
         session.compositor.serve(&session.listener)?;
         session.serve_launches();
         session.serve_installs();
+        session.serve_background();
         session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
@@ -2895,6 +2922,95 @@ fn urls_json(session: &mut Session) -> String {
         })
         .collect();
     format!("[{}]", opened.join(","))
+}
+
+/// The applications' background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+/// those with a process running in the background once the step settled, and the processes the
+/// session ended in the step (each its application's id, in order).
+fn background_json(session: &mut Session) -> String {
+    let running: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| background.in_background().into_iter().collect())
+        .unwrap_or_default();
+    let ended = std::mem::take(&mut session.background_ended);
+    let list = |ids: &[String]| {
+        ids.iter()
+            .map(|id| json_string(id))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    // What each process in the background has used so far: its CPU time and how many times its
+    // threads woke (their context switches), which a step's idle check compares with the last.
+    let used: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| {
+            background
+                .background_processes()
+                .iter()
+                .filter_map(|(id, pid)| {
+                    let (cpu_ms, wakeups) = process_use(*pid)?;
+                    Some(format!(
+                        "{}:{{\"cpu_ms\":{cpu_ms:.1},\"wakeups\":{wakeups}}}",
+                        json_string(id)
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    format!(
+        "{{\"running\":[{}],\"ended\":[{}],\"used\":{{{}}}}}",
+        list(&running),
+        list(&ended),
+        used.join(",")
+    )
+}
+
+/// A process's CPU time so far, in ms (its threads' run time, the scheduler's), and how many times
+/// its threads were switched out (woken and run again): read from /proc.
+fn process_use(pid: u32) -> Option<(f64, u64)> {
+    let mut cpu_ns = 0u64;
+    let mut switches = 0u64;
+    for task in std::fs::read_dir(format!("/proc/{pid}/task"))
+        .ok()?
+        .flatten()
+    {
+        if let Ok(stat) = std::fs::read_to_string(task.path().join("schedstat")) {
+            cpu_ns += stat
+                .split_whitespace()
+                .next()
+                .and_then(|ns| ns.parse::<u64>().ok())
+                .unwrap_or(0);
+        }
+        if let Ok(status) = std::fs::read_to_string(task.path().join("status")) {
+            switches += status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum::<u64>();
+        }
+    }
+    Some((cpu_ns as f64 / 1e6, switches))
+}
+
+/// The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+/// oldest first: each its number (one more for every post), application and title.
+fn notifications_json(session: &Session) -> String {
+    let kept: Vec<String> = session
+        .compositor
+        .scene
+        .kept_notifications()
+        .into_iter()
+        .map(|(number, application, title)| {
+            format!(
+                "{{\"number\":{number},\"application\":{},\"title\":{}}}",
+                json_string(&application),
+                json_string(&title)
+            )
+        })
+        .collect();
+    format!("[{}]", kept.join(","))
 }
 
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
@@ -3657,12 +3773,13 @@ fn inject_through(
             y,
             percent,
             degrees,
+            fingers,
         } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
             compositor.read_input();
-            devices.pinch(*percent, *degrees, || compositor.read_input())?;
+            devices.pinch(*fingers, *percent, *degrees, || compositor.read_input())?;
         }
         Step::Drag { from, to } => {
             inside(window, from.0, from.1)?;
@@ -4736,14 +4853,16 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             y,
             percent,
             degrees,
+            fingers,
         } => {
             inside(window, *x, *y)?;
             if *percent <= 0 {
                 return Err("a pinch spreads to more than 0%".into());
             }
+            let fingers = *fingers;
             let scene = &mut compositor.scene;
             scene.pointer_motion(window.x + x, window.y + y);
-            scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
+            scene.pointer_pinch(GesturePhase::Begin, fingers, 65536, 0);
             // libinput's scale and turn are since the pinch began: the spread changes by an even
             // factor at each step, as fingers moving steadily apart do.
             const STEPS: i32 = 8;
@@ -4752,12 +4871,14 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 let scale = (f64::from(*percent) / 100.0).powf(done);
                 scene.pointer_pinch(
                     GesturePhase::Update,
+                    fingers,
                     (scale * 65536.0).round() as u32,
                     (f64::from(*degrees) * done * 256.0).round() as i32,
                 );
             }
             scene.pointer_pinch(
                 GesturePhase::End,
+                fingers,
                 (f64::from(*percent) / 100.0 * 65536.0).round() as u32,
                 degrees.saturating_mul(256),
             );
@@ -4991,6 +5112,26 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.trash = Some(trash);
     }
     session.installed_fixture = launch.installed_fixture.clone();
+    // Settings › Storage (docs/adr/0062-storage.mdx), on the run's home and a played disk.
+    if let Some(file) = &launch.storage {
+        let text = std::fs::read_to_string(file)?;
+        let disk: oxyos_compositor::storage::PlayedDisk =
+            serde_json::from_str(&text).map_err(|error| format!("{}: {error}", file.display()))?;
+        let mut storage = oxyos_compositor::storage::Storage::new(
+            oxyos_files::Scope::for_user()?,
+            std::sync::Arc::new(disk),
+            launch
+                .installd
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("/nonexistent/oxyos-installd.socket")),
+        )?;
+        storage.set_locale(&session.settings.locale());
+        storage.list_applications(oxyos_apps::Listing::read(session.installed_fixture.clone()));
+        let waker = storage.wake_fd()?;
+        session.storage_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.storage = Some(storage);
+    }
     // Search (docs/adr/0051-search.mdx): the index as the session runs it, this program's child
     // (`--search-service`), started at the first ask rather than with the run; told the
     // applications the shell lists, the fixture's installed ones among them.
@@ -5040,14 +5181,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         )?);
     }
     if let Some(address) = &launch.network_bus {
-        // The session's networks, over the played daemon on the run's own bus.
-        let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
+        // The session's networks, over the played daemon on the run's own bus, Wi-Fi Diagnostics
+        // probing the played network behind it.
+        let control = zbus::blocking::connection::Builder::address(address.as_str())?.build()?;
+        let networks = oxyos_compositor::networks::Networks::on_bus_probed(
+            Some(address.clone()),
+            std::sync::Arc::new(crate::played_network::PlayedProbe {
+                bus: control.clone(),
+            }),
+        )?;
         let waker = networks.wake_fd()?;
         session.networks_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.networks = Some(networks);
-        session.network_control =
-            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+        session.network_control = Some(control);
     }
     if let Some(address) = &launch.bluetooth_bus {
         // The session's Bluetooth and its pairing agent, over the played BlueZ on the run's own
@@ -5188,6 +5335,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 launcher.with_installed_fixture(oxyos_apps::installed_applications(root, &user))
             });
         }
+        // The applications' login items and background activity
+        // (docs/adr/0060-login-items-and-background-activity.mdx), their installed applications'
+        // decisions read beside the fixture's entries, as the session reads the service's.
+        session.background = Some(oxyos_compositor::background::BackgroundActivity::new(
+            launch.installed_fixture.as_ref().map(|root| {
+                oxyos_apps::installed_applications(
+                    root,
+                    &oxyos_apps::session_user().unwrap_or_default(),
+                )
+            }),
+        ));
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
         // starts them.
         let open_at_login = session.settings.preferences().open_at_login.clone();
@@ -5439,14 +5597,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
     if let Some(program) = launch.command.first() {
-        children.0.push(
-            Command::new(program)
-                .args(&launch.command[1..])
-                .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
-                .env_remove("DISPLAY")
-                .env_remove("WAYLAND_DISPLAY")
-                .spawn()?,
-        );
+        let mut application = Command::new(program);
+        application
+            .args(&launch.command[1..])
+            .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        // It lists the fixture's installed applications too, as the shell does and as a session's
+        // applications list the install service's (ADR 0030, decision 7): Settings names them.
+        if let Some(root) = &session.installed_fixture {
+            application.env("OXYOS_INSTALLED_FIXTURE", root);
+        }
+        children.0.push(application.spawn()?);
     }
     // Its own launch, as the session records one, when the scenario names the application;
     // unless the scenario has it be a process the session did not start
@@ -5624,6 +5786,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     }
                     session.serve_launches();
                     session.serve_installs();
+                    session.serve_background();
                     session.serve_preferences();
                     session.reader.absorb(&mut session.compositor);
                 }
@@ -5719,6 +5882,34 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         *lift,
                         *hold_after_ms,
                     )?);
+                }
+                0
+            }
+            // A whole swipe through the virtual touchpad (`--uinput`): its fingers moving together,
+            // which libinput recognizes and counts, as a person's.
+            Some(devices)
+                if matches!(
+                    step,
+                    Step::Swipe {
+                        fingers: Some(_),
+                        lift: Some(0),
+                        ..
+                    }
+                ) =>
+            {
+                if let Step::Swipe {
+                    fingers: Some(fingers),
+                    dx,
+                    dy,
+                    steps,
+                    hz,
+                    ..
+                } = step
+                {
+                    let compositor = &mut session.compositor;
+                    devices.swipe(*fingers, (*dx, *dy), *steps, *hz, || {
+                        compositor.read_input()
+                    })?;
                 }
                 0
             }
@@ -5875,11 +6066,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let background = background_json(&mut session);
+        let notifications = notifications_json(&session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -6225,7 +6418,8 @@ mod tests {
                     x: 5,
                     y: 6,
                     percent: 150,
-                    degrees: -30
+                    degrees: -30,
+                    fingers: 2,
                 },
                 Step::Type("hi".into()),
                 Step::Commit("mundo".into()),

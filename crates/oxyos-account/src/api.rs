@@ -11,6 +11,9 @@
 //!   with an authenticator answers with a challenge instead of a session:
 //! - `POST /auth/signin/second-factor {challengeId, code, device}`.
 //!
+//! - `POST /session/device/platform {device, platformClient, redemptionKey}`: the QR's device proof
+//!   redeemed for the platform credential (ADR 0058 R6), repeatable with the same key (R7).
+//!
 //! A sign-in of the platform's own (Oxy ADR 0058 2.1, as accepted with OxyOS's refinements) names
 //! OxyOS's public client (`platformClient: {platform: "oxyos", clientId}`), sent with no web
 //! `Origin`: its answer's holder secret is then the **platform credential**, and the device's proof
@@ -42,6 +45,49 @@ pub use http::HttpApi;
 pub struct DeviceCredential {
     pub device_id: String,
     pub device_secret: Secret,
+}
+
+/// The key a redemption of the device's proof is made with (Oxy ADR 0058 R7): 256 random bits,
+/// made by the service for one setup and kept with it, sent with every redemption of that setup's
+/// proof and never to anyone else. The setup client handed the proof over, and its JavaScript saw
+/// it; it never sees the key, so a proof alone redeems nothing a second time.
+pub struct RedemptionKey(Secret);
+
+impl RedemptionKey {
+    /// A new key from the kernel's random numbers, as 64 hexadecimal digits.
+    pub fn new() -> std::io::Result<Self> {
+        let mut bytes = zeroize::Zeroizing::new([0u8; 32]);
+        let mut filled = 0;
+        while filled < bytes.len() {
+            filled += rustix::rand::getrandom(
+                &mut bytes[filled..],
+                rustix::rand::GetRandomFlags::empty(),
+            )?;
+        }
+        let mut text = zeroize::Zeroizing::new(String::with_capacity(64));
+        for byte in bytes.iter() {
+            text.push(char::from(b"0123456789abcdef"[usize::from(byte >> 4)]));
+            text.push(char::from(b"0123456789abcdef"[usize::from(byte & 0x0f)]));
+        }
+        Ok(Self(Secret::new(text.as_str())))
+    }
+
+    /// The key itself, for the one request body that carries it.
+    pub fn expose(&self) -> &str {
+        self.0.expose()
+    }
+}
+
+impl fmt::Debug for RedemptionKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("RedemptionKey(…)")
+    }
+}
+
+impl Serialize for RedemptionKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
 }
 
 /// The account as Oxy describes it to its own holder.
@@ -207,6 +253,21 @@ pub trait OxyApi {
         code: &Secret,
         device: &DeviceCredential,
         platform: Option<&PlatformClient>,
+    ) -> Result<SignedIn, ApiError>;
+    /// The platform's own sign-in from the device's proof alone (Oxy ADR 0058, the setup's QR
+    /// route): the holder credential a QR's claim issued the setup client, redeemed once, within
+    /// ten minutes of the claim, for the platform credential, the proof retired in the same
+    /// transaction. Made with `key` (R7), the same redemption may be asked again within those ten
+    /// minutes with the same proof and the same key, and Oxy answers it afresh: a new platform
+    /// credential, the one it issued before revoked. So an answer lost on its way (the request
+    /// reached Oxy, the response never came back) is asked for again, never a second scan. Every
+    /// proof that cannot be redeemed, or redeemed again with that key, is one refusal,
+    /// `InvalidDeviceSecret`.
+    fn platform_device_sign_in(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+        key: &RedemptionKey,
     ) -> Result<SignedIn, ApiError>;
     /// A short token for one application, minted with the platform credential, pinned to
     /// `account`.

@@ -426,6 +426,11 @@ fn requests() -> Vec<Request> {
             last: true,
             text: PreeditText::new(r#"{"query":{"text":"ma"}}"#).unwrap(),
         },
+        Request::BackgroundItem {
+            serial: 14,
+            kind: BackgroundItemKind::Background,
+            action: BackgroundItemAction::Register,
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -912,6 +917,11 @@ fn events() -> Vec<Event> {
             index: 1,
             last: false,
             text: PreeditText::new(r#"{"results":{"items":"#).unwrap(),
+        },
+        Event::BackgroundItemState {
+            serial: 14,
+            kind: BackgroundItemKind::LoginItem,
+            status: BackgroundStatus::RequiresApproval,
         },
         Event::GpuDevice {
             device: 0xe280,
@@ -1899,7 +1909,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         output: 1,
         index: 0,
         last: true,
-        text: PreeditText::new("horizon").unwrap(),
+        text: PreeditText::new("ocean").unwrap(),
     };
     assert_eq!(event_since(&wallpaper), 29);
     assert!(!write_event_for(&mut nothing, &wallpaper, 28).unwrap());
@@ -2499,8 +2509,34 @@ fn version_25_a_swipe_opens_and_closes_and_marks_its_overlays_only_for_version_2
     write_request(&mut bytes, &marked).unwrap();
     assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), marked);
     assert_eq!(GestureOverlay::from_raw(0), Some(GestureOverlay::None));
-    assert!(GestureOverlay::from_raw(3).is_none());
+    assert!(GestureOverlay::from_raw(4).is_none());
     assert!(ShortcutIntent::from_raw(3).is_none());
+}
+
+#[test]
+fn version_33_launchpad_driven_by_a_pinch_is_only_a_peer_of_version_33s() {
+    // Launchpad's surfaces said to be what the thumb and three fingers pinched drive
+    // (docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026): a value a compositor of
+    // version 32 would refuse, closing the connection, so the client library never sends it one.
+    let launchpad = Request::SetGestureOverlay {
+        surface: 3,
+        overlay: GestureOverlay::Launchpad,
+    };
+    assert_eq!(request_since(&launchpad), 33);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &launchpad).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), launchpad);
+    assert_eq!(GestureOverlay::from_raw(3), Some(GestureOverlay::Launchpad));
+    // Mission Control's and App Exposé's stay version 25's.
+    for overlay in [GestureOverlay::None, GestureOverlay::MissionControl] {
+        assert_eq!(
+            request_since(&Request::SetGestureOverlay {
+                surface: 3,
+                overlay
+            }),
+            25
+        );
+    }
 }
 
 #[test]
@@ -2966,6 +3002,12 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
 }
 
 #[test]
+fn version_34_an_application_opens_a_url_of_any_scheme() {
+    // No message of its own: the rule for an application's OpenUrl is wider from it.
+    assert_eq!(crate::APPLICATION_OPENS_URLS_VERSION, 34);
+}
+
+#[test]
 fn version_32_a_pin_is_only_version_32s() {
     let request = Request::AuthenticatePasscode { surface: 3 };
     assert_eq!(request_since(&request), crate::PASSCODE_VERSION);
@@ -3052,4 +3094,61 @@ fn version_31_search_is_only_version_31s() {
     let mut old = Vec::new();
     assert!(write_event_for(&mut old, &search, 30).unwrap());
     assert_eq!(read_event_for(&mut Cursor::new(old), 30).unwrap(), search);
+}
+
+#[test]
+fn version_33_background_items_are_only_version_33s() {
+    // An application's ask and the session's answer, each one packet.
+    let ask = Request::BackgroundItem {
+        serial: 3,
+        kind: BackgroundItemKind::LoginItem,
+        action: BackgroundItemAction::Unregister,
+    };
+    assert_eq!(request_since(&ask), 33);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &ask).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), ask);
+    // The answer, and a change the person made, are never told a version 32 client, and a
+    // version 32 reader refuses them.
+    for serial in [3, 0] {
+        let state = Event::BackgroundItemState {
+            serial,
+            kind: BackgroundItemKind::Background,
+            status: BackgroundStatus::Enabled,
+        };
+        assert_eq!(event_since(&state), 33);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &state, 32).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &state, 33).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 32).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 33).unwrap(), state);
+    }
+}
+
+#[test]
+fn background_items_kinds_actions_and_statuses_are_closed_sets() {
+    assert!(BackgroundItemKind::from_raw(0).is_none());
+    assert!(BackgroundItemKind::from_raw(3).is_none());
+    assert_eq!(
+        BackgroundItemKind::from_raw(1),
+        Some(BackgroundItemKind::LoginItem)
+    );
+    assert_eq!(
+        BackgroundItemKind::from_raw(2),
+        Some(BackgroundItemKind::Background)
+    );
+    assert!(BackgroundItemAction::from_raw(0).is_none());
+    assert!(BackgroundItemAction::from_raw(4).is_none());
+    assert_eq!(
+        BackgroundItemAction::from_raw(3),
+        Some(BackgroundItemAction::Unregister)
+    );
+    assert!(BackgroundStatus::from_raw(0).is_none());
+    assert!(BackgroundStatus::from_raw(5).is_none());
+    assert_eq!(
+        BackgroundStatus::from_raw(4),
+        Some(BackgroundStatus::NotPermitted)
+    );
 }

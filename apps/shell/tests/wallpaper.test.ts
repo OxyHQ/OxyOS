@@ -11,8 +11,8 @@ import {
   type ShellWallpaper,
 } from "../src/wallpaper.ts";
 
-const day: ShellWallpaper = { key: "horizon/day", source: { uri: "file:///w/horizon/day.svg" }, fit: "fill", color: "#000000" };
-const night: ShellWallpaper = { key: "horizon/night", source: { uri: "file:///w/horizon/night.svg" }, fit: "fill", color: "#000000", slow: true };
+const day: ShellWallpaper = { key: "solar-gradients/midday", source: { uri: "file:///w/solar-gradients/midday.jpg" }, fit: "fill", color: "#000000" };
+const night: ShellWallpaper = { key: "solar-gradients/night", source: { uri: "file:///w/solar-gradients/night.jpg" }, fit: "fill", color: "#000000", slow: true };
 const blue: ShellWallpaper = { key: "color:1f4fd8", fit: "fill", color: "#1f4fd8" };
 
 test("each fit is the resize mode that draws it", () => {
