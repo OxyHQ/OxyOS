@@ -575,7 +575,9 @@ pub struct SaveConfirmations {
     /// Readable while events wait (the compositor's waker).
     woken: std::os::unix::net::UnixStream,
     /// Wakes the thread for a decision; closed, it ends.
-    poke: std::os::unix::net::UnixStream,
+    poke: Option<std::os::unix::net::UnixStream>,
+    /// The thread, waited for when this is dropped: its connection and descriptors closed with it.
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl SaveConfirmations {
@@ -589,9 +591,11 @@ impl SaveConfirmations {
         let (decisions, decided) = std::sync::mpsc::channel();
         let (woken, wake) = std::os::unix::net::UnixStream::pair()?;
         woken.set_nonblocking(true)?;
+        // A wake is a byte that may be one of many: never waited for.
+        wake.set_nonblocking(true)?;
         let (poke, poked) = std::os::unix::net::UnixStream::pair()?;
         poked.set_nonblocking(true)?;
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("oxyos-save-confirmations".into())
             .spawn(move || {
                 confirmations_thread(&socket, &events_in, &wake, &decided, &poked, &log)
@@ -600,7 +604,8 @@ impl SaveConfirmations {
             events,
             decisions,
             woken,
-            poke,
+            poke: Some(poke),
+            thread: Some(thread),
         })
     }
 
@@ -621,7 +626,21 @@ impl SaveConfirmations {
     pub fn decide(&self, id: &str, save: bool) {
         if self.decisions.send((id.to_owned(), save)).is_ok() {
             use std::io::Write;
-            let _ = (&self.poke).write(&[1]);
+            if let Some(poke) = &self.poke {
+                let _ = (&*poke).write(&[1]);
+            }
+        }
+    }
+}
+
+impl Drop for SaveConfirmations {
+    /// The thread is told to end (its poke closed) and waited for, so its connection to the
+    /// service and its descriptors are closed when this is: the requests it was asked go unanswered,
+    /// which the service takes as not saved.
+    fn drop(&mut self) {
+        drop(self.poke.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
         }
     }
 }

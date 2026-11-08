@@ -500,4 +500,21 @@ mod tests {
         rustix::net::shutdown(&*service, rustix::net::Shutdown::Both).unwrap();
         assert_eq!(arrived(&mut saves), [SaveAsk::Withdrawn { id: "3".into() }]);
     }
+    #[test]
+    fn the_confirmations_dropped_close_their_connection_at_once() {
+        let (path, _gone) = socket_path("dropped");
+        let listener = Listener::bind(&path).unwrap();
+        let saves = saves(path).unwrap();
+        let connection = listener.accept().unwrap();
+        connection.set_timeout(Duration::from_secs(10)).unwrap();
+        assert!(matches!(
+            connection.receive::<Request>(),
+            Ok(Some(Some(Request::ConfirmSaves {})))
+        ));
+        connection.send(&Told::ConfirmingSaves).unwrap();
+        // Dropped, its thread is waited for: the service sees the connection closed, nothing
+        // left open behind it.
+        drop(saves);
+        assert!(matches!(connection.receive::<Request>(), Ok(None)));
+    }
 }

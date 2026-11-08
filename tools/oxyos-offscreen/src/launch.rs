@@ -5043,7 +5043,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             let saves = oxyos_account::keychain::SaveConfirmations::spawn(socket, |said| {
                 eprintln!("[offscreen] saving passwords: {said}")
             })?;
-            session.compositor.wakers.push(saves.wake_fd()?);
+            let waker = saves.wake_fd()?;
+            session.autofill_saves_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+            session.compositor.wakers.push(waker);
             autofill = autofill.with_saves(Box::new(crate::autofill::Saves(saves)));
         }
         session.autofill = Some(autofill);
