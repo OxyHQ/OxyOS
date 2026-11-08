@@ -64,7 +64,7 @@ if [ -n "${ASTRO_PACKAGE:-}" ]; then
   for f in tools/rn-host-spike/scenarios/astro*.json; do
     n=$(basename "$f" .json)
     run() { python3 -X faulthandler tools/rn-host-spike/regress.py "$f" --offscreen "$CARGO_TARGET_DIR/release/oxyos-offscreen" \
-      --client "$A/chrome" --runtimes "$M/runtimes" --packages "$M/packages" --out "$R/astro-runs/$n" > "$R/astro-$n.txt" 2>&1; }
+      --client "$A/chrome" --renderer cpu --runtimes "$M/runtimes" --packages "$M/packages" --out "$R/astro-runs/$n" > "$R/astro-$n.txt" 2>&1; }
     run || { echo "scenario $n failed once, again:"; grep FAIL "$R/astro-$n.txt" | head -3 | cut -c1-200; rm -rf "$R/astro-runs/$n"; run; } \
       || { echo "scenario $n failed:"; grep FAIL "$R/astro-$n.txt" | head; exit 1; }
   done
@@ -74,7 +74,7 @@ fi
 # Where the test machine keeps the user's applications: its home.
 REMOTE_HOME=/home/user
 [ -z "$HOST" ] || REMOTE_HOME=$(ssh -o BatchMode=yes "$HOST" 'echo $HOME')
-# What goes to the ThinkPad, staged as it is installed there.
+# What goes to the test machine, staged as it is installed there.
 D=$R/deploy; rm -rf $D && mkdir -p $D/runtimes $D/apps $D/entries $D/packages $D/registry/oxyos/applications
 cp -a $M/runtimes/1 $D/runtimes/1
 # The input-method engine, as the scenarios ran it, and the packages it needs there.
