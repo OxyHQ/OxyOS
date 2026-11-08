@@ -12,19 +12,48 @@
 //! - **A conversation** is one setup on one connection:
 //!
 //!   ```text
-//!   → {"enroll": {"deviceId", "deviceSecret", "accountId", "password"?, "pin"?}}
+//!   → {"enroll": {"deviceId", "deviceSecret", "accountId", "password"?, "pin"?,
+//!                 "appearance"?: "light" | "dark" | "auto"}}
+//!   ← {"progress": "securing" | "verifying" | "preparing" | "signingIn" | "finishing"}
+//!                                                                     as each step starts, then:
 //!   ← {"enrolled": {"accountId", "user", "uid", "profile"}}           and the connection ends
 //!   ← {"refused": {"reason", "retryAfterSeconds"?}}                     and the connection ends
+//!   ← {"failed": {"reason": "unreachable" | "localFailure"}}           the sign-in is kept:
+//!     → "retry"
+//!     ← progress, then as `enroll`'s answer
 //!   ← "secondFactorRequired"
 //!     → {"secondFactor": {"code"}}
-//!     ← {"enrolled": …} | {"refused": …}                               and the connection ends,
+//!     ← progress, then {"enrolled": …} | {"refused": …}                and the connection ends,
 //!     ← {"refused": {"reason": "secondFactorInvalid"}}                  except: another code may
-//!                                                                       be sent
+//!     ← {"failed": {"reason": "unreachable"}}                           be sent
+//!     ← {"failed": {"reason": "localFailure"}}                          or "retry"
 //!   ```
 //!
-//!   Closing the connection abandons a setup; nothing of it is kept. `pin` (4 to 16 digits, never
-//!   the password) becomes the account's PIN on this computer (`crate::pin`); an account without
-//!   `password` is refused `passwordRequired`, nothing asked of Oxy (`crate::setup`).
+//!   The answers a setup can end in, for the login screen:
+//!
+//!   - `enrolled`: set up.
+//!   - `failed: unreachable`: Oxy could not be reached, or failed for a moment, even after the
+//!     service asked again. The sign-in is kept (the QR's proof unspent, or redeemed with this
+//!     setup's key and redeemable again with it, Oxy ADR 0058 R7): try again (`"retry"`), never a
+//!     second scan.
+//!   - `failed: localFailure`: the machine could not be set up (its user, its file, its
+//!     verifier); what this setup did on it was undone. The sign-in is kept, and the platform
+//!     credential Oxy issued, if it did, too: `"retry"` sets the machine up with it without asking
+//!     Oxy again.
+//!   - `refused: credentialRefused` (also `accountNotOnDevice`, `accountMismatch`): the sign-in no
+//!     longer holds (the QR's proof refused or already spent, its window passed): sign in again.
+//!   - any other `refused` (`conflict`, `failed` when undoing failed too, `oxy`, `locked`, …):
+//!     the setup ends as it said.
+//!
+//!   A `"retry"` is answered only after a `failed` answer; anything else out of turn ends the
+//!   conversation, `invalidRequest`. Closing the connection abandons a setup: nothing of it is
+//!   kept, and a platform credential it was issued and never set up with is ended online, as it is
+//!   when the conversation's turn times out ([`IDLE`]) or a refusal ends it. `pin` (4 to 16
+//!   digits, never the password) becomes the account's PIN on this computer (`crate::pin`).
+//!   Without `password` (a sign-in by the QR) the PIN is required (`pinRequired` without one) and
+//!   Oxy's device-proof route issues the platform credential (`crate::setup`). `appearance` seeds
+//!   the preferences of a home this setup makes (an account set up again keeps its own); any other
+//!   value is not a request. A progress message is a step's name and nothing else.
 //! - **The accounts** (step 2, for the login screen and the login program, the same peers):
 //!
 //!   ```text
@@ -79,13 +108,15 @@ use crate::api::{DeviceCredential, OxyApi, Profile};
 use crate::pin::{PinCheck, PinState};
 use crate::platform::{Checked, Local, Platform};
 use crate::secret::{self, Secret};
-use crate::setup::{Enrolled, Pending, Progress, Request as SetupRequest, SetupError};
+use crate::setup::{
+    Appearance, Attempt, Enrolled, Request as SetupRequest, SetupError, Stage, Step,
+};
 use crate::store::State;
 use crate::users::Users;
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use rustix::net::{
-    AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags,
-    SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType,
+    AddressFamily, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix,
+    SocketFlags, SocketType,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -121,10 +152,14 @@ pub enum Request {
         password: Option<Secret>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pin: Option<Secret>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        appearance: Option<Appearance>,
     },
     SecondFactor {
         code: Secret,
     },
+    /// The setup again, after a `failed` answer.
+    Retry,
     List,
     Platform,
     Check {
@@ -212,7 +247,7 @@ pub enum Reason {
     InvalidAccount,
     UnusablePassword,
     UnusablePin,
-    PasswordRequired,
+    PinRequired,
     Offline,
     CredentialRefused,
     AccountNotOnDevice,
@@ -226,9 +261,21 @@ pub enum Reason {
     Failed,
 }
 
+/// Why a setup failed in a way it may try again, its sign-in kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Failure {
+    /// Oxy could not be reached, or failed for a moment.
+    Unreachable,
+    /// The machine could not be set up; what the setup did on it was undone.
+    LocalFailure,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Answer {
+    /// A setup's step started; its answer follows.
+    Progress(Stage),
     SecondFactorRequired,
     #[serde(rename_all = "camelCase")]
     Enrolled {
@@ -242,6 +289,10 @@ pub enum Answer {
         reason: Reason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         retry_after_seconds: Option<u64>,
+    },
+    /// The setup failed, its sign-in kept: `"retry"` (or, at the second factor, a code).
+    Failed {
+        reason: Failure,
     },
     Accounts(Vec<Account>),
     Platform(PlatformConfig),
@@ -314,7 +365,7 @@ impl From<&SetupError> for Answer {
             SetupError::InvalidAccount => Reason::InvalidAccount,
             SetupError::UnusablePassword => Reason::UnusablePassword,
             SetupError::UnusablePin => Reason::UnusablePin,
-            SetupError::PasswordRequired => Reason::PasswordRequired,
+            SetupError::PinRequired => Reason::PinRequired,
             SetupError::Offline => Reason::Offline,
             SetupError::CredentialRefused => Reason::CredentialRefused,
             SetupError::AccountNotOnDevice => Reason::AccountNotOnDevice,
@@ -357,13 +408,15 @@ pub enum Turn {
     End(Answer),
 }
 
-/// One client's setup, message by message.
-pub struct Conversation<'a, A, U> {
+/// One client's setup, message by message. Dropped with a setup that did not finish, it ends
+/// what the setup still holds ([`crate::setup::Setup::abandon`]).
+pub struct Conversation<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> {
     platform: &'a Arc<Platform<A, U>>,
     /// Oxy's API, as `platform` answers it.
     api: &'a str,
     started: bool,
-    pending: Option<Pending>,
+    /// The setup under way: sent, not ended.
+    attempt: Option<Attempt>,
 }
 
 /// What a conversation did, for the service's log: never a secret.
@@ -371,6 +424,8 @@ pub struct Conversation<'a, A, U> {
 pub enum Outcome {
     Enrolled(Enrolled),
     Refused(SetupError),
+    /// The setup failed in a way it may try again; its sign-in is kept.
+    Interrupted(SetupError),
     SecondFactorRequired,
     InvalidRequest,
     /// The accounts were listed: how many, and the files that are no account's.
@@ -407,13 +462,26 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
             platform,
             api,
             started: false,
-            pending: None,
+            attempt: None,
         }
     }
 
     /// Answers a message (`None`: one that could not be read).
     pub fn answer(&mut self, request: Option<Request>) -> (Turn, Outcome) {
-        match (request, self.started, self.pending.as_ref()) {
+        self.answer_with(request, &mut |_| {})
+    }
+
+    /// Answers a message, each step of a setup reported to `progress` as it starts.
+    pub fn answer_with(
+        &mut self,
+        request: Option<Request>,
+        progress: &mut dyn FnMut(Stage),
+    ) -> (Turn, Outcome) {
+        let asked = self
+            .attempt
+            .as_ref()
+            .map(|attempt| attempt.second_factor_asked());
+        match (request, self.started, asked) {
             (
                 Some(Request::Enroll {
                     device_id,
@@ -421,6 +489,7 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
                     account_id,
                     password,
                     pin,
+                    appearance,
                 }),
                 false,
                 _,
@@ -434,20 +503,25 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
                     account: account_id,
                     password,
                     pin,
+                    appearance,
                 };
-                match self.platform.setup().enroll(request) {
-                    Ok(Progress::Enrolled(enrolled)) => {
-                        (Turn::End((&enrolled).into()), Outcome::Enrolled(enrolled))
-                    }
-                    Ok(Progress::SecondFactor(pending)) => {
-                        self.pending = Some(pending);
-                        (
-                            Turn::Continue(Answer::SecondFactorRequired),
-                            Outcome::SecondFactorRequired,
-                        )
+                let setup = self.platform.setup();
+                match setup.start(request) {
+                    Ok(mut attempt) => {
+                        let result = setup.advance(&mut attempt, progress);
+                        self.attempt = Some(attempt);
+                        self.after(result)
                     }
                     Err(error) => (Turn::End((&error).into()), Outcome::Refused(error)),
                 }
+            }
+            (Some(Request::Retry), true, Some(false)) => {
+                let attempt = self
+                    .attempt
+                    .as_mut()
+                    .expect("a setup under way, as matched");
+                let result = self.platform.setup().advance(attempt, progress);
+                self.after(result)
             }
             (Some(Request::List), false, _) => {
                 self.started = true;
@@ -495,29 +569,73 @@ impl<'a, A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static>
                     Outcome::Checked { user, checked },
                 )
             }
-            (Some(Request::SecondFactor { code }), true, Some(pending)) => {
-                match self.platform.setup().second_factor(pending, &code) {
-                    Ok(enrolled) => {
-                        self.pending = None;
-                        (Turn::End((&enrolled).into()), Outcome::Enrolled(enrolled))
-                    }
-                    Err(error @ SetupError::SecondFactorInvalid) => {
-                        (Turn::Continue((&error).into()), Outcome::Refused(error))
-                    }
-                    Err(error) => {
-                        self.pending = None;
-                        (Turn::End((&error).into()), Outcome::Refused(error))
-                    }
-                }
+            (Some(Request::SecondFactor { code }), true, Some(true)) => {
+                let attempt = self
+                    .attempt
+                    .as_mut()
+                    .expect("a setup under way, as matched");
+                let result = self
+                    .platform
+                    .setup()
+                    .second_factor_of(attempt, &code, progress)
+                    .map(Step::Enrolled);
+                self.after(result)
             }
             _ => {
-                self.pending = None;
+                self.abandon();
                 (
                     Turn::End(Answer::refused(Reason::InvalidRequest)),
                     Outcome::InvalidRequest,
                 )
             }
         }
+    }
+
+    /// Where a setup's turn leaves the conversation: set up, a code asked for, a failure it may
+    /// try again (its sign-in kept), or a refusal that ends it (what the setup held ended).
+    fn after(&mut self, result: Result<Step, SetupError>) -> (Turn, Outcome) {
+        match result {
+            Ok(Step::Enrolled(enrolled)) => {
+                self.attempt = None;
+                (Turn::End((&enrolled).into()), Outcome::Enrolled(enrolled))
+            }
+            Ok(Step::SecondFactor) => (
+                Turn::Continue(Answer::SecondFactorRequired),
+                Outcome::SecondFactorRequired,
+            ),
+            Err(error @ SetupError::SecondFactorInvalid) => {
+                (Turn::Continue((&error).into()), Outcome::Refused(error))
+            }
+            Err(error @ (SetupError::Offline | SetupError::Failed(_))) => {
+                let reason = match error {
+                    SetupError::Offline => Failure::Unreachable,
+                    _ => Failure::LocalFailure,
+                };
+                (
+                    Turn::Continue(Answer::Failed { reason }),
+                    Outcome::Interrupted(error),
+                )
+            }
+            Err(error) => {
+                self.abandon();
+                (Turn::End((&error).into()), Outcome::Refused(error))
+            }
+        }
+    }
+
+    /// Ends the setup under way, if any, and what it holds.
+    fn abandon(&mut self) {
+        if let Some(mut attempt) = self.attempt.take() {
+            self.platform.setup().abandon(&mut attempt);
+        }
+    }
+}
+
+impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Drop
+    for Conversation<'_, A, U>
+{
+    fn drop(&mut self) {
+        self.abandon();
     }
 }
 
@@ -664,32 +782,20 @@ impl Connection {
         &self,
     ) -> io::Result<Option<(Option<T>, Vec<OwnedFd>)>> {
         let mut packet = Zeroizing::new(vec![0u8; MAX_MESSAGE + 1]);
-        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
-        let mut control = RecvAncillaryBuffer::new(&mut space);
-        let received = rustix::net::recvmsg(
-            &self.fd,
-            &mut [io::IoSliceMut::new(&mut packet[..])],
-            &mut control,
-            RecvFlags::CMSG_CLOEXEC,
-        )?;
-        let mut fds = Vec::new();
-        for message in control.drain() {
-            if let RecvAncillaryMessage::ScmRights(received) = message {
-                fds.extend(received);
-            }
-        }
-        if received.bytes == 0 && fds.is_empty() {
+        let Some(received) =
+            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], true, RecvFlags::empty())?
+        else {
             return Ok(None);
-        }
-        if received.bytes > MAX_MESSAGE
-            || received
-                .flags
-                .intersects(ReturnFlags::CTRUNC | ReturnFlags::TRUNC)
+        };
+        if received.length > MAX_MESSAGE
+            || received.truncated
+            || received.descriptors_truncated
+            || received.descriptors.len() > 1
         {
             return Ok(Some((None, Vec::new())));
         }
-        let message = serde_json::from_slice(&packet[..received.bytes]).ok();
-        Ok(Some((message, fds)))
+        let message = serde_json::from_slice(&packet[..received.length]).ok();
+        Ok(Some((message, received.descriptors)))
     }
 
     pub fn set_timeout(&self, timeout: Duration) -> io::Result<()> {
@@ -716,14 +822,17 @@ impl Connection {
     pub fn receive<T: DeserializeOwned>(&self) -> io::Result<Option<Option<T>>> {
         let mut packet = Zeroizing::new(vec![0u8; MAX_MESSAGE + 1]);
         // A packet longer than the buffer is cut to it: one byte more than a message can be.
-        let (length, _) = rustix::net::recv(&self.fd, &mut packet[..], RecvFlags::empty())?;
-        if length == 0 {
+        let Some(received) =
+            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], false, RecvFlags::empty())?
+        else {
             return Ok(None);
-        }
-        if length > MAX_MESSAGE {
+        };
+        if received.length > MAX_MESSAGE || received.truncated {
             return Ok(Some(None));
         }
-        Ok(Some(serde_json::from_slice(&packet[..length]).ok()))
+        Ok(Some(
+            serde_json::from_slice(&packet[..received.length]).ok(),
+        ))
     }
 }
 
@@ -814,7 +923,10 @@ pub fn serve<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static
             );
             return connection.send(&Answer::Pin(answer));
         }
-        let (turn, outcome) = conversation.answer(request);
+        // Each step of a setup is told as it starts; a client gone is found out by the answer.
+        let (turn, outcome) = conversation.answer_with(request, &mut |stage| {
+            let _ = connection.send(&Answer::Progress(stage));
+        });
         log(&peer, &outcome);
         match turn {
             Turn::Continue(answer) => connection.send(&answer)?,

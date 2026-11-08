@@ -18,8 +18,12 @@ OXYOS_TREE=$(cd "$(dirname "$0")/../.." && pwd)
 . "$OXYOS_TREE/tools/dev/pins"
 [ "$OXYOS_ARCH" != unsupported ] || { echo "bootstrap: OxyOS builds on amd64 and arm64 (docs/adr/0032-arm.mdx)" >&2; exit 1; }
 say() { echo "bootstrap: $*"; }
-mkdir -p "$OXYOS_CACHE/downloads"
+mkdir -p "$OXYOS_CACHE/downloads" "$OXYOS_CACHE/.locks"
 D=$OXYOS_CACHE/downloads
+# One bootstrap at a time in a cache: two runs at once (a gate beside a deploy of the same user)
+# would check out and build into the same directories.
+exec 7>"$OXYOS_CACHE/.locks/bootstrap"
+flock -n 7 || { say "waiting for another bootstrap of $OXYOS_CACHE"; flock 7; }
 
 # The Debian packages: said, never installed here (that is the machine owner's, with sudo).
 missing=$(grep -v '^#' "$OXYOS_TREE/tools/dev/packages" | tr ' ' '\n' | grep . | while read -r p; do
@@ -94,7 +98,7 @@ mkdir -p "$OXYOS_INPUT_METHODS_WORK"
 stamp=$(cd "$OXYOS_TREE" && cat tools/input-methods/build.sh $(ls tools/input-methods/patches/*.patch 2>/dev/null) | sha256sum | cut -c1-64)
 (
   flock 9
-  if [ "$(cat "$IM/.oxyos-build" 2>/dev/null)" != "$stamp" ]; then
+  if [ "$(cat "$IM/.oxyos-build" 2>/dev/null)" != "$stamp" ] || [ ! -x "$IM/bin/fcitx5" ]; then
     say "building the input methods' engine"
     PATH=$OXYOS_TOOLCHAIN/tools/bin:$PATH sh "$OXYOS_TREE/tools/input-methods/build.sh" "$OXYOS_INPUT_METHODS_WORK" "$IM" \
       > "$OXYOS_INPUT_METHODS_WORK/build.log" 2>&1 || { tail -20 "$OXYOS_INPUT_METHODS_WORK/build.log"; exit 1; }

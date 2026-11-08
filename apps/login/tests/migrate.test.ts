@@ -101,8 +101,8 @@ test("a share is taken once each part is given", () => {
 });
 
 test("migration's words in both languages", () => {
-  assert.equal(loginMessages("en").migrate.offer, "Migrate from a Backup");
-  assert.equal(loginMessages("es").migrate.offer, "Migrar desde una copia de seguridad");
+  assert.equal(loginMessages("en").migrate.transferTitle, "Transfer Your Data to This Computer");
+  assert.equal(loginMessages("es").migrate.transferTitle, "Transfiere tus datos a este ordenador");
   assert.equal(loginMessages("en").migrate.list(["Ada", "Bea", "Carmen"]), "Ada, Bea and Carmen");
   assert.equal(loginMessages("es").migrate.list(["Ada", "Bea"]), "Ada y Bea");
   assert.equal(loginMessages("es").migrate.migrated(2), "Se han traído 2 cuentas");

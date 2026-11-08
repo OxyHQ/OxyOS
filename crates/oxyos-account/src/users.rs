@@ -23,6 +23,11 @@
 //!   there, so every later system-wide authorization agrees with OxyOS's. One is made with
 //!   `usermod --append --groups`; `userdel` takes a removed user out of the group with it.
 //!
+//! - **A new home's first file** ([`Users::seed_home`]): what a setup chose for the account before
+//!   any session of it existed (its appearance), written into the home `useradd` just made, as the
+//!   skeleton is: the directories and the file the user's own, at the modes the session would make
+//!   them with (0755 and 0644 under its 022 umask), each opened without following a link.
+//!
 //! Users are read from `/etc/passwd` (passwd(5)), where `useradd` writes them, and groups from
 //! `/etc/group` (group(5)). A name another account database holds is refused by `useradd` itself
 //! ("already exists").
@@ -88,6 +93,10 @@ pub trait Users {
     fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError>;
     /// The user made one of the machine's administrators.
     fn make_administrator(&self, name: &UserName) -> Result<(), UsersError>;
+    /// `contents` written at `file` (relative, without `..`) in the home of `user`, which a setup
+    /// just made and no session has used: its directories made as needed, the directories made and
+    /// the file the user's. Removing the user removes it with the home.
+    fn seed_home(&self, user: &UnixUser, file: &Path, contents: &[u8]) -> Result<(), UsersError>;
 }
 
 /// The group whose members administer the machine: Debian's `sudo`, polkit's administrators there
@@ -417,4 +426,67 @@ impl Users for SystemUsers {
             _ => Err(failed("usermod", &output)),
         }
     }
+
+    fn seed_home(&self, user: &UnixUser, file: &Path, contents: &[u8]) -> Result<(), UsersError> {
+        // Another root's users are not this system's to give files to: the tests' own, unowned.
+        let (home, owner) = match &self.prefix {
+            Some(prefix) => (
+                prefix.join(user.home.strip_prefix("/").unwrap_or(&user.home)),
+                None,
+            ),
+            None => (user.home.clone(), Some((user.uid, user.gid))),
+        };
+        seed(&home, file, contents, owner)
+            .map_err(|error| UsersError::Failed(format!("{}: {error}", home.join(file).display())))
+    }
+}
+
+/// Writes `contents` at `file` under `home`, each directory and the file opened without following
+/// a link (`O_NOFOLLOW`), the ones made given to `owner`.
+fn seed(
+    home: &Path,
+    file: &Path,
+    contents: &[u8],
+    owner: Option<(u32, u32)>,
+) -> std::io::Result<()> {
+    use rustix::fs::{fchmod, mkdirat, open, openat, Mode, OFlags};
+    use std::path::Component;
+    let invalid = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a file in a home");
+    let mut parts = Vec::new();
+    for component in file.components() {
+        match component {
+            Component::Normal(part) => parts.push(part),
+            _ => return Err(invalid()),
+        }
+    }
+    let name = parts.pop().ok_or_else(invalid)?;
+    let directory = OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC;
+    let give = |fd: &std::os::fd::OwnedFd, mode: u32| -> std::io::Result<()> {
+        fchmod(fd, Mode::from_raw_mode(mode))?;
+        if let Some((uid, gid)) = owner {
+            std::os::unix::fs::fchown(fd, Some(uid), Some(gid))?;
+        }
+        Ok(())
+    };
+    let mut at = open(home, directory, Mode::empty())?;
+    for part in parts {
+        let made = match mkdirat(&at, part, Mode::from_raw_mode(0o755)) {
+            Ok(()) => true,
+            Err(rustix::io::Errno::EXIST) => false,
+            Err(error) => return Err(error.into()),
+        };
+        let next = openat(&at, part, directory, Mode::empty())?;
+        if made {
+            give(&next, 0o755)?;
+        }
+        at = next;
+    }
+    let written = openat(
+        &at,
+        name,
+        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o644),
+    )?;
+    give(&written, 0o644)?;
+    std::fs::File::from(written).write_all(contents)
 }

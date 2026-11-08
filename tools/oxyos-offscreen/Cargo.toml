@@ -19,6 +19,8 @@ oxyos-seat = { path = "../../crates/oxyos-seat" }
 # The power services played on a run's own bus (docs/adr/0057-battery-and-energy.mdx).
 oxyos-power = { path = "../../crates/oxyos-power" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+# Wi-Fi Diagnostics' probe of the played network (`--network-bus`, docs/adr/0038-networks.mdx).
+oxyos-networks = { path = "../../crates/oxyos-networks" }
 # The search service, which this program runs as its child (docs/adr/0051-search.mdx).
 oxyos-search = { path = "../../crates/oxyos-search" }
 # The system's sounds, recorded (docs/adr/0044-system-sounds.mdx).

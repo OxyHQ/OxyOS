@@ -322,6 +322,21 @@ unsafe fn secret_arg(text: *const c_char) -> Option<Secret> {
     unsafe { text_arg(text) }.map(Secret::new)
 }
 
+/// Whether this computer migrates from a backup: its migration service's socket is there (systemd
+/// makes it with `oxyos-migrate.socket`, before any conversation starts the service). Where it is
+/// not, setup offers no Transfer Your Data.
+pub fn available_at(socket: &std::path::Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    std::fs::metadata(socket).is_ok_and(|m| m.file_type().is_socket())
+}
+
+/// 1 when this computer migrates from a backup (its migration service's socket is there), else 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub extern "C" fn oxyos_migration_available() -> i32 {
+    i32::from(available_at(&socket()))
+}
+
 /// Opens a conversation. NULL when the service cannot be reached (`oxyos_last_error`).
 #[allow(unsafe_code)]
 #[no_mangle]
@@ -521,6 +536,23 @@ mod tests {
             }
             received
         })
+    }
+
+    #[test]
+    fn it_is_available_only_where_its_socket_is() {
+        let dir =
+            std::env::temp_dir().join(format!("oxyos-migrate-available-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("socket");
+        assert!(!available_at(&path));
+        std::fs::write(&path, "").unwrap();
+        assert!(!available_at(&path), "a file is no socket");
+        std::fs::remove_file(&path).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        assert!(available_at(&path));
+        drop(listener);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -1,5 +1,5 @@
 {
-  "about": "Adding a second Oxy account from the login screen's \"Añadir cuenta\", in Spanish, from the keyboard with the screen reader on (docs/adr/0020-oxy-account-login.mdx, decision 4; docs/adr/0039-keyboard-access.mdx; docs/adr/0014-screen-reader.mdx), against a played Oxy API and accounts' service: the SDK's own sign-in with the code sent by email (the account has a password), then the account's password once more, its field said as it takes the focus; a wrong one said; the right one sets the account up, which is listed beside the other and chosen. At 1.25 (1600 × 1000). After the code, a PIN for this computer is chosen from the keyboard, typed twice, before the password (docs/adr/0020-oxy-account-login.mdx decision 2's amendment).",
+  "about": "Adding a second Oxy account from the login screen's \"Añadir cuenta\" through the setup assistant, in Spanish, from the keyboard with the screen reader on (docs/adr/0020-oxy-account-login.mdx, decision 4 and the setup assistant's amendment; docs/adr/0039-keyboard-access.mdx; docs/adr/0014-screen-reader.mdx), against a played Oxy API and accounts' service: the SDK's own chooser in Spanish in the SDK's frame, Tab and Shift+Tab said; the username, Return, the email's code; the account's Oxy password asked once (a wrong one, as it turns out), its field focused; a PIN typed twice, each field focused; the look from the keyboard (Tab into the choices, an arrow and Space, Tab to Continuar, Return). The accounts' service refuses the password: back to it, said, the PIN and look kept; the right one, and the account is set up and signed in with the PIN at once. At 1.25.",
   "locale": "es_ES.UTF-8",
   "shell": "OxyOSLogin",
   "outputs": "1600x1000@1.25",
@@ -14,7 +14,9 @@
         "name": "Bea Ramos"
       }
     ],
-    "record": [],
+    "record": [
+      "session would start for oxy-cccccccccccccccccccc (user session): "
+    ],
     "oxy": {
       "identifier": "ada",
       "code": "246810",
@@ -77,10 +79,11 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Añadir una cuenta de Oxy",
             "Iniciar sesión",
             "Email o nombre de usuario",
-            "Escanea con Commons para entrar"
+            "Escanea con Commons para entrar",
+            "Paso 1 de 4",
+            "Atrás"
           ],
           "absent": [
             "Descargar Commons"
@@ -168,20 +171,54 @@
       "expect": {}
     },
     {
-      "name": "a PIN for this computer, its field focused",
+      "name": "signed in by the code: its Oxy password asked once, its field focused, step 2 of 5",
       "do": [
         "wait",
-        2000
+        2500
       ],
       "allow_unchanged": true,
       "expect": {
         "in_shell": {
           "texts": [
-            "Elige un PIN para este ordenador",
-            "Ahora no"
+            "Introduce la contraseña de Oxy de Ada Lovelace",
+            "Este ordenador inicia tu sesión con tu contraseña de Oxy, incluso sin conexión. Introdúcela una vez más.",
+            "Paso 2 de 5"
           ],
-          "focus_input": "login-setup-pin-password"
+          "focus_input": "login-setup-password"
         }
+      }
+    },
+    {
+      "name": "a password (not the account's, as it turns out): the PIN page said with its place, its field focused and said",
+      "do": [
+        "keyboard",
+        "mal\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "never": [
+          "482916",
+          "played password 2",
+          "mal"
+        ],
+        "in_shell": {
+          "texts": [
+            "Crea un PIN",
+            "Ahora no",
+            "Paso 3 de 5"
+          ],
+          "focus_input": "login-setup-pin-password",
+          "never": [
+            "482916",
+            "played password 2",
+            "mal"
+          ]
+        },
+        "spoken": [
+          "Crea un PIN, paso 3 de 5",
+          "Crea un PIN, campo de texto"
+        ]
       }
     },
     {
@@ -194,21 +231,25 @@
       "expect": {
         "accounts_asked": [],
         "never": [
-          "482916"
+          "482916",
+          "played password 2",
+          "mal"
         ],
         "in_shell": {
           "texts": [
-            "Vuelve a introducir el PIN"
+            "Vuelve a introducir tu PIN"
           ],
           "focus_input": "login-setup-pin-again-password",
           "never": [
-            "482916"
+            "482916",
+            "played password 2",
+            "mal"
           ]
         }
       }
     },
     {
-      "name": "the PIN, typed twice from the keyboard: the account's password once more, its field said",
+      "name": "typed again: the look, said with its place, its heading focused",
       "do": [
         "keyboard",
         "482916\n"
@@ -217,91 +258,179 @@
       "expect": {
         "accounts_asked": [],
         "never": [
-          "482916"
+          "482916",
+          "played password 2",
+          "mal"
         ],
         "in_shell": {
           "texts": [
-            "Introduce la contraseña de Ada Lovelace",
-            "OxyOS inicia sesión con la contraseña de tu cuenta de Oxy, incluso sin conexión. Introdúcela una vez más."
+            "Elige tu aspecto",
+            "Claro",
+            "Oscuro",
+            "Automático",
+            "Continuar",
+            "Paso 4 de 5"
           ],
-          "focus_input": "login-setup-password",
           "never": [
-            "482916"
+            "482916",
+            "played password 2",
+            "mal"
           ]
-        }
+        },
+        "spoken": [
+          "Elige tu aspecto, paso 4 de 5",
+          "Elige tu aspecto, encabezado"
+        ]
       }
     },
     {
-      "name": "a wrong password: refused by the accounts' service, said once",
+      "name": "Tab: into the choices",
       "do": [
-        "keyboard",
-        "mal\n"
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [
+          "Automático, seleccionado, 3 de 3"
+        ]
+      }
+    },
+    {
+      "name": "an arrow: to another choice",
+      "do": [
+        "key",
+        [
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Space: chosen",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Tab: Atrás",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [
+          "Atrás, botón"
+        ]
+      }
+    },
+    {
+      "name": "Tab: Continuar",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [
+          "Continuar, botón"
+        ]
+      }
+    },
+    {
+      "name": "Return: Continuar",
+      "do": [
+        "key",
+        [
+          28
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
           "enroll: refused"
-        ],
-        "spoken": [
-          {
-            "text": "Contraseña incorrecta",
-            "interrupting": true
-          }
-        ],
+        ]
+      }
+    },
+    {
+      "name": "the accounts' service refuses the password: back to it, said, its field focused",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
         "in_shell": {
-          "never": [
-            "mal"
-          ]
+          "texts": [
+            "Esa no es la contraseña de esta cuenta de Oxy. Vuelve a intentarlo."
+          ],
+          "focus_input": "login-setup-password"
         }
       }
     },
     {
-      "name": "the right one: the account set up, said as it is listed and chosen",
+      "name": "the right one: set up with the PIN and look kept, and signed in with the PIN at once",
       "do": [
         "keyboard",
         "played password 2\n"
       ],
       "allow_unchanged": true,
       "expect": {
-        "accounts_asked": [
-          "enroll: enrolled"
-        ],
-        "spoken": [
-          {
-            "text": "Se ha añadido Ada Lovelace a este ordenador",
-            "interrupting": true
-          }
-        ],
         "never": [
-          "played password 2"
+          "482916",
+          "played password 2",
+          "mal"
         ],
         "in_shell": {
           "never": [
-            "played password 2"
+            "482916",
+            "played password 2",
+            "mal"
           ]
-        }
+        },
+        "accounts_asked": [
+          "appearance: auto",
+          "enroll: enrolled",
+          "verifyPin: accepted"
+        ]
       }
     },
     {
-      "name": "both accounts listed, the new one chosen",
+      "name": "signed in",
       "do": [
         "wait",
-        1500
+        3000
       ],
       "allow_unchanged": true,
       "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "never": [
+          "482916",
+          "played password 2",
+          "mal"
+        ],
         "in_shell": {
-          "texts": [
-            "Bea Ramos",
-            "Ada Lovelace",
-            "Añadir cuenta",
-            "Usar contraseña"
-          ],
-          "absent": [
-            "Añadir una cuenta de Oxy",
-            "Introduce la contraseña de Ada Lovelace"
-          ],
-          "focus_input": "login-pin-password"
+          "never": [
+            "482916",
+            "played password 2",
+            "mal"
+          ]
         }
       }
     }

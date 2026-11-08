@@ -16,25 +16,36 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
-    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
-    DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase, Gravity, MenuField,
-    MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind,
-    PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect,
-    ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
-    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
+    BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
+    CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
+    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, ShellKind,
+    ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints,
+    TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 32;
+pub const VERSION: u16 = 34;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
 pub const APPLICATION_OPENS_SETTINGS_VERSION: u16 = 27;
+/// The first version whose compositor takes an application's `OpenUrl` of any scheme but `file`
+/// (docs/adr/0058-the-platform-api.mdx, step 6): the program opens it with the application whose
+/// entry declares the scheme, for the person's input, and says whether it did. An older one
+/// refuses all but the platform's Settings as unauthorized, closing the connection, so a client
+/// asks it only of this version or newer.
+pub const APPLICATION_OPENS_URLS_VERSION: u16 = 34;
+// Settings' URLs before any other's, and both within what this implementation speaks.
+const _: () = assert!(
+    APPLICATION_OPENS_SETTINGS_VERSION < APPLICATION_OPENS_URLS_VERSION
+        && APPLICATION_OPENS_URLS_VERSION <= VERSION
+);
 /// The first version whose compositor takes an application's `LockSession` while one of its
 /// windows is the active one (docs/adr/0010-lock-screen.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.

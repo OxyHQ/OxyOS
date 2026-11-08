@@ -54,10 +54,29 @@ export const session = {
   signOut: () => ask({ signOut: {} }),
 };
 
-/** The account's decisions on its applications' capabilities: `privacy` grant. */
+/**
+ * Settings › Storage (docs/adr/0062-storage.mdx), with Settings' `settings` grant: the session's
+ * measurement of the volume, the system's image, the Trash and each application, asked as the
+ * page shows it (`{storage: {volume, system, trash, apps}}`, nothing followed); an item shown in
+ * the file manager, citing the press that asked (`{revealed: {}}`); and an application removed
+ * through the store's uninstall, confirmed in the shell's system sheet (`{uninstalled: {id}}` or
+ * `{cancelled: {}}`). A refusal is `{refused: {reason}}`.
+ */
+export const storage = {
+  measure: () => ask({ storage: {} }),
+  reveal: (uri) => ask({ reveal: { uri } }),
+  remove: (id) => ask({ uninstall: { id } }),
+};
+
+/** The account's decisions on its applications' capabilities: `privacy` grant. The list is told
+    again, unasked, when what it says changed elsewhere: an application granted a capability as it
+    registered its login item or background activity, or one running in the background or no
+    longer (docs/adr/0060-login-items-and-background-activity.mdx). */
 export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
+  current: state.privacy.current,
+  subscribe: state.privacy.subscribe,
 };
 
 /**
@@ -73,6 +92,13 @@ export const network = {
   join: (ssid) => ask({ join: { ssid } }),
   forget: (id) => ask({ forget: { id } }),
   setWifi: (enabled) => ask({ wifi: { enabled } }),
+  // A known network's private Wi-Fi address (`fixed`, `rotating` or `off`), resetting the network
+  // settings (what goes, then going), and Wi-Fi Diagnostics, run once as asked (ADR 0038, 8
+  // November 2026): the platform API's `network` has them under the same names.
+  setPrivateAddress: (id, mode) => ask({ privateAddress: { id, mode } }),
+  resetPreview: () => ask({ networkResetPreview: {} }),
+  reset: () => ask({ networkReset: {} }),
+  diagnose: () => ask({ wifiDiagnostics: {} }),
   current: state.network.current,
   subscribe: state.network.subscribe,
 };

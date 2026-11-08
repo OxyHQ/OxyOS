@@ -1,5 +1,5 @@
 {
-  "about": "Migrate from a Backup at the first boot (docs/adr/0059-backups.mdx, decision 7), as a Mac's Migration Assistant brings another Mac over from Time Machine: no account is enrolled and Oxy's API is offline, so setup says it needs the network and offers, beside it, to migrate from a backup, which needs none. A played migration service (no backup of anyone's): its one disk is chosen, a wrong backup password is refused and said (the field shaken), the right one opens one computer, ada-laptop, whose backups are listed newest first by date with the accounts its newest holds; the newest is chosen, confirmed, and its progress shown while the service restores. Then the login screen lists the accounts brought over, each to sign in again online with its Oxy account, never a password field that could not open it, and nobody is signed in. In Spanish, at 1.25 (1600 × 1000).",
+  "about": "Migrate from a Backup at the first boot (docs/adr/0059-backups.mdx, decision 7), as a Mac's Setup Assistant offers Migration Assistant before its first user: no account is enrolled, so the setup assistant opens on its welcome; Get Started shows Transfer Your Data (from a backup, or Not Now to set up as new), which needs no network. A played migration service (no backup of anyone's): its one disk is chosen, a wrong backup password is refused and said, the right one opens one computer, ada-laptop, whose backups are listed newest first by date with the accounts its newest holds; the newest is chosen, confirmed, and its progress shown while the service restores. The assistant then ends and the login screen lists the accounts brought over, each to sign in again online with its Oxy account, never a password field that could not open it, and nobody is signed in. In Spanish, at 1.25 (1600 × 1000).",
   "locale": "es_ES.UTF-8",
   "tz": "UTC",
   "shell": "OxyOSLogin",
@@ -66,7 +66,39 @@
   },
   "steps": [
     {
-      "name": "the first boot, offline: setup says it needs the network, and offers to migrate from a backup",
+      "name": "the welcome",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Te damos la bienvenida a OxyOS",
+            "Empezar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Started pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Empezar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Transfer Your Data: from a backup, or set up as new",
       "do": [
         "wait",
         1500
@@ -75,18 +107,32 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Añadir una cuenta de Oxy",
-            "Para añadir una cuenta hace falta conexión a internet",
-            "Migrar desde una copia de seguridad"
+            "Transfiere tus datos a este ordenador",
+            "Desde una copia de seguridad",
+            "Ahora no",
+            "Continuar",
+            "Atrás"
           ]
         }
       }
     },
     {
-      "name": "Migrate from a Backup: the disks the service finds",
+      "name": "From a Backup, Continue pressed",
       "do": [
-        "press_named",
-        "Migrar desde una copia de seguridad"
+        "a11y-action",
+        [
+          "activate",
+          "Continuar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "where the backups are: the disks the service finds",
+      "do": [
+        "wait",
+        1500
       ],
       "allow_unchanged": true,
       "expect": {
@@ -95,21 +141,33 @@
         ],
         "in_shell": {
           "texts": [
-            "Migrar desde una copia de seguridad",
-            "Trae las cuentas de otro ordenador desde su copia de seguridad",
-            "Copias"
+            "¿Dónde están las copias?",
+            "Copias",
+            "Carpeta compartida de la red…"
           ],
           "absent": [
-            "Para añadir una cuenta hace falta conexión a internet"
+            "Transfiere tus datos a este ordenador"
           ]
         }
       }
     },
     {
-      "name": "the disk chosen: its backup password asked, the field focused",
+      "name": "the disk, Continue pressed",
       "do": [
-        "press_named",
-        "Copias"
+        "a11y-action",
+        [
+          "activate",
+          "Continuar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "its backup password asked, the field focused",
+      "do": [
+        "wait",
+        1000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -176,10 +234,22 @@
       }
     },
     {
-      "name": "the newest backup chosen: what migrating brings over, to confirm",
+      "name": "the newest backup, Continue pressed",
       "do": [
-        "press_named",
-        "7 de noviembre de 2026 a las 16:30"
+        "a11y-action",
+        [
+          "activate",
+          "Continuar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "what migrating brings over, to confirm",
+      "do": [
+        "wait",
+        1000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -188,16 +258,28 @@
           "texts": [
             "¿Migrar ada-laptop?",
             "Migrar",
-            "Volver"
+            "Atrás"
           ]
         }
       }
     },
     {
-      "name": "Migrate: its progress, while the service restores",
+      "name": "Migrate pressed",
       "do": [
-        "press_named",
-        "Migrar"
+        "a11y-action",
+        [
+          "activate",
+          "Migrar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "its progress, while the service restores",
+      "do": [
+        "wait",
+        1000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -235,7 +317,7 @@
             "Volver a iniciar sesión"
           ],
           "absent": [
-            "Migrar desde una copia de seguridad",
+            "Transfiere tus datos a este ordenador",
             "No apagues este ordenador."
           ]
         }
