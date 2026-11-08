@@ -1370,11 +1370,6 @@ struct Pam {
     user: std::ffi::CString,
 }
 
-/// Whole seconds, rounded up: a wait of 0.2 s is still a wait.
-fn seconds(wait: Duration) -> u32 {
-    u32::try_from(wait.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
-}
-
 impl Authentication for Pam {
     fn attempt(
         &mut self,
@@ -1390,7 +1385,9 @@ impl Authentication for Pam {
         match self.checker.attempt(secret, Instant::now()) {
             oxyos_auth::Attempt::Checking => None,
             oxyos_auth::Attempt::Busy => Some((AuthOutcome::Busy, 0)),
-            oxyos_auth::Attempt::Throttled(wait) => Some((AuthOutcome::Throttled, seconds(wait))),
+            oxyos_auth::Attempt::Throttled(wait) => {
+                Some((AuthOutcome::Throttled, oxyos_auth::whole_seconds(wait)))
+            }
         }
     }
 
@@ -1404,7 +1401,7 @@ impl Authentication for Pam {
             oxyos_auth::Outcome::Accepted => AuthOutcome::Accepted,
             oxyos_auth::Outcome::Rejected => AuthOutcome::Rejected,
         };
-        Some((outcome, seconds(answer.wait)))
+        Some((outcome, oxyos_auth::whole_seconds(answer.wait)))
     }
 }
 

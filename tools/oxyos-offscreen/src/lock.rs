@@ -9,7 +9,7 @@ use oxyos_compositor::Authentication;
 use oxyos_compositor_core::scene::Secret;
 use oxyos_protocol::AuthOutcome;
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub struct Fixture {
     password: String,
@@ -45,7 +45,7 @@ impl Authentication for Fixture {
             return Some((AuthOutcome::Rejected, 0));
         }
         if let Some(wait) = self.throttle.wait(Instant::now()) {
-            return Some((AuthOutcome::Throttled, seconds(wait)));
+            return Some((AuthOutcome::Throttled, oxyos_auth::whole_seconds(wait)));
         }
         // Answered on the compositor's next turn, as an authentication path off its thread is.
         self.checked = Some(&secret[..] == self.password.as_bytes());
@@ -68,18 +68,13 @@ impl Authentication for Fixture {
             oxyos_auth::Outcome::Rejected
         };
         self.throttle.record(outcome, now);
-        let wait = seconds(self.throttle.wait(now).unwrap_or_default());
+        let wait = oxyos_auth::whole_seconds(self.throttle.wait(now).unwrap_or_default());
         Some(if right {
             (AuthOutcome::Accepted, wait)
         } else {
             (AuthOutcome::Rejected, wait)
         })
     }
-}
-
-/// Whole seconds, rounded up, as the session counts a wait: 0.2 s is still a wait.
-fn seconds(wait: Duration) -> u32 {
-    u32::try_from(wait.as_millis().div_ceil(1000)).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
