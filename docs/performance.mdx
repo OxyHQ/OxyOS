@@ -605,6 +605,11 @@ pooled), 7 November 2026, on this machine while two other gates ran:
   memory is then what it holds: the reader's segments, mapped, and the answering thread's state;
   malloc's free memory is given back after each closing commit.
 - **The index** keeps words, not text: a result's snippet is read again from its file.
+- **A rebuild** (Settings › Spotlight's *Rebuild Index…*, ADR 0051 decision 14) costs what a first
+  crawl of a new index costs, at the same classes (the crawler idle, the writer at nice 10), with
+  the old index answering meanwhile; its progress wakes the service at most once a second and only
+  while Settings follows it. Once the new index answers, the service is idle as before
+  (`tests/idle.rs` rebuilds and counts **0** wakeups in 4 s again).
 
 ### Memory side by side
 

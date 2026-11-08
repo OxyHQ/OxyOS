@@ -78,9 +78,17 @@ export function shown(preferences: SearchPreferences, category: SearchCategory):
   return preferences.categories[category] !== false;
 }
 
-/** The index's state in a line of small text: being built and how far, or how much it holds,
-    with a word when some folders could not be read. */
+/** The index's state in a line of small text, as far as the service knows it: being rebuilt and
+    how many items the crawl went through so far; being built (by how many items the crawl went
+    through, or, with no crawl going on, how many it holds); or how much it holds. A word when
+    some folders could not be read. No percentage: nobody knows how many items there are until the
+    crawl has gone through them. */
 export function statusLine(status: SearchStatus, words: Messages["spotlight"]): string {
-  const line = status.indexing ? words.indexing(status.items) : words.indexed(status.items);
+  const soFar = status.found ?? null;
+  const line = status.rebuilding
+    ? words.rebuilding(soFar ?? 0)
+    : status.indexing
+      ? words.indexing(soFar ?? status.items)
+      : words.indexed(status.items);
   return status.partial ? `${line}. ${words.partial}` : line;
 }
