@@ -1,15 +1,16 @@
 name: Scenarios
 
 # The scenario gate (docs/developing.mdx): this tree's runtime and the applications' packages
-# built with Bloom, Dropsea and Atlas at tools/dev/pins, and every scenario run against them, on the gate
-# machine (a self-hosted runner, label oxyos-gate), for each pull request and for the merge queue,
-# so main only takes what passes together with what main already has. A required check of main.
-# Nothing here builds or publishes an image.
+# built with Bloom, Dropsea and Atlas at tools/dev/pins, and every scenario run against them, on the
+# gate machine's self-hosted runners. It is the merge queue's check: each entry's run is of main with
+# the pull requests ahead of it and its own, so main only takes what passes together, and a run that
+# fails takes its pull request out of the queue. On a pull request it runs only when asked (the
+# `gate` label) or dispatched for a branch; otherwise it is skipped, which lets the pull request join
+# the queue. A required check of main. Nothing here builds or publishes an image.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   merge_group:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -21,9 +22,13 @@ concurrency:
 
 jobs:
   scenarios:
-    # A fork's pull request does not run on the gate machine (its code would run there unreviewed):
-    # the merge queue runs it once a maintainer queues it.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Always in the merge queue and when dispatched; on a pull request only with the `gate` label, and
+    # never a fork's (its code would run on the gate's machine unreviewed: the merge queue runs it once
+    # a maintainer queues it).
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'gate') &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     # The merge queue's runs on runners of their own (label oxyos-merge), the pull requests' on the
     # others (oxyos-gate): a merge waits for the runs that merge, never behind the pull requests'
     # (docs/developing.mdx, "The gate's machine").

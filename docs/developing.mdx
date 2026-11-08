@@ -97,11 +97,21 @@ Left out: `astro*` (an Astro engine, a deploy's `ASTRO_PACKAGE`), `terminal` (a 
 host's backtrace) is kept in the run's directory, `~/.cache/oxyos/runs/` unless `--out` names one;
 a run that passes leaves nothing there.
 
-The gate is the **Scenarios** check of every pull request and of the merge queue
-(`.github/workflows/scenarios.yml`), and main requires it: pull requests merged separately can no
-longer break main together, because the merge queue runs the gate on each one with main and the
-pull requests ahead of it. A fork's pull request runs it only in the merge queue, once a maintainer
-queues it, never on its own.
+### Merging: the merge queue is the gate
+
+A pull request is merged by putting it in the merge queue: `gh pr merge N --auto` (or the merge
+button), once its fast checks pass: the **Native foundation** jobs (`verify` and `passwd-tools`, on
+x86-64 and AArch64, required). The queue then runs the gate, the **Scenarios** check
+(`.github/workflows/scenarios.yml`), on each entry's combined tree: main with the pull requests
+ahead of it and its own, so pull requests merged separately cannot break main together. A run that
+passes merges the entry (a merge commit); one that fails takes the pull request out of the queue, its
+failure in the run's log and its records on the gate's machine, and the pull request goes back in
+once fixed.
+
+On a pull request the gate runs only when asked: the `gate` label (each push then runs it again), or
+the workflow dispatched for a branch (`gh workflow run scenarios.yml --ref BRANCH`). Otherwise it is
+skipped, which lets the pull request join the queue. A fork's pull request never runs it on its own,
+only in the queue once a maintainer queues it.
 
 ## Deploying to a test machine
 
@@ -131,8 +141,9 @@ passwordless sudo and rustup's cargo.
 
 The **Scenarios** check runs on self-hosted runners on a machine that also does other work, which
 keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
-labelled `oxyos-merge` alone, so a merge never waits behind the pull requests' runs. `tools/gate/machine.sh`, run as root on a Debian trixie machine,
-prepares it, and running it again changes nothing that is already so:
+labelled `oxyos-merge` alone (two of them on seldon), so a merge never waits behind a pull request's
+run. `tools/gate/machine.sh`, run as root on a Debian trixie machine, prepares it, and running it
+again changes nothing that is already so:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
