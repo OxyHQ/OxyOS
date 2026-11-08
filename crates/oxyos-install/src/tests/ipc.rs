@@ -345,3 +345,48 @@ fn a_services_socket_appears_only_listening() {
     assert_eq!(left, [std::ffi::OsString::from("socket")]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The service's last message, sent just before it closes, is read before the end, with a
+/// descriptor or without: the kernel can report the end with it still queued
+/// (`oxyos-seqpacket`). Many rounds, since each one is a race. The client polls (its socket
+/// non-blocking), where the race is widest; a waiting receive goes through the same read.
+#[test]
+fn the_last_message_before_the_end_is_read_before_the_end() {
+    fn polled<T>(receive: impl Fn() -> std::io::Result<T>) -> T {
+        loop {
+            match receive() {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::hint::spin_loop()
+                }
+                received => break received.unwrap(),
+            }
+        }
+    }
+    for round in 0..2000u32 {
+        let (client, server) = Connection::pair().unwrap();
+        rustix::io::ioctl_fionbio(std::os::fd::AsFd::as_fd(&client), true).unwrap();
+        let with_descriptor = round % 2 == 1;
+        let sender = std::thread::spawn(move || {
+            if with_descriptor {
+                let null = File::open("/dev/null").unwrap();
+                server
+                    .send_with_fd(&round, std::os::fd::AsFd::as_fd(&null))
+                    .unwrap();
+            } else {
+                server.send(&round).unwrap();
+            }
+            // Shut down, not only closed: a process another test forks meanwhile may hold a copy
+            // of the descriptor until it executes.
+            rustix::net::shutdown(
+                std::os::fd::AsFd::as_fd(&server),
+                rustix::net::Shutdown::Both,
+            )
+            .unwrap();
+        });
+        let heard =
+            polled(|| client.receive_with_fd::<u32>()).map(|(message, fd)| (message, fd.is_some()));
+        assert_eq!(heard, Some((Some(round), with_descriptor)), "round {round}");
+        sender.join().unwrap();
+        assert!(polled(|| client.receive::<u32>()).is_none());
+    }
+}

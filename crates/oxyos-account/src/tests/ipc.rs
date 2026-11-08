@@ -609,3 +609,59 @@ fn the_pin_wire_format_is_the_documented_one() {
         r#"{"enroll":{"deviceId":"d","deviceSecret":"s","accountId":"a","pin":"1234"}}"#
     );
 }
+
+/// The service's last message, sent just before it closes, is read before the end, with a
+/// descriptor or without: the kernel can report the end with it still queued
+/// (`oxyos-seqpacket`). Many rounds, since each one is a race. The client polls (its socket
+/// non-blocking), where the race is widest; a waiting receive goes through the same read.
+#[test]
+fn the_last_message_before_the_end_is_read_before_the_end() {
+    fn polled<T>(receive: impl Fn() -> std::io::Result<T>) -> T {
+        loop {
+            match receive() {
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::hint::spin_loop()
+                }
+                received => break received.unwrap(),
+            }
+        }
+    }
+    let dir = TempDir::new("last-message");
+    let socket = dir.path().join("socket");
+    let listener = Listener::bind(&socket).unwrap();
+    for round in 0..2000u32 {
+        let client = Connection::connect(&socket).unwrap();
+        rustix::io::ioctl_fionbio(std::os::fd::AsFd::as_fd(&client), true).unwrap();
+        let service = listener.accept().unwrap();
+        let with_descriptor = round % 2 == 1;
+        let sender = std::thread::spawn(move || {
+            if with_descriptor {
+                let null = std::fs::File::open("/dev/null").unwrap();
+                service
+                    .send_with(&round, std::os::fd::AsFd::as_fd(&null))
+                    .unwrap();
+            } else {
+                service.send(&round).unwrap();
+            }
+            // Shut down, not only closed: a process another test forks meanwhile may hold a copy
+            // of the descriptor until it executes.
+            rustix::net::shutdown(
+                std::os::fd::AsFd::as_fd(&service),
+                rustix::net::Shutdown::Both,
+            )
+            .unwrap();
+        });
+        let heard = if with_descriptor {
+            polled(|| client.receive_with::<u32>()).map(|(message, fds)| (message, fds.len()))
+        } else {
+            polled(|| client.receive::<u32>()).map(|message| (message, 0))
+        };
+        assert_eq!(
+            heard,
+            Some((Some(round), usize::from(with_descriptor))),
+            "round {round}"
+        );
+        sender.join().unwrap();
+        assert!(polled(|| client.receive::<u32>()).is_none());
+    }
+}

@@ -2579,6 +2579,7 @@ dependencies = [
  "jiff",
  "libc",
  "oxyos-keychain",
+ "oxyos-seqpacket",
  "rand_core 0.6.4",
  "rustix",
  "serde",
@@ -2633,6 +2634,7 @@ name = "oxyos-auth"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "oxyos-seqpacket",
  "rustix",
  "zeroize",
 ]
@@ -2862,6 +2864,7 @@ name = "oxyos-install"
 version = "0.1.0"
 dependencies = [
  "oxyos-package",
+ "oxyos-seqpacket",
  "ring",
  "rustix",
  "serde",
@@ -2905,6 +2908,7 @@ name = "oxyos-ipc"
 version = "0.1.0"
 dependencies = [
  "oxyos-protocol",
+ "oxyos-seqpacket",
  "rustix",
 ]
 
@@ -2970,6 +2974,7 @@ dependencies = [
  "oxyos-account",
  "oxyos-auth",
  "oxyos-seat",
+ "oxyos-seqpacket",
  "oxyos-vt",
  "rustix",
  "serde_json",
@@ -3154,6 +3159,13 @@ dependencies = [
  "futures-lite",
  "rustix",
  "zbus",
+]
+
+[[package]]
+name = "oxyos-seqpacket"
+version = "0.1.0"
+dependencies = [
+ "rustix",
 ]
 
 [[package]]

@@ -247,7 +247,7 @@ fn the_last_event_before_the_end_is_read_before_the_end() {
             loop {
                 match client.try_recv_event() {
                     Ok(Some((received, _))) => break received,
-                    Ok(None) => std::thread::yield_now(),
+                    Ok(None) => std::hint::spin_loop(),
                     Err(error) => panic!("round {round}: {error} before the event"),
                 }
             }

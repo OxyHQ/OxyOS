@@ -84,8 +84,8 @@ use crate::store::State;
 use crate::users::Users;
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use rustix::net::{
-    AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags,
-    SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType,
+    AddressFamily, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix,
+    SocketFlags, SocketType,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -664,32 +664,20 @@ impl Connection {
         &self,
     ) -> io::Result<Option<(Option<T>, Vec<OwnedFd>)>> {
         let mut packet = Zeroizing::new(vec![0u8; MAX_MESSAGE + 1]);
-        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
-        let mut control = RecvAncillaryBuffer::new(&mut space);
-        let received = rustix::net::recvmsg(
-            &self.fd,
-            &mut [io::IoSliceMut::new(&mut packet[..])],
-            &mut control,
-            RecvFlags::CMSG_CLOEXEC,
-        )?;
-        let mut fds = Vec::new();
-        for message in control.drain() {
-            if let RecvAncillaryMessage::ScmRights(received) = message {
-                fds.extend(received);
-            }
-        }
-        if received.bytes == 0 && fds.is_empty() {
+        let Some(received) =
+            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], true, RecvFlags::empty())?
+        else {
             return Ok(None);
-        }
-        if received.bytes > MAX_MESSAGE
-            || received
-                .flags
-                .intersects(ReturnFlags::CTRUNC | ReturnFlags::TRUNC)
+        };
+        if received.length > MAX_MESSAGE
+            || received.truncated
+            || received.descriptors_truncated
+            || received.descriptors.len() > 1
         {
             return Ok(Some((None, Vec::new())));
         }
-        let message = serde_json::from_slice(&packet[..received.bytes]).ok();
-        Ok(Some((message, fds)))
+        let message = serde_json::from_slice(&packet[..received.length]).ok();
+        Ok(Some((message, received.descriptors)))
     }
 
     pub fn set_timeout(&self, timeout: Duration) -> io::Result<()> {
@@ -716,14 +704,17 @@ impl Connection {
     pub fn receive<T: DeserializeOwned>(&self) -> io::Result<Option<Option<T>>> {
         let mut packet = Zeroizing::new(vec![0u8; MAX_MESSAGE + 1]);
         // A packet longer than the buffer is cut to it: one byte more than a message can be.
-        let (length, _) = rustix::net::recv(&self.fd, &mut packet[..], RecvFlags::empty())?;
-        if length == 0 {
+        let Some(received) =
+            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], false, RecvFlags::empty())?
+        else {
             return Ok(None);
-        }
-        if length > MAX_MESSAGE {
+        };
+        if received.length > MAX_MESSAGE || received.truncated {
             return Ok(Some(None));
         }
-        Ok(Some(serde_json::from_slice(&packet[..length]).ok()))
+        Ok(Some(
+            serde_json::from_slice(&packet[..received.length]).ok(),
+        ))
     }
 }
 
