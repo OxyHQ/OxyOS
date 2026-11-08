@@ -604,9 +604,9 @@ for the one account it plays, committing the device credential `oxy.device`; eve
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
-lists `enroll.account` once enrolled; `enroll.password` null plays an account without one, refused
-`passwordRequired` as the service refuses it, and a `pin` given with the setup becomes the account's
-PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
+lists `enroll.account` once enrolled; a setup without a password and with a PIN is a sign-in by the
+QR, which the real service redeems through Oxy's device-proof route (played as its answer: enrolled,
+its password not signing in), and a `pin` given with the setup becomes the account's PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
 listed `pin: set`; `login.pin_failures`: {USER: N} wrong ones before the run) is checked by `oxyos-pin-check`, which the login program's PIN service runs
 (`oxyos-login-pin`, pam_exec, as the real one is), asking the stand-in's `verifyPin`: the tenth
 wrong one in a row locks it out (listed `locked`). A step's `accounts_asked` is what the setup asked the service
@@ -1129,9 +1129,12 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = {"refused": {"reason": "credentialRefused"}}
         elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
             answer = {"refused": {"reason": "unusablePin"}}
+        elif request.get("password") is None and pin is None:
+            answer = {"refused": {"reason": "pinRequired"}}
         elif request.get("password") is None:
-            # The platform credential is issued only to the platform's password sign-in.
-            answer = {"refused": {"reason": "passwordRequired"}}
+            # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
+            # (the real service's; played here as its answer), and the PIN is the local credential.
+            answer = None
         elif request.get("password") != played["password"]:
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
@@ -1140,7 +1143,7 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = None
         while True:
             if answer is None:
-                listed = dict(played["account"], password=True)
+                listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
                     failures.pop(listed["user"], None)

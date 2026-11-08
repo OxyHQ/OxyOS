@@ -2148,7 +2148,7 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
  * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
  * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}} ("passwordRequired": an account without a password cannot be set up yet;
+ * "retryAfterSeconds"}} ("pinRequired": a setup without a password, by the QR, needs a PIN;
  * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
