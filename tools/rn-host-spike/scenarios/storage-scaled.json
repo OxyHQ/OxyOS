@@ -1,0 +1,456 @@
+{
+ "about": "Settings › General › Storage, as a Mac's (docs/adr/0062-storage.mdx), Settings granted `settings`, on the run's home and a played 256 GB disk (100 GB free, 12.8 GB the administrator's reserve, 9 GB the system's packages): the volume's bar and its legend, every category's bytes adding up to what is used (Photos the home's images and movies the search index holds, Documents its other files, Trash what the Trash holds, Apps each application's own data, System the image and the reserve, Other the rest); Empty Trash Automatically, once confirmed, is the session's preference, and the session erases at once what has been in the Trash for more than 30 days, keeping the rest; the applications, the largest first, and one's sheet with its own data and caches; Review Files lists the home's largest files from the index, the largest first, one moved to the Trash once confirmed, the bar following; Show in Dropsea opens the file manager at the file's folder, the file selected. At 1.25 on the ThinkPad's display (1600x1000).",
+ "module": "OxyOSSettings",
+ "locale": "en_US.UTF-8",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings"
+  ]
+ },
+ "storage": {
+  "name": "OxyOS",
+  "capacity": 256000000000,
+  "available": 100000000000,
+  "reserved": 12800000000,
+  "system": 9000000000
+ },
+ "home": {
+  "items": {
+   "Pictures/beach.jpg": {
+    "bytes": 3145728
+   },
+   "Movies/trip.mp4": {
+    "bytes": 8388608
+   },
+   "Downloads/backup.iso": {
+    "bytes": 5242880
+   },
+   "Documents/notes.txt": "a few notes",
+   ".local/share/oxyos/apps/so.oxy.allo/messages.db": {
+    "bytes": 2097152
+   },
+   ".local/share/Trash/files/old.txt": "old",
+   ".local/share/Trash/info/old.txt.trashinfo": "[Trash Info]\nPath=/old.txt\nDeletionDate={days_ago:40}\n",
+   ".local/share/Trash/files/recent.txt": "recent",
+   ".local/share/Trash/info/recent.txt.trashinfo": "[Trash Info]\nPath=/recent.txt\nDeletionDate={days_ago:5}\n"
+  }
+ },
+ "steps": [
+  {
+   "name": "Settings opens",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Appearance"
+    ],
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Storage, from the sidebar, after Software Update: measured once the page shows",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Storage"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "the volume's bar and its legend, every category's bytes adding up to what is used and the reserve (156 GB of 256 GB), and the recommendations",
+   "do": [
+    "wait_named",
+    [
+     "Review Files…",
+     30000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "OxyOS",
+     "Apps",
+     "Documents",
+     "System",
+     "Photos",
+     "Trash",
+     "Other",
+     "Available",
+     "100 GB",
+     "22 GB",
+     "2.1 MB",
+     "8.2 KB",
+     "Recommendations",
+     "Empty Trash Automatically",
+     "Review Files"
+    ],
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Empty Trash Automatically's switch: asked first, nothing erased yet",
+   "do": [
+    "press_output",
+    [
+     1020,
+     470
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Turn on Empty Trash Automatically?",
+     "Turn On",
+     "Cancel"
+    ],
+    "home": {
+     "trash": [
+      "old.txt",
+      "recent.txt"
+     ]
+    },
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "the sheet's Turn On, once the sheet shows it",
+   "do": [
+    "wait_named",
+    [
+     "Turn On",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Turn On: the session's preference",
+   "do": [
+    "press_named",
+    "Turn On"
+   ],
+   "expect": {
+    "preferences_file": {
+     "empty_trash_automatically": "true"
+    },
+    "absent": [
+     "Turn on Empty Trash Automatically?"
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "the session erased at once what has been in the Trash for more than 30 days, and kept the rest",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "home": {
+     "trash": [
+      "recent.txt"
+     ],
+     ".local/share/Trash/info/old.txt.trashinfo": false
+    },
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "the applications, the largest first, each with what it occupies",
+   "do": [
+    "scroll",
+    [
+     776,
+     500,
+     1000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Applications",
+     "Allo",
+     "Settings",
+     "Dropsea"
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "scroll": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Allo's sheet: its own data and its caches; no Delete App… for a development entry",
+   "do": [
+    "press_named",
+    "Allo, 2.1 MB"
+   ],
+   "expect": {
+    "texts": [
+     "Allo",
+     "Documents & Data",
+     "2.1 MB",
+     "Caches",
+     "0 bytes",
+     "Done"
+    ],
+    "absent": [
+     "Delete App…"
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Done",
+   "do": [
+    "press_named",
+    "Done"
+   ],
+   "expect": {
+    "absent": [
+     "Documents & Data"
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "back up to the recommendations",
+   "do": [
+    "scroll",
+    [
+     776,
+     400,
+     -1000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Review Files…"
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "scroll": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Review Files: the home's largest files from the index, the largest first, the first chosen",
+   "do": [
+    "press_named",
+    "Review Files…"
+   ],
+   "expect": {
+    "texts": [
+     "Large Files",
+     "trip.mp4",
+     "backup.iso",
+     "beach.jpg",
+     "notes.txt",
+     "Show in Dropsea",
+     "Delete…"
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "the list's backup.iso, once the sheet shows it",
+   "do": [
+    "wait_named",
+    [
+     "backup.iso, 5.2 MB",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "backup.iso chosen",
+   "do": [
+    "press_named",
+    "backup.iso, 5.2 MB"
+   ],
+   "expect": {
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Delete…: the sheet asks before it moves anything",
+   "do": [
+    "press_named",
+    "Delete backup.iso"
+   ],
+   "expect": {
+    "texts": [
+     "Move “backup.iso” to the Trash?",
+     "Move to Trash",
+     "Cancel"
+    ],
+    "home": {
+     "Downloads/backup.iso": true
+    },
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "the sheet's Move to Trash, once the sheet shows it",
+   "do": [
+    "wait_named",
+    [
+     "Move to Trash",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Move to Trash: in the Trash, out of the list, the largest left chosen",
+   "do": [
+    "press_named",
+    "Move to Trash"
+   ],
+   "expect": {
+    "texts": [
+     "Large Files",
+     "trip.mp4",
+     "beach.jpg"
+    ],
+    "absent": [
+     "backup.iso"
+    ],
+    "home": {
+     "Downloads/backup.iso": false,
+     "trash": [
+      "backup.iso",
+      "recent.txt"
+     ]
+    },
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Show in Dropsea: the session opens the file manager at trip.mp4's folder, trip.mp4 selected",
+   "do": [
+    "press_named",
+    "Show trip.mp4 in Dropsea"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "urls_opened": [
+     {
+      "url": "dropsea://files?uri={home}%2FMovies&select={home}%2FMovies%2Ftrip.mp4",
+      "application": "so.oxy.dropsea"
+     }
+    ],
+    "keyboard_focus": null,
+    "delivered": {
+     "1": {
+      "focus.out": 1,
+      "leave": 1,
+      "press": 1,
+      "release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Dropsea shows Movies, trip.mp4 selected, as Finder's Show in Finder",
+   "do": [
+    "wait_named",
+    [
+     "trip.mp4",
+     60000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  }
+ ],
+ "outputs": "1600x1000@1.25"
+}

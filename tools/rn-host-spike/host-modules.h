@@ -75,7 +75,8 @@ class HostModule : public TurboModule {
       std::string qualified = name_ + "." + method;
       this->method(method, [qualified](jsi::Runtime&, const jsi::Value*, size_t) {
         static std::set<std::string> reported;
-        if (reported.insert(qualified).second) std::cerr << "[host] unsupported on OxyOS: " << qualified << "\n";
+        // One write, so the line arrives whole among the session's other processes' lines.
+        if (reported.insert(qualified).second) std::cerr << ("[host] unsupported on OxyOS: " + qualified + "\n");
         return jsi::Value::undefined();
       });
     }
