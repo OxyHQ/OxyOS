@@ -177,7 +177,8 @@ mod tests {
     /// The last message before an end is read before it, each way: what a worker says as it
     /// exits (its session started, say), what the login program sends as it lets the worker go.
     /// The kernel can report the end with that message still queued (`oxyos-seqpacket`). Many
-    /// rounds, since each one is a race.
+    /// rounds, since each one is a race, mostly the login program's polling (busily), where the
+    /// race is widest.
     #[test]
     fn the_last_message_before_the_end_is_read_before_the_end() {
         // Shut down, not only closed: a process another test forks meanwhile may hold a copy of
@@ -185,10 +186,10 @@ mod tests {
         let gone = |channel: &Channel| {
             rustix::net::shutdown(channel.as_fd(), rustix::net::Shutdown::Both).unwrap()
         };
-        for round in 0..2000u32 {
+        for round in 0..10_000u32 {
             let (manager, worker) = pair().unwrap();
             let worker = Channel::from_fd(worker);
-            if round % 2 == 0 {
+            if round % 4 != 3 {
                 let exiting = std::thread::spawn(move || {
                     worker.tell(FromWorker::Started(round)).unwrap();
                     gone(&worker);

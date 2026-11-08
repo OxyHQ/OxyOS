@@ -613,7 +613,9 @@ fn the_pin_wire_format_is_the_documented_one() {
 /// The service's last message, sent just before it closes, is read before the end, with a
 /// descriptor or without: the kernel can report the end with it still queued
 /// (`oxyos-seqpacket`). Many rounds, since each one is a race. The client polls (its socket
-/// non-blocking), where the race is widest; a waiting receive goes through the same read.
+/// non-blocking), where the race is widest; a waiting receive goes through the same read. Each
+/// receive here zeroes a message's buffer, so few rounds meet the race: `oxyos-seqpacket`'s own
+/// test is the one that meets it often.
 #[test]
 fn the_last_message_before_the_end_is_read_before_the_end() {
     fn polled<T>(receive: impl Fn() -> std::io::Result<T>) -> T {

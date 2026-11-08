@@ -634,7 +634,7 @@ session required pam_permit.so
             verdict: Verdict::Accepted,
             wait_s: 0,
         };
-        for round in 0..2000 {
+        for round in 0..10_000 {
             let mut client = Greeter::connect(&path).unwrap();
             let connection = accept();
             if round % 2 == 0 {
