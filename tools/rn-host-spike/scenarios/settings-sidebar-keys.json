@@ -308,7 +308,7 @@
      "shortcut@menu-bar": 1,
      "blur@settings-nav-wallpaper": 1,
      "focus@settings-nav-about": 1,
-     "scroll@ScrollView#236": 1
+     "scroll@ScrollView in settings-rail": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-about",
@@ -410,7 +410,7 @@
      "shortcut@menu-bar": 1,
      "blur@settings-nav-privacy": 1,
      "focus@settings-nav-appearance": 1,
-     "scroll@ScrollView#236": 1
+     "scroll@ScrollView in settings-rail": 1
     },
     "keyboard_focus": {
      "target": "settings-nav-appearance",

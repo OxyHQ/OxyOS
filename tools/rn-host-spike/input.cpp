@@ -603,12 +603,7 @@ void PointerInput::pointerButton(const SurfaceContent& content, uint32_t code, b
   event.altKey = alt_;
   event.metaKey = meta_;
   if (Report::get().enabled()) {
-    std::string within;
-    auto path = ancestry(tree_, target);
-    for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
-      auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
-      if (props && !props->testId.empty()) within = props->testId;
-    }
+    std::string within = nearestTestId(tree_, target);
     Report::get().deliver(down ? "pointerDown" : "pointerUp", content.surface, it->second.view,
                           folly::dynamic::object("x", page.x)("y", page.y)("within", within)("button", button));
   }
@@ -1043,7 +1038,10 @@ void PointerInput::scrollEvent(Tag tag, uint32_t surface, const char* kind, std:
   folly::dynamic extra = folly::dynamic::object("timestamp", dispatched);
   if (range) extra["x"] = range->first.x, extra["y"] = range->first.y;
   if (velocity) extra["vx"] = velocity->x, extra["vy"] = velocity->y;
-  Report::get().deliver(kind, surface, view, extra);
+  if (Report::get().enabled()) {
+    extra["within"] = nearestTestId(tree_, tag);
+    Report::get().deliver(kind, surface, view, extra);
+  }
 }
 
 std::optional<std::pair<facebook::react::Point, facebook::react::Point>> PointerInput::scrollRange(Tag tag) const {
@@ -1088,8 +1086,13 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface, boo
     // As ScrollViewEventEmitter::onScroll dispatches it (a unique event: coalesced), stamped exactly.
     emitter->dispatchUniqueEvent("scroll", std::make_shared<ExactlyStamped<ScrollEvent>>(event, dispatched));
   }
-  Report::get().deliver("scroll", surface, view,
-                        folly::dynamic::object("x", next.x)("y", next.y)("timestamp", dispatched));
+  // With the nearest view with a testID, as a touch: an unnamed scroll view (a sheet's, a
+  // sidebar's) is named by it, not by its tag, which every view mounted before it moves.
+  if (Report::get().enabled()) {
+    Report::get().deliver("scroll", surface, view,
+                          folly::dynamic::object("x", next.x)("y", next.y)("timestamp", dispatched)(
+                              "within", nearestTestId(tree_, tag)));
+  }
   if (tracing()) {
     std::cerr << "[input] scroll view " << tag << " to " << next.x << "," << next.y << " of " << content.width << "x"
               << content.height << "\n";
@@ -1156,12 +1159,7 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
   static const char* events[] = {"touchStart", "touchMove", "touchEnd", "touchCancel"};
   if (Report::get().enabled()) {
     // The nearest ancestor with a testID names what was touched (the target is often its text).
-    std::string within;
-    auto path = ancestry(tree_, target_);
-    for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
-      auto props = std::dynamic_pointer_cast<const ViewProps>(tree_.views().at(*at).view.props);
-      if (props && !props->testId.empty()) within = props->testId;
-    }
+    std::string within = nearestTestId(tree_, target_);
     Report::get().deliver(events[static_cast<int>(phase)], content_.surface, it->second.view,
                           folly::dynamic::object("x", page.x)("y", page.y)("within", within)(
                               "touches", static_cast<int>(event.touches.size())));

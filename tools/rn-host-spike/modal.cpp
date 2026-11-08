@@ -19,17 +19,8 @@ namespace oxyos {
 namespace {
 
 // The nearest view with a testID, the modal itself included, names it in the report.
-std::string testIdOf(const ViewTree& tree, Tag tag) {
-  auto path = ancestry(tree, tag);
-  for (auto at = path.rbegin(); at != path.rend(); ++at) {
-    auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
-    if (props && !props->testId.empty()) return props->testId;
-  }
-  return "";
-}
-
 folly::dynamic within(const ViewTree& tree, Tag tag) {
-  auto name = testIdOf(tree, tag);
+  auto name = nearestTestId(tree, tag);
   return name.empty() ? folly::dynamic::object() : folly::dynamic::object("within", name);
 }
 
@@ -66,8 +57,8 @@ void ModalHost::sync(const Display& display) {
     if (shown_.count(tag)) continue;
     if (auto kind = animationOf(view); kind != ModalHostViewAnimationType::None) {
       entering_[tag] = Animation{kind == ModalHostViewAnimationType::Slide ? Kind::Slide : Kind::Fade, Clock::now(),
-                                 testIdOf(tree_, tag)};
-      Report::get().modalAnimation("in", toString(kind).c_str(), view, testIdOf(tree_, tag));
+                                 nearestTestId(tree_, tag)};
+      Report::get().modalAnimation("in", toString(kind).c_str(), view, nearestTestId(tree_, tag));
     }
     if (auto emitter = std::dynamic_pointer_cast<const ModalHostViewEventEmitter>(view.eventEmitter)) {
       emitter->onShow({});
@@ -91,9 +82,9 @@ void ModalHost::leaving(const ShadowViewMutationList& mutations, const Display& 
     auto frame = std::make_shared<Canvas>();
     drawModal(tree_, tag, display, *frame, edit);
     leaving_.push_back(Leaving{Animation{kind == ModalHostViewAnimationType::Slide ? Kind::Slide : Kind::Fade,
-                                         Clock::now(), testIdOf(tree_, tag)},
+                                         Clock::now(), nearestTestId(tree_, tag)},
                                std::move(frame)});
-    Report::get().modalAnimation("out", toString(kind).c_str(), view, testIdOf(tree_, tag));
+    Report::get().modalAnimation("out", toString(kind).c_str(), view, nearestTestId(tree_, tag));
   }
 }
 

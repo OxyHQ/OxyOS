@@ -1969,12 +1969,7 @@ int main(int argc, char** argv) {
         heldForGrant.emplace_back(view, type);
         return;
       }
-      std::string within;
-      auto path = oxyos::ancestry(tree, view.tag);
-      for (auto at = path.rbegin(); at != path.rend() && within.empty(); ++at) {
-        auto props = std::dynamic_pointer_cast<const ViewProps>(tree.views().at(*at).view.props);
-        if (props && !props->testId.empty()) within = props->testId;
-      }
+      std::string within = oxyos::nearestTestId(tree, view.tag);
       oxyos::Report::get().accessibilityEvent(type, view, within);
       // A region whose keyboard went back to a window (the bar left from the keyboard) takes no
       // accessibility focus from JavaScript while the keyboard is elsewhere: Bloom gives a closed

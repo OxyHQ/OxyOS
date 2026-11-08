@@ -500,6 +500,9 @@ struct DragImage {
 std::optional<facebook::react::Rect> windowFrame(const ViewTree& tree, facebook::react::Tag tag);
 // The views from the root to `tag`, inclusive; empty if `tag` is not in the tree.
 std::vector<facebook::react::Tag> ancestry(const ViewTree& tree, facebook::react::Tag tag);
+// The testID of `tag` or of its nearest ancestor that has one ("" for none): what names a view in
+// the report when it has no testID of its own (its `within`, which regress.py names it by).
+std::string nearestTestId(const ViewTree& tree, facebook::react::Tag tag);
 // Draws, writes a PNG and returns the stats; `written` reports whether the PNG was saved.
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath);
 bool writePng(const Canvas& canvas, const std::string& path);
