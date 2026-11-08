@@ -71,8 +71,8 @@ use crate::api::OxyApi;
 use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
 use crate::keychain::{
-    self, AuditView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView, JoinMethod,
-    MemberView, Status, Suggestion,
+    self, AuditView, CodeView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView,
+    JoinMethod, MemberView, Status, Suggestion,
 };
 use crate::pidfd::{self, Program};
 use crate::platform::{self, Checked, Local, Platform, Snapshot, Token, TokenReason};
@@ -199,6 +199,13 @@ pub enum Request {
         current: Secret,
     },
     KeychainLeave {},
+    /// A strong password (ADR 0050 decision 8's generator), for a new or edited item.
+    KeychainGenerate {},
+    /// An item's verification code now.
+    #[serde(rename_all = "camelCase")]
+    KeychainCode {
+        item_id: String,
+    },
     ErasePreview {},
     EraseAll {
         password: Secret,
@@ -298,6 +305,7 @@ pub enum Answer {
     KeychainDeleted,
     KeychainAudit(AuditView),
     KeychainLeft,
+    KeychainCode(CodeView),
     ErasePreview(ErasePreview),
     Erasing(Erasing),
 }

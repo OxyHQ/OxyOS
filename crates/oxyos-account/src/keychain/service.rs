@@ -173,6 +173,16 @@ impl Open {
             .is_some_and(|until| until > Instant::now())
     }
 
+    /// Whether Settings proved the person, and if so another five minutes from now: the proof
+    /// lasts until five minutes pass with nothing asked of it (ADR 0050 decision 8), or the lock.
+    fn still_verified(&mut self) -> bool {
+        let verified = self.verified();
+        if verified {
+            self.verified_until = Some(Instant::now() + VERIFIED_FOR);
+        }
+        verified
+    }
+
     fn member(&mut self) -> Result<&mut Vault, Reason> {
         member_of(&mut self.vault, self.standing)
     }
@@ -1214,7 +1224,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
         let _net = lock(&user.net);
         let (epoch, (verified, started)) = self.with_open(user, None, |open| {
             open.member()?;
-            Ok((open.verified(), open.approving.contains_key(id)))
+            Ok((open.still_verified(), open.approving.contains_key(id)))
         })?;
         if confirm {
             if !verified {
@@ -1356,7 +1366,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
         let _net = lock(&user.net);
         let (epoch, ()) = self.with_open(user, None, |open| {
             open.member()?;
-            if !open.verified() {
+            if !open.still_verified() {
                 return Err(Reason::VerificationRequired);
             }
             let vault = open.vault.as_ref().ok_or(Reason::NotMember)?;
@@ -1415,7 +1425,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
         f: impl FnOnce(&mut Open) -> Result<T, Reason>,
     ) -> Result<(u64, T), Reason> {
         self.with_open(user, None, |open| {
-            if !open.verified() {
+            if !open.still_verified() {
                 return Err(Reason::VerificationRequired);
             }
             f(open)
@@ -1471,6 +1481,47 @@ impl<V: VaultApi + 'static> KeychainService<V> {
                 .map_err(|error| self.failed(user, "an item", error))?
                 .ok_or(Reason::NotFound)?;
             Ok(Answer::KeychainItem(view(&item)))
+        })
+        .map(|(_, answer)| answer)
+    }
+
+    /// An item's verification code now: a login's, or a code's own. Settings asks again as each
+    /// code runs out, on its own, so asking is not the person's activity: the proof is not renewed.
+    fn code(&self, user: &User, id: &ItemId) -> Result<Answer, Reason> {
+        self.with_open(user, None, |open| {
+            if !open.verified() {
+                return Err(Reason::VerificationRequired);
+            }
+            let vault = open.vault.as_ref().ok_or(Reason::NotFound)?;
+            let item = vault
+                .open_item(id)
+                .map_err(|error| self.failed(user, "an item", error))?
+                .ok_or(Reason::NotFound)?;
+            let uri = match &item.content {
+                Content::Login(login) => login.totp.as_ref().ok_or(Reason::NotFound)?,
+                Content::Totp(totp) => &totp.uri,
+                _ => return Err(Reason::NotFound),
+            };
+            let totp =
+                oxyos_keychain::totp::Totp::parse(uri.expose()).map_err(|_| Reason::NotFound)?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| Reason::Failed)?
+                .as_secs();
+            Ok(Answer::KeychainCode(CodeView {
+                code: Secret::new(totp.code_at(now).as_str()),
+                period: totp.period(),
+                remaining: totp.remaining(now),
+            }))
+        })
+        .map(|(_, answer)| answer)
+    }
+
+    /// A strong password for Settings' new or edited item, the generator AutoFill offers.
+    fn generate(&self, user: &User) -> Result<Answer, Reason> {
+        self.verified(user, |_| {
+            let password = oxyos_keychain::password::generate().map_err(|_| Reason::Failed)?;
+            Ok(Answer::GeneratedPassword(secret(&password)))
         })
         .map(|(_, answer)| answer)
     }
@@ -1719,6 +1770,11 @@ fn summary(id: &ItemId, item: &Item) -> ItemSummary {
         title,
         username,
         domains,
+        has_code: match &item.content {
+            Content::Login(login) => login.totp.is_some(),
+            Content::Totp(_) => true,
+            _ => false,
+        },
         modified_at: item.modified_at.clone(),
     }
 }
@@ -2063,6 +2119,10 @@ impl<V: VaultApi + 'static> Keychains for KeychainService<V> {
                 self.rekey(account, uid, &previous, &current)
             }
             Request::KeychainLeave {} => self.leave(account, uid),
+            Request::KeychainGenerate {} => self.generate(account),
+            Request::KeychainCode { item_id } => {
+                item(&item_id).and_then(|id| self.code(account, &id))
+            }
             _ => Err(Reason::NotPermitted),
         })
     }
