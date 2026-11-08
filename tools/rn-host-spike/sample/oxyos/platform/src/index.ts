@@ -17,6 +17,7 @@ import { createNotifications } from './notifications.ts';
 import { createPasteboard } from './pasteboard.ts';
 import { createSearch, type SearchModule } from './search.ts';
 import { createSession, type SystemModule } from './session.ts';
+import { createShell } from './shell.ts';
 import { createSounds } from './sounds.ts';
 
 export type { AccessToken, Account, AccountState, TokenReason } from './account.ts';
@@ -36,6 +37,7 @@ export type {
   TaggedItem,
   TrashedItem,
 } from './files.ts';
+export type { SystemSheet } from './shell.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
 export {
   MAX_NOTIFICATION_ACTIONS,
@@ -51,7 +53,8 @@ const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { a
 export const api: number = runtime?.getConstants().api ?? 0;
 
 /** The one connection to the session; the runtime's own (ADR 0058, decision 2), never a contract. */
-export const session = createSession(TurboModuleRegistry.get('OxyOSSystem') as SystemModule | null, DeviceEventEmitter);
+const system = TurboModuleRegistry.get('OxyOSSystem') as SystemModule | null;
+export const session = createSession(system, DeviceEventEmitter);
 
 const frameworks = createFrameworks(session);
 export const { network, bluetooth, power, audio, settings, store } = frameworks;
@@ -98,3 +101,10 @@ export const account = createAccount(
 
 /** The session's search index (docs/adr/0051-search.mdx). */
 export const search = createSearch(TurboModuleRegistry.get('OxyOSSearch') as SearchModule | null, DeviceEventEmitter);
+
+/** What only the session's shell does: the system's sheets, AutoFill's list, the emoji picker. */
+export const shell = createShell(
+  session,
+  system?.answerSheet ? (sheet, accepted) => system.answerSheet?.(sheet, accepted) : null,
+  DeviceEventEmitter,
+);

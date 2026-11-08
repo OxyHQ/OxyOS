@@ -10,14 +10,7 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
-import {
-  autofill as autofillApi,
-  inputSources,
-  useAutofillState,
-  useInputSourcesState,
-  useSystemSheets,
-} from './oxyos/system';
-import { audio, bluetooth, network, power } from '@oxyos/platform';
+import { audio, bluetooth, network, power, settings, shell as platformShell } from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
@@ -427,10 +420,14 @@ export function ShellSession() {
   );
 }
 
+/** No system sheet waiting (the shell's sheets before the session told any). */
+const NO_SHEETS: readonly { sheet: number; text: string }[] = [];
+
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
+  const sheets = useFollowed(platformShell.sheets) ?? NO_SHEETS;
+  const { answerSheet: answer, answerPassword, answerCode } = platformShell;
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useFollowed(network.wifi);
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -438,7 +435,7 @@ function SessionShell() {
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
   const bluetoothDevices = useFollowed(bluetooth.state);
   // The input sources as the session tells them (ADR 0041): the top bar's item.
-  const sources = useInputSourcesState();
+  const sources = useFollowed(settings.inputSources);
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
   const powerState = useFollowed(power.state) as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
   // One the shell cannot read is refused: it never confirms what it did not show.
@@ -772,10 +769,10 @@ function SessionShell() {
       },
       sources,
       selectSource: (id) => {
-        inputSources.select(id);
+        settings.selectInputSource(id).catch(() => {});
       },
       showEmoji: () => {
-        inputSources.showEmoji();
+        platformShell.showEmojiPicker().catch(() => {});
       },
       openKeyboardSettings: () => act.menuCommand('system.settings'),
     }),
@@ -805,12 +802,12 @@ function SessionShell() {
 
   // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
   // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
-  const autofillTold = useAutofillState();
+  const autofillTold = useFollowed(platformShell.autofill);
   const autofill: ShellAutofill = React.useMemo(
     () => ({
       list: readAutofill(autofillTold),
       choose: (index) => {
-        autofillApi.choose(index);
+        platformShell.chooseAutofill(index).catch(() => {});
       },
     }),
     [autofillTold],

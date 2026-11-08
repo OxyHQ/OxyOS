@@ -965,7 +965,7 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "OxyOSSystem") {
-    // Installing applications (sample/oxyos/system.js, docs/adr/0030-installing-applications.mdx):
+    // The session's vocabulary (the platform's `session`, docs/adr/0030-installing-applications.mdx):
     // a request of the session's vocabulary, answered by `OxyOSSystemAnswer`s naming its serial
     // (0: the update state, unasked); the shell's answer to a sheet (`OxyOSSheet`,
     // `OxyOSSheetDismissed`); a capability asked at first use, answered by

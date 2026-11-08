@@ -1,11 +1,11 @@
 // The store's installer on OxyOS (docs/adr/0030-installing-applications.mdx, decision 9): what
-// @oxy.so/core's `StoreInstaller` asks (oxy ADR 0053), answered by the session through
-// `OxyOSSystem` (oxyos/system.js) with the `store` and `updates` grants. The runtime registers it
-// in the application's own Oxy SDK (oxyos/store-registration.js), for an application the image's
-// policy gives `store` alone: Atlas. It is the store's hands, never its judge: it names a listing
-// by its slug, the install service resolves it from the store's signed metadata, the shell asks
-// the person in the system's sheet, and the session decides. Nothing here installs, verifies or
-// grants anything.
+// @oxy.so/core's `StoreInstaller` asks (oxy ADR 0053), answered by the session through the
+// platform's `store` and `settings` (`@oxyos/platform`) with the `store` and `updates` grants. The
+// runtime registers it in the application's own Oxy SDK (oxyos/store-registration.js), for an
+// application the image's policy gives `store` alone: Atlas. It is the store's hands, never its
+// judge: it names a listing by its slug, the install service resolves it from the store's signed
+// metadata, the shell asks the person in the system's sheet, and the session decides. Nothing here
+// installs, verifies or grants anything.
 import { application, settings, store } from '@oxyos/platform';
 
 /** The person's language, for the store's texts the machine keeps in several. */

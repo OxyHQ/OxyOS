@@ -33,11 +33,6 @@ import {
 } from '../../../apps/settings/src/wallpaper';
 import { useSessionLocale } from './oxyos/locale';
 import {
-  available,
-  session as systemSession,
-  useInputSourcesState,
-} from './oxyos/system';
-import {
   application,
   audio as platformAudio,
   bluetooth as platformBluetooth,
@@ -46,6 +41,8 @@ import {
   power as platformPower,
   settings as platformSettings,
 } from '@oxyos/platform';
+/** Whether the session can be asked here (a host in a session, with its connection). */
+const available = platformSettings.available;
 import { useFollowed } from '@oxyos/platform/react';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import {
@@ -902,7 +899,7 @@ function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: 
  * (none until it has); without one, the fixture's preferences with every input method installed.
  */
 function useInputSources(snapshot: SettingsSnapshot, session: boolean) {
-  const told = useInputSourcesState();
+  const told = useFollowed(platformSettings.inputSources);
   if (!session) {
     const { preferences, system } = snapshot;
     return inputSourcesOf(system.keyboardLayout, preferences.inputSources, preferences.inputSource, INPUT_METHODS);
@@ -1025,7 +1022,14 @@ const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOu
   return { failed: reason?.refused?.reason ?? reason?.failed?.reason ?? 'failed' };
 };
 const accountActions: AccountActions = {
-  signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
+  signOut: async () => {
+    try {
+      await platformSettings.signOut();
+      return { done: true };
+    } catch (error) {
+      return { failed: isPlatformError(error) ? (error.reason ?? error.code) : 'failed' };
+    }
+  },
   remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
   // The account's sign-in on this computer (docs/adr/0020-oxy-account-login.mdx decision 2): its
   // PIN and password, read and changed by the accounts' service; the secrets go to the host, which

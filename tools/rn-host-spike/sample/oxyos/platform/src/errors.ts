@@ -33,6 +33,7 @@ export type PlatformDomain =
   | 'power'
   | 'search'
   | 'settings'
+  | 'shell'
   | 'sounds'
   | 'store';
 

@@ -1,8 +1,6 @@
 // The one connection to the session's vocabulary (the Bloom host's `OxyOSSystem`): requests by
 // serial and their answers, and the state the session tells unasked as it changes. The frameworks
-// are written over it; it is the runtime's own, never a contract (ADR 0058, decision 2), and its
-// raw `request` is used outside the package only by `oxyos/system.js` until its last caller moves
-// (ADR 0058, step 9).
+// are written over it; it is the runtime's own, never a contract (ADR 0058, decision 2).
 import { followed, type Told } from './followed.ts';
 
 /** The host's module: a request, as the session's JSON, sent with a serial (0: not sent); a
@@ -11,6 +9,7 @@ export interface SystemModule {
   request(json: string): number;
   requestCapability?(capability: string): number;
   getLaunch?(): Launch | null;
+  answerSheet?(sheet: number, accepted: boolean): void;
 }
 
 /** What this launch may use (docs/adr/0030-installing-applications.mdx, decision 8), as the host
@@ -61,6 +60,9 @@ export interface Session {
   available: boolean;
   /** One request; its final answer, `{refused}` and `{failed}` among them (never a rejection). */
   request(body: Json, options?: RequestOptions): Promise<unknown>;
+  /** One request whose answer nobody waits for (a sheet's answer, which the session answers only
+      when it refuses it): whether it was sent. */
+  tell(body: Json): boolean;
   /**
    * Asks for a capability asked at first use (`notifications`, `files`, `camera`, `microphone`,
    * `location`; docs/adr/0030-installing-applications.mdx, decision 8): whether it is granted. The
@@ -78,7 +80,7 @@ export interface Session {
  * Each followed state asked for as it is first followed, by its key, and the request that asks
  * for it. The account's updates are not: asking for them asks the install service, which the
  * store's installer follows as it starts, and an install would wait behind it; they are asked by
- * the page that shows them (`settings.checkUpdates`, or `{state}` through system.js).
+ * the page that shows them (`settings.refreshUpdates`, `settings.checkUpdates`).
  */
 const ASKED_BY = {
   network: { networks: {} },
@@ -194,6 +196,14 @@ export function createSession(native: SystemModule | null | undefined, events: E
   return {
     available: Boolean(native),
     request,
+    tell: (body: Json) => {
+      if (!native) return false;
+      try {
+        return native.request(JSON.stringify(body)) !== 0;
+      } catch {
+        return false;
+      }
+    },
     requestCapability,
     launch: () => native?.getLaunch?.() ?? null,
     state,

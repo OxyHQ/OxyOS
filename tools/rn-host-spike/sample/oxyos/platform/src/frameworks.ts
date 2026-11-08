@@ -92,6 +92,9 @@ export function createFrameworks(session: Session) {
   /** The session's settings: updates (`updates`), input sources (`settings`), privacy (`privacy`). */
   const settings = {
     available,
+    /** Signs the person out (docs/adr/0020-oxy-account-login.mdx, decision 5), citing the press or
+        key that asked: the session ends, back to the login screen. `settings` grant. */
+    signOut: (options?: CallOptions) => st({ signOut: {} }, options),
     /** The account's updates (ADR 0030, decision 16). */
     updates: state.updateState as Followed<Json>,
     /** Asks for the updates' state, which then arrives in `updates` (not asked as it is first
