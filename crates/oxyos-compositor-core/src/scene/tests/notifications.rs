@@ -1016,6 +1016,100 @@ fn the_sessions_own_notification_is_a_system_applications_and_replaces_by_identi
     );
 }
 
+/// The session's own notification about an application (docs/adr/0061-crashes-and-resetting-an-
+/// application.mdx: it quit unexpectedly): shown as the application's, with its actions; pressed,
+/// the program running the compositor is told, once, and the application nothing; only the session
+/// and the shell withdraw it.
+#[test]
+fn the_sessions_own_notification_about_an_application_is_the_programs_to_act_on() {
+    let mut h = Harness::new();
+    h.scene.set_application(APP, ALLO);
+    h.clear_log();
+    let quit = "oxyos.quit-unexpectedly";
+    let number = h
+        .scene
+        .post_session_notification(
+            ALLO,
+            quit,
+            "Allo quit unexpectedly",
+            "",
+            &[("reopen", "Reopen"), ("report", "Report…")],
+        )
+        .unwrap();
+    h.pump();
+    let shell = told(&to(&h.log, SHELL));
+    let shown = &shell[&number];
+    assert_eq!(field(shown, NotificationField::Application, 0), Some(ALLO));
+    assert_eq!(
+        field(shown, NotificationField::Title, 0),
+        Some("Allo quit unexpectedly")
+    );
+    assert_eq!(
+        field(shown, NotificationField::ActionLabel, 1),
+        Some("Reopen")
+    );
+    assert_eq!(
+        field(shown, NotificationField::ActionLabel, 2),
+        Some("Report…")
+    );
+    assert_eq!(banner(shown), Some(true));
+    assert!(
+        told(&to(&h.log, APP)).is_empty(),
+        "the application is told nothing"
+    );
+    // The application withdrawing all of its own leaves it.
+    h.clear_log();
+    h.request(APP, Request::WithdrawNotification { notification: 0 })
+        .unwrap();
+    assert!(told(&to(&h.log, SHELL)).is_empty());
+    // An action pressed: the program is told, once; the application is given no response and is
+    // started for nothing.
+    let serial = shell_press(&mut h);
+    activate(&mut h, number, 2, serial);
+    assert_eq!(
+        h.scene.take_session_activations(),
+        [SessionActivation {
+            application: ALLO.into(),
+            identifier: quit.into(),
+            action: Some("report".into()),
+        }]
+    );
+    assert!(h.scene.take_session_activations().is_empty());
+    assert!(responses(&to(&h.log, APP)).is_empty());
+    assert!(h.scene.take_notification_launches().is_empty());
+    assert!(told(&to(&h.log, SHELL))[&number].removed);
+    // Another, pressed itself; and the session's withdrawing hers, the application's own staying
+    // until the application is reset.
+    let again = h
+        .scene
+        .post_session_notification(ALLO, quit, "Allo quit unexpectedly", "", &[])
+        .unwrap();
+    let serial = shell_press(&mut h);
+    activate(&mut h, again, 0, serial);
+    assert_eq!(
+        h.scene.take_session_activations(),
+        [SessionActivation {
+            application: ALLO.into(),
+            identifier: quit.into(),
+            action: None,
+        }]
+    );
+    let (own, _) = hello(&mut h, APP, 1);
+    let theirs = h
+        .scene
+        .post_session_notification(ALLO, quit, "Allo quit unexpectedly", "", &[])
+        .unwrap();
+    h.clear_log();
+    h.scene.withdraw_application_notifications(ALLO);
+    h.pump();
+    let gone = told(&to(&h.log, SHELL));
+    assert!(gone[&own].removed && !gone.contains_key(&theirs));
+    h.clear_log();
+    h.scene.withdraw_session_notification(ALLO, quit);
+    h.pump();
+    assert!(told(&to(&h.log, SHELL))[&theirs].removed);
+}
+
 #[test]
 fn the_sessions_own_notification_that_opens_a_url_opens_it_as_the_shells_once() {
     let mut h = Harness::new();

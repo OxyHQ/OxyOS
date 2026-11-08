@@ -103,6 +103,23 @@ pub fn status(pid: i32) -> io::Result<Status> {
     })
 }
 
+/// When `pid`'s process started, in clock ticks since boot (`/proc/<pid>/stat`'s 22nd field): with
+/// its pid, it names one process for the whole boot, since no two live at once with the same pid
+/// and a pid reused is a later start.
+pub fn started(pid: i32) -> io::Result<u64> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
+    // The command's name, in parentheses, may hold anything: the fields after it are counted
+    // from its last closing parenthesis (the 3rd field, the state, is the first after it).
+    let (_, after) = text
+        .rsplit_once(')')
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no command name"))?;
+    after
+        .split_whitespace()
+        .nth(22 - 3)
+        .and_then(|value| value.parse().ok())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no start time"))
+}
+
 /// What a program file is: its device and inode (what runs, not the path it was found by), its
 /// owner and its mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

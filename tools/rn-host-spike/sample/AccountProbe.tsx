@@ -52,6 +52,18 @@ export default function AccountProbe() {
     (listener) => host?.subscribe(listener) ?? (() => {}),
     () => host?.snapshot() ?? null,
   );
+  // How many times the session became unavailable while the application ran: a service restarting
+  // under it is never seen (scenarios/account-session-restart.json).
+  const [unavailable, setUnavailable] = React.useState(0);
+  React.useEffect(() => {
+    if (!host) return undefined;
+    let last = host.snapshot()?.status;
+    return host.subscribe(() => {
+      const now = host.snapshot()?.status;
+      if (now === 'unavailable' && last !== 'unavailable') setUnavailable((count) => count + 1);
+      last = now;
+    });
+  }, []);
   const [token, setToken] = React.useState('Token not asked');
   const ask = (reason: string) => {
     if (!host) return;
@@ -81,6 +93,7 @@ export default function AccountProbe() {
           />
         </>
       )}
+      {unavailable > 0 && <Row testID="account-interrupted" text={`Unavailable ${unavailable} times`} />}
       <Row testID="account-token-said" text={token} />
       <Pressable
         testID="account-token"

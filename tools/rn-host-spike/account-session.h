@@ -22,6 +22,7 @@
 #include <folly/dynamic.h>
 
 #include <array>
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <deque>
@@ -56,8 +57,13 @@ class AccountSession {
   // The snapshot, asked once, at once (the service answers from memory): null when it cannot be
   // asked or refused.
   static folly::dynamic snapshot();
-  // Follows the snapshot: `changed` on the JavaScript thread with each one, and once with null
-  // when the subscription ends (the service went away or refused). False if it could not start.
+  // Follows the snapshot: `changed` on the JavaScript thread with each one. When a subscription
+  // that was followed ends (the accounts' service restarted, then refuses this process until the
+  // session registers it again), or the service is not there, it is followed again by itself, after
+  // 0.5 s, then waits doubling to 30 s, for as long as the application runs; `changed` is told null
+  // once only if that has lasted more than a few seconds, so a service restarting under it is never
+  // seen. Refused from the start (a process the service does not know), `changed` is told null at
+  // once, and nothing is tried again by itself. False if it could not start.
   bool subscribe(std::function<void(const folly::dynamic& snapshot)> changed);
 
   // On the service's thread, answered on the JavaScript thread (`deliver`), in order.
@@ -91,6 +97,9 @@ class AccountSession {
   // Readable while answers wait; the subscription's (-1 without one).
   int fd() const { return wake_; }
   int subscriptionFd() const;
+  // When the loop must turn again to follow the snapshot again, or to say it ended: none while it
+  // is followed.
+  std::optional<std::chrono::steady_clock::time_point> nextDeadline() const;
 
  private:
   void work();
@@ -114,6 +123,17 @@ class AccountSession {
   // The credential held for the setup (device id, secret, account id): JavaScript thread only.
   std::shared_ptr<std::array<std::string, 3>> held_;
   std::function<void(const folly::dynamic&)> changed_;
+  // Following again after the subscription ended (JavaScript thread only): when next, how many
+  // tries since it was last followed, since when it is not, and whether null was told. Only a
+  // subscription that was followed once, or tried while the service was away, is followed again:
+  // one refused from the start is a process the service does not know.
+  void ended();
+  bool followed_ = false;
+  bool unreachable_ = false;
+  std::optional<std::chrono::steady_clock::time_point> resubscribeAt_;
+  int resubscribeTries_ = 0;
+  std::optional<std::chrono::steady_clock::time_point> endedAt_;
+  bool toldEnded_ = false;
 };
 
 }  // namespace oxyos

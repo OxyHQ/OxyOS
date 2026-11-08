@@ -1,0 +1,83 @@
+{
+  "about": "The accounts' service restarted under a running application, as a package upgrade restarts it (docs/adr/0020-oxy-account-login.mdx, decision 6): its subscription is closed under it and the service refuses it until the session has registered it again (regress.py's `account.later` restart, a second). The Bloom host follows the session again by itself (account-session.cpp), so the application never sees the session unavailable, and the snapshot it follows afterwards is the restarted service's (the account renamed meanwhile reaches it).",
+  "module": "AccountProbe",
+  "window": [
+    640,
+    420
+  ],
+  "app": {
+    "id": "so.oxy.accountprobe",
+    "title": "Account probe"
+  },
+  "account": {
+    "registered": [
+      "so.oxy.accountprobe"
+    ],
+    "later": [
+      {
+        "when_shown": "Token for so.oxy.accountprobe",
+        "restart": {
+          "refuse_for": 1000
+        }
+      },
+      {
+        "when_shown": "Token for so.oxy.accountprobe",
+        "snapshot": {
+          "account": {
+            "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+            "handle": "ada",
+            "displayName": "Ada King"
+          }
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "the platform's session, followed",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Host oxyos, contract 1",
+          "Status signed_in, online",
+          "Signed in as Ada Lovelace (@ada)"
+        ]
+      }
+    },
+    {
+      "name": "a token asked; then the service restarts under the application",
+      "do": [
+        "press_named",
+        "Ask for a token"
+      ],
+      "expect": {
+        "texts": [
+          "Token for so.oxy.accountprobe until 2026-11-06T12:05:00.000Z"
+        ]
+      }
+    },
+    {
+      "name": "followed again by itself: the restarted service's snapshot reaches it, and it never saw the session unavailable",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Status signed_in, online",
+          "Signed in as Ada King (@ada)"
+        ],
+        "absent": [
+          "Signed in as Ada Lovelace (@ada)",
+          "Unavailable",
+          "Status unavailable"
+        ]
+      }
+    }
+  ]
+}

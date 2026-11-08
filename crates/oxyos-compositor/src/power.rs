@@ -340,6 +340,9 @@ pub struct Power {
     stop: Arc<Stop>,
     threads: Vec<std::thread::JoinHandle<()>>,
     history: History,
+    /// The wall clock the history is recorded and charted on, in seconds since the epoch: the
+    /// system's, or a test's.
+    clock: fn() -> u64,
     meter: Meter,
     low_power: LowPower,
     /// When it began, for the samples' clock.
@@ -372,6 +375,15 @@ impl Power {
     pub fn new(
         address: Option<String>,
         history: Option<std::path::PathBuf>,
+    ) -> std::io::Result<Self> {
+        Self::with_clock(address, history, wall_now)
+    }
+
+    /// The same, its history on `clock`.
+    fn with_clock(
+        address: Option<String>,
+        history: Option<std::path::PathBuf>,
+        clock: fn() -> u64,
     ) -> std::io::Result<Self> {
         let (wake, woken) = UnixStream::pair()?;
         wake.set_nonblocking(true)?;
@@ -431,7 +443,8 @@ impl Power {
             woken,
             stop,
             threads,
-            history: History::open(history, wall_now()),
+            history: History::open(history, clock()),
+            clock,
             meter: Meter::default(),
             low_power: LowPower::default(),
             began: Instant::now(),
@@ -489,7 +502,7 @@ impl Power {
     ) {
         let mut buffer = [0u8; 64];
         while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
-        let now = wall_now();
+        let now = (self.clock)();
         if !self.started {
             self.started = true;
             self.history.record(now, Event::Session(true));
@@ -578,7 +591,7 @@ impl Power {
 
     /// The session ends: recorded, and power-saver released (the thread releases it as it ends).
     pub fn end(&mut self) {
-        self.history.record(wall_now(), Event::Session(false));
+        self.history.record((self.clock)(), Event::Session(false));
     }
 
     fn battery_is(
@@ -706,7 +719,7 @@ impl Power {
                 scene.system_text(client, serial, &self.state().to_string());
             }
             Ask::PowerHistory {} => {
-                let charts = self.history.charts(wall_now());
+                let charts = self.history.charts((self.clock)());
                 scene.system_text(
                     client,
                     serial,
