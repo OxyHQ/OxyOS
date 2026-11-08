@@ -12,7 +12,7 @@ default = ["http", "keychain", "local"]
 http = ["dep:ureq", "dep:url"]
 # The accounts' keychains (ADR 0050): the service's alone. The session program, the login program
 # and the client library speak the sockets' messages, which need none of it, and leave it out.
-keychain = ["http", "dep:oxyos-keychain", "dep:subtle"]
+keychain = ["http", "dep:oxyos-keychain", "dep:subtle", "dep:psl"]
 # The accounts' PINs (ADR 0020 decision 2): their verifiers, made and checked by the service alone.
 # The other programs speak the messages, which need none of it, and leave it out.
 local = ["dep:argon2", "dep:rand_core"]
@@ -26,6 +26,9 @@ oxyos-keychain = { path = "../oxyos-keychain", optional = true }
 oxyos-seqpacket = { path = "../oxyos-seqpacket" }
 # Comparing the password the machine learned with the one Settings gives, in constant time.
 subtle = { version = "2", optional = true }
+# Whether a relying party id is a registrable domain suffix of an application's web origin
+# (WebAuthn's rule), by the Public Suffix List.
+psl = { version = "2", optional = true }
 # HTTP to Oxy's API with TLS in Rust (rustls, verified against the system's certificates), as
 # `oxyos-net` uses it; no cookies, no redirects.
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"], optional = true }
@@ -46,6 +49,13 @@ oxyos-preferences = { path = "../oxyos-preferences" }
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 # The peer's pidfd (`SO_PEERPIDFD`), which rustix does not wrap: one getsockopt.
 libc = "0.2"
+
+[dev-dependencies]
+# The passkeys' registrations and assertions read and verified as a relying party would, by
+# implementations independent of the service's (ring's ECDSA, ciborium's CBOR reading).
+ring = "0.17.14"
+ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
+sha2 = "0.10.9"
 
 [lints.rust]
 # The workspace forbids `unsafe`. Reading the peer's pidfd needs one getsockopt, so this crate
