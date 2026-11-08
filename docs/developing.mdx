@@ -129,8 +129,9 @@ passwordless sudo and rustup's cargo.
 
 ## The gate's machine
 
-The **Scenarios** check runs on a self-hosted runner (label `oxyos-gate`) on a machine that also does
-other work, which keeps its priority. `tools/gate/machine.sh`, run as root on a Debian trixie machine,
+The **Scenarios** check runs on self-hosted runners on a machine that also does other work, which
+keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
+labelled `oxyos-merge` alone, so a merge never waits behind the pull requests' runs. `tools/gate/machine.sh`, run as root on a Debian trixie machine,
 prepares it, and running it again changes nothing that is already so:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;

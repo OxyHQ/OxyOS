@@ -24,7 +24,10 @@ jobs:
     # A fork's pull request does not run on the gate machine (its code would run there unreviewed):
     # the merge queue runs it once a maintainer queues it.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, oxyos-gate]
+    # The merge queue's runs on runners of their own (label oxyos-merge), the pull requests' on the
+    # others (oxyos-gate): a merge waits for the runs that merge, never behind the pull requests'
+    # (docs/developing.mdx, "The gate's machine").
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('["self-hosted", "oxyos-merge"]') || fromJSON('["self-hosted", "oxyos-gate"]') }}
     timeout-minutes: 150
     env:
       # Kept between runs, outside the checkout (cleaned for every run): the Cargo build. The rest
