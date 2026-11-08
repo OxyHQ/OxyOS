@@ -1,9 +1,8 @@
 // Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
 // and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), Bluetooth (`bluetooth`),
-// the shell's system sheets, and the capabilities an
-// application asks for at first use. The session decides; nothing here
-// grants anything. A request that changes anything cites the latest press, as the session requires.
+// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), the shell's system
+// sheets, and the capabilities an application asks for at first use. The session decides; nothing
+// here grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { session as connection } from '@oxyos/platform';
@@ -59,31 +58,6 @@ export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
 };
-
-/**
- * Bluetooth (docs/adr/0055-bluetooth.mdx): the shell (its `shell` grant) and Settings (the
- * `bluetooth` grant) ask the session, which alone speaks to BlueZ and is the machine's pairing
- * agent. The state is told as it changes; a connection is answered once it is done
- * (`{connected}`, `{paired}` or `{failed: {reason}}`), any code a pairing needs asked or shown in
- * the shell's system sheets on the way. Settings holds discovery while its Bluetooth page is open
- * (`discover(true)`, then `discover(false)`); the session ends it when Settings goes.
- */
-export const bluetooth = {
-  state: () => ask({ bluetooth: {} }),
-  setPower: (on) => ask({ bluetoothPower: { on } }),
-  discover: (on) => ask({ bluetoothDiscover: { on } }),
-  connect: (id) => ask({ bluetoothConnect: { id } }),
-  disconnect: (id) => ask({ bluetoothDisconnect: { id } }),
-  forget: (id) => ask({ bluetoothForget: { id } }),
-  rename: (id, name) => ask({ bluetoothRename: { id, name } }),
-  current: state.bluetooth.current,
-  subscribe: state.bluetooth.subscribe,
-};
-
-/** Bluetooth as it changes, for a view: asked once, then followed. */
-export function useBluetoothState() {
-  return useFollowed(bluetooth);
-}
 
 /**
  * Battery and energy (docs/adr/0057-battery-and-energy.mdx): the shell (its `shell` grant: the

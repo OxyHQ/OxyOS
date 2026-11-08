@@ -138,14 +138,14 @@ test("an unknown kind is drawn as a Bluetooth device", () => {
 });
 
 test("failures: known reasons kept, a refusal is not permitted, anything else failed", () => {
-  assert.equal(failureOf({ forgotten: { id: "A" } }), null);
-  assert.equal(failureOf({ renamed: { id: "A", name: "B" } }), null);
-  assert.equal(failureOf({ connected: { id: "A" } }), null);
-  assert.equal(failureOf({ paired: { id: "A" } }), null);
-  assert.equal(failureOf({ failed: { reason: "busy" } }), "busy");
-  assert.equal(failureOf({ failed: { reason: "rejected" } }), "rejected");
-  assert.equal(failureOf({ failed: { reason: "somethingNew" } }), "failed");
-  assert.equal(failureOf({ refused: { reason: "notPermitted" } }), "notPermitted");
+  // As the platform API rejects: a code, and the session's own reason when it said one.
+  assert.equal(failureOf({ code: "busy", reason: "busy" }), "busy");
+  assert.equal(failureOf({ code: "failed", reason: "rejected" }), "rejected");
+  assert.equal(failureOf({ code: "failed", reason: "somethingNew" }), "failed");
+  assert.equal(failureOf({ code: "notPermitted", reason: "notPermitted" }), "notPermitted");
+  assert.equal(failureOf({ code: "needsInput", reason: "needsInput" }), "notPermitted");
+  assert.equal(failureOf({ code: "cancelled" }), "cancelled");
+  assert.equal(failureOf(new Error("anything")), "failed");
   assert.equal(failureOf(null), "failed");
 });
 

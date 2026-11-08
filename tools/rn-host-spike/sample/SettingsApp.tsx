@@ -35,19 +35,17 @@ import { useSessionLocale } from './oxyos/locale';
 import {
   available,
   session as systemSession,
-  bluetooth as systemBluetooth,
   power as systemPower,
   privacy,
   sound as systemSound,
   updates as systemUpdates,
   followInputLevel,
   useInputSourcesState,
-  useBluetoothState,
   useSoundState,
   usePowerState,
   useUpdateState,
 } from './oxyos/system';
-import { network as platformNetwork } from '@oxyos/platform';
+import { bluetooth as platformBluetooth, network as platformNetwork } from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import {
@@ -61,7 +59,6 @@ import { localOutcomeFrom, localSignInFrom } from '../../../apps/settings/src/lo
 import type { NetworkActions, NetworkState } from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
-  BluetoothAnswer,
   BluetoothDevice,
   BluetoothState,
 } from '../../../apps/settings/src/bluetooth';
@@ -757,18 +754,32 @@ function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
  * connect, and a forget or a rename changes the list.
  */
 function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: BluetoothActions | undefined } {
-  const told: BluetoothState | null = useBluetoothState();
+  const told = useFollowed(platformBluetooth.state) as BluetoothState | null;
   const [fixture, setFixture] = React.useState(BLUETOOTH_FIXTURE);
   const current = React.useRef(fixture);
   current.current = fixture;
   const session = React.useMemo<BluetoothActions>(
     () => ({
-      setPower: (on) => systemBluetooth.setPower(on) as Promise<BluetoothAnswer>,
-      discover: (on) => systemBluetooth.discover(on) as Promise<BluetoothAnswer>,
-      connect: (id) => systemBluetooth.connect(id) as Promise<BluetoothAnswer>,
-      disconnect: (id) => systemBluetooth.disconnect(id) as Promise<BluetoothAnswer>,
-      forget: (id) => systemBluetooth.forget(id) as Promise<BluetoothAnswer>,
-      rename: (id, name) => systemBluetooth.rename(id, name) as Promise<BluetoothAnswer>,
+      setPower: async (on) => {
+        await platformBluetooth.setPower(on);
+      },
+      discover: async (on) => {
+        await platformBluetooth.discover(on);
+      },
+      connect: async (id) => {
+        await platformBluetooth.connect(id);
+      },
+      disconnect: async (id) => {
+        await platformBluetooth.disconnect(id);
+      },
+      forget: async (id) => {
+        await platformBluetooth.forget(id);
+      },
+      // The name it has then, as the session answers it (an empty one gives it back its own).
+      rename: async (id, name) => {
+        const answer = (await platformBluetooth.rename(id, name)) as { renamed?: { name?: string } };
+        return answer.renamed?.name ?? name;
+      },
     }),
     [],
   );
@@ -803,10 +814,9 @@ function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: 
               connected: powered && !!BLUETOOTH_PAIRED.find((p) => p.id === d.id)?.connected,
             })),
         }));
-        return { bluetooth: current.current };
       },
       discover: async (wanted) => {
-        if (!on()) return { failed: { reason: 'unavailable' } };
+        if (!on()) throw { code: 'failed', reason: 'unavailable' };
         setFixture((state) => ({
           ...state,
           adapter: state.adapter && { ...state.adapter, discovering: wanted, discoverable: wanted },
@@ -826,13 +836,12 @@ function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: 
               : state,
           );
         }
-        return { discovering: { on: wanted } };
       },
       connect: async (id) => {
         const device = find(id);
-        if (!device) return { failed: { reason: 'notFound' } };
-        if (!on()) return { failed: { reason: 'unavailable' } };
-        if (device.busy) return { failed: { reason: 'busy' } };
+        if (!device) throw { code: 'failed', reason: 'notFound' };
+        if (!on()) throw { code: 'failed', reason: 'unavailable' };
+        if (device.busy) throw { code: 'failed', reason: 'busy' };
         change(id, (d) => ({ ...d, busy: 'connecting' }));
         await later(1500);
         // A phone pairs with nothing to connect, as a Mac's does.
@@ -844,25 +853,22 @@ function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: 
           connected: !phone,
           battery: d.battery ?? (d.kind === 'speaker' ? 70 : null),
         }));
-        return phone ? { paired: { id } } : { connected: { id } };
       },
       disconnect: async (id) => {
-        if (!find(id)) return { failed: { reason: 'notFound' } };
+        if (!find(id)) throw { code: 'failed', reason: 'notFound' };
         change(id, (d) => ({ ...d, busy: 'disconnecting' }));
         await later(600);
         change(id, (d) => ({ ...d, busy: null, connected: false }));
-        return { disconnected: { id } };
       },
       forget: async (id) => {
-        if (!find(id)) return { failed: { reason: 'notFound' } };
+        if (!find(id)) throw { code: 'failed', reason: 'notFound' };
         setFixture((state) => ({ ...state, devices: state.devices.filter((d) => d.id !== id) }));
-        return { forgotten: { id } };
       },
       rename: async (id, typed) => {
-        if (!find(id)) return { failed: { reason: 'notFound' } };
+        if (!find(id)) throw { code: 'failed', reason: 'notFound' };
         const name = typed.trim() || BLUETOOTH_NAMES.get(id) || id;
         change(id, (d) => ({ ...d, name }));
-        return { renamed: { id, name } };
+        return name;
       },
     };
   }, []);

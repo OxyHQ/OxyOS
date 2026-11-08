@@ -11,19 +11,17 @@ import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import {
-  bluetooth,
   autofill as autofillApi,
   inputSources,
   power,
   sound as soundApi,
-  useBluetoothState,
   useAutofillState,
   useInputSourcesState,
   usePowerState,
   useSoundState,
   useSystemSheets,
 } from './oxyos/system';
-import { network } from '@oxyos/platform';
+import { bluetooth, network } from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
@@ -442,7 +440,7 @@ function SessionShell() {
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
   const sound = useSoundState();
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
-  const bluetoothDevices = useBluetoothState();
+  const bluetoothDevices = useFollowed(bluetooth.state);
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
@@ -712,13 +710,13 @@ function SessionShell() {
       // Settings at its Bluetooth page, a URL the shell opens as any other.
       bluetoothDevices,
       setBluetooth: (on) => {
-        bluetooth.setPower(on);
+        bluetooth.setPower(on).catch(() => {});
       },
       connectBluetooth: (id) => {
-        bluetooth.connect(id);
+        bluetooth.connect(id).catch(() => {});
       },
       disconnectBluetooth: (id) => {
-        bluetooth.disconnect(id);
+        bluetooth.disconnect(id).catch(() => {});
       },
       openBluetoothSettings: () => {
         shell.openUrl('oxyos-settings://bluetooth');

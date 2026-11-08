@@ -235,9 +235,10 @@ function DeviceSheet({
     if (!device) return;
     const name = renameTo(typed, device);
     if (name === null) return;
-    const answer = await act.rename(device.id, name);
-    if (answer && "renamed" in answer) setTyped(answer.renamed.name);
-    const reason = failureOf(answer);
+    const reason = await act.rename(device.id, name).then((renamed) => {
+      setTyped(renamed);
+      return null;
+    }, failureOf);
     if (failureNeedsNote("rename", reason)) {
       setTyped(device.name);
       onFailed(words.couldNotRename(device.name), reason);
@@ -350,9 +351,9 @@ export function BluetoothPage({ snapshot, actions, strings, locale }: Props) {
   // off; the session discovers (and is discoverable) meanwhile, and ends it if Settings quits.
   React.useEffect(() => {
     if (!on || !act) return;
-    void act.discover(true);
+    act.discover(true).catch(() => {});
     return () => {
-      void act.discover(false);
+      act.discover(false).catch(() => {});
     };
   }, [on, act]);
   // A device connected or disconnected is said once, as VoiceOver hears a Mac's: the button that
@@ -398,13 +399,13 @@ export function BluetoothPage({ snapshot, actions, strings, locale }: Props) {
   };
   // A connection's failure is the session's to say, in its own sheet.
   const connect = (device: BluetoothDevice) => {
-    void act.connect(device.id);
+    act.connect(device.id).catch(() => {});
   };
   const disconnect = (device: BluetoothDevice) => {
-    void act.disconnect(device.id);
+    act.disconnect(device.id).catch(() => {});
   };
   const forget = async (device: BluetoothDevice) => {
-    const reason = failureOf(await act.forget(device.id));
+    const reason = await act.forget(device.id).then(() => null, failureOf);
     if (failureNeedsNote("forget", reason)) say(words.couldNotForget(device.name), reason);
   };
   const footer = adapter.blocked
@@ -425,7 +426,7 @@ export function BluetoothPage({ snapshot, actions, strings, locale }: Props) {
                 checked={on}
                 disabled={adapter.blocked}
                 onCheckedChange={(checked) => {
-                  void act.setPower(checked);
+                  act.setPower(checked).catch(() => {});
                 }}
                 accessibilityLabel={words.bluetooth}
                 testID="bluetooth-switch"

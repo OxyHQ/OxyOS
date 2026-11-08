@@ -86,31 +86,26 @@ export type BluetoothFailure =
   | "notPermitted";
 
 /** The session's answer to a request (or its refusal, without the grant). */
-export type BluetoothAnswer =
-  | { bluetooth: BluetoothState }
-  | { discovering: { on: boolean } }
-  | { connected: { id: string } }
-  | { paired: { id: string } }
-  | { disconnected: { id: string } }
-  | { forgotten: { id: string } }
-  | { renamed: { id: string; name: string } }
-  | { failed: { reason: string } }
-  | { refused: { reason: string } };
+/**
+ * How a request fails: the platform API's error (`@oxyos/platform`'s PlatformError,
+ * docs/adr/0058-the-platform-api.mdx, decision 3), its code and the session's own reason.
+ */
+export type BluetoothRequestFailure = { code?: string; reason?: string };
 
 /**
  * Intents. The session answers each once it is done (a connection once paired and connected, the
  * pairing's sheets on the way); the state it then tells says what is so.
  */
 export type BluetoothActions = {
-  setPower: (on: boolean) => Promise<BluetoothAnswer>;
+  setPower: (on: boolean) => Promise<void>;
   /** Discovery held while the Bluetooth page is shown: on as it opens, off as it goes. */
-  discover: (on: boolean) => Promise<BluetoothAnswer>;
+  discover: (on: boolean) => Promise<void>;
   /** Pairs first when not paired, trusts it, connects. */
-  connect: (id: string) => Promise<BluetoothAnswer>;
-  disconnect: (id: string) => Promise<BluetoothAnswer>;
-  forget: (id: string) => Promise<BluetoothAnswer>;
-  /** An empty name gives it back its own. */
-  rename: (id: string, name: string) => Promise<BluetoothAnswer>;
+  connect: (id: string) => Promise<void>;
+  disconnect: (id: string) => Promise<void>;
+  forget: (id: string) => Promise<void>;
+  /** An empty name gives it back its own; resolves with the name it has then. */
+  rename: (id: string, name: string) => Promise<string>;
 };
 
 /** A kind the session named, as one of those Settings draws. */
@@ -198,12 +193,13 @@ export function renameTo(typed: string, device: Pick<BluetoothDevice, "name">): 
   return name === device.name ? null : name;
 }
 
-/** A failure's reason, known or not, as one of the session's; null when the answer is no failure. */
-export function failureOf(answer: BluetoothAnswer | null | undefined): BluetoothFailure | null {
-  if (!answer) return "failed";
-  if ("refused" in answer) return "notPermitted";
-  if (!("failed" in answer)) return null;
-  const reason = answer.failed.reason;
+/** The codes of a session's refusal (no grant, no input to cite, locked...): Settings may not. */
+const REFUSALS = new Set(["notPermitted", "needsInput", "locked", "invalid"]);
+
+/** A request's failure, known or not, as one of the session's: its own word where Settings knows
+    it, else its code, a refusal as not permitted. */
+export function failureOf(error: unknown): BluetoothFailure {
+  const { code, reason } = (error ?? {}) as BluetoothRequestFailure;
   const known: readonly BluetoothFailure[] = [
     "notFound",
     "unavailable",
@@ -214,12 +210,19 @@ export function failureOf(answer: BluetoothAnswer | null | undefined): Bluetooth
     "busy",
     "failed",
   ];
-  return (known as readonly string[]).includes(reason) ? (reason as BluetoothFailure) : "failed";
+  const isKnown = (word: string | undefined): word is BluetoothFailure =>
+    word !== undefined && (known as readonly string[]).includes(word);
+  if (isKnown(reason)) return reason;
+  if (code !== undefined && REFUSALS.has(code)) return "notPermitted";
+  return isKnown(code) ? code : "failed";
 }
 
 /** Whether Settings says a failure itself: a connection's (and pairing's) the session says in its
     own sheet, and a cancelled one needs no word; a forget's and a rename's are Settings' to say. */
-export function failureNeedsNote(asked: "connect" | "disconnect" | "forget" | "rename", reason: BluetoothFailure | null): boolean {
+export function failureNeedsNote(
+  asked: "connect" | "disconnect" | "forget" | "rename",
+  reason: BluetoothFailure | null,
+): reason is BluetoothFailure {
   if (reason === null || reason === "cancelled") return false;
   return asked === "forget" || asked === "rename";
 }
