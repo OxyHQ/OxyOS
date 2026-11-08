@@ -26,7 +26,19 @@
  },
  "steps": [
   {
-   "name": "Spotlight, from the sidebar: Search Privacy… and Rebuild Index… under the results' switches",
+   "name": "Settings, its sidebar",
+   "do": [
+    "wait_named",
+    [
+     "Spotlight",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Spotlight, from the sidebar: the page asks the search service its preferences and follows its state (the service started at the page's first question)",
    "do": [
     "a11y-action",
     [
@@ -34,11 +46,22 @@
      "Spotlight"
     ]
    ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the results' switches, Search Privacy… and Rebuild Index…",
+   "do": [
+    "wait_named",
+    [
+     "Rebuild Index…",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
    "expect": {
     "texts": [
-     "Search results",
-     "Search Privacy…",
-     "Rebuild Index…"
+     "Search results"
     ],
     "at": {
      "window": [
@@ -51,10 +74,28 @@
    }
   },
   {
-   "name": "the index's state, followed: the first crawl told as it ends",
+   "name": "scrolled down to the index's buttons and its state, under the switches",
+   "do": [
+    "scroll",
+    [
+     600,
+     400,
+     2000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Search Privacy…",
+     "Rebuild Index…"
+    ]
+   }
+  },
+  {
+   "name": "the index's state, followed: the first crawl told as it ended",
    "do": [
     "wait",
-    4000
+    10000
    ],
    "allow_unchanged": true,
    "expect": {
@@ -92,18 +133,30 @@
     "Cancel"
    ],
    "expect": {
-    "absent": [
-     "Rebuild the Spotlight index?"
-    ],
-    "texts_matching": [
-     "^\\d+ items indexed$"
-    ],
     "delivered": {
      "1": {
       "press": 1,
       "release": 1
      }
     }
+   },
+   "allow_unchanged": true
+  },
+  {
+   "name": "the dialog gone, the index as it was",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Rebuild the Spotlight index?"
+    ],
+    "texts_matching": [
+     "^\\d+ items indexed$"
+    ],
+    "delivered": {}
    }
   },
   {
@@ -132,9 +185,6 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "absent": [
-     "Rebuild the Spotlight index?"
-    ],
     "delivered": {
      "1": {
       "press": 1,
@@ -144,10 +194,24 @@
    }
   },
   {
+   "name": "the dialog gone; the service builds a new index beside the one answering",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Rebuild the Spotlight index?"
+    ],
+    "delivered": {}
+   }
+  },
+  {
    "name": "rebuilt: the new index answers, the page told what it holds, Rebuild Index… available again",
    "do": [
     "wait",
-    4000
+    15000
    ],
    "allow_unchanged": true,
    "expect": {
