@@ -170,6 +170,23 @@ void AccountSession::eraseAll(std::string password, Done done) {
       std::move(done));
 }
 
+void AccountSession::savePassword(std::string username, std::string password, std::string domain, Done done) {
+  auto secret = std::make_shared<std::array<std::string, 3>>(
+      std::array<std::string, 3>{std::move(username), std::move(password), std::move(domain)});
+  run(
+      [secret] {
+        std::string buffer(kMessage, '\0');
+        auto& [username, password, domain] = *secret;
+        auto answer = answered(oxyos_account_session_save_password(username.c_str(), password.c_str(),
+                                                                    domain.empty() ? nullptr : domain.c_str(),
+                                                                    buffer.data(), buffer.size()),
+                               buffer);
+        for (auto& text : *secret) forget(text);
+        return answer;
+      },
+      std::move(done));
+}
+
 void AccountSession::holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId) {
   if (held_) {
     for (auto& secret : *held_) forget(secret);

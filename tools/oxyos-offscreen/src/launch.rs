@@ -828,6 +828,11 @@ pub struct Launch {
     /// `--autofill-fixture ID`: AutoFill answered by the fixture keychain, its items associated
     /// with the application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
     pub autofill_fixture: Option<String>,
+    /// `--autofill-saves`: with `--autofill-fixture`, applications' requests to save a login are
+    /// asked of the person as the session asks them: told by the accounts' service at
+    /// `OXYOS_ACCOUNTD_SESSION_SOCKET` (a run's played one), asked in the shell's sheet, answered
+    /// back (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5).
+    pub autofill_saves: bool,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
@@ -955,7 +960,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1051,6 +1056,7 @@ impl Launch {
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
         let mut autofill_fixture = None;
+        let mut autofill_saves = false;
         let mut shell = None;
         let mut file_chooser = None;
         let mut companion = None;
@@ -1175,6 +1181,10 @@ impl Launch {
                 Some("--autofill-fixture") => {
                     let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     autofill_fixture = Some(id.to_string());
+                    continue;
+                }
+                Some("--autofill-saves") => {
+                    autofill_saves = true;
                     continue;
                 }
                 Some("--preferences") => {
@@ -1830,6 +1840,7 @@ impl Launch {
                 input_method,
                 im_candidates,
                 autofill_fixture,
+                autofill_saves,
                 shell,
                 file_chooser,
                 companion,
@@ -5177,9 +5188,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let keychain = std::rc::Rc::new(std::cell::RefCell::new(
             crate::autofill::FixtureKeychain::new(application.clone()),
         ));
-        session.autofill = Some(oxyos_compositor::autofill::Autofill::new(Box::new(
+        let mut autofill = oxyos_compositor::autofill::Autofill::new(Box::new(
             crate::autofill::Shared(keychain.clone()),
-        )));
+        ));
+        if launch.autofill_saves {
+            let socket = std::env::var_os("OXYOS_ACCOUNTD_SESSION_SOCKET")
+                .map(std::path::PathBuf::from)
+                .ok_or("--autofill-saves asks the service at OXYOS_ACCOUNTD_SESSION_SOCKET")?;
+            let saves = oxyos_account::keychain::SaveConfirmations::spawn(socket, |said| {
+                eprintln!("[offscreen] saving passwords: {said}")
+            })?;
+            let waker = saves.wake_fd()?;
+            session.autofill_saves_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+            session.compositor.wakers.push(waker);
+            autofill = autofill.with_saves(Box::new(crate::autofill::Saves(saves)));
+        }
+        session.autofill = Some(autofill);
         session.autofill_keychain = Some(keychain);
     }
     if let Some(methods) = &launch.input_sources_available {

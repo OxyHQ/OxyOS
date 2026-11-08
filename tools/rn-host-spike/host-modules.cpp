@@ -2258,6 +2258,57 @@ std::shared_ptr<TurboModule> createHostModule(
       return resolved(rt, jsi::valueFromDynamic(rt, state));
     });
     module->listeners();
+  } else if (name == "OxyOSKeychain") {
+    // The keychain (docs/adr/0050-keychain-autofill-and-passkeys.mdx), behind `@oxyos/platform`'s
+    // `keychain` (docs/adr/0058-the-platform-api.mdx): in an application the session launched
+    // (never the shell, never the login screen, never a process it did not start), `available`,
+    // and `savePassword(username, password, domain)` ("ask to save", decision 5): the accounts'
+    // service asks the person in the session's sheet and saves it only on their yes, a promise of
+    // {saved: {}}, {notSaved: {}}, {refused: {reason}}, or {failed: {reason}} when it could not
+    // be asked. The service knows the application by its launch: the host claims nothing. The
+    // password goes to the service and is forgotten here; nothing of it is logged.
+    bool available = services.application.recorded && !services.shellWindow;
+    module->constants(folly::dynamic::object("available", available));
+    module->method("savePassword", [&services, available, invoker](jsi::Runtime& rt, const jsi::Value* args,
+                                                                    size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString() ||
+          (count > 2 && !args[2].isString() && !args[2].isNull() && !args[2].isUndefined())) {
+        throw jsi::JSError(rt, "OxyOSKeychain.savePassword: a username, a password and a domain or null");
+      }
+      if (!available) {
+        return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                      "failed", folly::dynamic::object("reason", "unavailable"))));
+      }
+      std::string username = args[0].asString(rt).utf8(rt);
+      std::string password = args[1].asString(rt).utf8(rt);
+      std::string domain = count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : "";
+      auto run = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "settle"), 2,
+          [&services, invoker, username = std::move(username), password = std::move(password),
+           domain = std::move(domain)](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args,
+                                       size_t) mutable {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            if (!services.accountSession) services.accountSession = std::make_unique<AccountSession>();
+            services.accountSession->savePassword(
+                std::move(username), std::move(password), std::move(domain),
+                [invoker, resolve](AccountSession::Answer& answer) {
+                  auto json = std::make_shared<std::string>(answer.json.value_or(""));
+                  std::string error = answer.error;
+                  if (!answer.json) std::cerr << "[host] the keychain's save: " << error << "\n";
+                  invoker->invokeAsync([resolve, json, error](jsi::Runtime& rt) {
+                    jsi::Value value =
+                        json->empty()
+                            ? jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                            "failed", folly::dynamic::object("reason", error)))
+                            : jsi::Value::createFromJsonUtf8(rt, reinterpret_cast<const uint8_t*>(json->data()),
+                                                             json->size());
+                    resolve->asObject(rt).asFunction(rt).call(rt, value);
+                  });
+                });
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
+    });
   } else if (name == "OxyOSCrypto") {
     // expo-crypto (sample/oxyos/expo-adapter.js): the kernel's CSPRNG and digests in Rust
     // (oxyos-client-ffi): SHA-1, SHA-256, SHA-384 and SHA-512. Expo's MD2, MD4 and MD5 are not

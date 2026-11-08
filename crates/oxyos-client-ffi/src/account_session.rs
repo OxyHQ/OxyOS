@@ -7,7 +7,9 @@
 //!   session's snapshot, follows it, and asks for a short token for itself. Settings may ask the
 //!   service to remove its own account from the machine, or to erase the machine
 //!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)): what erasing would do, then the
-//!   erase itself with the administrator's password.
+//!   erase itself with the administrator's password. Any application may ask to save a login it
+//!   has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): the service
+//!   asks the person in the session's sheet, and saves it only on their yes.
 //! - **Setting an account up, for the login screen** (decision 4): the control socket's `platform`
 //!   (Oxy's API and OxyOS's public client id, which the SDK's sign-in runs with) and the `enroll`
 //!   conversation, a second factor answered on the same connection.
@@ -46,6 +48,10 @@ const ERASE_PREVIEW_WAIT: Duration = Duration::from_secs(10);
 /// armed by its unit, every account signed out online at once, each within the service's HTTP
 /// bounds (two calls of at most 30 s).
 const ERASE_WAIT: Duration = Duration::from_secs(180);
+/// How long a save may take: the person is asked in the session's sheet, for at most two minutes
+/// (`oxyos_account::session::SAVE_WAIT`), then the login is written to Oxy (two calls of at most
+/// 30 s).
+const SAVE_WAIT: Duration = Duration::from_secs(200);
 /// How long `platform` may take.
 const PLATFORM_WAIT: Duration = Duration::from_secs(5);
 /// How long a setup's turn may take: a sign-in online and the user made.
@@ -308,6 +314,48 @@ pub fn erase_all_at(socket: &Path, password: Secret) -> Result<EraseAnswer, Sess
             retry_after: retry_after.filter(|_| reason == session::Reason::Throttled),
         }),
         Ok(Some(_)) => Err(failed(socket, "not an answer to an erase")),
+        Ok(None) => Err(failed(socket, "it closed the connection")),
+        Err(error) => Err(failed(socket, error)),
+    }
+}
+
+/// What a request to save came to: saved on the person's yes, not saved (their no, no answer in
+/// time, the sheet not shown), or refused with the service's reason.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SaveAnswer {
+    Saved {},
+    NotSaved {},
+    Refused { reason: String },
+}
+
+/// Asks to save a login the calling application has just used: `username` and `password`, and the
+/// website it is for (`domain`, a host name). A refusal is an answer, not an error: the error is a
+/// service that could not be asked or answered something else.
+pub fn save_password_at(
+    socket: &Path,
+    username: Secret,
+    password: Secret,
+    domain: Option<String>,
+) -> Result<SaveAnswer, SessionError> {
+    let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
+    connection
+        .set_timeout(SAVE_WAIT)
+        .map_err(|error| failed(socket, error))?;
+    connection
+        .send(&session::Request::SavePassword {
+            username,
+            password,
+            domain,
+        })
+        .map_err(|error| failed(socket, error))?;
+    match connection.receive::<session::Answer>() {
+        Ok(Some(Some(session::Answer::Saved {}))) => Ok(SaveAnswer::Saved {}),
+        Ok(Some(Some(session::Answer::NotSaved {}))) => Ok(SaveAnswer::NotSaved {}),
+        Ok(Some(Some(session::Answer::Refused { reason, .. }))) => Ok(SaveAnswer::Refused {
+            reason: reason_name(&reason),
+        }),
+        Ok(Some(_)) => Err(failed(socket, "not an answer to a save")),
         Ok(None) => Err(failed(socket, "it closed the connection")),
         Err(error) => Err(failed(socket, error)),
     }
@@ -811,6 +859,56 @@ pub unsafe extern "C" fn oxyos_account_session_change_local(
             serde_json::to_string(&answer).map_err(|error| SessionError::Failed(error.to_string()))
         },
     ) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
+/// Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+/// decision 5): `username` and `password` (NUL-terminated UTF-8; the password secret, copied into a
+/// buffer this library overwrites: the caller overwrites its own) and the website it is for
+/// (`domain`, a host name, or null). The service asks the person in the session's sheet; blocks
+/// until they answer (at most two minutes) and the login is written: call it off the interface's
+/// thread. The answer as JSON: {"saved": {}}, {"notSaved": {}} (their no, no answer, the sheet not
+/// shown), or {"refused": {"reason"}} ("locked", "notMember": no keychain, "tooMany": one already
+/// waits, "unavailable": no session to ask in, "invalidRequest", "notPermitted", "offline", …). Its
+/// length (larger than `capacity`: nothing written, give OXYOS_ACCOUNT_MESSAGE_MAX bytes), or
+/// OXYOS_ERROR (`oxyos_last_error`: the service could not be asked or answered something else).
+///
+/// # Safety
+/// `username` and `password` are NUL-terminated strings valid for the call, `domain` one or null;
+/// `out` points to `capacity` writable bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_save_password(
+    username: *const c_char,
+    password: *const c_char,
+    domain: *const c_char,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let (Some(username), Some(password)) = (unsafe { secret_arg(username) }, unsafe {
+        secret_arg(password)
+    }) else {
+        return i64::from(fail("a save needs a username and a password"));
+    };
+    let domain = if domain.is_null() {
+        None
+    } else {
+        // SAFETY: the caller's contract.
+        match unsafe { text_arg(domain) } {
+            Some(domain) => Some(domain.to_owned()),
+            None => return i64::from(fail("a domain is UTF-8")),
+        }
+    };
+    match save_password_at(&session_socket(), username, password, domain).and_then(|answer| {
+        serde_json::to_string(&answer).map_err(|error| SessionError::Failed(error.to_string()))
+    }) {
         // SAFETY: the caller's contract.
         Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
         Err(error) => session_fail(error),
