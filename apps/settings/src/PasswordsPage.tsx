@@ -106,6 +106,42 @@ export function PasswordsPage({ actions, strings, locale }: Props) {
     setClosed(false);
     await refresh();
   }, [refresh]);
+  // The session's lock leaves no window active (docs/adr/0016-windows.mdx) and locks the keychain.
+  // Each time Settings' window stops being active the service is asked whether the keychain may
+  // stay open (at once and again a moment later, once the lock has reached it); each time it
+  // becomes active again nothing of the page shows, sheets included, until the service said so.
+  // Locked, or the proof gone with the lock (a PIN never opens it): every stage is made anew,
+  // forgetting what it held (a list, an item, a recovery key, a code, what was typed), and the
+  // account's password is asked again.
+  const [hidden, setHidden] = React.useState(false);
+  const [generation, setGeneration] = React.useState(0);
+  React.useEffect(() => {
+    if (!client?.watchActive) return;
+    let current = true;
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
+      const told = await asked(client.status());
+      if (!current) return;
+      const now = "ok" in told ? told.ok : null;
+      if (!staysOpen(now)) {
+        setClosed(true);
+        setGeneration((count) => count + 1);
+      }
+      setStatus(now);
+      setHidden(false);
+    };
+    const unsubscribe = client.watchActive((active) => {
+      if (again) clearTimeout(again);
+      if (active) setHidden(true);
+      void check();
+      if (!active) again = setTimeout(() => void check(), 2000);
+    });
+    return () => {
+      current = false;
+      if (again) clearTimeout(again);
+      unsubscribe();
+    };
+  }, [client]);
 
   if (!client || status === null) return <Note text={words.unavailable} testID="passwords-unavailable" />;
   if (status === undefined) {
@@ -118,31 +154,49 @@ export function PasswordsPage({ actions, strings, locale }: Props) {
   const common = { client, words, onChanged: refresh };
   const stage = stageOf(status);
   const gated = closed && !["unavailable", "locked", "needsPreviousPassword"].includes(stage);
-  switch (gated ? "gate" : stage) {
-    case "unavailable":
-      return <Note text={words.unavailable} testID="passwords-unavailable" />;
-    case "locked":
-      return <Note text={words.locked} testID="passwords-locked" />;
-    case "needsPreviousPassword":
-      return <PreviousPassword {...common} />;
-    case "gate":
-      return <Gate {...common} onChanged={verified} />;
-    case "turnOn":
-      return <TurnOn {...common} interrupted={false} />;
-    case "creating":
-      return <TurnOn {...common} interrupted />;
-    case "join":
-      return <Join {...common} note={null} />;
-    case "removed":
-      return <Join {...common} note={words.removed} />;
-    case "joining":
-      return <Joining {...common} />;
-    case "unbound":
-      return <Note text={words.unbound} testID="passwords-unbound" />;
-    case "open":
-      return <Browser {...common} onChanged={close} locale={locale} />;
-  }
+  const content = (() => {
+    switch (gated ? "gate" : stage) {
+      case "unavailable":
+        return <Note text={words.unavailable} testID="passwords-unavailable" />;
+      case "locked":
+        return <Note text={words.locked} testID="passwords-locked" />;
+      case "needsPreviousPassword":
+        return <PreviousPassword {...common} />;
+      case "gate":
+        return <Gate {...common} onChanged={verified} />;
+      case "turnOn":
+        return <TurnOn {...common} interrupted={false} />;
+      case "creating":
+        return <TurnOn {...common} interrupted />;
+      case "join":
+        return <Join {...common} note={null} />;
+      case "removed":
+        return <Join {...common} note={words.removed} />;
+      case "joining":
+        return <Joining {...common} />;
+      case "unbound":
+        return <Note text={words.unbound} testID="passwords-unbound" />;
+      case "open":
+        return <Browser {...common} onChanged={close} locale={locale} />;
+    }
+  })();
+  return (
+    <Hidden.Provider value={hidden}>
+      <View key={generation} style={hidden ? { display: "none" } : undefined}>
+        {content}
+      </View>
+      {hidden ? (
+        <View style={{ alignItems: "center", paddingVertical: 32 }} testID="passwords-checking">
+          <Loading size="sm" accessibilityLabel={words.title} />
+        </View>
+      ) : null}
+    </Hidden.Provider>
+  );
 }
+
+/** Whether the page is hidden while the service is asked whether the keychain may stay open: its
+    sheets are hidden with it (they are shown above the window, not inside the page). */
+const Hidden = React.createContext(false);
 
 /** A line of the page's own, said as it shows. */
 function Note({ text, testID }: { text: string; testID: string }) {
@@ -299,6 +353,7 @@ function Gate({ client, words, onChanged }: Common) {
 /** A password changed elsewhere (decision 2): the previous one re-seals the keybag, or the machine
     leaves the vault. Both passwords prove the person, so no gate comes first. */
 function PreviousPassword({ client, words, onChanged }: Common) {
+  const hidden = React.useContext(Hidden);
   const [previous, setPrevious] = React.useState("");
   const [current, setCurrent] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -365,7 +420,7 @@ function PreviousPassword({ client, words, onChanged }: Common) {
         {words.leave}
       </Button>
       <AlertDialog
-        open={leaving}
+        open={leaving && !hidden}
         onOpenChange={(open) => !open && setLeaving(false)}
         title={words.leaveTitle}
         description={words.leaveDescription}
@@ -385,6 +440,7 @@ function PreviousPassword({ client, words, onChanged }: Common) {
  * left) starts over with a new key: the one shown is gone.
  */
 function TurnOn({ client, words, onChanged, interrupted }: Common & { interrupted: boolean }) {
+  const hidden = React.useContext(Hidden);
   // The recovery key, while its sheet is open: shown, then asked back. Forgotten as it closes.
   const [key, setKey] = React.useState<string | null>(null);
   const [step, setStep] = React.useState<"show" | "confirm">("show");
@@ -546,7 +602,7 @@ function TurnOn({ client, words, onChanged, interrupted }: Common & { interrupte
       </Button>
       <Dialog
         key={opened}
-        open={key !== null}
+        open={key !== null && !hidden}
         onClose={close}
         title={sheet.title}
         description={sheet.description}
@@ -563,6 +619,7 @@ function TurnOn({ client, words, onChanged, interrupted }: Common & { interrupte
 
 /** Joining a vault the account has (decision 4): another device's approval, or the recovery key. */
 function Join({ client, words, onChanged, note }: Common & { note: string | null }) {
+  const hidden = React.useContext(Hidden);
   const [asking, setAsking] = React.useState(false);
   const [typed, setTyped] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -632,7 +689,7 @@ function Join({ client, words, onChanged, note }: Common & { note: string | null
       </GroupedSection>
       {!asking ? <ErrorLine text={error} testID="passwords-join-error" /> : null}
       <Dialog
-        open={asking}
+        open={asking && !hidden}
         onClose={close}
         title={words.joinWithRecoveryKey}
         description={words.joinWithRecoveryKeyHint}
@@ -814,26 +871,6 @@ function Browser({ client, words, onChanged, locale }: Common & { locale: string
   React.useEffect(() => {
     void load();
   }, [load]);
-  // The session's lock deactivates the window and locks the keychain: each time the window becomes
-  // active or stops being, the service is asked whether the keychain may stay open, and nothing of
-  // it is shown until it says so. Locked, unlocked with a PIN, or the proof gone with the lock: it
-  // closes, forgetting everything shown, and asks for the account's password again.
-  const [checking, setChecking] = React.useState(false);
-  React.useEffect(() => {
-    if (!client.watchActive) return;
-    let current = true;
-    const unsubscribe = client.watchActive(async () => {
-      setChecking(true);
-      const told = await asked(client.status());
-      if (!current) return;
-      if ("ok" in told && staysOpen(told.ok)) setChecking(false);
-      else lapse();
-    });
-    return () => {
-      current = false;
-      unsubscribe();
-    };
-  }, [client, lapse]);
   const open = (next: Sheet) => {
     touch();
     setOpened((count) => count + 1);
@@ -850,13 +887,6 @@ function Browser({ client, words, onChanged, locale }: Common & { locale: string
   }));
   const listed = items ? search(itemsIn(category, items, audit), query) : [];
   const listing = category !== "devices";
-  if (checking) {
-    return (
-      <View style={{ alignItems: "center", paddingVertical: 32 }} testID="passwords-checking">
-        <Loading size="sm" accessibilityLabel={words.title} />
-      </View>
-    );
-  }
   return (
     <View style={{ gap: 16 }} testID="passwords-open">
       <CategoryBar
@@ -1244,6 +1274,7 @@ function ItemSheet({
   onSheet: (sheet: Sheet | null) => void;
   onSaved: () => void;
 }) {
+  const hidden = React.useContext(Hidden);
   const [shown, setShown] = React.useState(false);
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -1425,11 +1456,10 @@ function ItemSheet({
           : []),
         { label: words.done, color: "default", onPress: close, testID: "passwords-detail-done" },
       ];
-  const hidden = words.hidden;
   const passwordRow = (password: string) => (
     <ValueRow
       title={words.password}
-      value={shown ? password : hidden}
+      value={shown ? password : words.hidden}
       monospace={shown}
       accessibilityLabel={shown ? `${words.password}, ${password}` : `${words.password}, ${words.hiddenLabel}`}
       testID="passwords-detail-password"
@@ -1617,7 +1647,7 @@ function ItemSheet({
   return (
     <>
       <Dialog
-        open={sheet !== null && deleting === null}
+        open={sheet !== null && deleting === null && !hidden}
         onClose={close}
         title={title}
         label={title}
@@ -1629,7 +1659,7 @@ function ItemSheet({
         {editing ? editor : detail}
       </Dialog>
       <AlertDialog
-        open={deleting === "asking"}
+        open={deleting === "asking" && !hidden}
         onOpenChange={(open) => !open && setDeleting((now) => (now === "asking" ? null : now))}
         title={words.deleteTitle(item ? titleOf(item) : "")}
         description={words.deleteDescription}
@@ -1685,6 +1715,7 @@ function Devices({
   touch: () => void;
   settle: (outcome: Refused) => boolean;
 }) {
+  const hidden = React.useContext(Hidden);
   const [members, setMembers] = React.useState<Member[] | null>(null);
   const [pending, setPending] = React.useState<Enrollment[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -1789,7 +1820,7 @@ function Devices({
       </GroupedSection>
       <ErrorLine text={error} testID="passwords-devices-error" />
       <AlertDialog
-        open={removing !== null}
+        open={removing !== null && !hidden}
         onOpenChange={(open) => !open && setRemoving(null)}
         title={words.removeDeviceTitle(removing?.name ?? "")}
         description={words.removeDeviceDescription}
@@ -1841,6 +1872,7 @@ function ApproveSheet({
   settle: (outcome: Refused) => boolean;
   onDone: () => void;
 }) {
+  const hidden = React.useContext(Hidden);
   const [code, setCode] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(false);
@@ -1892,7 +1924,7 @@ function ApproveSheet({
   };
   return (
     <Dialog
-      open
+      open={!hidden}
       onClose={onDone}
       title={words.approveTitle(name)}
       description={code ? words.approveDescription(name) : words.approveWaiting}

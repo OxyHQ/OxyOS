@@ -569,10 +569,11 @@ export function stageOf(status: KeychainStatus | null): Stage {
   }
 }
 
-/** Whether the keychain, as the service tells it now, may stay open in the page: a member's, the
-    person verified. Anything else (locked with the session, the proof lapsed) closes it. */
+/** Whether what the page shows may stay, as the service tells the keychain now: unlocked and the
+    person verified. Anything else (locked with the session, the proof gone with the lock) makes
+    the page anew and asks for the password. */
 export function staysOpen(status: KeychainStatus | null): boolean {
-  return status !== null && status.state === "member" && status.verified;
+  return status !== null && status.state !== "locked" && status.state !== "needsPreviousPassword" && status.verified;
 }
 
 /** Whether a refusal means the page must be opened again: the proof lapsed, or the session

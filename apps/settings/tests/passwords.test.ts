@@ -213,6 +213,9 @@ test("the page opens behind the password, but for a locked keychain and a lost p
   assert.equal(stageOf(status("member", true)), "open");
   // Asked again as the window's activation changes (the lock): open only while verified.
   assert.equal(staysOpen(status("member", true)), true);
+  assert.equal(staysOpen(status("creating", true)), true);
+  assert.equal(staysOpen(status("off", false, false)), false);
+  assert.equal(staysOpen(status("needsPreviousPassword", false)), false);
   assert.equal(staysOpen(status("member", false)), false);
   assert.equal(staysOpen(status("locked", false, null)), false);
   assert.equal(staysOpen(null), false);
