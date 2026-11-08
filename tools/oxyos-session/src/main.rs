@@ -891,9 +891,10 @@ fn main() -> Result<()> {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
-        // The URLs the shell opens (docs/adr/0034-the-dock.mdx): the application whose entry
-        // declares the scheme, started with the URL; only for the person's own input, and none
-        // from the login screen.
+        // The URLs the shell and applications open (docs/adr/0034-the-dock.mdx,
+        // docs/adr/0058-the-platform-api.mdx step 6): the application whose entry declares the
+        // scheme, started with the URL; only for the person's own input, and none from the login
+        // screen.
         for request in compositor.scene.take_url_requests() {
             let opened = !greeter
                 && request.with_input
