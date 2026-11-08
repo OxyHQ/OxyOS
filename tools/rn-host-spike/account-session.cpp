@@ -178,6 +178,18 @@ void AccountSession::eraseAll(std::string password, Done done) {
       std::move(done));
 }
 
+void AccountSession::keychain(std::string request, Done done) {
+  auto secret = std::make_shared<std::string>(std::move(request));
+  run(
+      [secret] {
+        std::string buffer(kMessage, '\0');
+        auto answer = answered(oxyos_account_session_keychain(secret->c_str(), buffer.data(), buffer.size()), buffer);
+        forget(*secret);
+        return answer;
+      },
+      std::move(done));
+}
+
 void AccountSession::savePassword(std::string username, std::string password, std::string domain, Done done) {
   auto secret = std::make_shared<std::array<std::string, 3>>(
       std::array<std::string, 3>{std::move(username), std::move(password), std::move(domain)});
@@ -331,6 +343,16 @@ void AccountSession::reportStages(Stage stage) {
   currentReport = stage ? std::make_unique<StageReport>(StageReport{this, std::move(stage)}) : nullptr;
   oxyos_account_enrollment_on_progress(enrollment_, currentReport ? &AccountSession::reported : nullptr,
                                        currentReport.get());
+  // A wait is told for every call that reports, by the session's own handler.
+  oxyos_account_enrollment_on_waiting(enrollment_, currentReport && waiting_ ? &AccountSession::waited : nullptr,
+                                      currentReport.get());
+}
+
+void AccountSession::waited(void* context, uint64_t seconds) {
+  auto* report = static_cast<StageReport*>(context);
+  if (!report || !report->session->waiting_) return;
+  auto told = report->session->waiting_;
+  report->session->post(Answer{}, [told, seconds](Answer&) { told(seconds); });
 }
 
 void AccountSession::reported(void* context, const char* stage) {

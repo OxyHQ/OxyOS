@@ -69,11 +69,36 @@ export const APPEARANCES: readonly Appearance[] = ["light", "dark", "auto"];
 /**
  * The stages the accounts' service reports as it sets the account up, in its order (any skipped
  * where it has nothing to do: `securing`, the PIN's verifier, without a PIN; a retry with what the
- * service kept starts at `preparing`), and the last, the login screen's own: the new account's
- * desktop opening, signed in with what was just chosen.
+ * service kept starts at `preparing`, or at `confirming` when only Oxy's confirmation of the
+ * credential was missing, oxy ADR 0058 R8), and the last, the login screen's own: the new
+ * account's desktop opening, signed in with what was just chosen.
  */
-export const SETUP_STAGES = ["securing", "verifying", "preparing", "signingIn", "finishing", "starting"] as const;
+export const SETUP_STAGES = [
+  "securing",
+  "verifying",
+  "preparing",
+  "signingIn",
+  "finishing",
+  "confirming",
+  "starting",
+] as const;
 export type SetupStage = (typeof SETUP_STAGES)[number];
+
+/** The longest wait the screen takes as one: the QR's sign-in is good for ten minutes, and the
+    service never waits past it (it says to sign in again instead). */
+export const MAX_WAIT_SECONDS = 600;
+
+/** A wait the accounts' service told (`{"waiting": {"retryAfterSeconds"}}`), as the time it ends;
+    null for anything that is not one. */
+export function waitFrom(told: unknown, now: number): number | null {
+  if (typeof told !== "number" || !Number.isFinite(told) || told < 0 || told > MAX_WAIT_SECONDS) return null;
+  return now + Math.ceil(told) * 1000;
+}
+
+/** The whole seconds left of a wait, as it is said: never below one while it lasts. */
+export function secondsLeft(until: number, now: number): number {
+  return Math.max(1, Math.ceil((until - now) / 1000));
+}
 
 /** A stage as the platform reports it: anything else is none (the progress does not move). */
 export function stageFrom(told: unknown): SetupStage | null {
@@ -115,8 +140,16 @@ export type SetupStep =
       was not taken. */
   | { step: "pin"; account: SignedInAccount; first?: string; problem?: "mismatch" | "unusable" }
   | { step: "appearance"; account: SignedInAccount }
-  /** The accounts' service at work: the stage it last reported, or why it stopped. */
-  | { step: "settingUp"; account: SignedInAccount; stage: SetupStage | null; problem?: SetupProblem }
+  /** The accounts' service at work: the stage it last reported, or why it stopped. `waitUntil`:
+      Oxy asked the service to wait before asking again (a 429 on the redemption, oxy ADR 0058),
+      the time (ms since the epoch) it goes on by itself; nothing has failed. */
+  | {
+      step: "settingUp";
+      account: SignedInAccount;
+      stage: SetupStage | null;
+      problem?: SetupProblem;
+      waitUntil?: number;
+    }
   | { step: "secondFactor"; account: SignedInAccount; invalid: boolean }
   /** Set up: the new account signing in with what was chosen; `accepted` once the login program
       took it, its desktop taking the screen. */
