@@ -94,6 +94,9 @@ export function createFrameworks(session: Session) {
     available,
     /** The account's updates (ADR 0030, decision 16). */
     updates: state.updateState as Followed<Json>,
+    /** Asks for the updates' state, which then arrives in `updates` (not asked as it is first
+        followed: asking asks the install service, which an install would wait behind). */
+    refreshUpdates: (options?: CallOptions) => st({ state: {} }, options),
     checkUpdates: (options?: CallOptions) => st({ check: {} }, options),
     update: (ids: string[], options?: CallOptions) => st({ update: { ids } }, options),
     updateAll: (options?: CallOptions) => st({ updateAll: {} }, options),

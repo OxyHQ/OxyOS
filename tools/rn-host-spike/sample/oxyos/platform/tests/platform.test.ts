@@ -68,6 +68,8 @@ test('a call is the wire request, and resolves with what succeeded', async () =>
   assert.deepEqual(sent.at(-1)?.body, { soundVolume: { direction: 'output', volume: 0.5 } });
   void platform.bluetooth.connect('dev');
   assert.deepEqual(sent.at(-1)?.body, { bluetoothConnect: { id: 'dev' } });
+  void platform.settings.refreshUpdates();
+  assert.deepEqual(sent.at(-1)?.body, { state: {} });
 });
 
 test('a refusal or a failure rejects with a PlatformError of its framework, never resolves', async () => {

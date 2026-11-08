@@ -1,6 +1,6 @@
 // Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
 // and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), Settings' Software Update (`updates`) and Privacy (`privacy`), the shell's system
+// grant), the account's updates (`updates`), the shell's system
 // sheets, and the capabilities an application asks for at first use. The session decides; nothing
 // here grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
@@ -53,12 +53,6 @@ export const session = {
   signOut: () => ask({ signOut: {} }),
 };
 
-/** The account's decisions on its applications' capabilities: `privacy` grant. */
-export const privacy = {
-  list: () => ask({ privacy: {} }),
-  decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
-};
-
 /**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): the session tells Settings (its
  * `settings` grant) and the shell the sources in effect and the input methods its engine has, as
@@ -96,15 +90,6 @@ export const autofill = {
 /** AutoFill's list as the session tells it, for a view (told unasked, never asked for). */
 export function useAutofillState() {
   return React.useSyncExternalStore(autofill.subscribe, autofill.current);
-}
-
-/** The update state as it changes, for a page: asked once, then followed. */
-export function useUpdateState() {
-  const state = useFollowed(updates);
-  React.useEffect(() => {
-    updates.state();
-  }, []);
-  return state;
 }
 
 /** What this launch may use: `{origin, capabilities, narrowed}` (an installed version is narrowed

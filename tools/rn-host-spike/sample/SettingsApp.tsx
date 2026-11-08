@@ -35,16 +35,15 @@ import { useSessionLocale } from './oxyos/locale';
 import {
   available,
   session as systemSession,
-  privacy,
-  updates as systemUpdates,
   useInputSourcesState,
-  useUpdateState,
 } from './oxyos/system';
 import {
   audio as platformAudio,
   bluetooth as platformBluetooth,
+  isPlatformError,
   network as platformNetwork,
   power as platformPower,
+  settings as platformSettings,
 } from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
@@ -460,18 +459,25 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
  * install updates with apt: no OxyOS install updates otherwise until ADR 0023's image updates exist.
  */
 function useInstallModel() {
-  const state = useUpdateState();
+  const state = useFollowed(platformSettings.updates);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Without the `updates` grant the session refuses: the page says updates are not available here.
   const [updatesAllowed, setUpdatesAllowed] = React.useState(available);
   React.useEffect(() => {
-    if (available) systemUpdates.state().then((answer: any) => answer?.refused && setUpdatesAllowed(false));
+    if (!available) return;
+    platformSettings.refreshUpdates().catch((error) => {
+      if (isPlatformError(error, 'notPermitted')) setUpdatesAllowed(false);
+    });
   }, []);
   const [apps, setApps] = React.useState<PrivacyApplication[] | null | undefined>(available ? null : undefined);
+  // Without the `privacy` grant the session refuses: the page shows no applications' decisions.
   const reload = React.useCallback(async () => {
-    const answer = await privacy.list();
-    if (answer && Array.isArray(answer.privacy)) setApps(answer.privacy);
-    else if (answer && answer.refused) setApps(undefined);
+    try {
+      const answer = await platformSettings.privacy();
+      if (Array.isArray(answer.privacy)) setApps(answer.privacy as PrivacyApplication[]);
+    } catch (error) {
+      if (isPlatformError(error, 'notPermitted')) setApps(undefined);
+    }
   }, []);
   React.useEffect(() => {
     if (available) reload();
@@ -479,24 +485,35 @@ function useInstallModel() {
   React.useEffect(() => {
     if (available && state) reload();
   }, [state, reload]);
-  const done = (answer: { refused?: { reason: string }; failed?: { reason: string } } | null) =>
-    setFailed(answer?.refused?.reason ?? answer?.failed?.reason ?? null);
+  // A failure is said by the session's own word (its reason), else the platform's code.
+  const failure = (error: unknown) => {
+    const { code, reason } = (error ?? {}) as { code?: string; reason?: string };
+    setFailed(reason ?? code ?? 'failed');
+  };
   // An update answers once it ended, with each application's outcome.
-  const outcomes = (answer: any): UpdateOutcome[] => {
-    done(answer);
-    return Array.isArray(answer?.updated) ? answer.updated : [];
+  const outcomes = (answer: { updated?: unknown }): UpdateOutcome[] => {
+    setFailed(null);
+    return Array.isArray(answer.updated) ? (answer.updated as UpdateOutcome[]) : [];
+  };
+  const none = (error: unknown): UpdateOutcome[] => {
+    failure(error);
+    return [];
   };
   const updates: UpdatesActions = {
-    checkForUpdates: () => systemUpdates.check().then(done),
-    update: (id) => systemUpdates.update([id]).then(outcomes),
-    updateAll: () => systemUpdates.updateAll().then(outcomes),
+    checkForUpdates: () => platformSettings.checkUpdates().then(() => setFailed(null), failure),
+    update: (id) => platformSettings.update([id]).then(outcomes, none),
+    updateAll: () => platformSettings.updateAll().then(outcomes, none),
   };
   return {
     updates: updatesAllowed ? { system: { kind: 'apt' as const }, state, failed } : undefined,
     updatesActions: updatesAllowed ? updates : undefined,
     privacy: apps,
     privacyActions: available
-      ? { decide: (id: string, capability: string, granted: boolean) => privacy.decide(id, capability, granted).then(reload) }
+      ? {
+          // Asked again either way: a decision refused shows as it stays.
+          decide: (id: string, capability: string, granted: boolean) =>
+            platformSettings.decide(id, capability, granted).then(reload, reload),
+        }
       : undefined,
   };
 }
