@@ -769,12 +769,17 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value::undefined();
     });
     // The password reaches the compositor and the session, nothing else: never logged or reported.
-    // At the login screen, with the account it is for.
+    // At the login screen, with the account it is for. `{passcode: true}` third: it is the
+    // account's PIN for this computer (docs/adr/0020-oxy-account-login.mdx decision 2), checked as
+    // a PIN, never as the password; false when the compositor takes no PIN (protocol 32).
     module->method("authenticate", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSShell.authenticate: a password");
       std::string account = count > 1 && args[1].isString() ? args[1].asString(rt).utf8(rt) : "";
-      return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt), account));
+      bool passcode = count > 2 && args[2].isObject() &&
+                      args[2].asObject(rt).getProperty(rt, "passcode").isBool() &&
+                      args[2].asObject(rt).getProperty(rt, "passcode").getBool();
+      return jsi::Value(services.shell.authenticate(args[0].asString(rt).utf8(rt), account, passcode));
     });
     // The enrolled accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service,
     // which answers only the login screen's user: [{ user, name, picture }], or null when they
@@ -1885,9 +1890,16 @@ std::shared_ptr<TurboModule> createHostModule(
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
     //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
     //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
-    //   person gives the password again, then `secondFactor(code)` while asked, each a promise of
-    //   the service's answer ({failed} when it could not be asked); `endEnrollment()` forgets it
-    //   all. The secrets go to the service and are forgotten here; nothing of them is logged.
+    //   person gives the password again (null: the account has none) and chooses a PIN for this
+    //   computer (`enroll(password, pin)`; null for none), then `secondFactor(code)` while asked,
+    //   each a promise of the service's answer ({failed} when it could not be asked);
+    //   `endEnrollment()` forgets it all. The secrets go to the service and are forgotten here;
+    //   nothing of them is logged.
+    // - The account's local sign-in (docs/adr/0020-oxy-account-login.mdx decision 2):
+    //   `localSignIn()`, a promise of {pin: "none" | "set" | "locked", password} (Settings, and the
+    //   shell's lock screen: the service answers system applications alone), and Settings'
+    //   `changeLocal(change, {pin, password, currentPin})`, a promise of {localSignIn} or {refused:
+    //   {reason, retryAfter?}}.
     bool available = services.application.recorded && !services.shellWindow;
     bool setup = services.shellWindow;
     module->constants(folly::dynamic::object("available", available)("setup", setup));
@@ -1968,6 +1980,34 @@ std::shared_ptr<TurboModule> createHostModule(
         session().eraseAll(std::move(password), settle(resolve, "erase", false));
       });
     });
+    module->method("localSignIn", [available, setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value*,
+                                                                                size_t) {
+      if (!available && !setup) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                         "failed", folly::dynamic::object("reason", "unavailable"))));
+      return promise(rt, [session, settle](std::shared_ptr<jsi::Value> resolve) {
+        session().localSignIn(settle(resolve, "local sign-in", false));
+      });
+    });
+    // The secrets go to the service and are forgotten here; nothing of them is logged.
+    module->method("changeLocal", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
+                                                                        size_t count) {
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.changeLocal: a change");
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      auto text = [&rt, args, count](const char* name) {
+        if (count < 2 || !args[1].isObject()) return std::string();
+        auto value = args[1].asObject(rt).getProperty(rt, name);
+        return value.isString() ? value.asString(rt).utf8(rt) : std::string();
+      };
+      std::string change = args[0].asString(rt).utf8(rt);
+      std::string pin = text("pin"), password = text("password"), currentPin = text("currentPin");
+      return promise(rt, [session, settle, change = std::move(change), pin = std::move(pin),
+                          password = std::move(password),
+                          currentPin = std::move(currentPin)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().changeLocal(std::move(change), std::move(pin), std::move(password), std::move(currentPin),
+                              settle(resolve, "local sign-in", false));
+      });
+    });
     // The SDK's `request('sign_in')`: the session locks, and unlocking checks the password with
     // Oxy online; only while the application's window is the active one. False if not asked.
     module->method("lockSession", [&services, available](jsi::Runtime&, const jsi::Value*, size_t) {
@@ -1990,10 +2030,16 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->method("enroll", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: only the login screen sets accounts up");
-      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: the password");
-      std::string password = args[0].asString(rt).utf8(rt);
-      return promise(rt, [session, settle, password = std::move(password)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().enroll(std::move(password), settle(resolve, "setup", false));
+      bool hasPassword = count > 0 && args[0].isString();
+      bool hasPin = count > 1 && args[1].isString();
+      if (!hasPassword && !hasPin) {
+        throw jsi::JSError(rt, "OxyOSAccountSession.enroll: the password, a PIN, or both");
+      }
+      std::string password = hasPassword ? args[0].asString(rt).utf8(rt) : "";
+      std::string pin = hasPin ? args[1].asString(rt).utf8(rt) : "";
+      return promise(rt, [session, settle, password = std::move(password),
+                          pin = std::move(pin)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().enroll(std::move(password), std::move(pin), settle(resolve, "setup", false));
       });
     });
     module->method("secondFactor", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,

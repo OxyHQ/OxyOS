@@ -463,8 +463,22 @@ impl Gpu {
         unsafe {
             let image = device.create_image(&info, None)?;
             let requirements = device.get_image_memory_requirements(image);
-            let Some(kind) = (0..self.memory.memory_type_count)
-                .find(|index| requirements.memory_type_bits & (1 << index) != 0)
+            // A buffer offered in linear alone is one the compositor reads on the CPU too (it offers
+            // only linear when it composes on the CPU): memory the CPU can map, where the image may
+            // have some. The first type the image allows is the device's own, which amdgpu refuses
+            // to map when it was allocated without the CPU's access.
+            let allowed = |flags: vk::MemoryPropertyFlags| {
+                (0..self.memory.memory_type_count).find(|&index| {
+                    requirements.memory_type_bits & (1 << index) != 0
+                        && self.memory.memory_types[index as usize]
+                            .property_flags
+                            .contains(flags)
+                })
+            };
+            let Some(kind) = (modifiers == [super::LINEAR])
+                .then(|| allowed(vk::MemoryPropertyFlags::HOST_VISIBLE))
+                .flatten()
+                .or_else(|| allowed(vk::MemoryPropertyFlags::empty()))
             else {
                 device.destroy_image(image, None);
                 return Err(Error("no memory type for the image".into()));

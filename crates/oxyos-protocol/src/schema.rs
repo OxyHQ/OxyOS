@@ -258,6 +258,10 @@ messages! {
         // without it the password is the session's own user's. The authentication path decides
         // what it may check; a session checks only its own user's.
         100 => AuthenticateAccount { surface: u32, user: PreeditText },
+        // A lock surface's next password is the account's PIN for this computer (ADR 0020
+        // decision 2, version 32), given before its chunks while locked: the authentication path
+        // checks it as a PIN (its own PAM service), never as the password and never online.
+        101 => AuthenticatePasscode { surface: u32 },
         // The session's shell (its `shell` grant, ADR 0024): hides the application of a window (all
         // its windows leave the screen, not into the dock, until the application is activated:
         // FocusWindow of any of them shows them again), or quits it (each of its windows is asked

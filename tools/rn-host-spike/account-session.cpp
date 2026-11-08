@@ -149,11 +149,39 @@ void AccountSession::holdCredential(std::string deviceId, std::string deviceSecr
       std::array<std::string, 3>{std::move(deviceId), std::move(deviceSecret), std::move(accountId)});
 }
 
-void AccountSession::enroll(std::string password, Done done) {
+void AccountSession::localSignIn(Done done) {
+  run(
+      [] {
+        std::string buffer(kMessage, '\0');
+        return answered(oxyos_account_session_local_sign_in(buffer.data(), buffer.size()), buffer);
+      },
+      std::move(done));
+}
+
+void AccountSession::changeLocal(std::string change, std::string pin, std::string password, std::string currentPin,
+                                 Done done) {
+  auto secrets = std::make_shared<std::array<std::string, 3>>(
+      std::array<std::string, 3>{std::move(pin), std::move(password), std::move(currentPin)});
+  run(
+      [change = std::move(change), secrets] {
+        std::string buffer(kMessage, '\0');
+        auto& [pin, password, currentPin] = *secrets;
+        auto orNull = [](const std::string& text) { return text.empty() ? nullptr : text.c_str(); };
+        auto answer = answered(oxyos_account_session_change_local(change.c_str(), orNull(pin), orNull(password),
+                                                                  orNull(currentPin), buffer.data(), buffer.size()),
+                               buffer);
+        for (auto& secret : *secrets) forget(secret);
+        return answer;
+      },
+      std::move(done));
+}
+
+void AccountSession::enroll(std::string password, std::string pin, Done done) {
   auto credential = held_;
   auto secret = std::make_shared<std::string>(std::move(password));
+  auto passcode = std::make_shared<std::string>(std::move(pin));
   run(
-      [this, credential, secret] {
+      [this, credential, secret, passcode] {
         Answer answer;
         oxyos_account_enrollment_free(enrollment_);
         enrollment_ = nullptr;
@@ -164,12 +192,14 @@ void AccountSession::enroll(std::string password, Done done) {
         } else {
           std::string buffer(kMessage, '\0');
           auto& [deviceId, deviceSecret, accountId] = *credential;
-          answer = answered(oxyos_account_enrollment_enroll(enrollment_, deviceId.c_str(), deviceSecret.c_str(),
-                                                            accountId.c_str(), secret->c_str(), buffer.data(),
-                                                            buffer.size()),
+          answer = answered(oxyos_account_enrollment_enroll(
+                                enrollment_, deviceId.c_str(), deviceSecret.c_str(), accountId.c_str(),
+                                secret->empty() ? nullptr : secret->c_str(),
+                                passcode->empty() ? nullptr : passcode->c_str(), buffer.data(), buffer.size()),
                             buffer);
         }
         forget(*secret);
+        forget(*passcode);
         return answer;
       },
       std::move(done));

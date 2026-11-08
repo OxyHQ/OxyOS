@@ -1,5 +1,5 @@
-import React, { memo, useRef, type ComponentRef, type ComponentType } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { memo, useRef, useState, type ComponentRef, type ComponentType } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { BlurTargetView } from "expo-blur";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../primitives";
@@ -66,9 +66,107 @@ export function LockBackdrop({
 }
 
 /**
+ * How the person unlocks or signs in, as Windows Hello offers its PIN and the password: the PIN's
+ * field while there is one (`usePassword` switches to the password's, when the password signs in
+ * here), the password's otherwise; a locked-out PIN says to use the password, or, without one, to
+ * sign in with Oxy at the login screen (no field: nothing here would open it). `testID`'s field is
+ * `${testID}-pin` for the PIN.
+ */
+export function SecretFields({
+  testID,
+  pin,
+  password = true,
+  authenticate,
+  authenticatePin,
+  answer,
+  capsLock,
+  announce,
+  focusRequest,
+}: {
+  testID: string;
+  pin?: "set" | "locked";
+  password?: boolean;
+  authenticate: (password: string) => boolean;
+  authenticatePin?: (pin: string) => boolean;
+  answer: ShellLock["answer"];
+  capsLock?: boolean;
+  announce?: (text: string, polite: boolean) => void;
+  focusRequest?: number;
+}) {
+  const words = useShellMessages().password;
+  // The PIN first when there is one, as Windows Hello offers it.
+  const [withPassword, setWithPassword] = useState(false);
+  const usesPin = pin === "set" && !!authenticatePin && !(withPassword && password);
+  const switchTo = (label: string, toPassword: boolean, id: string) => (
+    <Pressable
+      testID={id}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={() => setWithPassword(toPassword)}
+      style={{ marginTop: 6, paddingHorizontal: 12, paddingVertical: 4 }}
+    >
+      <Text style={{ ...textShadow, color: "rgba(255,255,255,0.9)", fontSize: 13, fontWeight: "600" }}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+  if (pin === "locked" && !password) {
+    return (
+      <Text
+        testID={`${testID}-pin-locked`}
+        accessibilityRole="alert"
+        style={{ ...textShadow, color: "#fff", fontSize: 13, marginTop: 12, maxWidth: 320, textAlign: "center" }}
+      >
+        {words.pinLockedNoPassword}
+      </Text>
+    );
+  }
+  if (usesPin) {
+    return (
+      <>
+        <PasswordField
+          key="pin"
+          testID={`${testID}-pin`}
+          passcode
+          authenticate={authenticatePin}
+          answer={answer}
+          announce={announce}
+          focusRequest={focusRequest}
+        />
+        {password ? switchTo(words.usePassword, true, `${testID}-use-password`) : null}
+      </>
+    );
+  }
+  return (
+    <>
+      <PasswordField
+        key="password"
+        testID={testID}
+        authenticate={authenticate}
+        answer={answer}
+        capsLock={capsLock}
+        announce={announce}
+        focusRequest={focusRequest}
+      />
+      {pin === "locked" ? (
+        <Text
+          testID={`${testID}-pin-locked`}
+          style={{ ...textShadow, color: "rgba(255,255,255,0.85)", fontSize: 12, maxWidth: 320, textAlign: "center" }}
+        >
+          {words.pinLocked}
+        </Text>
+      ) : pin === "set" && authenticatePin ? (
+        switchTo(words.usePin, false, `${testID}-use-pin`)
+      ) : null}
+    </>
+  );
+}
+
+/**
  * The lock screen (docs/adr/0010-lock-screen.mdx), as macOS's: the wallpaper dimmed, the date and
- * the time large, the user's picture and name, and the password field. It decides nothing: the
- * password goes to the session, and only the session unlocks.
+ * the time large, the user's picture and name, and the password field, or the PIN's (ADR 0020
+ * decision 2). It decides nothing: what is typed goes to the session, and only the session
+ * unlocks.
  */
 export const LockScreen = memo(function LockScreen({
   lock,
@@ -135,9 +233,12 @@ export const LockScreen = memo(function LockScreen({
       >
         {name}
       </Text>
-      <PasswordField
+      <SecretFields
         testID="shell-lock"
+        pin={lock.pin}
+        password={lock.password}
         authenticate={lock.authenticate}
+        authenticatePin={lock.authenticatePin}
         answer={lock.answer}
         capsLock={lock.capsLock}
         announce={announce}

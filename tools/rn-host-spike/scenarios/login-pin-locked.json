@@ -1,0 +1,71 @@
+{
+  "about": "The login screen with an account whose PIN is locked out (docs/adr/0020-oxy-account-login.mdx, decision 2: ten wrong PINs in a row): the accounts' service lists it locked, so the screen offers the password's field, focused, and says the PIN has had too many wrong tries; the password signs in, and nothing is asked of the PIN.",
+  "shell": "OxyOSLogin",
+  "outputs": "1280x800",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Bea Ramos"
+      }
+    ],
+    "pins": {
+      "oxy-aaaaaaaaaaaaaaaaaaaa": "482916"
+    },
+    "pin_failures": {
+      "oxy-aaaaaaaaaaaaaaaaaaaa": 10
+    },
+    "record": [
+      "session would start for oxy-aaaaaaaaaaaaaaaaaaaa (user session): "
+    ]
+  },
+  "steps": [
+    {
+      "name": "the account's PIN locked out: its password asked, focused, and why",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Bea Ramos",
+            "Too many incorrect PINs. Use your password."
+          ],
+          "absent": [
+            "Use PIN",
+            "Enter PIN"
+          ],
+          "focus_input": "login-password"
+        }
+      }
+    },
+    {
+      "name": "the password signs it in, the PIN never asked",
+      "do": [
+        "keyboard",
+        "oxyos.correcta\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "never": [
+          "oxyos.correcta"
+        ],
+        "in_shell": {
+          "never": [
+            "oxyos.correcta"
+          ]
+        }
+      }
+    }
+  ]
+}
