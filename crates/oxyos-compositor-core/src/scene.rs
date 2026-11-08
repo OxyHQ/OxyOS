@@ -5152,8 +5152,8 @@ pub use displays::{
 /// Notifications (docs/adr/0026-notifications.mdx).
 mod notifications;
 pub use notifications::{
-    NotificationPolicy, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION, NOTIFICATION_BURST,
-    NOTIFICATION_WINDOW,
+    NotificationPolicy, SessionActivation, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION,
+    NOTIFICATION_BURST, NOTIFICATION_WINDOW,
 };
 mod appearances;
 mod menus;

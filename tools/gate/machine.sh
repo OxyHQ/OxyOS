@@ -17,7 +17,10 @@
 #     QEMU acceptance runs;
 #   - /usr/local/libexec/oxyos-gate-cpus and /etc/oxyos-gate.conf: the cores the scenarios that
 #     hold a budget on time run on alone (the first four physical cores and their SMT siblings).
-# Each runner is registered with `machine.sh runner N` (a registration token on stdin): runner N
+# Each runner is registered with `machine.sh runner N [merge]` (a registration token on stdin): a
+# runner takes both the pull requests' runs (label oxyos-gate) and the merge queue's (oxyos-merge),
+# one registered with `merge` the merge queue's alone, so a merge never waits behind a pull
+# request's run (docs/developing.mdx). Runner N
 # works in /var/lib/oxyos-gate/runner-N, with a cache of its own (~/.cache/oxyos-runner-N) and a /tmp
 # of its own, in oxyosgate-N.slice, so runs at once share no state.
 set -eu
@@ -29,7 +32,6 @@ GATE_CPU_QUOTA=${GATE_CPU_QUOTA:-2400%}
 GATE_MEMORY_HIGH=${GATE_MEMORY_HIGH:-28G}
 GATE_MEMORY_MAX=${GATE_MEMORY_MAX:-32G}
 GATE_RUN_MEMORY_MAX=${GATE_RUN_MEMORY_MAX:-16G}
-RUNNER_LABEL=oxyos-gate
 
 # gate_slice NAME DESCRIPTION: one gate's slice in oxyosgate.slice, an even share of it.
 gate_slice() {
@@ -44,11 +46,17 @@ EOF
 }
 
 if [ "${1:-}" = runner ]; then
-  # Runner N of OxyHQ/OxyOS, label oxyos-gate, as GATE_USER in oxyosgate-N.slice. The registration
-  # token comes on stdin (gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token
-  # --jq .token | sudo sh machine.sh runner N) and is never written anywhere.
+  # Runner N of OxyHQ/OxyOS, as GATE_USER in oxyosgate-N.slice: labels oxyos-gate and oxyos-merge,
+  # or oxyos-merge alone with `merge`. The registration token comes on stdin (gh api -X POST
+  # repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh machine.sh runner N)
+  # and is never written anywhere.
   n=${2:?runner N}
   case $n in *[!0-9]* | 0*) echo "machine.sh: runner N, a number" >&2; exit 2 ;; esac
+  case ${3:-} in
+    '') labels=oxyos-gate,oxyos-merge ;;
+    merge) labels=oxyos-merge ;;
+    *) echo "machine.sh: runner N [merge]" >&2; exit 2 ;;
+  esac
   read -r token
   R=/var/lib/oxyos-gate/runner-$n
   name=$(hostname)-oxyos-$n
@@ -66,14 +74,14 @@ if [ "${1:-}" = runner ]; then
     rm -f "$R/$tarball"
   fi
   (cd "$R" && runuser -u "$GATE_USER" -- ./config.sh --unattended --replace --url https://github.com/OxyHQ/OxyOS \
-    --token "$token" --name "$name" --labels "$RUNNER_LABEL" --work _work >/dev/null)
+    --token "$token" --name "$name" --labels "$labels" --work _work >/dev/null)
   # The runner's service entry point, put in place as its own svc.sh does.
   runuser -u "$GATE_USER" -- cp "$R/bin/runsvc.sh" "$R/runsvc.sh"
   cat > /etc/systemd/system/oxyos-gate-runner@.service <<EOF
 # OxyOS's scenario gate runners (docs/developing.mdx), written by tools/gate/machine.sh: runner %i
 # in /var/lib/oxyos-gate/runner-%i, its slice, its cache and its /tmp its own.
 [Unit]
-Description=GitHub Actions runner %i for OxyHQ/OxyOS (label $RUNNER_LABEL)
+Description=GitHub Actions runner %i for OxyHQ/OxyOS (the scenario gate)
 After=network-online.target
 Wants=network-online.target
 

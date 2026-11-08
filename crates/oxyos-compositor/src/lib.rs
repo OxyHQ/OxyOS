@@ -30,6 +30,7 @@ pub mod arrangement;
 pub mod autofill;
 pub mod background;
 pub mod controls;
+pub mod crashes;
 pub mod drag_badge;
 mod gpu_buffers;
 pub mod open_files;

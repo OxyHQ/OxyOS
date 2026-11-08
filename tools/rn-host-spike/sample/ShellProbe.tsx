@@ -48,6 +48,9 @@ import type {
   ShellSnapshot,
 } from '../../../apps/shell/src/model';
 
+/** The clipboard (docs/adr/0007-clipboard.mdx): what a sheet copies, at the person's press. */
+const clipboard = TurboModuleRegistry.get('OxyOSClipboard') as { setString(text: string): Promise<boolean> } | null;
+
 /** The active window's menus as the compositor told them (OxyOSShell's `menuBar`). */
 type MenuBar = {
   window: number;
@@ -436,7 +439,7 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
+  const { sheets, answer, answerPassword, answerCode, resetApplication } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -834,8 +837,14 @@ function SessionShell() {
       answerPassword: (password: string) => answerPassword(first.sheet, password),
       // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
       answerCode: (code: string) => answerCode(first.sheet, code),
+      // An application that quit (docs/adr/0061): Reset… asks the session to reset it.
+      act: (action: string) => {
+        if (action === 'reset' && firstText.kind === 'crash') resetApplication(first.sheet, firstText.id);
+      },
+      // Its report copied, at the person's press, as any application copies (ADR 0007).
+      copy: (text: string) => clipboard?.setString(text) ?? false,
     };
-  }, [first, registry, answer, answerPassword, answerCode]);
+  }, [first, registry, answer, answerPassword, answerCode, resetApplication]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell

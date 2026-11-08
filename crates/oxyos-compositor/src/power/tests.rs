@@ -19,6 +19,12 @@ const SETTINGS: ClientId = 2;
 const APP: ClientId = 3;
 const MINUTE: Duration = Duration::from_secs(60);
 
+/// The history's clock: noon of 6 November 2026, UTC, on a quarter of an hour's edge, where the
+/// charts' last bin ends.
+fn noon() -> u64 {
+    1_793_966_400
+}
+
 struct Bus(Child);
 
 impl Drop for Bus {
@@ -117,7 +123,8 @@ impl Session {
         compositor.controls = Some(crate::controls::Controls::new(ControlsWorker::inline(
             Box::new(fake),
         )));
-        let power = Power::new(Some(address), Some(directory.join("battery-history"))).unwrap();
+        let power = Power::with_clock(Some(address), Some(directory.join("battery-history")), noon)
+            .unwrap();
         let mut session = Self {
             compositor,
             power,
@@ -578,7 +585,8 @@ fn each_applications_energy_is_sampled_when_asked_and_the_history_charted() {
     assert_eq!(apps[0]["name"], "Allo");
     assert_eq!(apps[0]["running"], true);
     assert!(apps[0]["cpu"].as_f64().unwrap() > 0.0);
-    // The history: this session's start, its display and its battery.
+    // The history: this session's start, its display and its battery, all at noon and charted at
+    // noon, in the day's last quarter.
     let asked = session.ask(SHELL, r#"{"powerHistory":{}}"#, false);
     session.turn();
     let charts = session.answer(SHELL, asked).unwrap()["powerHistory"].clone();
