@@ -4881,7 +4881,7 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
             oxyos_client_set_gesture_overlay(client, 3, OXYOS_GESTURE_OVERLAY_APP_EXPOSE),
             0
         );
-        // Launchpad's, the pinch's (version 32).
+        // Launchpad's, the pinch's (version 33).
         assert_eq!(
             oxyos_client_set_gesture_overlay(client, 4, OXYOS_GESTURE_OVERLAY_LAUNCHPAD),
             0

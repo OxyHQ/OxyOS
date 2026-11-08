@@ -286,7 +286,7 @@ pub const OXYOS_SHORTCUT_INTENT_CLOSE: u8 = 2;
 /// Which view a touchpad's gesture drives a shell surface is
 /// (`oxyos_client_set_gesture_overlay`, protocol version 25): none, Mission Control's or App
 /// Exposé's (swiped up and down); and Launchpad's (pinched with the thumb and three fingers),
-/// since version 32.
+/// since version 33.
 pub const OXYOS_GESTURE_OVERLAY_NONE: u8 = 0;
 pub const OXYOS_GESTURE_OVERLAY_MISSION_CONTROL: u8 = 1;
 pub const OXYOS_GESTURE_OVERLAY_APP_EXPOSE: u8 = 2;
@@ -3939,7 +3939,7 @@ pub unsafe extern "C" fn oxyos_client_move_windows_to_views(
 /// surface is shown, the gesture back closes it as far as the fingers go; while a gesture opening
 /// it drives it, it arrives as far as they have gone. Said before the surface's first frame, it
 /// holds from its arrival. 0 on success; -1 for an overlay the protocol does not have, or to a
-/// compositor of version 24 or older (31 or older for Launchpad's), which is sent nothing.
+/// compositor of version 24 or older (32 or older for Launchpad's), which is sent nothing.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.

@@ -133,7 +133,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_INTENT_OPEN 1
 #define OXYOS_SHORTCUT_INTENT_CLOSE 2
 /* Which view a touchpad's gesture drives a shell surface is (oxyos_client_set_gesture_overlay):
- * Mission Control's and App Exposé's (swiped up and down), Launchpad's (pinched, version 32). */
+ * Mission Control's and App Exposé's (swiped up and down), Launchpad's (pinched, version 33). */
 #define OXYOS_GESTURE_OVERLAY_NONE 0
 #define OXYOS_GESTURE_OVERLAY_MISSION_CONTROL 1
 #define OXYOS_GESTURE_OVERLAY_APP_EXPOSE 2
@@ -805,7 +805,7 @@ int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bo
  * (OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, backdrop and overlay
  * alike, or none (docs/adr/0046-interactive-gestures.mdx): the gesture drives it as far as the
  * fingers go. Said before its first frame. -1 for another value, or to a compositor of version 24
- * or older (31 or older for Launchpad's). */
+ * or older (32 or older for Launchpad's). */
 int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
