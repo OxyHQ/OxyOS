@@ -228,8 +228,8 @@ export type StorageActions = {
   measure(): Promise<StorageMeasured>;
   /** What the home's files occupy by kind, from the search index; null without one. */
   indexed(): Promise<IndexedStorage | null>;
-  /** Told whenever the index changed (its `watch`): while it is still being built, the page asks
-      again, so Documents and Photos grow as it goes. Returns the unsubscribe. */
+  /** Told whenever the index or its state changed (built further, done): while it is still being
+      built, the page asks again, so Documents and Photos grow as it goes. Returns the unsubscribe. */
   watchIndex?(listener: () => void): () => void;
   /** The home's largest files, the largest first, from the search index. */
   largest(limit: number): Promise<LargeFile[]>;

@@ -1047,7 +1047,13 @@ function useStorageActions(): StorageActions {
         return measured;
       },
       indexed: async () => (search?.storage ? indexedOf(await search.storage()) : null),
-      watchIndex: search?.watch ? (listener) => search.watch(listener) : undefined,
+      // The index's state followed (it says when it is built further and when it is done), else
+      // its changes.
+      watchIndex: search?.state
+        ? (listener) => search.state.subscribe(() => listener())
+        : search?.watch
+          ? (listener) => search.watch(listener)
+          : undefined,
       largest: async (limit) => (search?.largest ? largeFiles((await search.largest({ limit })).items ?? []) : []),
       reveal: async (uri) => {
         const answer: any = await systemStorage.reveal(uri);

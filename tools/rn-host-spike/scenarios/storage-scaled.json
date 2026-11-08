@@ -76,12 +76,12 @@
    }
   },
   {
-   "name": "the volume's bar and its legend, every category's bytes adding up to what is used and the reserve (156 GB of 256 GB), and the recommendations",
+   "name": "the volume's bar and its legend once the index is built (Photos the home's images and movies, Documents its other files), every category's bytes adding up to what is used and the reserve (156 GB of 256 GB), and the recommendations",
    "do": [
     "wait_named",
     [
-     "Review Files…",
-     30000
+     "12 MB",
+     120000
     ]
    ],
    "allow_unchanged": true,
@@ -98,13 +98,18 @@
      "100 GB",
      "22 GB",
      "2.1 MB",
+     "5.2 MB",
+     "12 MB",
      "8.2 KB",
      "Recommendations",
      "Empty Trash Automatically",
      "Review Files"
     ],
     "keyboard_focus": null,
-    "delivered": {}
+    "delivered": {},
+    "absent": [
+     "Your files are still being indexed: Documents and Photos grow as it goes."
+    ]
    }
   },
   {

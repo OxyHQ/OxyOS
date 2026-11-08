@@ -42,6 +42,11 @@ const LARGEST = 50;
 const PAGE = { gap: 24 } as const;
 const OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
 
+/** The index's sums as one text, to tell whether they changed. */
+function sumsOf(told: IndexedStorage | null): string {
+  return JSON.stringify(told?.kinds ?? null);
+}
+
 /** A day as the page writes it: "8 Nov 2026". */
 function dateOf(ms: number, locale: string): string {
   return new Date(ms).toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" });
@@ -60,9 +65,11 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
   const [sheet, setSheet] = React.useState<"files" | "unused" | null>(null);
   const [shownApp, setShownApp] = React.useState<string | null>(null);
   const [failure, setFailure] = React.useState<string | null>(null);
-  // After one of the page's own changes (a file moved to the Trash, an app deleted), until the
-  // index has followed it.
-  const [awaitingIndex, setAwaitingIndex] = React.useState(false);
+  // After one of the page's own changes to the files (one moved to the Trash), until the index has
+  // followed it: what its sums were then.
+  const [awaitingIndex, setAwaitingIndex] = React.useState<string | null>(null);
+  const awaitingRef = React.useRef<string | null>(null);
+  awaitingRef.current = awaitingIndex;
   const asked = React.useRef(0);
 
   // Measured as the page is shown and after each of its own changes; a measurement asked again
@@ -74,7 +81,9 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
     if (turn !== asked.current) return;
     if (volume.status === "rejected") console.warn("[settings] Storage could not be measured:", volume.reason);
     setMeasured(volume.status === "fulfilled" ? volume.value : null);
-    setIndexed(files.status === "fulfilled" ? files.value : null);
+    const told = files.status === "fulfilled" ? files.value : null;
+    setIndexed(told);
+    if (awaitingRef.current !== null && sumsOf(told) !== awaitingRef.current) setAwaitingIndex(null);
   }, [storage]);
   React.useEffect(() => {
     void measure();
@@ -85,20 +94,24 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
   // While the index is still being built, its sums are asked again each time it changes, so
   // Documents and Photos grow as it goes; after one of the page's own changes, once more when the
   // index has followed it. Otherwise nothing is followed.
-  const following = indexed?.indexing === true || awaitingIndex;
+  const following = indexed?.indexing === true || awaitingIndex !== null;
   React.useEffect(() => {
     if (!following || !storage?.watchIndex) return undefined;
     let live = true;
-    const unwatch = storage.watchIndex(() => {
+    const ask = () =>
       storage.indexed().then(
         (told) => {
           if (!live) return;
           setIndexed(told);
-          setAwaitingIndex(false);
+          // The index followed the change once its sums are no longer what they were.
+          if (awaitingRef.current !== null && sumsOf(told) !== awaitingRef.current) setAwaitingIndex(null);
         },
         (error: unknown) => console.warn("[settings] the index's sums could not be read:", error),
       );
-    });
+    const unwatch = storage.watchIndex(ask);
+    // Asked once more now that it is followed: what changed between the last answer and the
+    // subscription is not missed.
+    void ask();
     return () => {
       live = false;
       unwatch();
@@ -145,7 +158,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
     if (outcome === "removed") {
       setShownApp(null);
       AccessibilityInfo.announceForAccessibility(words.removed(target.name));
-      setAwaitingIndex(true);
+      // Its own data is no file the index holds: only the session's figures change.
       void measure();
     } else if (outcome === "failed") {
       setFailure(words.removeFailed(target.name));
@@ -267,7 +280,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
         locale={locale}
         onClose={() => setSheet(null)}
         onChanged={() => {
-          setAwaitingIndex(true);
+          setAwaitingIndex(sumsOf(indexed));
           void measure();
         }}
         onFailed={setFailure}
