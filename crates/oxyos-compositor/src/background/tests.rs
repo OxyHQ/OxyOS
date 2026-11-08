@@ -447,7 +447,6 @@ fn an_installed_application_is_granted_as_it_registers_and_the_person_told_once(
         decided,
         [("so.oxy.chat".to_string(), "background".to_string(), true)]
     );
-    assert_eq!(asked.lock().unwrap().len(), 1);
     // Its next process registers with the decision kept: nothing asked, nobody told again.
     session.ask(
         SECOND,
@@ -477,7 +476,16 @@ fn an_installed_application_is_granted_as_it_registers_and_the_person_told_once(
             vec![]
         )
     );
-    assert_eq!(asked.lock().unwrap().len(), 1);
+    // The service is asked no other decision (the update state it is watched for aside).
+    assert_eq!(
+        asked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| matches!(request, Request::Decide { .. }))
+            .count(),
+        1
+    );
     let _ = std::fs::remove_dir_all(
         installed
             .parent()
