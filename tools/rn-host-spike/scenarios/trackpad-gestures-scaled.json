@@ -1,0 +1,589 @@
+{
+  "about": "Settings › Trackpad › More Gestures (docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026), in Spanish, at 1.25: each choice changes what the same fingers do, live. Settings, the application, and the shell. As shipped, three fingers up open Mission Control (Settings' window moved into it) and down close it; Mission Control on four fingers (App Exposé following it, as on a Mac, both kept in the preferences file), three fingers up or down do nothing at all and four open and close it; Mission Control off, four do nothing, and Super+↑ still opens it. A second desktop, three fingers across going to it and back; the desktops on four, three across do nothing and four go there and back. The thumb and three fingers pinched over Settings open Launchpad, its search taking the keyboard, and spread close it, Settings hearing no pinch; Launchpad's switch off, the same pinch is Settings' own (React's touches) and Launchpad stays closed. Each step checks exactly what the compositor delivered to Settings (its focus going and coming back, the pointer's crossing; never a swipe), the views the shell shows, the desktops and the file. Run two ways: in the deploy gate through the compositor's input as libinput's gestures reach it, and through real libinput with `regress.py --uinput` (as root), the fingers on the development compositor's virtual touchpad, which libinput recognizes and counts (`expect_devices`: as many touches as libinput's pinch updates).",
+  "locale": "es_ES.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    820,
+    700
+  ],
+  "outputs": "2400x1350@1.25",
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "steps": [
+    {
+      "name": "Settings drawn",
+      "do": [
+        "wait_named",
+        [
+          "Trackpad",
+          30000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Settings › Trackpad: Natural scrolling, then Más gestos as a Mac's, each row its gesture drawn and its choice; as shipped, three fingers and the pinch",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Trackpad"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Más gestos",
+          "Pasar de un escritorio a otro",
+          "Mission Control",
+          "App Exposé",
+          "Launchpad",
+          "Pellizcar con el pulgar y tres dedos",
+          "Deslizar a la izquierda o a la derecha con tres dedos",
+          "Deslizar hacia arriba con tres dedos",
+          "Deslizar hacia abajo con tres dedos"
+        ],
+        "delivered": {}
+      }
+    },
+    {
+      "name": "three fingers up, as shipped: Mission Control opens, Settings' window moved into it, losing the keyboard; Settings hears nothing of the fingers",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          -360,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "window_views": {
+          "windows": [
+            1
+          ],
+          "moved": true
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "three fingers down: it closes, Settings' window back where it was with the keyboard",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          360,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "window_views": {
+          "windows": []
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Mission Control's menu opened",
+      "do": [
+        "press",
+        [
+          667,
+          289
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Deslizar hacia arriba con cuatro dedos"
+        ],
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Deslizar hacia arriba con cuatro dedos: kept, and applied from the next swipe",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Deslizar hacia arriba con cuatro dedos"
+        ]
+      ],
+      "expect": {
+        "preferences_file": {
+          "mission_control_swipe": "four",
+          "app_expose_swipe": "four",
+          "desktops_swipe": "three",
+          "launchpad_pinch": "true"
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "three fingers up with Mission Control on four: nothing at all",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          -360,
+          24
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "window_views": {
+          "windows": []
+        }
+      }
+    },
+    {
+      "name": "three fingers down with App Exposé on four too (they share their fingers, as on a Mac): nothing",
+      "do": [
+        "swipe",
+        [
+          3,
+          0,
+          360,
+          24
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "window_views": {
+          "windows": []
+        }
+      }
+    },
+    {
+      "name": "four fingers up: Mission Control",
+      "do": [
+        "swipe",
+        [
+          4,
+          0,
+          -360,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "window_views": {
+          "windows": [
+            1
+          ],
+          "moved": true
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1,
+            "leave": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "four fingers down: closed",
+      "do": [
+        "swipe",
+        [
+          4,
+          0,
+          360,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "window_views": {
+          "windows": []
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Mission Control's menu opened",
+      "do": [
+        "press",
+        [
+          667,
+          289
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Desactivado"
+        ],
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Desactivado: kept, and applied from the next swipe",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Desactivado"
+        ]
+      ],
+      "expect": {
+        "preferences_file": {
+          "mission_control_swipe": "off",
+          "app_expose_swipe": "four",
+          "desktops_swipe": "three",
+          "launchpad_pinch": "true"
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "Mission Control off: four fingers up do nothing",
+      "do": [
+        "swipe",
+        [
+          4,
+          0,
+          -360,
+          24
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "window_views": {
+          "windows": []
+        }
+      }
+    },
+    {
+      "name": "Super+↑ still opens Mission Control",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "window_views": {
+          "windows": [
+            1
+          ],
+          "moved": true
+        }
+      }
+    },
+    {
+      "name": "a second desktop added",
+      "do": [
+        "press_named",
+        "Añadir escritorio"
+      ],
+      "expect": {
+        "react": {},
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "Super+↑ again: closed",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "window_views": {
+          "windows": []
+        }
+      }
+    },
+    {
+      "name": "three fingers left, as shipped: the second desktop, Settings' window gone with the first",
+      "do": [
+        "swipe",
+        [
+          3,
+          -440,
+          0,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "workspaces": [
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "name": "three fingers right: back to the first, Settings with the keyboard again",
+      "do": [
+        "swipe",
+        [
+          3,
+          440,
+          0,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "Pasar de un escritorio a otro's menu opened",
+      "do": [
+        "press",
+        [
+          639,
+          223
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Deslizar a la izquierda o a la derecha con cuatro dedos"
+        ],
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Deslizar a la izquierda o a la derecha con cuatro dedos: kept, and applied from the next swipe",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Deslizar a la izquierda o a la derecha con cuatro dedos"
+        ]
+      ],
+      "expect": {
+        "preferences_file": {
+          "mission_control_swipe": "off",
+          "app_expose_swipe": "four",
+          "desktops_swipe": "four",
+          "launchpad_pinch": "true"
+        },
+        "delivered": {}
+      }
+    },
+    {
+      "name": "the desktops on four: three fingers left do nothing",
+      "do": [
+        "swipe",
+        [
+          3,
+          -440,
+          0,
+          24
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "window_views": {
+          "windows": []
+        },
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "four fingers left: the second desktop",
+      "do": [
+        "swipe",
+        [
+          4,
+          -440,
+          0,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "workspaces": [
+          2,
+          1
+        ]
+      }
+    },
+    {
+      "name": "four fingers right: the first",
+      "do": [
+        "swipe",
+        [
+          4,
+          440,
+          0,
+          24
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "the thumb and three fingers pinched in over Settings: Launchpad opens, its search taking the keyboard; Settings hears no pinch",
+      "do": [
+        "pinch",
+        [
+          400,
+          600,
+          50,
+          0,
+          4
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "react": {
+            "focus@launcher-search": 1,
+            "selectionChange@launcher-search": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "spread: Launchpad closes, Settings with the keyboard again",
+      "do": [
+        "pinch",
+        [
+          400,
+          600,
+          200,
+          0,
+          4
+        ]
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Launchpad's pinch turned off",
+      "do": [
+        "press",
+        [
+          757,
+          415
+        ]
+      ],
+      "expect": {
+        "preferences_file": {
+          "mission_control_swipe": "off",
+          "app_expose_swipe": "four",
+          "desktops_swipe": "four",
+          "launchpad_pinch": "false"
+        }
+      }
+    },
+    {
+      "name": "the same pinch is Settings' own now: delivered to it as a pinch, and Launchpad stays closed",
+      "do": [
+        "pinch",
+        [
+          400,
+          600,
+          50,
+          0,
+          4
+        ]
+      ],
+      "expect": {
+        "react": {
+          "touchStart@settings-page": 2,
+          "touchMove@settings-page": 8,
+          "touchEnd@settings-page": 2
+        },
+        "in_shell": {
+          "react": {}
+        }
+      },
+      "allow_unchanged": true,
+      "expect_devices": {
+        "react": {
+          "touchStart@settings-page": 2,
+          "touchMove@settings-page": [
+            3,
+            40
+          ],
+          "touchEnd@settings-page": 2
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "mission_control_swipe": "off",
+      "app_expose_swipe": "four",
+      "desktops_swipe": "four",
+      "launchpad_pinch": "false"
+    }
+  }
+}

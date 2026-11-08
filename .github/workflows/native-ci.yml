@@ -65,7 +65,11 @@ jobs:
               | python3 -c 'import json, sys; print(*[m["executable"] for m in map(json.loads, sys.stdin) if m.get("reason") == "compiler-artifact" and m["profile"]["test"] and m.get("executable")])'
           }
           sudo "$(executable oxyos-input --lib)" --ignored --exact tests::the_seat_adds_a_mouse_plugged_in_and_removes_it_unplugged
-          sudo "$(executable oxyos-offscreen --bin=oxyos-offscreen)" --ignored --exact uinput::tests::a_run_reads_its_own_devices_and_never_another_runs
+          offscreen="$(executable oxyos-offscreen --bin=oxyos-offscreen)"
+          sudo "$offscreen" --ignored --exact uinput::tests::a_run_reads_its_own_devices_and_never_another_runs
+          # The virtual touchpad's swipes and pinches of three and four fingers, as libinput
+          # counts them (docs/adr/0046-interactive-gestures.mdx, More Gestures).
+          sudo "$offscreen" --ignored --exact uinput::tests::libinput_counts_the_virtual_touchpads_swipes_and_pinches_of_three_and_four_fingers
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: python3 scripts/check-native-boundary.py
       # regress.py's own checks (the input-delivery invariant) on records written by hand.

@@ -424,7 +424,7 @@ mod tests {
     //! uinput::tests::a_run_reads_its_own_devices_and_never_another_runs` (CI's verify job does).
 
     use super::Devices;
-    use oxyos_input::{Action, Input, Layout, ScrollSource};
+    use oxyos_input::{Action, GesturePhase, Input, Layout, ScrollSource};
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
@@ -519,5 +519,89 @@ mod tests {
             });
             assert!(typed, "{:?}", actions[other]);
         }
+    }
+    /// The swipes and pinches libinput reads from the virtual touchpad, by phase: each swipe's or
+    /// pinch's fingers as it began, how far a swipe went (dx, dy) and a pinch's last scale.
+    fn gestures(actions: &[Action]) -> (Vec<(u32, f64, f64)>, Vec<(u32, f64)>) {
+        let (mut swipes, mut pinches) = (Vec::new(), Vec::new());
+        for action in actions {
+            match *action {
+                Action::Swipe {
+                    phase: GesturePhase::Begin,
+                    fingers,
+                    ..
+                } => swipes.push((fingers, 0.0, 0.0)),
+                Action::Swipe { dx, dy, .. } => {
+                    if let Some(last) = swipes.last_mut() {
+                        last.1 += dx;
+                        last.2 += dy;
+                    }
+                }
+                Action::Pinch {
+                    phase: GesturePhase::Begin,
+                    fingers,
+                    ..
+                } => pinches.push((fingers, 1.0)),
+                Action::Pinch { scale, .. } => {
+                    if let Some(last) = pinches.last_mut() {
+                        last.1 = scale;
+                    }
+                }
+                _ => {}
+            }
+        }
+        (swipes, pinches)
+    }
+
+    #[test]
+    #[ignore]
+    fn libinput_counts_the_virtual_touchpads_swipes_and_pinches_of_three_and_four_fingers() {
+        // The scenarios of More Gestures (docs/adr/0046-interactive-gestures.mdx, amended 8
+        // November 2026) swipe and pinch through libinput: it must see three and four fingers, a
+        // swipe as far as the step asks, and the thumb and three fingers as a pinch.
+        let (mut devices, input) = start();
+        let mut inputs = [input];
+        let mut actions: [Vec<Action>; 1] = Default::default();
+        devices
+            .swipe(3, (0, -360), 24, 60, || read(&mut inputs, &mut actions))
+            .unwrap();
+        devices
+            .swipe(4, (-400, 0), 24, 60, || read(&mut inputs, &mut actions))
+            .unwrap();
+        devices
+            .pinch(4, 50, 0, || read(&mut inputs, &mut actions))
+            .unwrap();
+        devices
+            .pinch(2, 150, 0, || read(&mut inputs, &mut actions))
+            .unwrap();
+        let settled = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < settled {
+            std::thread::sleep(Duration::from_millis(10));
+            read(&mut inputs, &mut actions);
+        }
+        let (swipes, pinches) = gestures(&actions[0]);
+        // Each swipe its fingers, and most of its way: libinput keeps the first millimetres to
+        // tell a swipe from a pinch (and a pinch's first spread likewise, below).
+        assert_eq!(swipes.len(), 2, "{:?}", actions[0]);
+        let (fingers, dx, dy) = swipes[0];
+        assert_eq!(fingers, 3);
+        assert!(
+            dx.abs() < 1.0 && (-360.0..-240.0).contains(&dy),
+            "{:?}",
+            swipes[0]
+        );
+        let (fingers, dx, dy) = swipes[1];
+        assert_eq!(fingers, 4);
+        assert!(
+            dy.abs() < 1.0 && (-400.0..-270.0).contains(&dx),
+            "{:?}",
+            swipes[1]
+        );
+        // The thumb and three fingers pinched in, then two spread.
+        assert_eq!(pinches.len(), 2, "{:?}", actions[0]);
+        assert_eq!(pinches[0].0, 4);
+        assert!((0.45..0.85).contains(&pinches[0].1), "{:?}", pinches[0]);
+        assert_eq!(pinches[1].0, 2);
+        assert!((1.15..1.55).contains(&pinches[1].1), "{:?}", pinches[1]);
     }
 }
