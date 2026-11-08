@@ -1,5 +1,5 @@
 {
- "about": "Reduce transparency (docs/adr/0019-settings.mdx, step 3 amended 8 November 2026), followed live by the shell and an application with no restart. sample/MaterialProbe.tsx is the application: expo-blur's blur views over a target half black, half white, and the lock screen's clock in its material. Settings runs beside it (`companion`), granted `settings`. Its Accessibility page has Vision and Display as a Mac's. Off, the application's blur views blur their targets (the edge a ramp) and the shell's volume bezel is glass. Turned on, the session keeps it and tells every client. The host's expo-blur draws each blur view as its tint alone (the edge sharp, black and white under the tint), the clock's glyphs are plain white, the bezel is opaque (#1b1f27), and Launchpad's backdrop is an opaque dark grey (#2c2f36) with no wallpaper drawn. Turned off, all of it is glass again. Nothing is delivered to Settings, which is driven by its assistive technology's actions, and the application receives only its own press.",
+ "about": "Reduce transparency (docs/adr/0019-settings.mdx, step 3 amended 8 November 2026), followed live by the shell and an application with no restart. sample/MaterialProbe.tsx is the application: expo-blur's blur views over a target half black, half white, and the lock screen's clock in its material. Settings runs beside it (`companion`), granted `settings`. Its Accessibility page has Vision and Display as a Mac's. Off, the application's blur views blur their targets (the edge a ramp) and the shell's volume bezel is glass. Turned on, the session keeps it and tells every client. The host's expo-blur draws each blur view as its tint alone (the edge sharp, black and white under the tint), the clock's glyphs are plain white, the bezel is opaque (#1b1f27), and Launchpad's backdrop is an opaque dark grey (#2c2f36) with no wallpaper drawn. Turned off, all of it is glass again. Settings' switch is pressed: each press is delivered to Settings alone, and the application receives nothing.",
  "module": "MaterialProbe",
  "window": [
   400,
@@ -82,13 +82,27 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "at": {
-     "companion": [
-      {
-       "role": "Switch",
-       "name": "Reduce transparency",
-       "state": []
-      }
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "its sections, Vision and Display, as a Mac's",
+   "do": [
+    "wait_named",
+    [
+     "Vision",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_companion": {
+     "texts": [
+      "Vision",
+      "Display",
+      "Reduce transparency"
      ]
     },
     "delivered": {
@@ -115,13 +129,19 @@
    }
   },
   {
+   "name": "a press on Settings' window, on its Vision header: the window active, so the next press reaches its switch (a Mac's first click only activates)",
+   "do": [
+    "press_named",
+    "Vision"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
    "name": "Reduce transparency turned on in Settings: the session keeps it and tells every application at once",
    "do": [
-    "a11y-action",
-    [
-     "activate",
-     "Reduce transparency"
-    ]
+    "press_named",
+    "Reduce transparency"
    ],
    "allow_unchanged": true,
    "expect": {
@@ -129,7 +149,10 @@
      "reduceTransparency": true
     },
     "delivered": {
-     "companion": {}
+     "companion": {
+      "press": 1,
+      "release": 1
+     }
     }
    }
   },
@@ -220,21 +243,15 @@
    }
   },
   {
-   "name": "Reduce transparency off again",
+   "name": "Reduce transparency off again, Settings' switch pressed",
    "do": [
-    "a11y-action",
-    [
-     "activate",
-     "Reduce transparency"
-    ]
+    "press_named",
+    "Reduce transparency"
    ],
    "allow_unchanged": true,
    "expect": {
     "preferences": {
      "reduceTransparency": false
-    },
-    "delivered": {
-     "companion": {}
     }
    }
   },
