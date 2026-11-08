@@ -372,7 +372,14 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     setDisplays(native?.getDisplays() ?? null);
     return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
-  const applications = React.useMemo(() => native?.getApplications?.() ?? [], []);
+  // The session's applications as its registry names them, read again as the host says they changed
+  // (one installed, updated or removed while Settings is open, or the session's language changed).
+  const [applications, setApplications] = React.useState(() => native?.getApplications?.() ?? []);
+  React.useEffect(() => {
+    const read = () => setApplications(native?.getApplications?.() ?? []);
+    const subscription = DeviceEventEmitter.addListener('OxyOSApplicationsChanged', read);
+    return () => subscription.remove();
+  }, []);
   const system = React.useMemo(() => {
     if (!native) return FIXTURE.system;
     const told = native.getSystem();

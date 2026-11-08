@@ -5540,14 +5540,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
     if let Some(program) = launch.command.first() {
-        children.0.push(
-            Command::new(program)
-                .args(&launch.command[1..])
-                .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
-                .env_remove("DISPLAY")
-                .env_remove("WAYLAND_DISPLAY")
-                .spawn()?,
-        );
+        let mut application = Command::new(program);
+        application
+            .args(&launch.command[1..])
+            .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        // It lists the fixture's installed applications too, as the shell does and as a session's
+        // applications list the install service's (ADR 0030, decision 7): Settings names them.
+        if let Some(root) = &session.installed_fixture {
+            application.env("OXYOS_INSTALLED_FIXTURE", root);
+        }
+        children.0.push(application.spawn()?);
     }
     // Its own launch, as the session records one, when the scenario names the application;
     // unless the scenario has it be a process the session did not start

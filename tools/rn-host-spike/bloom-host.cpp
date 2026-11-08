@@ -787,6 +787,13 @@ int main(int argc, char** argv) {
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
   oxyos::ShellState shellState(output);
   if (shellMode) shellState.followApplications();
+  // Settings follows the session's applications as the shell does (docs/adr/0030-installing-
+  // applications.mdx): Open at Login and Notifications name each as the registry does, one installed,
+  // updated or removed while Settings is open included (docs/adr/0060-login-items-and-background-
+  // activity.mdx). Watched once the window is granted `settings`.
+  std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> settingsApplications{
+      nullptr, oxyos_applications_watch_free};
+  bool settingsApplicationsAsked = false;
   if (windowed) {
     // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
     // shell's and the login screen's, by their package's id (the manifest beside the bundle).
@@ -2420,13 +2427,31 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
         }
+        // Settings' applications (`getApplications`): told to read them again as the registry
+        // changes, and once as the watch begins, for a change before it.
+        if (window && !shellMode && !settingsApplicationsAsked && window->settingsGranted()) {
+          settingsApplicationsAsked = true;
+          settingsApplications.reset(oxyos_applications_watch_new());
+          if (!settingsApplications) {
+            std::cerr << "[host] Settings' applications are not followed: " << oxyos_last_error() << "\n";
+          }
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+        } else if (settingsApplications && oxyos_applications_watch_changed(settingsApplications.get())) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+        }
         // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
         // Intl's default is already the new one (the window set it); JavaScript is told, and
         // expo-localization's module tells its listeners, as Android's configuration change does.
         if (window && window->locale() != toldLocale) {
           toldLocale = window->locale();
-          // The shell's applications by their names in the new language.
+          // The shell's applications by their names in the new language, and Settings'.
           if (shellMode) shellState.relocalize();
+          if (settingsApplications) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSApplicationsChanged"));
+          }
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSLocaleChanged",
                                                                folly::dynamic::object("locale", toldLocale)));
@@ -3139,6 +3164,9 @@ int main(int argc, char** argv) {
           for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
           if (int applications = shellMode ? shellState.applicationsFd() : -1; applications >= 0) {
             fds.push_back({applications, POLLIN, 0});
+          }
+          if (settingsApplications) {
+            fds.push_back({oxyos_applications_watch_fd(settingsApplications.get()), POLLIN, 0});
           }
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);

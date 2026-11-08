@@ -199,14 +199,27 @@
       }
     },
     {
-      "name": "Down",
+      "name": "Down: the keyboard on Chat's window, checked (drawn so as the menu opened)",
       "do": [
         "key",
         108
       ],
       "expect": {
-        "react": {}
-      }
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Chat",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
     },
     {
       "name": "Down",
@@ -323,7 +336,17 @@
         "Permitir Chat en segundo plano"
       ],
       "allow_unchanged": true,
-      "expect": {}
+      "expect": {
+        "background": {
+          "ended": [
+            "so.oxy.backgroundprobe"
+          ]
+        }
+      },
+      "until_named": [
+        "No permitida en segundo plano",
+        5000
+      ]
     },
     {
       "name": "Not allowed; nothing runs in the background",
@@ -384,14 +407,26 @@
       }
     },
     {
-      "name": "Down",
+      "name": "Down: the keyboard on Abrir (drawn so as the menu opened)",
       "do": [
         "key",
         108
       ],
       "expect": {
-        "react": {}
-      }
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Abrir",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
     },
     {
       "name": "Down: Options",

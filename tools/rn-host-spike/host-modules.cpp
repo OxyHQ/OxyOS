@@ -1111,7 +1111,9 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::valueFromDynamic(rt, systemFacts());
     });
     // The session's applications (its registry, docs/adr/0013-launching-applications.mdx), by id
-    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx).
+    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx),
+    // Open at Login's (docs/adr/0060-login-items-and-background-activity.mdx). Read again when the
+    // host tells `OxyOSApplicationsChanged` (the registry or the language changed).
     module->method("getApplications", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       folly::dynamic applications = folly::dynamic::array();
       int64_t length = oxyos_applications(nullptr, 0);
