@@ -176,3 +176,25 @@ test('a followed state tells its followers in order and stops each once', () => 
   assert.deepEqual([starts, stops], [1, 1]);
   assert.ok(new PlatformError('audio', 'busy') instanceof Error);
 });
+
+test('a capability asked at first use is answered by its serial; those asked meanwhile share it', async () => {
+  let listener: ((event: { serial: number; granted: boolean }) => void) | undefined;
+  const events: Events = {
+    addListener(name, handler) {
+      if (name === 'OxyOSCapabilityResult') listener = handler;
+      return { remove() {} };
+    },
+  };
+  const asked: string[] = [];
+  const session = createSession({ request: () => 1, requestCapability: (name) => (asked.push(name), asked.length) }, events);
+  const first = session.requestCapability('files');
+  const second = session.requestCapability('files');
+  assert.deepEqual(asked, ['files']);
+  listener?.({ serial: 1, granted: true });
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  // Answered, it is asked again next time: the session keeps the account's decision.
+  const again = session.requestCapability('files');
+  listener?.({ serial: 2, granted: false });
+  assert.equal(await again, false);
+  assert.equal(await createSession(null, events).requestCapability('files'), false);
+});

@@ -5,9 +5,11 @@
 // (ADR 0058, step 9).
 import { followed, type Told } from './followed.ts';
 
-/** The host's module: a request, as the session's JSON, sent with a serial (0: not sent). */
+/** The host's module: a request, as the session's JSON, sent with a serial (0: not sent); a
+    capability asked at first use, its serial (0: not sent), answered by `OxyOSCapabilityResult`. */
 export interface SystemModule {
   request(json: string): number;
+  requestCapability?(capability: string): number;
 }
 export interface Subscription {
   remove(): void;
@@ -48,6 +50,14 @@ export interface Session {
   available: boolean;
   /** One request; its final answer, `{refused}` and `{failed}` among them (never a rejection). */
   request(body: Json, options?: RequestOptions): Promise<unknown>;
+  /**
+   * Asks for a capability asked at first use (`notifications`, `files`, `camera`, `microphone`,
+   * `location`; docs/adr/0030-installing-applications.mdx, decision 8): whether it is granted. The
+   * session answers from the account's decision, or asks the person in the system's sheet when
+   * the request follows an input of theirs in the application. One question at a time per
+   * capability: those asked meanwhile share its answer.
+   */
+  requestCapability(capability: string): Promise<boolean>;
   state: SessionState;
 }
 
@@ -143,9 +153,35 @@ export function createSession(native: SystemModule | null | undefined, events: E
     });
   };
 
+  const asking = new Map<string, Promise<boolean>>();
+  const capabilityAnswers = new Map<number, (granted: boolean) => void>();
+  if (native?.requestCapability) {
+    events.addListener('OxyOSCapabilityResult', ({ serial, granted }: { serial: number; granted: boolean }) => {
+      capabilityAnswers.get(serial)?.(Boolean(granted));
+      capabilityAnswers.delete(serial);
+    });
+  }
+  const requestCapability = (capability: string): Promise<boolean> => {
+    const known = asking.get(capability);
+    if (known) return known;
+    const asked = new Promise<boolean>((resolve) => {
+      let serial = 0;
+      try {
+        serial = native?.requestCapability?.(capability) ?? 0;
+      } catch {
+        // No connection to the session: nothing is granted.
+      }
+      if (!serial) resolve(false);
+      else capabilityAnswers.set(serial, resolve);
+    }).finally(() => asking.delete(capability));
+    asking.set(capability, asked);
+    return asked;
+  };
+
   return {
     available: Boolean(native),
     request,
+    requestCapability,
     state,
   };
 }

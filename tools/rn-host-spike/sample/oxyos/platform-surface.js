@@ -30,9 +30,13 @@
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
-import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
 import { createSearch, searchAvailable } from './search';
-import { chooser as platformChooser, drag as platformDrag, sounds as platformSounds } from '@oxyos/platform';
+import {
+  chooser as platformChooser,
+  drag as platformDrag,
+  files as platformFiles,
+  sounds as platformSounds,
+} from '@oxyos/platform';
 
 // The file manager the session started as a file chooser: what it was asked to show (the platform's
 // `chooser.request`), null in any other application.
@@ -315,83 +319,50 @@ const appearance = createAppearance();
 // through the host's file service: the home, its standard folders that exist and the volumes
 // mounted for the user, and the freedesktop.org Trash every file manager on the machine shares.
 // Every URI is file://, as expo-file-system takes them. Only an application's window has it.
-const PLATFORM_ERRORS = new Set(['not-found', 'exists', 'refused', 'denied']);
+// The platform's words for why an item was not done, as Bloom's `PlatformFileError` says them: the
+// person's files not granted to the application is a denial.
+const BLOOM_FILE_ERRORS = { notFound: 'not-found', exists: 'exists', refused: 'refused', denied: 'denied', notGranted: 'denied' };
 
-/** What came of one item, as Bloom's `PlatformFileOutcome` says it: the person's files not granted
-    to the application is a denial. */
+/** What came of one item, as Bloom's `PlatformFileOutcome` says it. */
 const outcome = (item) =>
   item.ok
     ? { uri: item.uri, ok: true, result: item.result }
-    : {
-        uri: item.uri,
-        ok: false,
-        error: item.error === 'not-granted' ? 'denied' : PLATFORM_ERRORS.has(item.error) ? item.error : 'io',
-      };
+    : { uri: item.uri, ok: false, error: BLOOM_FILE_ERRORS[item.reason] ?? 'io' };
 
 /** A folder's own name, from its URI. */
 const named = (uri) => decodeURIComponent(uri.replace(/\/+$/, '').split('/').pop());
 
+// Bloom's `PlatformFiles`, over the platform's `files` (`@oxyos/platform`).
 function createFiles() {
-  // A listener's own watch, ended when it unsubscribes.
-  const watching = (op) => (listener) => {
-    let watch = null;
-    let ended = false;
-    requestFiles(op).then(
-      ({ value }) => {
-        if (ended) return unwatchFiles(value);
-        watch = value;
-        onWatch(value, () => listener());
-      },
-      (error) => console.error(`OxyOS could not watch (${op}): ${error.message}`),
-    );
-    return () => {
-      ended = true;
-      if (watch != null) unwatchFiles(watch);
-    };
-  };
-  const each = async (op, uris) => (await requestFiles(op, { uris: [...uris] })).value.map(outcome);
+  const outcomes = async (done) => (await done).map(outcome);
   return {
     async places() {
-      const { home, favourites, volumes } = (await requestFiles('places')).value;
+      const { home, favourites, volumes } = await platformFiles.places();
       return [
         { kind: 'home', name: named(home), uri: home },
         ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
         ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
       ];
     },
-    watchPlaces: watching('watchPlaces'),
-    trash: (uris) => each('trash', uris),
-    async trashed() {
-      return (await requestFiles('trashed')).value;
-    },
-    watchTrash: watching('watchTrash'),
-    restore: (uris) => each('restore', uris),
-    erase: (uris) => each('erase', uris),
+    watchPlaces: (listener) => platformFiles.onPlacesChange(listener),
+    trash: (uris) => outcomes(platformFiles.trash(uris)),
+    trashed: () => platformFiles.trashed(),
+    watchTrash: (listener) => platformFiles.onTrashChange(listener),
+    restore: (uris) => outcomes(platformFiles.restore(uris)),
+    erase: (uris) => outcomes(platformFiles.erase(uris)),
     async emptyTrash() {
-      await requestFiles('emptyTrash');
+      await platformFiles.emptyTrash();
     },
     // Bloom's `PlatformFileTags` (docs/adr/0049-file-tags.mdx): the items' own tags, in their
     // extended attributes as freedesktop.org and a Mac keep them, and the index of every tagged
     // item in the person's places.
     tags: Object.freeze({
-      async inFolder(folderUri) {
-        return (await requestFiles('tagsIn', { uri: folderUri })).value;
-      },
-      async ofItems(uris) {
-        return (await requestFiles('tagsOf', { uris: [...uris] })).value;
-      },
-      async change(uris, { add = [], remove = [] }) {
-        const tags = add.map(({ name, color }) => ({ name, color: color ?? null }));
-        const args = { uris: [...uris], add: tags, remove: [...remove] };
-        return (await requestFiles('changeTags', args)).value.map(outcome);
-      },
-      async tagged(name) {
-        return (await requestFiles('tagged', { name })).value;
-      },
-      async names() {
-        return (await requestFiles('tagNames')).value;
-      },
-      watch: watching('watchTags'),
+      inFolder: (folderUri) => platformFiles.tags.in(folderUri),
+      ofItems: (uris) => platformFiles.tags.of(uris),
+      change: (uris, change) => outcomes(platformFiles.tags.change(uris, change)),
+      tagged: (name) => platformFiles.tags.tagged(name),
+      names: () => platformFiles.tags.names(),
+      watch: (listener) => platformFiles.tags.onChange(listener),
     }),
     // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
     // session ends this process once it has the answer.
@@ -409,7 +380,7 @@ function createFiles() {
   };
 }
 
-const files = filesAvailable ? createFiles() : undefined;
+const files = platformFiles.available ? createFiles() : undefined;
 
 // Bloom's `PlatformSearch` (docs/adr/0051-search.mdx): the session's search index, which every
 // window reaches (protocol version 30), the shell's and Settings' included.

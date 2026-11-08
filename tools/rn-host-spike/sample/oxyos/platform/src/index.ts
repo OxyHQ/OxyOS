@@ -8,6 +8,7 @@ import NativeOxyOSNotifications from '../specs/NativeOxyOSNotifications.ts';
 import NativeOxyOSSounds from '../specs/NativeOxyOSSounds.ts';
 import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
+import { createFiles, createFileService, type FilesModule } from './files.ts';
 import { createFrameworks } from './frameworks.ts';
 import { createNotifications } from './notifications.ts';
 import { createPasteboard } from './pasteboard.ts';
@@ -19,6 +20,16 @@ export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
 export type { ChooserRequest, OpenPanelOptions, SavePanelOptions } from './chooser.ts';
+export type {
+  FileEvent,
+  FileInfo,
+  FileTag,
+  FolderItem,
+  ItemOutcome,
+  Places,
+  TaggedItem,
+  TrashedItem,
+} from './files.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
 export {
   MAX_NOTIFICATION_ACTIONS,
@@ -56,3 +67,14 @@ export const chooser = createChooser(
 
 /** Posting notifications and their responses (docs/adr/0026-notifications.mdx). */
 export const notifications = createNotifications(NativeOxyOSNotifications, DeviceEventEmitter);
+
+/** The connection to the file service; the runtime's own (ADR 0058, decision 2), never a contract:
+    the framework below and expo-file-system's module are written over it. */
+export const fileService = createFileService(
+  TurboModuleRegistry.get('OxyOSFiles') as FilesModule | null,
+  DeviceEventEmitter,
+  session.requestCapability,
+);
+
+/** Items, places, the Trash, watching and tags (docs/adr/0028-file-access.mdx). */
+export const files = createFiles(fileService);

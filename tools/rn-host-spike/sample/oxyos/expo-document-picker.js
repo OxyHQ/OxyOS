@@ -8,9 +8,7 @@
  * copied first into the application's cache unless `copyToCacheDirectory` is false, as Expo copies
  * it on every platform; a cancellation, and the session's refusal (said), answer as cancelled.
  */
-import { chooser } from '@oxyos/platform';
-
-import { callFiles, requestFiles } from './files';
+import { chooser, fileService } from '@oxyos/platform';
 
 const { NativeModule } = globalThis.expo;
 
@@ -25,18 +23,18 @@ const uniqueFolder = () => `${Date.now().toString(36)}-${++picks}`;
 async function asset(uri, copyToCacheDirectory) {
   const name = nameOf(uri);
   let at = uri;
-  const cache = copyToCacheDirectory ? callFiles('paths').value.cacheDirectory : null;
+  const cache = copyToCacheDirectory ? fileService.call('paths').value.cacheDirectory : null;
   if (cache) {
     const folder = `${cache}DocumentPicker/${uniqueFolder()}/`;
-    callFiles('createDirectory', { uri: folder, intermediates: true, overwrite: false, idempotent: true });
-    at = (await requestFiles('copy', { uri, directory: false, to: folder, toDirectory: true, overwrite: false })).value;
+    fileService.call('createDirectory', { uri: folder, intermediates: true, overwrite: false, idempotent: true });
+    at = (await fileService.request('copy', { uri, directory: false, to: folder, toDirectory: true, overwrite: false })).value;
   }
-  const facts = callFiles('stat', { uri: at }).value;
+  const facts = fileService.call('stat', { uri: at }).value;
   return {
     uri: at,
     name,
     size: facts.size ?? undefined,
-    mimeType: callFiles('mimeType', { uri: at }).value ?? undefined,
+    mimeType: fileService.call('mimeType', { uri: at }).value ?? undefined,
     lastModified: facts.modified ?? Date.now(),
   };
 }

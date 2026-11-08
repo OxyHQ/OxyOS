@@ -25,6 +25,7 @@ export type PlatformDomain =
   | 'bluetooth'
   | 'chooser'
   | 'drag'
+  | 'files'
   | 'network'
   | 'notifications'
   | 'pasteboard'

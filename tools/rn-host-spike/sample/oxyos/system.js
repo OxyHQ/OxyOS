@@ -82,21 +82,7 @@ export function launch() {
 
 /** Asks the session for a capability asked at first use (notifications, files, camera,
     microphone, location); whether it is granted. Granted at once, it holds for this process. */
-export function requestCapability(capability) {
-  if (!native) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const serial = native.requestCapability(capability);
-    if (!serial) {
-      resolve(false);
-      return;
-    }
-    const subscription = DeviceEventEmitter.addListener('OxyOSCapabilityResult', (result) => {
-      if (result.serial !== serial) return;
-      subscription.remove();
-      resolve(result.granted);
-    });
-  });
-}
+export const requestCapability = (capability) => connection.requestCapability(capability);
 
 /** The shell's system sheets: those waiting, in order, and how the shell answers one. */
 export function useSystemSheets() {
