@@ -148,6 +148,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
     const outcome = await storage.reset(target.id);
     if (outcome === "reset") {
       AccessibilityInfo.announceForAccessibility(words.resetDone(target.name));
+      setAwaitingIndex(true);
       void measure();
     } else if (outcome === "failed") {
       setFailure(words.resetFailed(target.name));
