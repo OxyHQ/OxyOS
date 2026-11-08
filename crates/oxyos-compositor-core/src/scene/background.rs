@@ -30,6 +30,10 @@ pub struct BackgroundItemRequest {
 #[derive(Debug, Default)]
 pub(super) struct Background {
     asked: Vec<BackgroundItemRequest>,
+    /// The clients whose application the person quit (the dock's Quit, the switcher's, Super+Q)
+    /// since the program last took them: their windows were asked to close, and a process that
+    /// would run on in the background ends with them instead.
+    quit: Vec<ClientId>,
 }
 
 impl Scene {
@@ -55,6 +59,21 @@ impl Scene {
     /// The asks made since the last call, in order.
     pub fn take_background_item_requests(&mut self) -> Vec<BackgroundItemRequest> {
         std::mem::take(&mut self.background.asked)
+    }
+
+    /// The person quit the application of `client`'s window: its windows are asked to close, as
+    /// any quit asks them, and the program is told, so a process of it allowed in the background
+    /// ends once they have closed rather than running on: Quit ends an application, closing its
+    /// window does not.
+    pub(super) fn note_quit(&mut self, client: ClientId) {
+        if !self.background.quit.contains(&client) {
+            self.background.quit.push(client);
+        }
+    }
+
+    /// The clients whose application the person quit since the last call.
+    pub fn take_quits(&mut self) -> Vec<ClientId> {
+        std::mem::take(&mut self.background.quit)
     }
 
     /// Tells `client` how its background item `kind` stands: the answer to its ask `serial`, or,
@@ -85,5 +104,6 @@ impl Scene {
 
     pub(super) fn forget_background_items(&mut self, client: ClientId) {
         self.background.asked.retain(|ask| ask.client != client);
+        self.background.quit.retain(|quit| *quit != client);
     }
 }

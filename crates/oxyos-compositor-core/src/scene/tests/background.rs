@@ -261,3 +261,24 @@ fn open_at_login_is_one_list_the_dock_and_settings_change_and_both_are_told() {
         .unwrap();
     assert_eq!(lists_told(&to(&logged(&mut h), 10)), [open_at_login]);
 }
+
+#[test]
+fn the_person_quitting_an_application_is_told_to_the_program_with_its_clients() {
+    let mut h = Harness::new();
+    h.scene.set_application(APP, "so.oxy.chat");
+    let window = h.toplevel(APP, 1, 400, 300);
+    let number = h.scene.window_number(window).unwrap();
+    h.request(SHELL, Request::QuitApplication { window: number })
+        .unwrap();
+    let events = logged(&mut h);
+    assert!(to(&events, APP)
+        .iter()
+        .any(|event| matches!(event, Event::CloseRequested { .. })));
+    assert_eq!(h.scene.take_quits(), [APP]);
+    assert!(h.scene.take_quits().is_empty());
+    // A client that went is forgotten.
+    h.request(SHELL, Request::QuitApplication { window: number })
+        .unwrap();
+    h.scene.disconnect(APP);
+    assert!(h.scene.take_quits().is_empty());
+}

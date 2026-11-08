@@ -89,6 +89,8 @@ pub fn added_notification(spanish: bool, name: &str) -> (&'static str, String) {
 #[derive(Clone, Debug)]
 struct Registered {
     id: String,
+    /// The person quit its application: once its windows close, it ends rather than running on.
+    quit: bool,
     /// It has shown a window: once it shows none, it is in the background.
     shown: bool,
 }
@@ -104,6 +106,8 @@ struct Turn {
     requests: Vec<BackgroundItemRequest>,
     grants: Vec<(Grant, bool)>,
     decisions: Vec<Decision>,
+    /// The clients whose application the person quit.
+    quits: Vec<ClientId>,
 }
 
 impl Turn {
@@ -224,6 +228,7 @@ impl BackgroundActivity {
     ) -> Vec<u32> {
         let turn = Turn {
             requests: compositor.scene.take_background_item_requests(),
+            quits: compositor.scene.take_quits(),
             grants: installs
                 .as_deref_mut()
                 .map(Installs::take_grants)
@@ -274,6 +279,7 @@ impl BackgroundActivity {
             requests,
             grants,
             decisions,
+            quits,
         } = turn;
         let mut end = Vec::new();
         let login_items = settings.preferences().open_at_login.clone();
@@ -456,6 +462,16 @@ impl BackgroundActivity {
             }
         }
 
+        // Quit (the dock's, the switcher's, Super+Q) ends an application: a process of it that
+        // registered its background activity ends as its windows close.
+        for client in quits {
+            if let Some((_, pid, _)) = of(client) {
+                if let Some(registered) = self.registered.get_mut(pid) {
+                    registered.quit = true;
+                }
+            }
+        }
+
         // The windows of the processes that registered: one that showed a window and shows none is
         // in the background, if it may be and its application has none there yet; else it ends.
         if self.watching() {
@@ -491,7 +507,7 @@ impl BackgroundActivity {
                     .and_then(|(_, _, record)| record.clone());
                 let allowed = self.allowance(record.as_ref(), BackgroundItemKind::Background)
                     == Allowance::Allowed;
-                if allowed && !self.in_background.contains_key(&registered.id) {
+                if allowed && !registered.quit && !self.in_background.contains_key(&registered.id) {
                     eprintln!(
                         "[background] {} runs in the background ({pid})",
                         registered.id
@@ -502,7 +518,9 @@ impl BackgroundActivity {
                     eprintln!(
                         "[background] {} ended: {}",
                         registered.id,
-                        if allowed {
+                        if registered.quit {
+                            "the person quit it"
+                        } else if allowed {
                             "its application already runs in the background"
                         } else {
                             "it may not run in the background"
@@ -552,6 +570,7 @@ impl BackgroundActivity {
             BackgroundItemKind::Background => {
                 self.registered.entry(pid).or_insert(Registered {
                     id: record.id.clone(),
+                    quit: false,
                     shown: false,
                 });
                 granted_now

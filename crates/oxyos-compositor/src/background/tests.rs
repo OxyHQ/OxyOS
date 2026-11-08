@@ -704,3 +704,31 @@ fn turned_off_its_process_in_the_background_ends_and_those_with_windows_lose_the
             .unwrap(),
     );
 }
+
+#[test]
+fn quit_ends_it_with_its_windows_where_closing_them_keeps_it_running() {
+    let installed = installed("quit");
+    decide(&installed, "so.oxy.chat", &[("background", "granted")]);
+    let mut session = Session::new(Some(installed.clone()));
+    let chat = || Some(launched("so.oxy.chat", "Chat", Origin::Installed { version_code: 3 }));
+    let clients = [(APP, 100, chat())];
+    session.ask(
+        APP,
+        1,
+        BackgroundItemKind::Background,
+        BackgroundItemAction::Register,
+        &clients,
+        &showing(&[100]),
+    );
+    session.told();
+    // The person quits Chat (the dock's Quit): its window is asked to close and closes; it ends.
+    let turn = Turn {
+        quits: vec![APP],
+        ..Turn::default()
+    };
+    assert!(session.turn(turn, &clients, &showing(&[100]), None).is_empty());
+    assert_eq!(session.turn(Turn::default(), &clients, &none(), None), [100]);
+    assert!(session.background.in_background().is_empty());
+    assert!(!session.background.watching());
+    let _ = std::fs::remove_dir_all(installed.parent().unwrap().parent().unwrap().parent().unwrap());
+}
