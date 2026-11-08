@@ -273,7 +273,7 @@ export function useSystemSheets() {
   // session asks the person in a sheet of its own, and opens it again once it is reset.
   const resetApplication = React.useCallback((sheet, id) => {
     native?.answerSheet(sheet, false);
-    native?.request(JSON.stringify({ resetApplication: { id, reopen: true } }));
+    void connection.request({ resetApplication: { id, reopen: true } });
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
   return { sheets, answer, answerPassword, answerCode, resetApplication };
