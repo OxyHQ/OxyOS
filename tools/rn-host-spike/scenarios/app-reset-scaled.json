@@ -74,7 +74,6 @@
         "press_named",
         "Restablecer…"
       ],
-      "until_sheet": true,
       "expect": {
         "react": {},
         "in_shell": {
@@ -92,7 +91,11 @@
           ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\"",
           ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": true
         }
-      }
+      },
+      "until_named": [
+        "¿Restablecer “Crash Probe”?",
+        15000
+      ]
     },
     {
       "name": "Cancel: nothing is erased, nothing opened",
@@ -138,7 +141,6 @@
         "press_named",
         "Restablecer…"
       ],
-      "until_sheet": true,
       "expect": {
         "react": {},
         "in_shell": {
@@ -146,7 +148,11 @@
             "¿Restablecer “Crash Probe”?"
           ]
         }
-      }
+      },
+      "until_named": [
+        "¿Restablecer “Crash Probe”?",
+        15000
+      ]
     },
     {
       "name": "Reset: its own data and cache erased, the rest of the home kept; it opens again, as new, and is ready",
