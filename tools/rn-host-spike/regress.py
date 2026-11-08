@@ -5615,8 +5615,8 @@ def main():
     env.pop("OXYOS_BACKUPD_SOCKET", None)
     if "backups" in scenario:
         # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
-        socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
-        env["OXYOS_BACKUPD_SOCKET"] = str(socket)
+        backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
+        env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
