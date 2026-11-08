@@ -380,12 +380,12 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
 fn a_refused_setup_ends_it() {
     let (socket, dir) = socket_path("accountd");
     let served = service(&socket, 1, |message| {
-        // An account without a password: only its PIN is sent, and Oxy cannot set it up yet.
+        // A sign-in by the QR: only its PIN is sent (refused here as the service refuses one it lacks).
         assert_eq!(
             message.clone(),
             json!({"enroll": {"deviceId": "d", "deviceSecret": "s", "accountId": "a", "pin": "4829"}})
         );
-        vec![json!({"refused": {"reason": "passwordRequired"}})]
+        vec![json!({"refused": {"reason": "pinRequired"}})]
     });
     let mut enrollment = Enrollment::connect(&socket).unwrap();
     let answer = enrollment
@@ -400,7 +400,7 @@ fn a_refused_setup_ends_it() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&answer).unwrap(),
-        json!({"refused": {"reason": "passwordRequired", "retryAfterSeconds": null}})
+        json!({"refused": {"reason": "pinRequired", "retryAfterSeconds": null}})
     );
     assert!(enrollment.second_factor(&Secret::new("1")).is_err());
     served.join().unwrap();
