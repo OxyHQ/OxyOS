@@ -500,7 +500,8 @@ attributes: a value as above, or false for none. The home's attributes are read 
 that sets or checks some. Every scenario runs in one fixed language, never the machine's
 (docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
 scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
-and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`).
+and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`), else
+its wallpaper's, else Europe/Bucharest (FIXED_TZ), never the machine's.
 
 What applications keep (their data and cache directories by id, application.h) is under the run's
 own XDG_DATA_HOME and XDG_CACHE_HOME. A scenario's `app_data` ({ID: {FILE: JSON}}) is written to an
@@ -508,7 +509,11 @@ application's data directory before it starts; the `final` `app_data` expectatio
 file holds that JSON once the run ended.
 
 A scenario with `lock_password` has the development compositor's lock fixture unlock with that
-password (ADR 0010; never PAM).
+password (ADR 0010; never PAM), and with `lock_pin` with that PIN, said as one
+(docs/adr/0020-oxy-account-login.mdx decision 2). The played session socket's `account.local`
+({"pin", "password"}) is the account's local sign-in it tells the shell's lock screen and Settings,
+which changes it (`setPin`, `removePin`, `setPasswordSignIn`) proved by `account.local_password` or
+`account.local_pin`.
 
 A scenario with `store` runs offline but for a store of its own (docs/adr/0030-installing-applications.mdx,
 decision 14): the machine reaches Oxy's API (`api.oxy.so`) only through a proxy of the run's own
@@ -583,9 +588,15 @@ for the one account it plays, committing the device credential `oxy.device`; eve
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
-lists `enroll.account` once enrolled. A step's `accounts_asked` is what the setup asked the service
+lists `enroll.account` once enrolled; `enroll.password` null plays an account without one, refused
+`passwordRequired` as the service refuses it, and a `pin` given with the setup becomes the account's
+PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
+listed `pin: set`; `login.pin_failures`: {USER: N} wrong ones before the run) is checked by `oxyos-pin-check`, which the login program's PIN service runs
+(`oxyos-login-pin`, pam_exec, as the real one is), asking the stand-in's `verifyPin`: the tenth
+wrong one in a row locks it out (listed `locked`). A step's `accounts_asked` is what the setup asked the service
 in it ("ASKED: ANSWERED", exactly, in order) and `oxy_requests` requests Oxy's API answered in it
-("METHOD PATH STATUS", each at least once). No credential of anyone's is in a scenario: every one
+("METHOD PATH STATUS", each at least once), `oxy_requests_times` how many times each was answered
+({"METHOD PATH STATUS": N}, exactly). No credential of anyone's is in a scenario: every one
 is the run's own. `login.record`: what the login program must have recorded once the run
 ended, each line beginning so, in order (none: nobody signed in). A step's `shell.signed_in` says
 whether the login screen was told someone signed in.
@@ -632,6 +643,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import atexit
 import base64
 import collections
 import hashlib
@@ -670,7 +682,8 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
 # clock's time of a report's line, for what follows the wall clock (the shell's minute).
 WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
 
-# The time zone the run's applications tell the time in (a scenario's `tz`), else this process's.
+# The time zone the run's applications tell the time in: a scenario's `tz`, else FIXED_TZ.
+FIXED_TZ = "Europe/Bucharest"
 RUN_TZ = None
 # The run's locale (its `locale`, else FIXED_LOCALE): the language the shell says its clock in.
 RUN_LOCALE = FIXED_LOCALE
@@ -1067,7 +1080,16 @@ def serve_accounts(path, accounts, login=None, log=None):
     listener.bind(str(path))
     listener.listen(16)
     login = login or {}
-    accounts = list(accounts)
+    accounts = [dict(account) for account in accounts]
+    # The accounts' PINs, as the real service's verifiers are: the played run's own, never logged.
+    pins = dict(login.get("pins", {}))
+    # Wrong PINs in a row before the run (`login.pin_failures`): ten have locked it out.
+    failures = dict(login.get("pin_failures", {}))
+    for account in accounts:
+        if account["user"] in pins:
+            account.setdefault("pin", "locked" if failures.get(account["user"], 0) >= 10 else "set")
+        account.setdefault("pin", "none")
+        account.setdefault("password", True)
 
     def record(asked, answered):
         if log:
@@ -1077,9 +1099,15 @@ def serve_accounts(path, accounts, login=None, log=None):
     def enroll(connection, message):
         played = login.get("enroll")
         request = message["enroll"]
+        pin = request.get("pin")
         if not played or request.get("deviceId") != played["device"]["deviceId"] \
                 or request.get("deviceSecret") != played["device"]["deviceSecret"]:
             answer = {"refused": {"reason": "credentialRefused"}}
+        elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
+            answer = {"refused": {"reason": "unusablePin"}}
+        elif request.get("password") is None:
+            # The platform credential is issued only to the platform's password sign-in.
+            answer = {"refused": {"reason": "passwordRequired"}}
         elif request.get("password") != played["password"]:
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
@@ -1088,9 +1116,13 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = None
         while True:
             if answer is None:
-                listed = played["account"]
-                if all(account["user"] != listed["user"] for account in accounts):
-                    accounts.append(listed)
+                listed = dict(played["account"], password=True)
+                if pin is not None:
+                    pins[listed["user"]] = pin
+                    failures.pop(listed["user"], None)
+                listed["pin"] = "set" if listed["user"] in pins else "none"
+                accounts[:] = [account for account in accounts if account["user"] != listed["user"]]
+                accounts.append(listed)
                 answer = {"enrolled": {"accountId": listed["accountId"], "user": listed["user"], "uid": 1001,
                                        "profile": {"id": listed["accountId"], "username": listed["name"],
                                                    "displayName": None, "avatar": None}}}
@@ -1125,6 +1157,24 @@ def serve_accounts(path, accounts, login=None, log=None):
                     elif isinstance(message, dict) and "enroll" in message:
                         record.turn = 0
                         enroll(connection, message)
+                    elif isinstance(message, dict) and "verifyPin" in message:
+                        # oxyos-pin-check's, for PAM: the PIN checked here, a wrong one counted.
+                        user, pin = message["verifyPin"]["user"], message["verifyPin"]["pin"]
+                        listed = next((a for a in accounts if a["user"] == user), None)
+                        if user not in pins or listed is None:
+                            result = "none"
+                        elif failures.get(user, 0) >= 10:
+                            result = "locked"
+                        elif pin == pins[user]:
+                            failures.pop(user, None)
+                            result = "accepted"
+                        else:
+                            failures[user] = failures.get(user, 0) + 1
+                            result = "locked" if failures[user] >= 10 else "rejected"
+                        if listed is not None and user in pins:
+                            listed["pin"] = "locked" if failures.get(user, 0) >= 10 else "set"
+                        record("verifyPin", result)
+                        connection.send(json.dumps({"pin": {"result": result}}).encode())
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
 
@@ -1182,6 +1232,10 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
+    # changes them; the secrets are the run's own and never logged.
+    local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
+    pins_set = [spec.get("local_pin")]
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1196,6 +1250,12 @@ def serve_account_session(path, spec, log):
         except OSError:
             return None
         names = dict(item.split(b"=", 1) for item in environ if b"=" in item)
+        # The session's shell, which the session registers as the system's `so.oxy.shell`.
+        try:
+            if b"OxyOSShell" in pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0"):
+                return "so.oxy.shell"
+        except OSError:
+            pass
         if b"OXYOS_APP_UNRECORDED" in names:
             return None
         application = names.get(b"OXYOS_APP_ID", b"").decode() or None
@@ -1279,6 +1339,43 @@ def serve_account_session(path, spec, log):
                            "erasing" if "erasing" in answer else answer["refused"]["reason"])
                     # The real service then restarts the computer; the run goes on.
                     connection.send(json.dumps(answer).encode())
+                elif message == "localSignIn" and application in ("so.oxy.shell", "so.oxy.settings"):
+                    # The account's PIN and password on this computer (ADR 0020 decision 2),
+                    # `account.local`: what the lock screen and Settings are told.
+                    record(application, asked, f"pin {local_sign_in['pin']}")
+                    connection.send(json.dumps({"localSignIn": local_sign_in}).encode())
+                elif asked in ("setPin", "removePin", "setPasswordSignIn") and application == "so.oxy.settings":
+                    # Settings' changes, proved by the password (`account.local_password`) or the
+                    # current PIN (`account.local_pin`), as the real service checks them.
+                    change = message[asked]
+                    password_ok = local_sign_in["password"] and change.get("password") is not None \
+                        and change.get("password") == spec.get("local_password")
+                    pin_ok = change.get("currentPin") is not None and change.get("currentPin") == pins_set[0]
+                    if asked == "setPasswordSignIn" and change.get("enabled"):
+                        proved = change.get("password") == spec.get("local_password")
+                    else:
+                        proved = password_ok or pin_ok
+                    if not proved:
+                        answer = {"refused": {"reason": "wrongPin" if "currentPin" in change else "wrongPassword"}}
+                    elif asked == "setPin" and not re.fullmatch(r"[0-9]{4,16}", change.get("pin", "")):
+                        answer = {"refused": {"reason": "unusablePin"}}
+                    elif asked == "removePin" and not local_sign_in["password"]:
+                        answer = {"refused": {"reason": "passwordSignInOff"}}
+                    elif asked == "setPasswordSignIn" and not change.get("enabled") and local_sign_in["pin"] == "none":
+                        answer = {"refused": {"reason": "noPin"}}
+                    else:
+                        if asked == "setPin":
+                            pins_set[0] = change["pin"]
+                            local_sign_in["pin"] = "set"
+                        elif asked == "removePin":
+                            pins_set[0] = None
+                            local_sign_in["pin"] = "none"
+                        else:
+                            local_sign_in["password"] = bool(change.get("enabled"))
+                        answer = {"localSignIn": dict(local_sign_in)}
+                    record(application, asked, next(iter(answer)) if "localSignIn" in answer
+                           else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
                     # The real service then ends the account's sessions, this one with them.
@@ -1329,13 +1426,24 @@ def account_later(changes, report_path):
 def played_oxy(spec, log):
     """Oxy's API as the login screen's setup reaches it (`login.oxy`): the SDK's own sign-in and the
     calls around it, answered in the API's shapes for the one account the scenario plays
-    (`identifier`, `password`, `id`, `username`, `has_password`) and the device credential its
+    (`identifier`, `password`, `id`, `username`, `has_password`, `has_email`) and the device credential its
     sign-in commits (`device`: {deviceId, deviceSecret}, the run's own, no credential of anyone's).
     Every request is logged by its method and path, never its body; one not played is answered 404
-    and logged so. Returns its base URL and the server."""
+    and logged so. Returns its base URL and the server.
+
+    As the API does, a sign-in's access token is the only way into the account's routes (`/users/me`
+    and what is under it, `/accounts`, `/session/device/*`): a request without it, or with one the
+    API no longer takes, is answered 401. A sign-in puts the account on the sign-in's device (the
+    claim's `finalizeDeviceLogin`), so the device's state and directory list it from then on, as
+    `POST /session/device/add`, `GET /session/device/state` and `GET /session/device/directory`
+    answer them. `qr.token_refused_at` ("METHOD PATH") plays what production did on 2026-11-08: the
+    first QR sign-in's token refused when it first reaches that request (the API task that approved
+    the request held the session as it was before the claim bound it, OxyHQ/oxy#2224), and never
+    taken again."""
     import secrets as _secrets
 
-    state = {"has_password": spec.get("has_password", True), "requests": {}}
+    state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
+             "on_device": False, "revision": 0, "qr_claims": 0}
     lock = threading.Lock()
 
     class Oxy(BaseHTTPRequestHandler):
@@ -1364,11 +1472,65 @@ def played_oxy(spec, log):
             except ValueError:
                 return {}
 
-        def session(self):
+        def session(self, refused_at=None):
+            """A sign-in's session: its token taken by the account's routes, and the account on the
+            sign-in's device."""
+            # Shaped as the API's tokens are (a JWT the SDK reads its expiry from; an opaque one it
+            # would not send), signed by nobody: the played API knows its tokens by value.
+            def part(value):
+                return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+            now = int(time.time())
+            token = ".".join((part({"alg": "none", "typ": "JWT"}),
+                              part({"sub": spec["id"], "sid": "played-session", "type": "access",
+                                    "iat": now, "exp": now + 900, "jti": _secrets.token_hex(8)}),
+                              "played"))
+            with lock:
+                state["tokens"][token] = {"refused_at": refused_at, "refused": False}
+                if not state["on_device"]:
+                    state["on_device"] = True
+                    state["revision"] += 1
             return {"sessionId": "played-session", "deviceId": spec["device"]["deviceId"],
                     "deviceSecret": spec["device"]["deviceSecret"],
-                    "expiresAt": "2026-11-13T12:00:00.000Z", "accessToken": "played." + _secrets.token_hex(8),
+                    "expiresAt": "2026-11-13T12:00:00.000Z", "accessToken": token,
                     "user": {"id": spec["id"], "username": spec["username"]}}
+
+        def signed_in(self, request):
+            """Whether the request carries a token the API takes; answers 401 when it does not."""
+            header = self.headers.get("Authorization", "")
+            token = header[len("Bearer "):] if header.startswith("Bearer ") else None
+            with lock:
+                held = state["tokens"].get(token)
+                if held and held["refused_at"] == request:
+                    held["refused"] = True
+                taken = held is not None and not held["refused"]
+            if not taken:
+                self.reply(401, {"error": "invalid_token", "message": "Invalid or expired session"})
+            return taken
+
+        def device_state(self):
+            """The sign-in's device as `GET /session/device/state` answers it: the account on it,
+            active, once a sign-in put it there."""
+            with lock:
+                on, revision = state["on_device"], state["revision"]
+            accounts = [{"accountId": spec["id"], "sessionId": "played-session", "authuser": 0}] if on else []
+            return {"deviceId": spec["device"]["deviceId"], "accounts": accounts,
+                    "activeAccountId": spec["id"] if on else None, "revision": revision,
+                    "updatedAt": 1794096000000}
+
+        def device_directory(self):
+            """The device's directory (`GET /session/device/directory`): its one person, acting as
+            themself, once a sign-in put them on it."""
+            device = self.device_state()
+            profile = {"id": spec["id"], "username": spec["username"], "name": self.user()["name"],
+                       "avatar": None, "color": None}
+            principals = [{"id": "played-principal", "userId": spec["id"], "authuser": 0, "user": profile,
+                           "contexts": [{"id": "played-context", "accountId": spec["id"], "kind": "personal",
+                                         "relationship": "self", "account": profile, "onDevice": True,
+                                         "available": True, "active": True, "lastUsedAt": None}]}] \
+                if device["accounts"] else []
+            return {"deviceId": device["deviceId"], "revision": device["revision"],
+                    "activeContextId": "played-context" if principals else None, "principals": principals,
+                    "updatedAt": device["updatedAt"]}
 
         def user(self):
             return {"id": spec["id"], "username": spec["username"],
@@ -1401,7 +1563,21 @@ def played_oxy(spec, log):
                 if opcode != 0x1:
                     continue
                 packet = payload.decode()
-                if packet.startswith("40/auth-session"):
+                if packet.startswith("40") and not packet.startswith("40/"):
+                    # The device's own namespace, which a signed-in SessionClient joins with its
+                    # token: connected while the API takes the token, else refused (`44`).
+                    try:
+                        auth = json.loads(packet[2:] or "{}")
+                    except ValueError:
+                        auth = {}
+                    with lock:
+                        held = state["tokens"].get(auth.get("token") if isinstance(auth, dict) else None)
+                        taken = held is not None and not held["refused"]
+                    self.log("WS / connect" if taken else "WS / refused")
+                    with writing:
+                        websocket_send(self.wfile, 0x1, '40{"sid":"played-device"}' if taken
+                                       else '44{"message":"Authentication error"}')
+                elif packet.startswith("40/auth-session"):
                     self.log("WS /auth-session connect")
                     with writing:
                         websocket_send(self.wfile, 0x1, '40/auth-session,{"sid":"played-auth"}')
@@ -1438,15 +1614,30 @@ def played_oxy(spec, log):
                     self.socket_io()
                 except (OSError, ValueError, struct.error):
                     pass
-            elif path == "/users/me/sign-in-methods":
-                self.reply(200, {"hasEmail": True, "hasPassword": state["has_password"], "totpEnabled": False,
-                                 "backupCodesRemaining": 0})
-            elif path == "/users/me":
-                self.reply(200, self.user())
-            elif path == "/accounts":
-                self.reply(200, {"accounts": []})
+            elif path in ("/users/me/sign-in-methods", "/users/me", "/accounts") or path.startswith("/session/device/"):
+                if not self.signed_in(f"GET {path}"):
+                    pass
+                elif path == "/users/me/sign-in-methods":
+                    self.reply(200, {"hasEmail": spec.get("has_email", True), "hasPassword": state["has_password"], "totpEnabled": False,
+                                     "backupCodesRemaining": 0})
+                elif path == "/users/me":
+                    self.reply(200, self.user())
+                elif path == "/accounts":
+                    self.reply(200, {"accounts": []})
+                elif path == "/session/device/state":
+                    self.reply(200, {"state": self.device_state(), "activeToken": None})
+                elif path == "/session/device/directory":
+                    self.reply(200, self.device_directory())
+                else:
+                    self.reply(404, {"error": "not_found", "message": "not played"})
             elif path == "/auth/oauth/client/oxy_pk_played":
-                self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS"}})
+                # OxyOS's registry entry as the API answers it: Oxy's own, official, so its sign-in
+                # takes the device lane (an application answered with less is classified a third
+                # party's and signed in on an isolated OAuth session, which production never is).
+                self.reply(200, {"application": {"id": "played-oxyos", "name": "OxyOS", "type": "first_party",
+                                                 "isOfficial": True, "isInternal": False, "scopes": [],
+                                                 "description": "Official Oxy desktop shell for Linux.",
+                                                 "websiteUrl": "https://oxy.so/os"}})
             elif path in ("/", "/health"):
                 self.reply(200, {"ok": True})
             elif path.startswith("/auth/session/status/"):
@@ -1507,11 +1698,21 @@ def played_oxy(spec, log):
                     if ok:
                         request["status"] = "consumed"
                 if ok:
-                    self.reply(200, dict(self.session(), user=self.user()))
+                    with lock:
+                        state["qr_claims"] += 1
+                        first = state["qr_claims"] == 1
+                    refused_at = spec.get("qr", {}).get("token_refused_at") if first else None
+                    self.reply(200, dict(self.session(refused_at), user=self.user()))
                 else:
                     self.reply(400, {"error": "invalid_request", "message": "Invalid or expired session"})
             elif path == "/users/me/reauth/email":
-                self.reply(200, {"verificationId": "played-reauth", "expiresAt": int(time.time() * 1000) + 600000})
+                if self.signed_in(f"POST {path}"):
+                    self.reply(200, {"verificationId": "played-reauth",
+                                     "expiresAt": int(time.time() * 1000) + 600000})
+            elif path == "/session/device/add":
+                # The account is on the device already (the sign-in put it there): the device as is.
+                if self.signed_in(f"POST {path}"):
+                    self.reply(200, {"state": self.device_state(), "activeToken": None})
             elif path == "/auth/signin/password":
                 if body.get("identifier") == spec["identifier"] and body.get("password") == spec.get("password") \
                         and state["has_password"]:
@@ -1527,7 +1728,9 @@ def played_oxy(spec, log):
             body = self.body()
             if path == "/users/me/password":
                 # The SDK's own flow of adding a password, confirmed with a code sent by email.
-                if json.dumps(body.get("reauth", {})).find(spec["code"]) >= 0 and body.get("newPassword"):
+                if not self.signed_in(f"PUT {path}"):
+                    pass
+                elif json.dumps(body.get("reauth", {})).find(spec["code"]) >= 0 and body.get("newPassword"):
                     state["has_password"] = True
                     self.reply(200, {"success": True})
                 else:
@@ -1558,7 +1761,15 @@ def login_program(out, offscreen, login):
         "account required pam_permit.so\nsession required pam_permit.so\n")
     # Sockets in a short directory of their own: a socket's path holds at most 107 bytes.
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-login-"))
+    atexit.register(shutil.rmtree, sockets, True)
     accountd, greeter, record = sockets / "accountd", sockets / "greeter", out / "login-record"
+    # A PIN (docs/adr/0020-oxy-account-login.mdx decision 2): its own service, as the image's
+    # (tools/oxyos-login/pam.d/oxyos-login-pin), oxyos-pin-check asking the accounts' stand-in.
+    pin_check = pathlib.Path(offscreen).resolve().parent / "oxyos-pin-check"
+    (pam / "oxyos-login-pin").write_text(
+        f"auth [success=1 default=ignore] pam_exec.so quiet expose_authtok {pin_check} --socket {accountd}\n"
+        "auth requisite pam_deny.so\nauth required pam_permit.so\n"
+        "account required pam_permit.so\nsession required pam_permit.so\n")
     record.unlink(missing_ok=True)
     # Online, Oxy's API is played (`login.oxy`) and the accounts' service names it, with a client id.
     for log in ("oxy-api.jsonl", "login-accounts.jsonl"):
@@ -3353,6 +3564,16 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         missing = [wanted for wanted in expect["oxy_requests"] if wanted not in got]
         if missing:
             fail(f"Oxy's API was not asked {missing} (it was asked {sorted(got)})")
+    if "oxy_requests_times" in expect:
+        # How many times the played Oxy API answered each request in the step, exactly: a QR's
+        # session claimed once ("POST /auth/session/claim 200": 1), a request never made (0).
+        log = ACCOUNT.get("oxy_log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        asked = [f"{line['request']} {line['status']}" for line in lines if start <= line["t"] <= end]
+        for wanted, times in expect["oxy_requests_times"].items():
+            if asked.count(wanted) != times:
+                fail(f"Oxy's API answered {wanted!r} {asked.count(wanted)} times, expected {times} "
+                     f"(it was asked {asked})")
     if "account_session" in expect:
         # What the played accounts' service was asked in the step (`account`): "APPLICATION ASKED:
         # ANSWERED", exactly, in any order (an application none, "-").
@@ -5051,6 +5272,9 @@ def main():
         # The lock screen's password (ADR 0010): the development compositor's fixture unlocks with
         # it, never PAM.
         command += ["--lock-password", scenario["lock_password"]]
+        if scenario.get("lock_pin"):
+            # The account's PIN (ADR 0020 decision 2), which the fixture takes said as one.
+            command += ["--lock-pin", scenario["lock_pin"]]
     if "reader" in scenario:
         # The session's screen reader (ADR 0014), saying into a record, in the scenario's locale.
         reader = options.reader or str(pathlib.Path(options.offscreen).resolve().parent / "oxyos-reader")
@@ -5169,6 +5393,7 @@ def main():
     # The accounts' service's session socket (decision 6): the scenario's played one (`account`),
     # else a path where nothing listens, so no run ever asks the machine's.
     account_dir = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-account-"))
+    atexit.register(shutil.rmtree, account_dir, True)
     env["OXYOS_ACCOUNTD_SESSION_SOCKET"] = str(account_dir / "session")
     if "account" in scenario:
         account_log = out / "account-session.jsonl"
@@ -5231,9 +5456,10 @@ def main():
     # never the developer's machine's.
     env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /
                                      "config/includes.chroot_after_packages/usr/share/X11/locale"))
-    if "tz" in scenario:
-        env["TZ"] = scenario["tz"]
-        RUN_TZ = scenario["tz"]
+    # One fixed time zone, never the machine's: the scenario's `tz`, else the one the scenarios'
+    # dates and times were written in (a machine in another zone showed every date it formats
+    # hours apart, and a wallpaper that follows the sun at another hour).
+    env["TZ"] = RUN_TZ = scenario.get("tz", scenario.get("wallpaper", {}).get("tz", FIXED_TZ))
     # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
     # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first",
     # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26).

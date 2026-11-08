@@ -269,7 +269,7 @@ class Window {
   // The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx).
   uint16_t protocolVersion() const;
   // The password for `account` (a login screen's; empty: the session's own user).
-  bool authenticate(uint32_t id, const std::string& secret, const std::string& account = "");
+  bool authenticate(uint32_t id, const std::string& secret, const std::string& account = "", bool passcode = false);
   // The windows a shell surface shows live (docs/adr/0022-window-views.mdx), bottom to top,
   // shown with its next present. Throws on failure.
   void showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views);

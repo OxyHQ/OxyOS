@@ -15,9 +15,18 @@ const bloom = process.env.BLOOM_DIR;
 process.env.EXPO_PUBLIC_USE_RN_FETCH = '1';
 const require = createRequire(path.join(bloom, 'package.json'));
 const Metro = require('metro');
-const { getAndroidResourceFolderName, getAndroidResourceIdentifier } = require(
-  '@react-native/assets-registry/path-support',
-);
+// Android's resource names for assets: @react-native/asset-utils since React Native 0.88.1, its
+// assets-registry's path-support before (a Bloom checkout nested in an older one's directory found
+// the outer one's through Node's resolution, and hid the move).
+const assetUtils = (() => {
+  try {
+    return require('@react-native/asset-utils');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    return require('@react-native/assets-registry/path-support');
+  }
+})();
+const { getAndroidResourceFolderName, getAndroidResourceIdentifier } = assetUtils;
 const [entry = 'index.js', outDir = 'build'] = process.argv.slice(2);
 
 // The app's stylesheet imports `@oxy.so/bloom` and scans its source as an app's does from its

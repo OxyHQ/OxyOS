@@ -138,10 +138,12 @@ pub struct Screen {
     pub refresh_mhz: u32,
     /// Without a display, whether it is paced as one at `refresh_mhz` (the development
     /// compositor's outputs given a refresh): a frame composed completes at its next vblank, in a
-    /// later turn, as one on a display completes at its flip; otherwise at once.
+    /// later turn, as one on a display completes at its flip; otherwise at once. Its vblanks are
+    /// on the compositor's clock (`Compositor::clock`): a test's, set by the test.
     pub paced: bool,
-    /// When its first vblank was (CLOCK_MONOTONIC), with `paced`: the phase of the others.
-    vblank_origin: std::time::Duration,
+    /// With `paced`: when its first frame was composed, on the compositor's clock, the phase of
+    /// its vblanks (a vblank then, and every refresh since). None before it.
+    vblank_origin: Option<std::time::Duration>,
     /// What it composes, in its own pixels: its display's mode, or its rectangle at its scale.
     pub width: u32,
     pub height: u32,
@@ -238,7 +240,7 @@ impl Screen {
             scale_120: output.scale_120,
             refresh_mhz: output.refresh_mhz,
             paced: false,
-            vblank_origin: monotonic(),
+            vblank_origin: None,
             width,
             height,
             framebuffer: vec![DESKTOP; width as usize * height as usize],
@@ -275,14 +277,14 @@ impl Screen {
         refresh_period(self.refresh_mhz)
     }
 
-    /// With `paced`: its first vblank after `at` (CLOCK_MONOTONIC), when a frame composed then is
-    /// shown.
+    /// With `paced`: its first vblank after `at` (on the compositor's clock), when a frame
+    /// composed then is shown; before its first frame, a refresh after `at`.
     pub fn next_vblank(&self, at: std::time::Duration) -> std::time::Duration {
+        let origin = self.vblank_origin.unwrap_or(at);
         let period = self.refresh_period().as_nanos().max(1);
-        let since = at.saturating_sub(self.vblank_origin).as_nanos();
+        let since = at.saturating_sub(origin).as_nanos();
         let count = since / period + 1;
-        self.vblank_origin
-            + std::time::Duration::from_nanos(u64::try_from(count * period).unwrap_or(u64::MAX))
+        origin + std::time::Duration::from_nanos(u64::try_from(count * period).unwrap_or(u64::MAX))
     }
 
     /// A rectangle of the global space (logical) in this screen's pixels, its edges rounded to
@@ -773,12 +775,13 @@ pub struct Compositor {
 /// the login program's (ADR 0020); the development compositor's a fixture, never a session's.
 pub trait Authentication {
     /// Begins checking `secret`, for `account` when the lock surface named one (a login
-    /// screen's), else for the session's own user: `None` while it is checked, or an answer at
-    /// once (busy, throttled, an account it may not check) with the seconds until another may be
-    /// tried.
+    /// screen's), else for the session's own user, as the account's PIN when `passcode` (ADR 0020
+    /// decision 2), else as its password: `None` while it is checked, or an answer at once (busy,
+    /// throttled, an account it may not check) with the seconds until another may be tried.
     fn attempt(
         &mut self,
         account: Option<&str>,
+        passcode: bool,
         secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)>;
     /// Readable when the password being checked has its answer.
@@ -3476,7 +3479,10 @@ impl Compositor {
             // Paced as a display (no display, not away): shown at its next vblank, in a later turn.
             let paced = self.screens[index].paced && self.screens[index].display.is_none();
             if paced && !self.away {
-                self.screens[index].pending_flip = Some(monotonic());
+                let now = self.now();
+                let screen = &mut self.screens[index];
+                screen.vblank_origin.get_or_insert(now);
+                screen.pending_flip = Some(now);
             } else {
                 self.scene.end_frame_on(id, 0, Clock::Synthetic);
                 self.retire();
@@ -3555,19 +3561,20 @@ impl Compositor {
     }
 
     fn complete_screen_flip(&mut self, index: usize, wait: bool) {
+        let (now, test_clock) = (self.now(), self.clock.is_some());
         let screen = &mut self.screens[index];
         let Some(submitted) = screen.pending_flip else {
             return;
         };
-        // Paced without a display: its frame is shown at its next vblank (waited for with `wait`),
-        // and read back, if it is, when composed.
+        // Paced without a display: its frame is shown at its next vblank on the compositor's
+        // clock (waited for with `wait`; a test's clock is the test's to move), and read back, if
+        // it is, when composed.
         let vblank = (screen.paced && screen.display.is_none()).then(|| {
             let due = screen.next_vblank(submitted);
-            let now = monotonic();
-            if now < due && wait {
+            if wait && !test_clock && now < due {
                 std::thread::sleep(due - now);
             }
-            (wait || monotonic() >= due).then_some(due)
+            (wait || now >= due).then_some(due)
         });
         let flip = match &screen.display {
             _ if vblank.is_some() => Ok(vblank.flatten()),
@@ -4364,7 +4371,7 @@ impl Compositor {
             wait = wait.min(period);
         }
         // A frame paced without a display is shown at its screen's next vblank.
-        let clock = monotonic();
+        let clock = self.now();
         for screen in &self.screens {
             if let (Some(submitted), None, true) =
                 (screen.pending_flip, &screen.display, screen.paced)
@@ -4754,7 +4761,11 @@ impl Compositor {
                 self.scene.authenticated(key, AuthOutcome::Rejected, 0);
                 continue;
             };
-            match authentication.attempt(submitted.account.as_deref(), submitted.secret) {
+            match authentication.attempt(
+                submitted.account.as_deref(),
+                submitted.passcode,
+                submitted.secret,
+            ) {
                 None => self.checking = Some(key),
                 Some((outcome, wait_s)) => self.scene.authenticated(key, outcome, wait_s),
             }
@@ -5368,9 +5379,14 @@ mod tests {
     fn a_paced_screen_shows_a_frame_at_its_next_vblank_and_the_fastest_screen_sets_the_pace() {
         let mut screen = screen(Rect::new(0, 0, 64, 64), 120);
         screen.refresh_mhz = 120_000;
-        screen.vblank_origin = Duration::from_secs(5);
         let ms = |ms: f64| Duration::from_secs_f64(5.0 + ms / 1e3);
         assert_eq!(screen.refresh_period(), Duration::from_nanos(8_333_333));
+        // Before its first frame there are no vblanks yet: the first is a refresh after it.
+        assert_eq!(
+            screen.next_vblank(ms(3.0)),
+            ms(3.0) + screen.refresh_period()
+        );
+        screen.vblank_origin = Some(Duration::from_secs(5));
         // A frame composed just after a vblank waits for the next; one composed on it, too.
         assert_eq!(
             screen.next_vblank(ms(0.1)),

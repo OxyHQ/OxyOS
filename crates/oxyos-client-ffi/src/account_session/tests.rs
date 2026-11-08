@@ -347,7 +347,8 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
                 "device-1",
                 &Secret::new("device-secret"),
                 "a1",
-                &Secret::new("hunter22")
+                Some(&Secret::new("hunter22")),
+                Some(&Secret::new("482916"))
             )
             .unwrap(),
         "\"secondFactorRequired\""
@@ -369,7 +370,7 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
     let received = served.join().unwrap();
     assert_eq!(
         received[0],
-        json!({"enroll": {"deviceId": "device-1", "deviceSecret": "device-secret", "accountId": "a1", "password": "hunter22"}})
+        json!({"enroll": {"deviceId": "device-1", "deviceSecret": "device-secret", "accountId": "a1", "password": "hunter22", "pin": "482916"}})
     );
     assert_eq!(received[1], json!({"secondFactor": {"code": "000000"}}));
     std::fs::remove_dir_all(dir).unwrap();
@@ -378,17 +379,28 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
 #[test]
 fn a_refused_setup_ends_it() {
     let (socket, dir) = socket_path("accountd");
-    let served = service(&socket, 1, |_| {
-        vec![json!({"refused": {"reason": "locked", "retryAfterSeconds": 60}})]
+    let served = service(&socket, 1, |message| {
+        // An account without a password: only its PIN is sent, and Oxy cannot set it up yet.
+        assert_eq!(
+            message.clone(),
+            json!({"enroll": {"deviceId": "d", "deviceSecret": "s", "accountId": "a", "pin": "4829"}})
+        );
+        vec![json!({"refused": {"reason": "passwordRequired"}})]
     });
     let mut enrollment = Enrollment::connect(&socket).unwrap();
     let answer = enrollment
-        .enroll("d", &Secret::new("s"), "a", &Secret::new("p"))
+        .enroll(
+            "d",
+            &Secret::new("s"),
+            "a",
+            None,
+            Some(&Secret::new("4829")),
+        )
         .unwrap()
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&answer).unwrap(),
-        json!({"refused": {"reason": "locked", "retryAfterSeconds": 60}})
+        json!({"refused": {"reason": "passwordRequired", "retryAfterSeconds": null}})
     );
     assert!(enrollment.second_factor(&Secret::new("1")).is_err());
     served.join().unwrap();
@@ -404,4 +416,81 @@ fn the_header_names_a_message_the_services_size() {
         .expect("OXYOS_ACCOUNT_MESSAGE_MAX is defined");
     let value: usize = line.rsplit(' ').next().unwrap().parse().unwrap();
     assert_eq!(value, oxyos_account::ipc::MAX_MESSAGE);
+}
+
+#[test]
+fn the_local_sign_in_is_read_and_changed_on_the_session_socket() {
+    let (socket, dir) = socket_path("session");
+    let served = service(&socket, 4, |message| {
+        if message == &json!("localSignIn") {
+            vec![json!({"localSignIn": {"pin": "none", "password": true}})]
+        } else if message["setPin"]["currentPin"] == "1111" {
+            vec![json!({"refused": {"reason": "throttled", "retryAfter": 30}})]
+        } else if message.get("setPin").is_some() {
+            vec![json!({"localSignIn": {"pin": "set", "password": true}})]
+        } else {
+            vec![json!({"refused": {"reason": "noPin"}})]
+        }
+    });
+    assert_eq!(
+        local_sign_in_at(&socket).unwrap(),
+        platform::LocalView {
+            pin: oxyos_account::pin::PinState::None,
+            password: true
+        }
+    );
+    let set = change_local_at(
+        &socket,
+        "setPin",
+        Some(Secret::new("482916")),
+        Some(Secret::new("hunter22")),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&set).unwrap(),
+        json!({"localSignIn": {"pin": "set", "password": true}})
+    );
+    let throttled = change_local_at(
+        &socket,
+        "setPin",
+        Some(Secret::new("1357")),
+        None,
+        Some(Secret::new("1111")),
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&throttled).unwrap(),
+        json!({"refused": {"reason": "throttled", "retryAfter": 30}})
+    );
+    let off = change_local_at(
+        &socket,
+        "passwordOff",
+        None,
+        Some(Secret::new("hunter22")),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&off).unwrap(),
+        json!({"refused": {"reason": "noPin"}})
+    );
+    // Not a change: nothing is sent.
+    assert!(change_local_at(&socket, "removePin", None, None, None).is_err());
+    assert!(change_local_at(&socket, "erase", None, None, None).is_err());
+    let received = served.join().unwrap();
+    assert_eq!(received[0], json!("localSignIn"));
+    assert_eq!(
+        received[1],
+        json!({"setPin": {"pin": "482916", "password": "hunter22"}})
+    );
+    assert_eq!(
+        received[2],
+        json!({"setPin": {"pin": "1357", "currentPin": "1111"}})
+    );
+    assert_eq!(
+        received[3],
+        json!({"setPasswordSignIn": {"enabled": false, "password": "hunter22"}})
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }

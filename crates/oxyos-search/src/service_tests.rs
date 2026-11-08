@@ -502,3 +502,167 @@ fn watchers_are_told_of_changes() {
     service.say(json!({"gone": {"client": 7}}));
     service.stop();
 }
+
+impl Running {
+    /// Reads until `client` is told, unasked, a state `wanted` says; every state it was told, in
+    /// order, up to that one.
+    fn told_until(&mut self, client: u32, wanted: impl Fn(&Value) -> bool) -> Vec<Value> {
+        let start = Instant::now();
+        let mut told = Vec::new();
+        let mut at = 0;
+        loop {
+            while at < self.unasked.len() {
+                let answer = &self.unasked[at]["answer"];
+                at += 1;
+                if answer["client"] == client && answer["serial"] == 0 {
+                    let text: Value =
+                        serde_json::from_str(answer["text"].as_str().unwrap()).unwrap();
+                    if let Some(status) = text.get("status") {
+                        told.push(status.clone());
+                        if wanted(status) {
+                            self.unasked.drain(..at);
+                            return told;
+                        }
+                    }
+                }
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(60),
+                "never told what was wanted: {told:?}"
+            );
+            let message = self.read();
+            self.unasked.push(message);
+        }
+    }
+}
+
+#[test]
+fn settings_rebuilds_the_index_from_the_files_and_who_follows_its_state_is_told() {
+    let mut service = Running::start(|home| {
+        write(&home.join("Documents/alpha.txt"), "the first letter");
+        write(&home.join("Documents/beta.txt"), "the second letter");
+    });
+    service.say(json!({"applications": [{"id": "so.oxy.allo", "name": "Allo"}]}));
+    service.settled();
+    let inbox = application("so.oxy.inbox");
+    let donation = json!({"donate": {"items": [{"id": "m1", "title": "Lunch", "category": "message",
+        "text": "meet at the zebra crossing", "url": "inbox://m1"}]}});
+    assert_eq!(
+        service.ask_as(1, inbox.clone(), donation),
+        json!({"done": {}})
+    );
+    let before = service.ask(json!({"status": {}}))["status"].clone();
+    assert_eq!(before["read"], 2, "{before}");
+    assert_eq!(before["rebuilding"], false);
+    assert_eq!(before["found"], Value::Null);
+
+    // Settings follows the state: told it at once.
+    let followed = service.ask_as(9, settings(), json!({"followStatus": {}}));
+    assert_eq!(followed["status"]["indexing"], false, "{followed}");
+    assert_eq!(followed["status"]["items"], before["items"]);
+
+    // Only Settings rebuilds the index.
+    assert_eq!(
+        service.ask_as(1, shell(), json!({"rebuild": {}})),
+        json!({"refused": {"reason": "notPermitted"}})
+    );
+    assert_eq!(
+        service.ask_as(9, settings(), json!({"rebuild": {}})),
+        json!({"rebuilding": {}})
+    );
+    // Told it rebuilds, then that it is done.
+    let told = service.told_until(9, |status| {
+        status["rebuilding"] == false && status["indexing"] == false
+    });
+    assert!(
+        told.iter().any(|status| status["rebuilding"] == true),
+        "{told:?}"
+    );
+    // Every file read again; the same items; what cannot be read again carried over.
+    let after = service.ask(json!({"status": {}}))["status"].clone();
+    assert_eq!(after["read"], 4, "{after}");
+    assert_eq!(after["items"], before["items"], "{after}");
+    assert_eq!(after["found"], Value::Null);
+    assert_eq!(service.query("alpha"), [service.id("Documents/alpha.txt")]);
+    assert_eq!(service.query("allo"), ["application:so.oxy.allo"]);
+    assert_eq!(service.query_as(inbox, "zebra"), ["so.oxy.inbox:m1"]);
+    // On the disk, the new index alone.
+    let cache = service._dir.path().join("cache");
+    let mut names: Vec<String> = std::fs::read_dir(&cache)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["index-1.1", "index-1.json"]);
+
+    // No longer followed: a change is told to the watchers' clients alone.
+    assert_eq!(
+        service.ask_as(9, settings(), json!({"unfollowStatus": {}})),
+        json!({"unfollowed": {}})
+    );
+    service.unasked.clear();
+    write(
+        &service.home.join("Documents/gamma.txt"),
+        "the third letter",
+    );
+    service.until("gamma", |found| found.len() == 1);
+    service.settled();
+    assert!(
+        !service
+            .unasked
+            .iter()
+            .any(|message| message["answer"]["client"] == 9),
+        "{:?}",
+        service.unasked
+    );
+    service.stop();
+}
+
+#[test]
+fn a_rebuild_the_service_stopped_in_goes_on_at_its_next_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("cai");
+    write(&home.join("one.txt"), "uno");
+    write(&home.join("two.txt"), "dos");
+    let mountinfo = dir.path().join("mountinfo");
+    std::fs::write(&mountinfo, "").unwrap();
+    let paths = Paths {
+        cache: dir.path().join("cache"),
+        data: dir.path().join("data"),
+        config: dir.path().join("config.json"),
+    };
+    let start = || {
+        let scope = Scope::new(&home, &home, &home, Vec::new(), mountinfo.clone(), 0).unwrap();
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let kept = paths.clone();
+        let thread = std::thread::spawn(move || serve(theirs, scope, Some(kept)));
+        ours.set_read_timeout(Some(Duration::from_secs(60)))
+            .unwrap();
+        let mut running = Running {
+            home: std::fs::canonicalize(&home).unwrap(),
+            _dir: tempfile::tempdir().unwrap(),
+            writer: ours.try_clone().unwrap(),
+            reader: BufReader::new(ours),
+            serial: 0,
+            thread: Some(thread),
+            unasked: Vec::new(),
+        };
+        running.settled();
+        running
+    };
+    let first = start();
+    first.stop();
+    // The service stopped just after a rebuild began: its new index named, empty.
+    drop(crate::index::Index::rebuild(&paths.cache, false).unwrap());
+    let mut second = start();
+    // It went on: every file read into the new index, which answers.
+    let status = second.ask(json!({"status": {}}))["status"].clone();
+    assert_eq!(status["read"], 2, "{status}");
+    assert_eq!(status["rebuilding"], false, "{status}");
+    assert_eq!(second.query("uno"), [second.id("one.txt")]);
+    assert!(!crate::index::Index::rebuild_under_way(&paths.cache));
+    assert!(paths.cache.join("index-1.1").is_dir());
+    assert!(!paths.cache.join("index-1").exists());
+    second.stop();
+}

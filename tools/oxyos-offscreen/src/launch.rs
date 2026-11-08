@@ -838,6 +838,9 @@ pub struct Launch {
     /// `--lock-password PASSWORD`: the lock screen's password unlocks when it is this one, the
     /// development compositor's fixture in place of the session's PAM (lock.rs).
     pub lock_password: Option<String>,
+    /// `--lock-pin PIN`: with `--lock-password`, a PIN said as one (`AuthenticatePasscode`)
+    /// unlocks when it is this one (lock.rs; ADR 0020 decision 2).
+    pub lock_pin: Option<String>,
     /// `--reader PROGRAM`: the session's screen reader (docs/adr/0014-screen-reader.mdx), started
     /// before the application on a socket granting `accessibility` and `screen_reader`, its voice
     /// a record (`speech.jsonl` in the output directory); `--reader-locale LOCALE` is its
@@ -930,7 +933,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1032,6 +1035,7 @@ impl Launch {
         let mut companion_at = None;
         let mut companion_app = None;
         let mut lock_password = None;
+        let mut lock_pin = None;
         let (mut reader, mut reader_locale, mut reader_off) = (None, None, false);
         let (mut preferences, mut grant_settings, mut controls) = (None, None, None);
         let mut network_bus = None;
@@ -1230,6 +1234,11 @@ impl Launch {
                 Some("--lock-password") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     lock_password = Some(value.to_string());
+                    continue;
+                }
+                Some("--lock-pin") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    lock_pin = Some(value.to_string());
                     continue;
                 }
                 Some("--launch-settle") => {
@@ -1793,6 +1802,7 @@ impl Launch {
                 companion_at,
                 companion_app,
                 lock_password,
+                lock_pin,
                 reader,
                 reader_locale,
                 reader_off,
@@ -5196,8 +5206,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
     }
     if let Some(password) = &launch.lock_password {
-        session.compositor.authentication =
-            Some(Box::new(crate::lock::Fixture::new(password.clone())?));
+        session.compositor.authentication = Some(Box::new(
+            crate::lock::Fixture::new(password.clone())?.with_pin(launch.lock_pin.clone()),
+        ));
     }
     // A login screen: locked before any client connects, its passwords the login program's.
     if let Some(socket) = &launch.login {

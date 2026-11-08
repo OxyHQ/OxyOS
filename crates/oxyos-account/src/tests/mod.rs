@@ -10,6 +10,8 @@ mod id;
 mod ipc;
 #[cfg(feature = "keychain")]
 mod keychain;
+#[cfg(feature = "local")]
+mod pin;
 mod platform;
 mod session;
 mod setup;

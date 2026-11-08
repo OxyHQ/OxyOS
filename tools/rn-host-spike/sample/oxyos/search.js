@@ -6,8 +6,10 @@
  * (`OxyOSSearchText`), with one object: `{refused: {reason}}` rejects with an Error whose `code` is
  * the reason, and any other (`{results: {...}}`, `{preferences: {...}}`, `{done: {}}`) resolves with
  * its value. Serial 0 is the index's own: `{changed: {}}`, told while this window watches, calls the
- * watch's listeners. The compositor tells the index who asks (this application, the shell,
- * Settings); nothing here says it, and only Settings may change the preferences.
+ * watch's listeners; `{status: {...}}`, told while this window follows the index's state
+ * (docs/adr/0058-the-platform-api.mdx's followed state), is the state's new value. The compositor
+ * tells the index who asks (this application, the shell, Settings); nothing here says it, and only
+ * Settings may change the preferences or rebuild the index.
  */
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
@@ -29,6 +31,16 @@ export class SearchError extends Error {
 const waiting = new Map();
 /** Who follows the index's changes; the index is asked to watch while there is one. */
 const listeners = new Set();
+/** Who follows the index's state; the index tells it while there is one. */
+const stateListeners = new Set();
+/** The index's state as last told; null before the first, and once nobody follows it. */
+let stateLast = null;
+
+function tellState(state) {
+  if (stateListeners.size === 0) return;
+  stateLast = state;
+  for (const listener of [...stateListeners]) listener(state);
+}
 
 if (native) {
   DeviceEventEmitter.addListener('OxyOSSearchText', ({ serial, text }) => {
@@ -42,6 +54,7 @@ if (native) {
       if (answer && answer.changed !== undefined) {
         for (const listener of [...listeners]) listener();
       }
+      if (answer && answer.status) tellState(answer.status);
       return;
     }
     const asked = waiting.get(serial);
@@ -112,7 +125,29 @@ export function createSearch() {
     /** The index's preferences (Settings alone changes them). */
     preferences: () => ask({ preferences: {} }),
     setPreferences: (preferences) => ask({ setPreferences: preferences }),
-    /** What the index holds and is doing. */
+    /** What the index holds and is doing, once. */
     status: () => ask({ status: {} }),
+    /** What the index holds and is doing, followed (`@oxyos/platform`'s `Followed`: `current`,
+        `subscribe`, what React's `useSyncExternalStore` takes): `{indexing, items, partial, rebuilding, found, ...}`, told by
+        the index as it changes, and only while someone follows it. The first subscriber asks the
+        index to tell it; the last one gone asks it to stop. */
+    state: Object.freeze({
+      current: () => stateLast,
+      subscribe(listener) {
+        const first = stateListeners.size === 0;
+        stateListeners.add(listener);
+        if (first) ask({ followStatus: {} }).then(tellState, () => {});
+        return () => {
+          if (!stateListeners.delete(listener)) return;
+          if (stateListeners.size === 0) {
+            stateLast = null;
+            tell({ unfollowStatus: {} });
+          }
+        };
+      },
+    }),
+    /** Discards the index and builds it again from the files (Settings alone); the old one answers
+        until the new one is ready. */
+    rebuild: () => told({ rebuild: {} }),
   });
 }

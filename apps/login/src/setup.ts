@@ -1,11 +1,13 @@
 /**
- * Adding an account at the login screen (docs/adr/0020-oxy-account-login.mdx, decision 4, step 2):
- * online only. The SDK's own sign-in (the platform's, with OxyOS's client id from the accounts'
- * service) obtains a device credential, which the platform takes over at once and holds; an
- * account without a password sets one through the SDK's own flow; the person gives the account's
- * password once more, and the accounts' service sets the account up with both, asking a second
- * factor on the same conversation when Oxy does. What came of each answer, apart from how it is
- * shown: nothing here decides who may sign in.
+ * Adding an account at the login screen (docs/adr/0020-oxy-account-login.mdx, decisions 2 and 4,
+ * step 2): online only. The SDK's own sign-in (the platform's, with OxyOS's client id from the
+ * accounts' service) obtains a device credential, which the platform takes over at once and holds.
+ * An account with a password gives it once more, then chooses a PIN for this computer (or not, for
+ * now); an account without one chooses a PIN, and is never asked to make an Oxy password. The
+ * accounts' service sets the account up with them, asking a second factor on the same
+ * conversation when Oxy does. An account without a password cannot be set up yet (the service
+ * says `passwordRequired`): Oxy issues the platform's credential only to its password sign-in.
+ * What came of each answer, apart from how it is shown: nothing here decides who may sign in.
  */
 
 /** Where the SDK's sign-in runs: Oxy's API and OxyOS's public client id (neither secret). */
@@ -20,8 +22,13 @@ export function platformFrom(told: unknown): SetupPlatform | null {
   return { api, clientId };
 }
 
-/** The account the SDK's sign-in signed in: who the password is for. */
-export type SignedInAccount = { id: string; name: string };
+/** The account the SDK's sign-in signed in: who the password is for, and whether it has one. */
+export type SignedInAccount = { id: string; name: string; hasPassword: boolean };
+
+/** Whether `pin` can be a PIN: 4 to 16 digits, as the accounts' service takes one. */
+export function usablePin(pin: string): boolean {
+  return /^[0-9]{4,16}$/.test(pin);
+}
 
 /** The accounts' service's answer to a setup's turn, or why it could not be asked. */
 export type EnrollAnswer =
@@ -39,6 +46,11 @@ export type SetupStep =
   | { step: "signIn"; platform: SetupPlatform }
   /** The password once more, for the account signed in. */
   | { step: "password"; account: SignedInAccount }
+  /** A PIN for this computer; `first`: the one typed, to be typed again; `problem`: why the last
+      was not taken. */
+  | { step: "pin"; account: SignedInAccount; first?: string; problem?: "mismatch" | "unusable" }
+  /** An account without a password, which Oxy cannot set up yet: nothing was changed. */
+  | { step: "noPassword"; account: SignedInAccount }
   | { step: "secondFactor"; account: SignedInAccount; invalid: boolean };
 
 /** What a password's or a code's answer leads to. */
@@ -47,6 +59,10 @@ export type AfterEnroll =
   | { next: "secondFactor"; invalid: boolean }
   /** The password again: `incorrect` shakes the field, `wait` seconds before another try. */
   | { next: "password"; problem: "incorrect" | "throttled" | "unusable" | "failed"; wait: number }
+  /** The PIN again: not one the service takes (not digits, or the password itself). */
+  | { next: "pin" }
+  /** The account has no password: it cannot be set up yet. */
+  | { next: "noPassword" }
   /** The sign-in no longer holds (its credential refused, another account's): sign in again. */
   | { next: "signIn" }
   | { next: "offline" };
@@ -66,6 +82,10 @@ export function afterEnroll(answer: EnrollAnswer, _at?: "password" | "secondFact
       return { next: "password", problem: "throttled", wait: Math.max(0, Math.ceil(retryAfterSeconds ?? 0)) };
     case "unusablePassword":
       return { next: "password", problem: "unusable", wait: 0 };
+    case "unusablePin":
+      return { next: "pin" };
+    case "passwordRequired":
+      return { next: "noPassword" };
     case "offline":
       return { next: "offline" };
     case "credentialRefused":
