@@ -57,6 +57,7 @@ pub mod sound_devices;
 pub mod sounds;
 pub mod splash;
 pub mod stop;
+pub mod storage;
 pub mod swipes;
 pub mod transitions;
 pub mod trash;

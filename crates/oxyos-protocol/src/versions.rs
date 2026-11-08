@@ -73,7 +73,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// lock surface's PIN (`AuthenticatePasscode`, docs/adr/0020-oxy-account-login.mdx decision 2),
 /// asked by a lock surface; version 33, login items and background activity (`BackgroundItem`,
 /// `BackgroundItemState`, docs/adr/0060-login-items-and-background-activity.mdx), both ways,
-/// asked by an application, a change the person made sent unasked; version 35, a system answer as one sealed memory file (`SystemData`,
+/// asked by an application, a change the person made sent unasked; version 34 adds no message:
+/// an application's `OpenUrl` may name any scheme but `file` (`APPLICATION_OPENS_URLS_VERSION`);
+/// version 35, a system answer as one sealed memory file (`SystemData`,
 /// docs/adr/0063-activity-monitor.mdx), sent only to a client of this version or newer.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
