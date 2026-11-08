@@ -150,23 +150,50 @@ again changes nothing that is already so:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
-  `tools/dev/bootstrap` makes; the runner is in `/var/lib/oxyos-gate/actions-runner`;
-- `oxyosgate.slice`, where the runner and every gate run are: a CPU weight of 20 against the 100 of
-  `system.slice` (the machine's own work), at most 24 CPUs and 24 GB. (Its name has no dash: systemd
-  nests a slice under the part of its name before one.);
+  `tools/dev/bootstrap` makes for each runner;
+- `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
+  machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
+  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, sharing it evenly, each at most
+  16 GB. (No dash in the parent's name: systemd nests a slice under the part of its name before
+  one.);
+- several runners (`machine.sh runner N`), whose runs share nothing they change: each works in
+  `/var/lib/oxyos-gate/runner-N`, with a cache of its own (`~/.cache/oxyos-runner-N`) and a `/tmp` of
+  its own;
 - the GPU's render node (group `render`), KVM (`kvm`), and `/dev/uinput` with the event nodes of the
   development compositor's own virtual devices (named `oxyos-offscreen …`, group `oxyos-uinput`), so
   the `uinput` scenarios run without root;
 - `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
-  the first four physical cores and their SMT siblings for the gate alone while its timing
-  scenarios run, every other CPU for the rest of the machine; a reservation releases itself after
-  30 minutes, and one gate run at a time holds it (`/run/lock/oxyos-gate-timing.lock`).
+  the first four physical cores and their SMT siblings for the calling gate's slice alone while its
+  timing scenarios run, every other CPU for the rest of the machine and the other gates; a reservation releases itself after
+  30 minutes. One gate at a time holds them (`/run/lock/oxyos-gate-timing.lock`); the rest of every gate
+  runs at once beside the others, and a scenario that serves its probe on a fixed port waits for
+  that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
+  collides. Every run has a home of its own (`regress.py`), never the user's.
 
-`machine.sh runner` registers the runner with a registration token on stdin, never written anywhere:
+`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere:
 
 ```sh
-gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner
+gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner 1
 ```
+
+### Runners stopped only when idle, and the watchdog
+
+A runner stopped, moved or registered again under a job leaves that job in progress on GitHub with
+nobody to end it: `timeout-minutes` ends a job its runner runs, not one no runner runs, and GitHub
+keeps counting the runner busy, so every queued job (the merge queue's among them) waits behind it.
+On 8 November 2026 four such jobs held the queue for hours.
+
+- A runner is restarted or stopped only once idle: `sudo sh tools/gate/restart-runner.sh N
+  [restart|stop]` waits until runner N has no job (no `Runner.Worker` in its service), then acts. Never
+  move a runner's directory or cache, or register it again, but after stopping it through this.
+- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, every ten minutes, on a
+  GitHub-hosted runner with that run's token: Actions on this repository alone, no secret on the
+  gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
+  one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
+  started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
+  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+  for any more (a group superseded when the queue changed: an entry removed or another put ahead),
+  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
 
 ### Images on the gate's machine
 

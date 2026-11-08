@@ -1909,7 +1909,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         output: 1,
         index: 0,
         last: true,
-        text: PreeditText::new("horizon").unwrap(),
+        text: PreeditText::new("ocean").unwrap(),
     };
     assert_eq!(event_since(&wallpaper), 29);
     assert!(!write_event_for(&mut nothing, &wallpaper, 28).unwrap());
@@ -2999,6 +2999,12 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
         read_event_for(&mut Cursor::new(older), 25).unwrap(),
         entering(0, 0)
     );
+}
+
+#[test]
+fn version_34_an_application_opens_a_url_of_any_scheme() {
+    // No message of its own: the rule for an application's OpenUrl is wider from it.
+    assert_eq!(crate::APPLICATION_OPENS_URLS_VERSION, 34);
 }
 
 #[test]

@@ -612,6 +612,73 @@ session required pam_permit.so
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The last message before an end is read before it, each way: the login program's answer
+    /// as it exits (an acceptance read as the end would be a rejection), the greeter's last word
+    /// as it goes. The kernel can report the end with that message still queued
+    /// (`oxyos-seqpacket`). Many rounds, since each one is a race.
+    #[test]
+    fn the_last_message_before_the_end_is_read_before_the_end() {
+        let dir = std::env::temp_dir().join(format!("oxyos-auth-last-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("greeter");
+        let me = rustix::process::getuid().as_raw();
+        let listener = greeter::Listener::bind(&path, me).unwrap();
+        let accept = || loop {
+            if let Some(connection) = listener.accept(me).unwrap() {
+                break connection;
+            }
+            std::thread::yield_now();
+        };
+        let accepted = Answer {
+            verdict: Verdict::Accepted,
+            wait_s: 0,
+        };
+        for round in 0..10_000 {
+            let mut client = Greeter::connect(&path).unwrap();
+            let connection = accept();
+            if round % 2 == 0 {
+                assert_eq!(
+                    client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD.into())),
+                    None
+                );
+                while connection.receive().unwrap().is_none() {
+                    std::thread::yield_now();
+                }
+                let login = std::thread::spawn(move || connection.answer(accepted).unwrap());
+                let answer = loop {
+                    if let Some(answer) = client.answer() {
+                        break answer;
+                    }
+                    std::hint::spin_loop();
+                };
+                assert_eq!(answer, accepted, "round {round}");
+                login.join().unwrap();
+            } else {
+                // Shut down, not only closed: a process another test forks meanwhile may hold a
+                // copy of the descriptor until it executes.
+                let greeter = std::thread::spawn(move || {
+                    client.shown().unwrap();
+                    rustix::net::shutdown(client.as_fd(), rustix::net::Shutdown::Both).unwrap();
+                });
+                let heard = loop {
+                    match connection.receive() {
+                        Ok(Some(message)) => break message,
+                        Ok(None) => std::hint::spin_loop(),
+                        Err(error) => panic!("round {round}: {error} before the message"),
+                    }
+                };
+                assert!(matches!(heard, ToLogin::Shown), "round {round}");
+                greeter.join().unwrap();
+                assert_eq!(
+                    connection.receive().unwrap_err().kind(),
+                    std::io::ErrorKind::UnexpectedEof
+                );
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn the_login_screens_socket_appears_only_listening_and_only_the_greeters() {
         use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};

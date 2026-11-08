@@ -9,10 +9,10 @@ none imitates another vendor's wallpaper. The gradients' hues are those of Bloom
 
 Copyright: the OxyOS project, as the repository's, under its licence.
 Made:      python3 scripts/make-wallpapers.py
-           26 SVG files, catalog.json and each wallpaper's wallpaper.json, but solar-gradients/;
+           18 SVG files, catalog.json and each wallpaper's wallpaper.json, but solar-gradients/;
            `find . -path ./solar-gradients -prune -o -type f -print | LC_ALL=C sort | xargs
            sha256sum | sha256sum` in /usr/share/oxyos/wallpapers is
-           9950928430b8ea042f8184d8a5b8ed644c69a81cb9808d38e1525a506bf84460.
+           a0cd586b58d96541d25ab7148332b78f6c3d6429c9c8bb4db16f327c5040c704.
 
 catalog.json
   The categories (Dynamic Wallpapers, Gradients), the default wallpaper (solar-gradients) and twelve
@@ -20,11 +20,6 @@ catalog.json
 
 oxyos/light.svg, oxyos/dark.svg (OxyOS, following the appearance)
   Two silk ribbons crossing a field of OxyOS's blue, lit from the upper right.
-
-horizon/{night,dawn,sunrise,morning,day,afternoon,sunset,dusk}.svg (Horizon: following the sun)
-  A sky over three ridges at eight moments of the day, each tagged with the sun's elevation and
-  azimuth it shows (docs/adr/0012-solar-wallpaper.mdx); the night's and dusk's and dawn's stars
-  are 140 seeded points.
 
 {ocean,iris,orchid,coral,ember,meadow,lagoon,graphite}/{light,dark}.svg (Gradients, following
 the appearance)
