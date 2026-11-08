@@ -339,7 +339,7 @@ def appearance_wallpaper(root, wallpaper_id, name, category, draw):
 
 def main():
     root = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else DESTINATION
-    # The default: OxyOS's blue, light and dark.
+    # OxyOS's blue, light and dark (the default is Solar Gradients, examples/make-solar-gradients.rs).
     appearance_wallpaper(root, "oxyos", {"en": "OxyOS", "es": "OxyOS"}, "dynamic",
                          lambda dark: silk(silk_palette(222, dark, saturation=0.74), seed=1))
     # Horizon follows the sun (ADR 0012's rule over these anchors).
@@ -358,7 +358,7 @@ def main():
                              silk(silk_palette(hue, dark, **options), seed=seed))
     catalog = {
         "version": 1,
-        "default": "oxyos",
+        "default": "solar-gradients",
         "categories": [
             {"id": "dynamic", "name": {"en": "Dynamic Wallpapers", "es": "Fondos dinámicos"}},
             {"id": "gradients", "name": {"en": "Gradients", "es": "Degradados"}},
