@@ -15,6 +15,7 @@ mod pin;
 mod platform;
 #[cfg(feature = "local")]
 mod qr;
+mod restart;
 mod session;
 mod setup;
 mod store;

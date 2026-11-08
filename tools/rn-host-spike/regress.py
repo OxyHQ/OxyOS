@@ -633,7 +633,10 @@ points at a socket of its own, so none asks the machine's): the application ids 
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
-application's window first shows TEXT). A token it mints names the application it is for and is no
+application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
+service restarting as a package upgrade restarts it: every subscription closed under its
+application, then every process refused `notPermitted` for MS, as the real service refuses one until
+the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
 credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
@@ -1313,6 +1316,8 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # Until when the played service is restarting (`account.later`'s `restart`): it refuses everyone.
+    restarting = [0.0]
     # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
@@ -1353,8 +1358,28 @@ def serve_account_session(path, spec, log):
 
     ACCOUNT["push"] = push
 
+    def restart(refuse_for):
+        with lock:
+            restarting[0] = time.monotonic() + refuse_for / 1000
+            for connection in subscribers:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            subscribers.clear()
+
+    ACCOUNT["restart"] = restart
+
     def converse(connection):
         application = application_of(connection)
+        if time.monotonic() < restarting[0]:
+            with connection:
+                try:
+                    connection.recv(16384)
+                    connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
+                except OSError:
+                    pass
+            return
         with connection:
             while True:
                 try:
@@ -1478,7 +1503,7 @@ def serve_account_session(path, spec, log):
 def account_later(changes, report_path):
     """The played service's snapshot changing while the run goes on (`account.later`): each
     [{"when_shown": TEXT, "snapshot": {...}}] once the application's window first shows TEXT, the
-    revision one past the last."""
+    revision one past the last; {"when_shown": TEXT, "restart": {"refuse_for": MS}} restarts it."""
     started = time.monotonic_ns()
 
     def watch():
@@ -1492,10 +1517,14 @@ def account_later(changes, report_path):
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
+                # Every change waiting for what this frame shows, in order.
+                while waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
                         and entry.get("t", 0) >= started \
                         and any(waiting[0]["when_shown"] in shown for shown in entry.get("texts", [])):
                     change = waiting.pop(0)
+                    if "restart" in change:
+                        ACCOUNT["restart"](change["restart"].get("refuse_for", 0))
+                        continue
                     current = ACCOUNT["snapshot"]
                     ACCOUNT["push"](dict(current, **change["snapshot"], revision=current["revision"] + 1))
             seen = len(lines)

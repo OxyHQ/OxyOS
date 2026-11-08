@@ -836,6 +836,16 @@ fn system_entry(
     trusted: &dyn Fn(&Path) -> bool,
 ) -> Result<Option<Application>, Error> {
     let entry = &system.entry;
+    // Not there (an upgrade between removing and installing it, say): missing, not anyone's. Its
+    // directory is a source the registry follows ([`sources`]), so it is read again once it is.
+    if std::fs::symlink_metadata(entry)
+        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Err(Error(format!(
+            "{}: the policy's entry is not there (yet): listed once it is",
+            entry.display()
+        )));
+    }
     if real_path(entry).as_deref() != Some(entry.as_path()) || !trusted(entry) {
         return Err(Error(format!(
             "{}: the policy's entry is not an administrator's",

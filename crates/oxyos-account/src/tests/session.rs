@@ -46,6 +46,7 @@ pub(super) fn service(api: FakeApi) -> Socket {
             program: std::env::current_exe().unwrap(),
             parent: parent_program(),
             owner: me(),
+            verified: None,
         },
         eraser(&system, &Arc::new(FakePasswords::default())),
     ));
@@ -531,6 +532,7 @@ fn a_program_that_is_not_the_session_program_registers_nothing() {
             program: PathBuf::from("/bin/sh"),
             parent: parent_program(),
             owner: 0,
+            verified: None,
         },
         eraser(
             &Arc::new(FakeSystem::default()),
@@ -574,6 +576,7 @@ fn the_session_program_not_started_by_the_login_program_registers_nothing() {
             program: std::env::current_exe().unwrap(),
             parent: PathBuf::from("/bin/sh"),
             owner: me(),
+            verified: None,
         },
         eraser(
             &Arc::new(FakeSystem::default()),

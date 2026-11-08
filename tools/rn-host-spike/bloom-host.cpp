@@ -3217,7 +3217,8 @@ int main(int argc, char** argv) {
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
-                           editing.nextBlink(), oxyos::Memory::get().nextDeadline()}) {
+                           editing.nextBlink(), oxyos::Memory::get().nextDeadline(),
+                           services.accountSession ? services.accountSession->nextDeadline() : std::nullopt}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;

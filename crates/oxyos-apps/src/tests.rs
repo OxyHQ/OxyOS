@@ -849,6 +849,36 @@ fn a_system_application_is_the_policys_entry_and_no_one_elses() {
 }
 
 #[test]
+fn a_missing_policy_entry_reads_as_missing_and_is_listed_once_it_is_there() {
+    let system = Directory::new("system-missing", &[]);
+    let policy = Policy::parse(&policy_of(
+        "so.oxy.settings",
+        &system.0.canonicalize().unwrap(),
+        Path::new("/bin/sh"),
+        r#""settings""#,
+    ))
+    .unwrap();
+    let trusted = as_if_root(&system.0);
+    // Not there (a deploy between removing and installing it): said missing, not anyone's.
+    let (apps, skipped) = registry(&[], &[], &policy, None, &trusted);
+    assert!(apps.is_empty(), "{apps:?}");
+    assert_eq!(skipped.len(), 1, "{skipped:?}");
+    assert!(skipped[0].contains("is not there"), "{skipped:?}");
+    assert!(!skipped[0].contains("administrator"), "{skipped:?}");
+    // Its directory is followed: the entry appearing there wakes the watch, and is listed.
+    let mut watch = Watch::new(sources(&[], &policy, None)).unwrap();
+    assert!(!watch.changed());
+    std::fs::write(system.0.join("so.oxy.settings.desktop"), SETTINGS).unwrap();
+    assert!(watch.changed());
+    let (apps, skipped) = registry(&[], &[], &policy, None, &trusted);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(
+        apps.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        ["so.oxy.settings"]
+    );
+}
+
+#[test]
 fn the_file_chooser_is_the_policy_s_file_manager_told_what_to_show() {
     let shell = Path::new("/bin/sh").canonicalize().unwrap();
     let out = std::env::temp_dir().join(format!("oxyos-apps-chooser-{}", std::process::id()));
