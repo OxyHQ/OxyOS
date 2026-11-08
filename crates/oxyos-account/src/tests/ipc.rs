@@ -536,17 +536,28 @@ fn a_pin_is_checked_for_its_own_account_alone() {
     setup.store().put(&stored).unwrap();
     // Another uid's account: answered as one without a PIN, nothing checked or counted.
     let other = verify_pin_at(&service.socket, user.as_str(), Secret::new("000000")).unwrap();
-    if me() != 0 {
+    // Root may check any account's (its first wrong one counted).
+    let counted = if me() == 0 {
+        assert_eq!(other.result, PinResult::Rejected);
+        1
+    } else {
         assert_eq!(other.result, PinResult::None);
-        assert_eq!(setup.store().local(&user).unwrap().pin.unwrap().failures, 0);
-    }
+        0
+    };
+    assert_eq!(
+        setup.store().local(&user).unwrap().pin.unwrap().failures,
+        counted
+    );
     // The peer's own account.
     let mut stored = setup.store().get(&account()).unwrap().unwrap();
     stored.uid = me();
     setup.store().put(&stored).unwrap();
     let wrong = verify_pin_at(&service.socket, user.as_str(), Secret::new("000000")).unwrap();
     assert_eq!(wrong.result, PinResult::Rejected);
-    assert_eq!(setup.store().local(&user).unwrap().pin.unwrap().failures, 1);
+    assert_eq!(
+        setup.store().local(&user).unwrap().pin.unwrap().failures,
+        counted + 1
+    );
     let right = verify_pin_at(&service.socket, user.as_str(), Secret::new("482916")).unwrap();
     assert_eq!(right.result, PinResult::Accepted);
     assert_eq!(setup.store().local(&user).unwrap().pin.unwrap().failures, 0);

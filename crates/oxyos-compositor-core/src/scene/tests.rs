@@ -5822,7 +5822,7 @@ fn a_pin_is_said_for_its_password_alone() {
     h.scene.lock();
     let surface = h.lock_surface(1);
     let pin = Request::AuthenticatePasscode { surface: 1 };
-    h.request(LOCKER, pin.clone()).unwrap();
+    h.request(LOCKER, pin).unwrap();
     h.give_password(surface, "482916").unwrap();
     let submitted = h.scene.take_authentication().unwrap();
     assert!(submitted.passcode);
@@ -5839,7 +5839,7 @@ fn a_pin_is_said_for_its_password_alone() {
         Err(ErrorCode::InvalidRole)
     );
     h.scene.unlock();
-    h.request(LOCKER, pin.clone()).unwrap();
+    h.request(LOCKER, pin).unwrap();
     h.scene.lock();
     h.give_password(surface, "482916").unwrap();
     assert!(!h.scene.take_authentication().unwrap().passcode);
