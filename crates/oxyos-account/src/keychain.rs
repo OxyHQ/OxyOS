@@ -31,10 +31,11 @@
 //!   socket): `keychainStatus`, `keychainCreate`, `keychainConfirmRecoveryKey`, `keychainJoin`,
 //!   `keychainEnrollments`, `keychainApprove`, `keychainDeny`, `keychainMembers`,
 //!   `keychainRemoveMember`, `keychainVerify`, `keychainList`, `keychainReveal`, `keychainPut`,
-//!   `keychainDelete`, `keychainAudit`, `keychainRekey`, `keychainLeave` (ADR 0050 says each one's
-//!   shape). Listing, reading, writing, deleting, auditing and removing a member need a
-//!   verification first (`keychainVerify {password}`, the keybag opened with it), good for five
-//!   minutes or until the lock.
+//!   `keychainDelete`, `keychainAudit`, `keychainRekey`, `keychainLeave`, `keychainGenerate` (a
+//!   strong password, the generator's) and `keychainCode` (an item's verification code now) (ADR
+//!   0050 says each one's shape). Listing, reading, writing, deleting, auditing, a code, a strong
+//!   password and removing a member need a verification first (`keychainVerify {password}`, the
+//!   keybag opened with it), good until five minutes pass without one of them, or the lock.
 //! - **Anyone else** is refused `notPermitted`; while locked every keychain request is refused
 //!   `locked`.
 
@@ -193,7 +194,21 @@ pub struct ItemSummary {
     pub username: Option<Secret>,
     /// The hosts of a login's URLs, or a passkey's relying party.
     pub domains: Vec<Secret>,
+    /// A login with a verification code, or a code's own item: Settings shows its code
+    /// (`keychainCode`) and lists it among the codes.
+    #[serde(default)]
+    pub has_code: bool,
     pub modified_at: String,
+}
+
+/// `keychainCode`'s answer: an item's verification code now, its period and the seconds it has
+/// left (RFC 6238, the service's own TOTP).
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeView {
+    pub code: Secret,
+    pub period: u64,
+    pub remaining: u64,
 }
 
 /// An item's fields, by type: what `keychainPut` takes and `keychainReveal` gives. A passkey is
@@ -328,6 +343,8 @@ pub fn is_keychain_request(request: &Request) -> bool {
             | Request::KeychainAudit {}
             | Request::KeychainRekey { .. }
             | Request::KeychainLeave {}
+            | Request::KeychainGenerate {}
+            | Request::KeychainCode { .. }
     )
 }
 

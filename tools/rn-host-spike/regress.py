@@ -501,7 +501,8 @@ attributes: a value as above, or false for none. The home's attributes are read 
 that sets or checks some. Every scenario runs in one fixed language, never the machine's
 (docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
 scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
-and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`).
+and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`), else
+its wallpaper's, else Europe/Bucharest (FIXED_TZ), never the machine's.
 
 What applications keep (their data and cache directories by id, application.h) is under the run's
 own XDG_DATA_HOME and XDG_CACHE_HOME. A scenario's `app_data` ({ID: {FILE: JSON}}) is written to an
@@ -643,6 +644,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import atexit
 import base64
 import collections
 import hashlib
@@ -681,7 +683,8 @@ STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secon
 # clock's time of a report's line, for what follows the wall clock (the shell's minute).
 WALL_OFFSET_NS = time.time_ns() - time.monotonic_ns()
 
-# The time zone the run's applications tell the time in (a scenario's `tz`), else this process's.
+# The time zone the run's applications tell the time in: a scenario's `tz`, else FIXED_TZ.
+FIXED_TZ = "Europe/Bucharest"
 RUN_TZ = None
 # The run's locale (its `locale`, else FIXED_LOCALE): the language the shell says its clock in.
 RUN_LOCALE = FIXED_LOCALE
@@ -1765,6 +1768,7 @@ def login_program(out, offscreen, login):
         "account required pam_permit.so\nsession required pam_permit.so\n")
     # Sockets in a short directory of their own: a socket's path holds at most 107 bytes.
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-login-"))
+    atexit.register(shutil.rmtree, sockets, True)
     accountd, greeter, record = sockets / "accountd", sockets / "greeter", out / "login-record"
     # A PIN (docs/adr/0020-oxy-account-login.mdx decision 2): its own service, as the image's
     # (tools/oxyos-login/pam.d/oxyos-login-pin), oxyos-pin-check asking the accounts' stand-in.
@@ -5396,6 +5400,7 @@ def main():
     # The accounts' service's session socket (decision 6): the scenario's played one (`account`),
     # else a path where nothing listens, so no run ever asks the machine's.
     account_dir = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-account-"))
+    atexit.register(shutil.rmtree, account_dir, True)
     env["OXYOS_ACCOUNTD_SESSION_SOCKET"] = str(account_dir / "session")
     if "account" in scenario:
         account_log = out / "account-session.jsonl"
@@ -5463,9 +5468,10 @@ def main():
     # never the developer's machine's.
     env.setdefault("XLOCALEDIR", str(pathlib.Path(__file__).resolve().parents[2] /
                                      "config/includes.chroot_after_packages/usr/share/X11/locale"))
-    if "tz" in scenario:
-        env["TZ"] = scenario["tz"]
-        RUN_TZ = scenario["tz"]
+    # One fixed time zone, never the machine's: the scenario's `tz`, else the one the scenarios'
+    # dates and times were written in (a machine in another zone showed every date it formats
+    # hours apart, and a wallpaper that follows the sun at another hour).
+    env["TZ"] = RUN_TZ = scenario.get("tz", scenario.get("wallpaper", {}).get("tz", FIXED_TZ))
     # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
     # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first",
     # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26).

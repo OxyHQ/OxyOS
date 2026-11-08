@@ -11,6 +11,8 @@
 //! - [`item`]: the items (logins, passkeys, codes, notes, Wi-Fi), padded, sealed and rolled
 //!   forward only.
 //! - [`password`]: the strong password generator; [`totp`]: RFC 6238 codes from `otpauth://`.
+//! - [`passkey`]: OxyOS as a platform authenticator: ES256 passkeys, their registrations
+//!   (`none` attestation) and assertions.
 //! - [`keybag`] and [`store`]: the machine's state, sealed under a key the account's password
 //!   opens (Argon2id), in files only the service can read.
 //!
@@ -35,6 +37,7 @@ pub mod keybag;
 pub mod keyring;
 pub mod keys;
 pub mod memory;
+pub mod passkey;
 pub mod password;
 pub mod recovery;
 pub mod roster;
