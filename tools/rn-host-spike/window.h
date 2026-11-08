@@ -158,6 +158,9 @@ class Window {
   // and is never presented again; what reads its last size still can.
   void closeToplevel();
   bool toplevelClosed() const { return toplevelClosed_; }
+  // A surface that went with the window closed to run in the background: nothing is asked of it,
+  // or the compositor would end the connection over a surface it no longer has.
+  bool closedSurface(uint32_t id) const { return toplevelClosed_ && id == kToplevel; }
   // Search (docs/adr/0051-search.mdx, protocol version 30): a request of the search index's
   // vocabulary, answered by SEARCH_TEXT events naming `serial`. False if it could not be sent.
   bool searchRequest(uint32_t serial, const std::string& text);

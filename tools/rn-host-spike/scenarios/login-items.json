@@ -1,0 +1,490 @@
+{
+  "about": "Login Items & Extensions (docs/adr/0060-login-items-and-background-activity.mdx) as a Mac's, in English at scale 1, over a real oxyos-installd with an installed application that declares a login item and background activity (sample/BackgroundProbe.tsx, \"Chat\", kept in the dock): Settings at its page shows nothing at login and nothing in the background. Chat, opened from the dock, adds itself to Open at Login through the session (its login-item capability granted as it registers, kept by the install service): Settings' list shows it at once and the person is told once by the session's notification. It registers its background activity: told once more (the same notification replaced), and Settings lists it, allowed. The dock's menu agrees: Options › Open at Login is checked. Super+W closes Chat's window and it runs on in the background, which Settings says; left alone, nothing wakes it. The person turns it off in Settings: the session ends it at once. − removes Chat from Open at Login: the list is empty, the dock's menu unchecked and the preferences file keeps nothing at login. The Notification Center's notification opens Settings at Login Items & Extensions.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "dock": "so.oxy.backgroundprobe"
+    }
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.backgroundprobe"
+    ],
+    "installed": [
+      "so.oxy.backgroundprobe"
+    ]
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.backgroundprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Login Items & Extensions, from the sidebar: nothing opens at login, nothing in the background",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Login Items & Extensions"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Open at Login",
+          "No items",
+          "App Background Activity",
+          "No app runs tasks in the background."
+        ],
+        "keyboard_focus": null,
+        "notifications": [],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "Chat, pressed in the dock: the session opens the installed application",
+      "do": [
+        "press_named",
+        "Chat"
+      ],
+      "expect": {
+        "notifications": []
+      }
+    },
+    {
+      "name": "Chat asks how its items stand: neither is registered",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Login item: notRegistered",
+            "Background: notRegistered",
+            "State: active"
+          ]
+        },
+        "notifications": []
+      }
+    },
+    {
+      "name": "Add Login Item: granted as it registers, Chat opens at login",
+      "do": [
+        "press_named",
+        "Add Login Item"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Settings' list shows it at once; the person is told once, by the session's notification as Settings",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Login item: enabled",
+            "Failure: -"
+          ]
+        },
+        "texts": [
+          "Chat",
+          "Application"
+        ],
+        "absent": [
+          "No items"
+        ],
+        "in_shell": {
+          "texts": [
+            "Background Items Added",
+            "“Chat” added an item that can run in the background. You can manage this in Login Items & Extensions."
+          ]
+        },
+        "notifications": [
+          {
+            "number": 1,
+            "application": "so.oxy.settings",
+            "title": "Background Items Added"
+          }
+        ],
+        "preferences_file": {
+          "open_at_login": "so.oxy.backgroundprobe"
+        }
+      }
+    },
+    {
+      "name": "Run in Background: granted as it registers",
+      "do": [
+        "press_named",
+        "Run in Background"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Settings lists it, allowed; the person is told once more, the notification replaced",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Background: enabled",
+            "Failure: -"
+          ]
+        },
+        "texts": [
+          "Allowed in the background"
+        ],
+        "absent": [
+          "No app runs tasks in the background."
+        ],
+        "notifications": [
+          {
+            "number": 2,
+            "application": "so.oxy.settings",
+            "title": "Background Items Added"
+          }
+        ],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "The dock's menu of Chat, by a long press on its icon",
+      "do": [
+        "hold_named",
+        [
+          "Chat",
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Options"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Chat"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Right opens Options: Open at Login checked, as Settings shows it",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Keep in Dock",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Open at Login",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes Options",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Escape closes the menu",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Super+W closes Chat's window: it runs on in the background, which Settings says",
+      "do": [
+        "key",
+        [
+          125,
+          17
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Settings says it runs in the background",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Running in the background"
+        ],
+        "background": {
+          "running": [
+            "so.oxy.backgroundprobe"
+          ]
+        },
+        "notifications": [
+          {
+            "number": 2,
+            "application": "so.oxy.settings",
+            "title": "Background Items Added"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Left alone, nothing wakes it",
+      "do": [
+        "wait",
+        5000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "background": {
+          "running": [
+            "so.oxy.backgroundprobe"
+          ],
+          "idle_cpu_ms_max": 50,
+          "idle_wakeups_max": 50
+        }
+      }
+    },
+    {
+      "name": "The person turns it off: the session ends it at once",
+      "do": [
+        "press_named",
+        "Allow Chat in the background"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Ended; Settings says it is not allowed",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Not allowed in the background"
+        ],
+        "absent": [
+          "Running in the background"
+        ],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "− removes Chat from Open at Login",
+      "do": [
+        "press_named",
+        "Remove Chat from Open at Login"
+      ],
+      "expect": {
+        "texts": [
+          "No items"
+        ],
+        "preferences_file": {
+          "open_at_login": null
+        }
+      }
+    },
+    {
+      "name": "The dock's menu of Chat, by a long press on its icon",
+      "do": [
+        "hold_named",
+        [
+          "Chat",
+          650
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Options"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Menu",
+              "name": "Chat"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Down",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Down: Options",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Right opens Options: Open at Login unchecked, as Settings shows it",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "CheckBox",
+              "name": "Keep in Dock",
+              "state": [
+                "checked",
+                "focused"
+              ]
+            },
+            {
+              "role": "CheckBox",
+              "name": "Open at Login",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes Options",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Escape closes the menu",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {}
+      }
+    }
+  ]
+}

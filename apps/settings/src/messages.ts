@@ -690,7 +690,8 @@ const en = {
     unavailable: "App Background Activity isn't available here.",
   },
   privacy: {
-    description: "What each installed app may use. A change takes effect the next time the app opens.",
+    description:
+      "What each installed app may use. A change takes effect the next time the app opens; turning off In the background stops it there at once.",
     none: "No installed app asks for anything.",
     unavailable: "Privacy is not available here.",
     capabilities: {
@@ -1352,7 +1353,8 @@ const es: Messages = {
     unavailable: "La actividad en segundo plano no está disponible aquí.",
   },
   privacy: {
-    description: "Lo que puede usar cada app instalada. Un cambio se aplica la próxima vez que se abre la app.",
+    description:
+      "Lo que puede usar cada app instalada. Un cambio se aplica la próxima vez que se abre la app; desactivar En segundo plano la detiene allí al instante.",
     none: "Ninguna app instalada pide nada.",
     unavailable: "La privacidad no está disponible aquí.",
     capabilities: {
