@@ -1432,7 +1432,7 @@ fn activity_counts_the_persons_input_and_nothing_else() {
         &|scene| scene.pointer_button(BUTTON, true),
         &|scene| scene.pointer_button(BUTTON, false),
         &|scene| scene.pointer_scroll(0, 256, ScrollSource::Wheel, false),
-        &|scene| scene.pointer_pinch(GesturePhase::Begin, 65536, 0),
+        &|scene| scene.pointer_pinch(GesturePhase::Begin, 2, 65536, 0),
         &|scene| scene.key(30, true),
         &|scene| scene.keyboard(30, false, None),
         &|scene| scene.text("a"),
@@ -2827,11 +2827,11 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
             .collect()
     };
     // An update with no pinch begun reaches nobody.
-    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 65536, 0);
     assert!(pinches(h.pump()).is_empty());
     // At the pointer, in the window's coordinates (1/256 of a pixel, as a pointer event's).
-    h.scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
-    h.scene.pointer_pinch(GesturePhase::Update, 98304, -2560);
+    h.scene.pointer_pinch(GesturePhase::Begin, 2, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 98304, -2560);
     assert_eq!(
         pinches(h.pump()),
         [
@@ -2851,8 +2851,8 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
     let o = h.rect(other);
     h.scene.pointer_motion(o.x + 10, o.y + 10);
     h.pump();
-    h.scene.pointer_pinch(GesturePhase::Update, 131072, 0);
-    h.scene.pointer_pinch(GesturePhase::End, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::End, 2, 131072, 0);
     let (x, y) = ((o.x + 10 - w.x) * 256, (o.y + 10 - w.y) * 256);
     assert_eq!(
         pinches(h.pump()),
@@ -2862,7 +2862,7 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
         ]
     );
     // After it ends, an update without a new beginning reaches nobody.
-    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 65536, 0);
     assert!(pinches(h.pump()).is_empty());
     // A pinch is not a press: focus and stacking are unchanged.
     assert_eq!(h.scene.focus(), focus);
@@ -8185,6 +8185,8 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// AutoFill's list and its fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
 mod autofill;
+/// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
+mod background;
 mod choosers;
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;

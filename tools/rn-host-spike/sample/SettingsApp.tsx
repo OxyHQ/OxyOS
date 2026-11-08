@@ -85,8 +85,10 @@ import {
 } from '../../../apps/settings/src/input-sources';
 import {
   ENERGY_DEFAULTS,
+  GESTURE_DEFAULTS,
   PREFERENCE_KEYS,
   preferenceText,
+  swipeFingersOf,
   TRIAL_SECONDS,
   type Appearance,
   type DisplaysSnapshot,
@@ -128,6 +130,7 @@ const FIXTURE: SettingsSnapshot = {
     uiSounds: true,
     trackpadNaturalScrolling: true,
     mouseNaturalScrolling: false,
+    ...GESTURE_DEFAULTS,
     wallpaper: '',
     wallpaperAllDesktops: true,
     lockAfter: 5,
@@ -138,6 +141,7 @@ const FIXTURE: SettingsSnapshot = {
     doNotDisturb: false,
     notificationPreviews: 'unlocked',
     notificationSoundsOff: [],
+    openAtLogin: [],
     inputSources: [],
     inputSource: 'layout',
     ...ENERGY_DEFAULTS,
@@ -302,6 +306,12 @@ function preferencesOf(values: Record<string, string>): Preferences {
     // (docs/adr/0042-scrolling.mdx, decision 6).
     trackpadNaturalScrolling: values[PREFERENCE_KEYS.trackpadNaturalScrolling] !== 'false',
     mouseNaturalScrolling: flag(PREFERENCE_KEYS.mouseNaturalScrolling),
+    // Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx): three fingers for each swipe
+    // unless the session keeps four or off, and Launchpad's pinch on unless it keeps it off.
+    missionControlSwipe: swipeFingersOf(values[PREFERENCE_KEYS.missionControlSwipe]),
+    appExposeSwipe: swipeFingersOf(values[PREFERENCE_KEYS.appExposeSwipe]),
+    desktopsSwipe: swipeFingersOf(values[PREFERENCE_KEYS.desktopsSwipe]),
+    launchpadPinch: values[PREFERENCE_KEYS.launchpadPinch] !== 'false',
     // The choice where Settings' window is (docs/adr/0048-wallpapers.mdx, decision 4).
     wallpaper: values[PREFERENCE_KEYS.wallpaper] ?? '',
     // On unless the session keeps it off.
@@ -317,6 +327,9 @@ function preferencesOf(values: Record<string, string>): Preferences {
       (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
     // The applications whose notifications are silent, as the session tells Settings them.
     notificationSoundsOff: (values[PREFERENCE_KEYS.notificationSoundsOff] ?? '').split(',').filter(Boolean),
+    // The applications opened at login, as the session tells Settings them (the dock's list too,
+    // docs/adr/0060-login-items-and-background-activity.mdx).
+    openAtLogin: (values[PREFERENCE_KEYS.openAtLogin] ?? '').split(',').filter(Boolean),
     // None added, the layout current, unless the session keeps others (docs/adr/0041-input-methods.mdx).
     inputSources: parseInputSourcesPreference(values[PREFERENCE_KEYS.inputSources]),
     inputSource: values[PREFERENCE_KEYS.inputSource] || 'layout',
@@ -368,7 +381,14 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     setDisplays(native?.getDisplays() ?? null);
     return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
-  const applications = React.useMemo(() => native?.getApplications?.() ?? [], []);
+  // The session's applications as its registry names them, read again as the host says they changed
+  // (one installed, updated or removed while Settings is open, or the session's language changed).
+  const [applications, setApplications] = React.useState(() => native?.getApplications?.() ?? []);
+  React.useEffect(() => {
+    const read = () => setApplications(native?.getApplications?.() ?? []);
+    const subscription = DeviceEventEmitter.addListener('OxyOSApplicationsChanged', read);
+    return () => subscription.remove();
+  }, []);
   const system = React.useMemo(() => {
     if (!native) return FIXTURE.system;
     const told = native.getSystem();
@@ -482,6 +502,10 @@ function useInstallModel() {
   React.useEffect(() => {
     if (available && state) reload();
   }, [state, reload]);
+  // Told again, unasked, when it changed elsewhere: an application granted a capability as it
+  // registered, or one running in the background or no longer
+  // (docs/adr/0060-login-items-and-background-activity.mdx).
+  React.useEffect(() => (available ? privacy.subscribe(setApps) : undefined), []);
   const done = (answer: { refused?: { reason: string }; failed?: { reason: string } } | null) =>
     setFailed(answer?.refused?.reason ?? answer?.failed?.reason ?? null);
   // An update answers once it ended, with each application's outcome.

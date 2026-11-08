@@ -392,6 +392,7 @@ fn upower_says_the_batterys_health_and_limits_its_charge_through_sysfs() {
         details.charge_limit,
         Some(upower::ChargeLimit {
             enabled: false,
+            kept: false,
             end: Some(80),
             start: Some(75)
         })
@@ -449,6 +450,110 @@ fn oxyos_controls_free_read(bus: &zbus::blocking::Connection) -> (f64, u32, bool
         root.get_property("OnBattery").unwrap(),
         device.get_property("WarningLevel").unwrap(),
     )
+}
+
+/// The charge limit across a reboot, a battery taken out and put back, and a wake, over UPower
+/// played as 1.90.9 keeps it (docs/adr/0057-battery-and-energy.mdx, decision 2, amended): its
+/// choice in its state directory, written again when it starts and when the battery appears,
+/// never when the machine wakes; and the battery's own thresholds, which firmware may forget.
+#[test]
+fn the_charge_limit_survives_a_reboot_and_a_forgotten_one_is_never_claimed() {
+    let directory = scratch("upower-reboot");
+    let sysfs = directory.join("BAT0");
+    let state = directory.join("upower");
+    std::fs::create_dir_all(&sysfs).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+    // The hardware as a power cycle leaves it: charging full.
+    let forget = || {
+        std::fs::write(sysfs.join("charge_control_start_threshold"), "0").unwrap();
+        std::fs::write(sysfs.join("charge_control_end_threshold"), "100").unwrap();
+    };
+    let read = |name: &str| std::fs::read_to_string(sysfs.join(name)).unwrap();
+    let held = || {
+        (
+            read("charge_control_start_threshold"),
+            read("charge_control_end_threshold"),
+        )
+    };
+    let limited = || ("75".to_string(), "80".to_string());
+    let machine = || {
+        let mut machine = thinkpad(&sysfs);
+        machine.state_dir = Some(state.clone());
+        machine
+    };
+    let limit = |bus: &zbus::blocking::Connection| {
+        upower::details(bus).unwrap().unwrap().charge_limit.unwrap()
+    };
+    forget();
+    let (address, _bus) = private_bus(&directory);
+    let played = Played::serve(&address, machine()).unwrap();
+    let bus = connect(Some(&address)).unwrap();
+    assert!(!limit(&bus).enabled);
+    upower::set_charge_limit(&bus, true).unwrap();
+    // UPower kept the choice, then wrote the thresholds.
+    assert_eq!(
+        std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(),
+        "1"
+    );
+    assert_eq!(held(), limited());
+    assert!(limit(&bus).enabled);
+
+    // A reboot: UPower stops, the hardware is power cycled and forgets, UPower starts again from
+    // its state and writes the thresholds again.
+    drop(played);
+    forget();
+    let played = Played::serve(&address, machine()).unwrap();
+    assert_eq!(held(), limited());
+    let after = limit(&bus);
+    assert!(after.enabled && after.kept, "{after:?}");
+
+    // The battery taken out and put back: UPower writes them again as it appears.
+    played.act(&serde_json::json!({"present": false})).unwrap();
+    assert_eq!(upower::details(&bus).unwrap(), None);
+    forget();
+    played.act(&serde_json::json!({"present": true})).unwrap();
+    assert_eq!(held(), limited());
+    assert!(limit(&bus).enabled);
+
+    // The machine wakes with firmware that forgot them: UPower writes nothing then and still says
+    // on; what is in effect is said, not UPower's choice.
+    forget();
+    let forgotten = limit(&bus);
+    assert!(forgotten.kept && !forgotten.enabled, "{forgotten:?}");
+    // The session keeps UPower's own choice in effect, through UPower: written again, once.
+    assert_eq!(upower::keep_charge_limit(&bus), Ok(true));
+    assert_eq!(held(), limited());
+    assert!(limit(&bus).enabled);
+    assert_eq!(upower::keep_charge_limit(&bus), Ok(false));
+    // Since UPower started again: that one call alone.
+    assert_eq!(
+        played.describe()["calls"],
+        serde_json::json!(["EnableChargeThreshold true"])
+    );
+
+    // Off, kept off across a reboot: nothing written when UPower starts.
+    upower::set_charge_limit(&bus, false).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(),
+        "0"
+    );
+    drop(played);
+    forget();
+    let played = Played::serve(&address, machine()).unwrap();
+    assert_eq!(held(), ("0".to_string(), "100".to_string()));
+    assert!(!limit(&bus).kept);
+    assert_eq!(upower::keep_charge_limit(&bus), Ok(false));
+    drop(played);
+
+    // polkit refusing: the forgotten limit stays unclaimed.
+    std::fs::write(state.join("charging-threshold-status"), "1").unwrap();
+    let mut refusing = machine();
+    refusing.deny = vec!["charge_limit".into()];
+    let played = Played::serve(&address, refusing).unwrap();
+    forget();
+    assert_eq!(upower::keep_charge_limit(&bus), Err(Failure::NotPermitted));
+    assert!(!limit(&bus).enabled);
+    drop(played);
 }
 
 #[test]
