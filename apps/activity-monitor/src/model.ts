@@ -415,13 +415,41 @@ export function valueOf(row: Row, key: ColumnKey): number | string | null {
   return row.metrics[key] ?? null;
 }
 
-const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+/** Names compared as a person reads them (case aside, digits as numbers): `localeCompare`, since the
+    Bloom host's Hermes has no `Intl.Collator`. */
+const collator = {
+  compare: (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }),
+};
+
+/**
+ * Each name's place among `names` in a person's order (`collator`), so a sort compares numbers:
+ * `localeCompare` for every pair of hundreds of rows on every sample would be thousands of calls.
+ * The order of the last set of names is kept, since a sample's names are mostly the last one's.
+ */
+let lastRanks: { key: string; ranks: Map<string, number> } | null = null;
+export function rankNames(names: Iterable<string>): Map<string, number> {
+  const unique = [...new Set(names)].sort();
+  const key = unique.join("\u0000");
+  if (lastRanks?.key === key) return lastRanks.ranks;
+  const ranks = new Map(unique.sort(collator.compare).map((name, index) => [name, index]));
+  lastRanks = { key, ranks };
+  return ranks;
+}
+
+/** Two texts in a person's order, by their ranks when given. */
+function compareText(a: string, b: string, ranks?: Map<string, number>): number {
+  const left = ranks?.get(a);
+  const right = ranks?.get(b);
+  if (left !== undefined && right !== undefined) return left - right;
+  return collator.compare(a, b);
+}
 
 /**
  * The order of two rows by `sort`: a row without a value always last, whichever the direction, so
  * the rows that have one stay together; ties by name, then by PID, so a sample never shuffles them.
+ * `ranks` (rankNames of their names and users) spares comparing texts.
  */
-export function compareRows(a: Row, b: Row, sort: Sort): number {
+export function compareRows(a: Row, b: Row, sort: Sort, ranks?: Map<string, number>): number {
   // Apps that no longer run (the Energy view's) go after everything that does.
   const resting = Number(a.kind === "app" && !a.running) - Number(b.kind === "app" && !b.running);
   if (resting !== 0) return resting;
@@ -433,24 +461,30 @@ export function compareRows(a: Row, b: Row, sort: Sort): number {
   } else {
     const order =
       typeof left === "string" || typeof right === "string"
-        ? collator.compare(String(left), String(right))
+        ? compareText(String(left), String(right), ranks)
         : left - right;
     if (order !== 0) return sort.direction === "ascending" ? order : -order;
   }
-  const byName = collator.compare(a.name, b.name);
+  const byName = compareText(a.name, b.name, ranks);
   if (byName !== 0) return byName;
   return (Number(valueOf(a, "pid")) || 0) - (Number(valueOf(b, "pid")) || 0);
 }
 
 /** The rows sorted by `sort`, the apps among the rows by their sums and each app's processes among themselves. */
 export function sortRows(rows: readonly TopRow[], sort: Sort): TopRow[] {
+  const texts: string[] = [];
+  for (const row of rows) {
+    texts.push(row.name);
+    if (row.kind !== "interface") texts.push(row.user);
+    if (row.kind === "app") for (const child of row.children) texts.push(child.name, child.user);
+  }
+  const ranks = rankNames(texts);
+  const compare = (a: Row, b: Row) => compareRows(a, b, sort, ranks);
   return rows
     .map((row) =>
-      row.kind === "app" && row.children.length > 1
-        ? { ...row, children: [...row.children].sort((a, b) => compareRows(a, b, sort)) }
-        : row,
+      row.kind === "app" && row.children.length > 1 ? { ...row, children: [...row.children].sort(compare) } : row,
     )
-    .sort((a, b) => compareRows(a, b, sort));
+    .sort(compare);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -716,16 +750,34 @@ export function peakOf(segments: readonly Segment[], floor: number): number {
 //  Formatting, as a Mac writes it (decimal units, as ByteCountFormatter's)
 // ---------------------------------------------------------------------------------------------
 
-const formats = new Map<string, Intl.NumberFormat>();
-function numberFormat(locale: string, digits: number, grouping = true): Intl.NumberFormat {
+/** A number format whose answers are kept: a sample's values are mostly last sample's (a PID, a
+    thread count, an idle process's 0.0), so each is formatted once rather than on every sample,
+    which would be thousands of calls into the host's `Intl` every two seconds. */
+type CachedFormat = { format(value: number): string };
+/** The answers kept per format, at most: a few samples' worth of distinct values. */
+const KEPT_ANSWERS = 8192;
+const formats = new Map<string, CachedFormat>();
+function numberFormat(locale: string, digits: number, grouping = true): CachedFormat {
   const id = `${locale}|${digits}|${grouping}`;
   let format = formats.get(id);
   if (!format) {
-    format = new Intl.NumberFormat(locale, {
+    const intl = new Intl.NumberFormat(locale, {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits,
       useGrouping: grouping,
     });
+    const answers = new Map<number, string>();
+    format = {
+      format(value: number) {
+        let text = answers.get(value);
+        if (text === undefined) {
+          if (answers.size >= KEPT_ANSWERS) answers.clear();
+          text = intl.format(value);
+          answers.set(value, text);
+        }
+        return text;
+      },
+    };
     formats.set(id, format);
   }
   return format;

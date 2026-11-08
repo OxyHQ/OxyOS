@@ -552,7 +552,7 @@ export function ActivityMonitor({ source, locale }: ActivityMonitorProps) {
             getItemLayout={layoutOf}
             initialNumToRender={24}
             maxToRenderPerBatch={16}
-            windowSize={5}
+            windowSize={3}
             onScroll={onScroll}
             scrollEventThrottle={32}
             onLayout={onListLayout}

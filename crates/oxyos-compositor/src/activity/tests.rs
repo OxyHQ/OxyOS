@@ -11,7 +11,7 @@ const MONITOR: ClientId = 1;
 const OTHER: ClientId = 2;
 
 struct Session {
-    scene: Scene,
+    compositor: Compositor,
     activity: Activity,
     told: Vec<(ClientId, u32, String)>,
     partial: HashMap<(ClientId, u32), String>,
@@ -49,7 +49,7 @@ impl Session {
             )
             .unwrap();
         Self {
-            scene,
+            compositor: Compositor::new(scene, 1000),
             activity: Activity::new().unwrap(),
             told: Vec::new(),
             partial: HashMap::new(),
@@ -59,7 +59,7 @@ impl Session {
     }
 
     fn drain(&mut self) {
-        for (client, event) in self.scene.drain_events() {
+        for (client, event) in self.compositor.scene.drain_events() {
             match event {
                 Event::SystemText {
                     serial, text, last, ..
@@ -81,7 +81,8 @@ impl Session {
 
     /// Activity Monitor's window, drawn once: shown.
     fn window(&mut self) {
-        self.scene
+        self.compositor
+            .scene
             .handle(
                 MONITOR,
                 Request::CreateToplevel {
@@ -92,7 +93,8 @@ impl Session {
             .unwrap();
         self.drain();
         let (serial, extent) = self.configure.unwrap();
-        self.scene
+        self.compositor
+            .scene
             .handle(
                 MONITOR,
                 Request::AttachBuffer {
@@ -104,7 +106,8 @@ impl Session {
                 },
             )
             .unwrap();
-        self.scene
+        self.compositor
+            .scene
             .handle(
                 MONITOR,
                 Request::Submit {
@@ -116,21 +119,21 @@ impl Session {
                 },
             )
             .unwrap();
-        self.scene.begin_frame();
-        self.scene.end_frame(1, Clock::Synthetic);
+        self.compositor.scene.begin_frame();
+        self.compositor.scene.end_frame(1, Clock::Synthetic);
         self.drain();
-        assert!(self.scene.client_shown(MONITOR));
+        assert!(self.compositor.scene.client_shown(MONITOR));
     }
 
     fn turn(&mut self) {
-        self.activity.serve(&mut self.scene, &[], false, None);
+        self.activity.serve(&mut self.compositor, &[], None);
         self.drain();
     }
 
     fn ask(&mut self, client: ClientId, text: Value, with_input: bool) -> u32 {
         self.serial += 1;
         self.activity.handle(
-            &mut self.scene,
+            &mut self.compositor.scene,
             SystemRequest {
                 client,
                 serial: self.serial,
@@ -280,25 +283,35 @@ fn a_shown_follower_is_sampled_every_two_seconds_and_a_hidden_one_never() {
     assert!(session.samples(OTHER).is_empty());
 
     // Minimized: no sample, and the thread does not wake at all.
-    session.scene.minimize(oxyos_compositor_core::SurfaceKey {
-        client: MONITOR,
-        id: 1,
-    });
+    session
+        .compositor
+        .scene
+        .minimize(oxyos_compositor_core::SurfaceKey {
+            client: MONITOR,
+            id: 1,
+        });
     session.run(Duration::from_millis(100));
     let (taken, sent) = session.activity.counts();
     let switches = thread_switches(&session.activity);
     session.run(Duration::from_secs(5));
     assert_eq!(session.activity.counts(), (taken, sent));
-    assert_eq!(thread_switches(&session.activity), switches, "the thread woke while hidden");
+    assert_eq!(
+        thread_switches(&session.activity),
+        switches,
+        "the thread woke while hidden"
+    );
     assert_eq!(session.samples(MONITOR).len(), 2);
 
     // Shown again: sampled again; stopped: never again.
-    session.scene.restore(oxyos_compositor_core::SurfaceKey {
-        client: MONITOR,
-        id: 1,
-    });
-    session.scene.begin_frame();
-    session.scene.end_frame(2, Clock::Synthetic);
+    session
+        .compositor
+        .scene
+        .restore(oxyos_compositor_core::SurfaceKey {
+            client: MONITOR,
+            id: 1,
+        });
+    session.compositor.scene.begin_frame();
+    session.compositor.scene.end_frame(2, Clock::Synthetic);
     session.until_samples(MONITOR, 3, Duration::from_secs(5));
     let serial = session.ask(MONITOR, json!({"activityFollow": {"view": null}}), false);
     assert_eq!(
@@ -322,12 +335,8 @@ fn the_displays_off_sample_nothing() {
         json!({"activityFollow": {"view": "memory"}}),
         false,
     );
-    let until = Instant::now() + Duration::from_millis(1500);
-    while Instant::now() < until {
-        session.activity.serve(&mut session.scene, &[], true, None);
-        session.drain();
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    session.compositor.set_displays_on(false);
+    session.run(Duration::from_millis(1500));
     assert!(session.samples(MONITOR).is_empty());
 }
 

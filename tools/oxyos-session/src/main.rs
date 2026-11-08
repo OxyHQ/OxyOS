@@ -769,13 +769,7 @@ fn main() -> Result<()> {
             power.serve(&mut compositor, settings.preferences(), &running);
         }
         if let Some(activity) = activity.as_mut() {
-            let displays_off = compositor.displays_off();
-            activity.serve(
-                &mut compositor.scene,
-                &running,
-                displays_off,
-                power.as_mut(),
-            );
+            activity.serve(&mut compositor, &running, power.as_mut());
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {

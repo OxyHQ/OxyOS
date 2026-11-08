@@ -774,6 +774,11 @@ messages! {
         // SearchRequest `serial`, JSON text in chunks; `serial` 0 is told unasked, when what the
         // client asked to watch changed.
         164 => SearchText { serial: u32, index: u16, last: bool, text: PreeditText },
+        // To a client the session answers in its vocabulary (version 33,
+        // docs/adr/0060-activity-monitor.mdx): an answer to its SystemRequest `serial` (0: told
+        // unasked) too long for SystemText's chunks, as one sealed memory file of `size` bytes of
+        // JSON text, the descriptor it carries, as a keymap is sent: one event, not thousands.
+        165 => SystemData { serial: u32, size: u32 },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.
@@ -886,7 +891,10 @@ impl Event {
     /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's or
     /// a drag's content into); every other event carries none.
     pub fn carries_fd(&self) -> bool {
-        matches!(self, Event::ClipboardSend { .. } | Event::DragSend { .. })
+        matches!(
+            self,
+            Event::ClipboardSend { .. } | Event::DragSend { .. } | Event::SystemData { .. }
+        )
     }
 }
 

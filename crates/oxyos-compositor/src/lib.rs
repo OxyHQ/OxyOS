@@ -1595,6 +1595,33 @@ impl Compositor {
         self.retire();
     }
 
+    /// Tells `client` the answer to its request `serial` (0: unasked) as one sealed memory file
+    /// (SystemData, protocol version 33, docs/adr/0060-activity-monitor.mdx), where SystemText
+    /// would take a chunk of 32 bytes each: a client that does not read thousands of them at once
+    /// would be dropped as unresponsive. False when it cannot be (a client of an older version, a
+    /// local one, no file): the caller says it in chunks, or not at all.
+    pub fn system_data(&mut self, client: ClientId, serial: u32, text: &str) -> bool {
+        let Some(peer) = self.peers.get(&client) else {
+            return false;
+        };
+        if peer.protocol.version().is_none_or(|version| version < 33) {
+            return false;
+        }
+        let Ok(size) = u32::try_from(text.len()) else {
+            return false;
+        };
+        let Some(file) = sealed(text.as_bytes()) else {
+            return false;
+        };
+        if !self.scene.system_data(client, serial, size) {
+            return false;
+        }
+        if let Some(peer) = self.peers.get_mut(&client) {
+            peer.pipes.push_back(file);
+        }
+        true
+    }
+
     /// A paste's pipe, to the clipboard's owner that answers it: a peer's goes with its
     /// ClipboardSend, a local client's is kept for the program playing it.
     fn pass_pipe(&mut self, owner: ClientId, pipe: OwnedFd) {
@@ -5955,4 +5982,25 @@ mod tests {
             }]
         );
     }
+}
+
+/// A memory file holding `bytes`, sealed so that neither side can change or resize it: what a
+/// SystemData carries.
+fn sealed(bytes: &[u8]) -> Option<OwnedFd> {
+    use rustix::fs::{fcntl_add_seals, memfd_create, MemfdFlags, SealFlags};
+    use std::io::Write;
+    let file = memfd_create(
+        "oxyos-system-data",
+        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+    )
+    .ok()?;
+    let mut written = std::fs::File::from(file);
+    written.write_all(bytes).ok()?;
+    let file = OwnedFd::from(written);
+    fcntl_add_seals(
+        &file,
+        SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL,
+    )
+    .ok()?;
+    Some(file)
 }

@@ -632,13 +632,7 @@ impl Session {
                     name: id.clone(),
                 });
             }
-            let displays_off = self.compositor.displays_off();
-            activity.serve(
-                &mut self.compositor.scene,
-                &running,
-                displays_off,
-                self.power.as_mut(),
-            );
+            activity.serve(&mut self.compositor, &running, self.power.as_mut());
         }
     }
 
@@ -656,7 +650,12 @@ impl Session {
             .app
             .as_ref()
             .and_then(|(pid, _)| {
-                std::fs::read_dir(std::path::Path::new("/proc").join(pid.to_string()).join("task")).ok()
+                std::fs::read_dir(
+                    std::path::Path::new("/proc")
+                        .join(pid.to_string())
+                        .join("task"),
+                )
+                .ok()
             })
             .map(|entries| entries.flatten().map(|task| task.path()).collect())
             .unwrap_or_default();

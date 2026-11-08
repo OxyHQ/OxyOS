@@ -1,0 +1,301 @@
+{
+  "about": "Activity Monitor (docs/adr/0060-activity-monitor.mdx), granted `activity`, with two processes the run starts and knows (`processes`: oxyos-test-busy, busy a fifth of the time, and oxyos-test-idle, asleep; each records the signals it receives). Shown, it follows the CPU view and the session samples it; Search finds the two; Process Name sorts them both ways; Quit Process asks as a Mac does, Cancel quits nothing, Quit sends oxyos-test-idle exactly one SIGTERM and the other none, and the next sample leaves it out; Inspect shows oxyos-test-busy's sheet; Force Quit ends it (SIGKILL, which it cannot record); the Memory view shows memory pressure. Minimized, the session samples nothing for six seconds and neither its sampling thread nor the application wakes. At scale 1.25 (the ThinkPad's panel).",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSActivityMonitor",
+  "window": [
+    1000,
+    640
+  ],
+  "app": {
+    "id": "so.oxy.activitymonitor",
+    "title": "Activity Monitor"
+  },
+  "grants": {
+    "so.oxy.activitymonitor": [
+      "activity"
+    ]
+  },
+  "processes": [
+    {
+      "name": "oxyos-test-busy",
+      "busy": 0.2
+    },
+    {
+      "name": "oxyos-test-idle"
+    }
+  ],
+  "steps": [
+    {
+      "name": "Shown: the CPU view, followed and sampled",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Activity Monitor",
+          "% CPU",
+          "CPU Time",
+          "Idle Wake Ups",
+          "CPU LOAD"
+        ],
+        "activity": {
+          "followed": true,
+          "sent": [
+            1,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "name": "Search: the field has the keyboard",
+      "do": [
+        "press_named",
+        "Search"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Search for oxyos-test: the two known processes alone",
+      "do": [
+        "type",
+        "oxyos-test"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "oxyos-test-busy",
+          "oxyos-test-idle"
+        ],
+        "absent": [
+          "oxyos-offscreen"
+        ]
+      }
+    },
+    {
+      "name": "Process Name: sorted by name",
+      "do": [
+        "press_named",
+        "Process Name"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "oxyos-test-idle selected",
+      "do": [
+        "press_named",
+        "oxyos-test-idle"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Quit Process: asked as a Mac asks, nothing sent",
+      "do": [
+        "press_named",
+        "Quit Process"
+      ],
+      "expect": {
+        "texts": [
+          "Are you sure you want to quit this process?",
+          "Do you really want to quit “oxyos-test-idle”?",
+          "Force Quit",
+          "Cancel",
+          "Quit"
+        ],
+        "processes": {
+          "oxyos-test-idle": {
+            "signals": [],
+            "running": true
+          },
+          "oxyos-test-busy": {
+            "signals": [],
+            "running": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Cancel: nothing quit",
+      "do": [
+        "press_named",
+        "Cancel"
+      ],
+      "expect": {
+        "absent": [
+          "Are you sure you want to quit this process?"
+        ],
+        "processes": {
+          "oxyos-test-idle": {
+            "signals": [],
+            "running": true
+          },
+          "oxyos-test-busy": {
+            "signals": [],
+            "running": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Quit Process again",
+      "do": [
+        "press_named",
+        "Quit Process"
+      ],
+      "expect": {
+        "texts": [
+          "Are you sure you want to quit this process?"
+        ]
+      }
+    },
+    {
+      "name": "Quit: exactly one SIGTERM to oxyos-test-idle, none to the other",
+      "do": [
+        "press_named",
+        "Quit"
+      ],
+      "expect": {
+        "processes": {
+          "oxyos-test-idle": {
+            "signals": [
+              "TERM"
+            ],
+            "running": false
+          },
+          "oxyos-test-busy": {
+            "signals": [],
+            "running": true
+          }
+        }
+      }
+    },
+    {
+      "name": "The next sample leaves it out",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "oxyos-test-busy"
+        ],
+        "absent": [
+          "oxyos-test-idle"
+        ]
+      }
+    },
+    {
+      "name": "oxyos-test-busy selected",
+      "do": [
+        "press_named",
+        "oxyos-test-busy"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Inspect: its sheet",
+      "do": [
+        "press_named",
+        "Inspect"
+      ],
+      "expect": {
+        "texts_matching": [
+          "^oxyos-test-busy \\(\\d+\\)$"
+        ],
+        "texts": [
+          "Parent Process",
+          "Memory",
+          "Open Files and Ports"
+        ]
+      }
+    },
+    {
+      "name": "Done: the sheet closed",
+      "do": [
+        "press_named",
+        "Done"
+      ],
+      "expect": {
+        "absent": [
+          "Parent Process"
+        ]
+      }
+    },
+    {
+      "name": "Quit Process, Force Quit: it ends, no signal it could record",
+      "do": [
+        "press_named",
+        "Quit Process"
+      ],
+      "expect": {
+        "texts": [
+          "Force Quit"
+        ]
+      }
+    },
+    {
+      "name": "Force Quit",
+      "do": [
+        "press_named",
+        "Force Quit"
+      ],
+      "expect": {
+        "processes": {
+          "oxyos-test-busy": {
+            "signals": [],
+            "running": false
+          }
+        }
+      }
+    },
+    {
+      "name": "Memory: its pressure and the machine's memory",
+      "do": [
+        "press_named",
+        "Memory"
+      ],
+      "expect": {
+        "texts": [
+          "MEMORY PRESSURE",
+          "Physical Memory:",
+          "Swap Used:"
+        ]
+      }
+    },
+    {
+      "name": "Minimized: the window leaves the screen",
+      "do": [
+        "minimize_window",
+        true
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false
+      }
+    },
+    {
+      "name": "Hidden six seconds: nothing sampled or sent, nothing woken",
+      "do": [
+        "wait",
+        6000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "activity": {
+          "samples": 0,
+          "sent": 0,
+          "wakeups": 0,
+          "followed": true
+        }
+      }
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

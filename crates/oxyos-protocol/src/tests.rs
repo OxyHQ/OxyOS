@@ -913,6 +913,10 @@ fn events() -> Vec<Event> {
             last: false,
             text: PreeditText::new(r#"{"results":{"items":"#).unwrap(),
         },
+        Event::SystemData {
+            serial: 0,
+            size: 61_440,
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,

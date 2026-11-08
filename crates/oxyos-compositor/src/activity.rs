@@ -15,6 +15,7 @@
 //!   Activity Monitor say the same.
 
 use crate::power::Power;
+use crate::Compositor;
 use oxyos_activity::{inspect, quit, App, AppEnergy, Sample, Sampler, View};
 use oxyos_compositor_core::scene::SystemRequest;
 use oxyos_compositor_core::{ClientId, Scene};
@@ -442,17 +443,18 @@ impl Activity {
     /// displays are off; `power` the battery's part, whose meter counts the energy.
     pub fn serve(
         &mut self,
-        scene: &mut Scene,
+        compositor: &mut Compositor,
         running: &[Running],
-        displays_off: bool,
         mut power: Option<&mut Power>,
     ) {
+        let displays_off = compositor.displays_off();
         let mut buffer = [0u8; 64];
         while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
         if running != self.running.as_slice() {
             self.running = running.to_vec();
             self.send(Job::Apps(self.running.clone()));
         }
+        let scene = &mut compositor.scene;
         for request in scene.take_system_requests_where(|request| ours(&request.text)) {
             self.handle(scene, request);
         }
@@ -478,7 +480,7 @@ impl Activity {
                     client,
                     serial,
                     text,
-                } => scene.system_text(client, serial, &text),
+                } => compositor.scene.system_text(client, serial, &text),
                 Done::Sampled {
                     clients,
                     sample,
@@ -490,9 +492,13 @@ impl Activity {
                     }
                     let text = json!({ "activity": sample }).to_string();
                     for client in clients {
-                        // Only to who still follows that view and is still shown.
+                        // Only to who still follows that view and is still shown; as one file,
+                        // since a sample is tens of kilobytes (or in chunks, to a client of an
+                        // older protocol).
                         if self.told.contains(&(client, sample.view)) {
-                            scene.system_text(client, 0, &text);
+                            if !compositor.system_data(client, 0, &text) {
+                                compositor.scene.system_text(client, 0, &text);
+                            }
                             self.sent += 1;
                         }
                     }

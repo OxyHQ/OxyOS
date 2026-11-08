@@ -23,7 +23,7 @@ ctypes.CDLL(None, use_errno=True).prctl(15, name.encode()[:15], 0, 0, 0)
 
 def received(number, _frame):
     with open(record, "a") as out:
-        out.write(f"{time.monotonic_ns()} {signal.Signals(number).name}\n")
+        out.write(f"{time.monotonic_ns()} {signal.Signals(number).name.removeprefix('SIG')}\n")
     if number == signal.SIGTERM:
         os._exit(0)
 
