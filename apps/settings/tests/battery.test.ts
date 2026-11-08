@@ -104,9 +104,10 @@ test("an app's time is said in the largest units that matter", () => {
 });
 
 test("the session's answers are read, and a charge limit refused says why", () => {
-  assert.equal(chargeLimitFailureOf({ chargeLimit: {} }), null);
-  assert.equal(chargeLimitFailureOf({ failed: { reason: "notPermitted" } }), "notPermitted");
-  assert.equal(chargeLimitFailureOf({ refused: { reason: "needsInput" } }), "failed");
+  // As the platform API rejects: a code, and the session's own reason when it said one.
+  assert.equal(chargeLimitFailureOf({ code: "notPermitted", reason: "notPermitted" }), "notPermitted");
+  assert.equal(chargeLimitFailureOf({ code: "failed", reason: "unsupported" }), "unsupported");
+  assert.equal(chargeLimitFailureOf({ code: "needsInput", reason: "needsInput" }), "failed");
   assert.equal(chargeLimitFailureOf(null), "failed");
   assert.equal(chargeLimitFailureLabel("notPermitted", en), "Only an administrator can change this.");
   assert.equal(chargeLimitFailureLabel("notPermitted", es), "Solo un administrador puede cambiar esto.");

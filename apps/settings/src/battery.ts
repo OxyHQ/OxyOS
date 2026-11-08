@@ -177,12 +177,12 @@ export function chargeLimitFailureLabel(reason: ChargeLimitFailure, words: Pick<
   return words.failures[reason] ?? words.failures.failed;
 }
 
-/** The session's answer to a charge limit: why it was not changed, or null once done. */
-export function chargeLimitFailureOf(answer: unknown): ChargeLimitFailure | null {
-  const told = answer as { chargeLimit?: unknown; failed?: { reason?: string }; refused?: { reason?: string } } | null;
-  if (told && told.chargeLimit) return null;
-  const reason = told?.failed?.reason ?? told?.refused?.reason;
-  return reason === "unsupported" || reason === "notPermitted" || reason === "unavailable" ? reason : "failed";
+/** Why a charge limit was not changed, from the platform's error. */
+export function chargeLimitFailureOf(error: unknown): ChargeLimitFailure {
+  // The platform API's error (`@oxyos/platform`'s PlatformError): the session's own word, else its code.
+  const { code, reason } = (error ?? {}) as { code?: string; reason?: string };
+  const said = reason ?? code;
+  return said === "unsupported" || said === "notPermitted" || said === "unavailable" ? said : "failed";
 }
 
 /** The session's history answer, read; null when it is not one. */
