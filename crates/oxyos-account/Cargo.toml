@@ -8,13 +8,20 @@ publish.workspace = true
 [features]
 # The service's HTTP client to Oxy's API (`api::HttpApi`). The session program and the client
 # library speak only the service's sockets, and leave it out.
-default = ["http", "keychain"]
+default = ["http", "keychain", "local"]
 http = ["dep:ureq", "dep:url"]
 # The accounts' keychains (ADR 0050): the service's alone. The session program, the login program
 # and the client library speak the sockets' messages, which need none of it, and leave it out.
 keychain = ["http", "dep:oxyos-keychain", "dep:subtle"]
+# The accounts' PINs (ADR 0020 decision 2): their verifiers, made and checked by the service alone.
+# The other programs speak the messages, which need none of it, and leave it out.
+local = ["dep:argon2", "dep:rand_core"]
 
 [dependencies]
+# A PIN's verifier: Argon2id in the PHC string format, as the keybag's key is derived (ADR 0050),
+# its salt from the system's CSPRNG.
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "password-hash", "rand", "zeroize"], optional = true }
+rand_core = { version = "0.6.4", features = ["getrandom"], optional = true }
 oxyos-keychain = { path = "../oxyos-keychain", optional = true }
 # Comparing the password the machine learned with the one Settings gives, in constant time.
 subtle = { version = "2", optional = true }

@@ -30,24 +30,37 @@
 //!
 //! Without the network the first step fails, and nothing is done: a first setup never succeeds
 //! offline.
+//!
+//! **The local sign-in** (`crate::pin`): the password becomes the verifier, as above, and a PIN
+//! given with it (4 to 16 digits, never the password itself) becomes the PIN's verifier, in the
+//! account's `.local` file, written with the account's file and undone with it. An account set up
+//! again without a PIN keeps the one it had, its wrong attempts forgotten: Oxy was just asked.
+//!
+//! **An account without a password** cannot be set up yet: the platform credential is issued only
+//! by the platform's own password sign-in (Oxy ADR 0058, 2.1), and Oxy has no other way for a
+//! platform to prove the setup client's credential and be issued its own. Such a setup is refused
+//! [`SetupError::PasswordRequired`] before anything is asked of Oxy or changed here; the PIN alone
+//! will set it up once Oxy has that way.
 
 use crate::api::{
     ApiError, DeviceCredential, OxyApi, PlatformClient, Profile, SignInStep, SignedIn,
 };
 use crate::id::{AccountId, InvalidAccountId, UserName};
+use crate::pin::{usable_pin, LocalSignIn, PinRecord};
 use crate::secret::Secret;
 use crate::store::{Enrollment, Store, ADMINISTRATOR_MADE};
 use crate::users::{verifier_password, Users, UsersError};
 use std::fmt;
 use std::sync::Mutex;
 
-/// What the setup client hands over: the SDK's credential, the account it signed in, and the
-/// account's password.
+/// What the setup client hands over: the SDK's credential, the account it signed in, the
+/// account's password (none: the account has none) and the PIN chosen for this computer, if any.
 #[derive(Debug)]
 pub struct Request {
     pub credential: DeviceCredential,
     pub account: String,
-    pub password: Secret,
+    pub password: Option<Secret>,
+    pub pin: Option<Secret>,
 }
 
 /// An enrolled account, as the setup client is told of it.
@@ -65,6 +78,8 @@ pub struct Pending {
     account: AccountId,
     credential: DeviceCredential,
     password: Secret,
+    /// The PIN's verifier, made before Oxy was asked.
+    pin: Option<String>,
     profile: Profile,
     challenge: Secret,
     platform: PlatformClient,
@@ -85,6 +100,11 @@ pub enum SetupError {
     InvalidAccount,
     /// Empty, longer than PAM takes, or holding a NUL or a line break.
     UnusablePassword,
+    /// Not 4 to 16 digits, or the account's password itself.
+    UnusablePin,
+    /// The account has no password, and the platform credential is issued only by the platform's
+    /// password sign-in: Oxy has no way yet to set up an account with a PIN alone.
+    PasswordRequired,
     /// Oxy cannot be reached: setup needs the network.
     Offline,
     /// Oxy does not know the device credential.
@@ -122,6 +142,13 @@ impl fmt::Display for SetupError {
             SetupError::UnusablePassword => {
                 f.write_str("the password cannot be checked by the machine")
             }
+            SetupError::UnusablePin => {
+                f.write_str("a PIN is 4 to 16 digits, and not the account's password")
+            }
+            SetupError::PasswordRequired => f.write_str(
+                "an account without a password cannot be set up yet: Oxy issues the platform \
+                 credential only to the platform's password sign-in",
+            ),
             SetupError::Offline => f.write_str("setting up an account needs the network"),
             SetupError::CredentialRefused => f.write_str("Oxy does not know the device credential"),
             SetupError::AccountNotOnDevice => {
@@ -224,9 +251,19 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         let platform = self.platform.clone().ok_or(SetupError::NotConfigured)?;
         let account = AccountId::parse(&request.account)
             .map_err(|InvalidAccountId| SetupError::InvalidAccount)?;
-        if !verifier_password(&request.password) {
+        let Some(password) = request.password else {
+            return Err(SetupError::PasswordRequired);
+        };
+        if !verifier_password(&password) {
             return Err(SetupError::UnusablePassword);
         }
+        let pin = match &request.pin {
+            None => None,
+            Some(pin) if !usable_pin(pin) || pin.expose() == password.expose() => {
+                return Err(SetupError::UnusablePin)
+            }
+            Some(pin) => Some(pin_verifier(pin)?),
+        };
         // A machine that could not take the account is found out before Oxy is asked.
         {
             let _machine = self.lock();
@@ -242,7 +279,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         let username = profile.username.clone().ok_or(SetupError::NoUsername)?;
         match self.api.sign_in_password(
             &username,
-            &request.password,
+            &password,
             &request.credential,
             Some(&platform),
         )? {
@@ -250,7 +287,8 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 .finish(
                     &account,
                     &request.credential,
-                    &request.password,
+                    &password,
+                    pin.as_deref(),
                     profile,
                     signed_in,
                 )
@@ -258,7 +296,8 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             SignInStep::SecondFactor { challenge } => Ok(Progress::SecondFactor(Pending {
                 account,
                 credential: request.credential,
-                password: request.password,
+                password,
+                pin,
                 profile,
                 challenge,
                 platform,
@@ -279,6 +318,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             &pending.account,
             &pending.credential,
             &pending.password,
+            pending.pin.as_deref(),
             pending.profile.clone(),
             signed_in,
         )
@@ -291,6 +331,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         account: &AccountId,
         handed_over: &DeviceCredential,
         password: &Secret,
+        pin: Option<&str>,
         profile: Profile,
         signed_in: SignedIn,
     ) -> Result<Enrolled, SetupError> {
@@ -307,7 +348,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             device_id: signed_in.device_id,
             device_secret: secret,
         };
-        match self.commit(account, &credential, password, profile) {
+        match self.commit(account, &credential, password, pin, profile) {
             Ok((enrolled, replaced)) => {
                 if let Some(replaced) = replaced.filter(|old| old.device_id != credential.device_id)
                 {
@@ -472,17 +513,38 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         }
     }
 
-    /// The machine takes the account: its user, its file with `credential`, its verifier. The
-    /// credential an enrolled account had before, if any, is given back.
+    /// The machine takes the account: its user, its file with `credential`, its verifier, its
+    /// local sign-in (`pin`, a PIN's verifier). The credential an enrolled account had before, if
+    /// any, is given back.
     fn commit(
         &self,
         account: &AccountId,
         credential: &DeviceCredential,
         password: &Secret,
+        pin: Option<&str>,
         profile: Profile,
     ) -> Result<(Enrolled, Option<DeviceCredential>), SetupError> {
         let _machine = self.lock();
         let user = account.user_name();
+        // The password signs in again; the PIN given replaces the one it had, and one kept has its
+        // wrong attempts forgotten (Oxy was just asked).
+        let previous_local = self.store.local(&user).ok();
+        let local = LocalSignIn {
+            pin: match pin {
+                Some(verifier) => Some(PinRecord {
+                    verifier: verifier.to_owned(),
+                    failures: 0,
+                }),
+                None => previous_local
+                    .as_ref()
+                    .and_then(|local| local.pin.clone())
+                    .map(|record| PinRecord {
+                        failures: 0,
+                        ..record
+                    }),
+            },
+            password: true,
+        };
         let enrollment = |uid| Enrollment {
             account: account.clone(),
             user: user.clone(),
@@ -525,6 +587,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 let done = self
                     .store
                     .put(&enrollment(made.uid))
+                    .and_then(|()| self.store.put_local(&user, &local))
                     .map_err(|error| error.to_string())
                     .and_then(|()| self.administer(&user))
                     .and_then(|administrator| {
@@ -550,17 +613,26 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 self.store
                     .put(&enrollment(uid))
                     .map_err(|error| SetupError::Failed(error.to_string()))?;
-                let done = self.administer(&user).and_then(|administrator| {
-                    self.users
-                        .set_verifier(&user, password)
-                        .map_err(|error| error.to_string())
-                        .map(|()| administrator)
-                });
+                let done = self
+                    .store
+                    .put_local(&user, &local)
+                    .map_err(|error| error.to_string())
+                    .and_then(|()| self.administer(&user))
+                    .and_then(|administrator| {
+                        self.users
+                            .set_verifier(&user, password)
+                            .map_err(|error| error.to_string())
+                            .map(|()| administrator)
+                    });
                 if let Ok(true) = done {
                     self.administered(&user);
                 }
                 if let Err(error) = done {
-                    return Err(match self.store.put(&previous) {
+                    let local_back = match &previous_local {
+                        Some(local) => self.store.put_local(&user, local),
+                        None => Ok(()),
+                    };
+                    return Err(match self.store.put(&previous).and(local_back) {
                         Ok(()) => SetupError::Failed(error),
                         Err(rollback) => SetupError::RollbackFailed {
                             error,
@@ -582,4 +654,21 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             replaced,
         ))
     }
+}
+
+/// A PIN's verifier, made off the machine's lock (Argon2id takes a moment).
+#[cfg(feature = "local")]
+fn pin_verifier(pin: &Secret) -> Result<String, SetupError> {
+    crate::pin::hash_pin(pin).map_err(|error| match error {
+        crate::pin::VerifierError::Unusable => SetupError::UnusablePin,
+        other => SetupError::Failed(other.to_string()),
+    })
+}
+
+/// Without the service's verifiers, no PIN can be set up.
+#[cfg(not(feature = "local"))]
+fn pin_verifier(_pin: &Secret) -> Result<String, SetupError> {
+    Err(SetupError::Failed(
+        "this build makes no PIN verifiers".into(),
+    ))
 }

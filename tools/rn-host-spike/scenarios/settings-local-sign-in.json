@@ -1,0 +1,278 @@
+{
+  "about": "Settings › Oxy Account › Sign-In on This Computer (docs/adr/0020-oxy-account-login.mdx, decision 2's amendment), over a played accounts' service: the account's page says the PIN is off and the password signs in; \"Set Up PIN…\" asks for the password and the new PIN twice, a wrong password refused and said; the right one sets it up, said On, with \"Change PIN…\" and \"Remove PIN…\"; the password's switch turned off asks for the current PIN, after which the PIN is the one local credential (\"Remove PIN…\" gone). The secrets go to the accounts' service alone, never into a report.",
+  "module": "OxyOSSettings",
+  "window": [
+    960,
+    760
+  ],
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "account": {
+    "registered": [
+      "so.oxy.settings"
+    ],
+    "local": {
+      "pin": "none",
+      "password": true
+    },
+    "local_password": "played password 1"
+  },
+  "steps": [
+    {
+      "name": "the account first in the sidebar, its name under the group's heading",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Oxy Account",
+          "Ada Lovelace",
+          "AL",
+          "Appearance"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Oxy Account"
+            },
+            {
+              "role": "ListItem",
+              "name": "Ada Lovelace",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the account's page: the PIN off, the password signing in",
+      "do": [
+        "press_named",
+        "Ada Lovelace"
+      ],
+      "expect": {
+        "texts": [
+          "Sign-In on This Computer",
+          "PIN",
+          "Off",
+          "Set Up PIN…",
+          "Sign in with password"
+        ],
+        "absent": [
+          "Remove PIN…"
+        ],
+        "account_session": [
+          "so.oxy.settings localSignIn: pin none"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Set Up PIN…: the password and the new PIN twice",
+      "do": [
+        "press_named",
+        "Set Up PIN…"
+      ],
+      "expect": {
+        "texts": [
+          "Set up a PIN",
+          "Password",
+          "New PIN (4 to 16 digits)",
+          "Enter the new PIN again",
+          "Save"
+        ],
+        "account_session": []
+      }
+    },
+    {
+      "name": "a wrong password typed",
+      "do": [
+        "type",
+        "wrong"
+      ],
+      "expect": {
+        "account_session": [],
+        "never": [
+          "wrong"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the new PIN",
+      "do": [
+        "press_named",
+        "New PIN (4 to 16 digits)"
+      ],
+      "expect": {
+        "account_session": []
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "typed",
+      "do": [
+        "type",
+        "482916"
+      ],
+      "expect": {
+        "never": [
+          "482916"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "again",
+      "do": [
+        "press_named",
+        "Enter the new PIN again"
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "typed again",
+      "do": [
+        "type",
+        "482916"
+      ],
+      "expect": {
+        "never": [
+          "482916"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Save: the wrong password refused, said, nothing changed",
+      "do": [
+        "press_named",
+        "Save"
+      ],
+      "expect": {
+        "account_session": [
+          "so.oxy.settings setPin: wrongPassword"
+        ],
+        "texts": [
+          "That password isn't right."
+        ],
+        "never": [
+          "wrong",
+          "482916"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the password field again",
+      "do": [
+        "press_named",
+        "Password"
+      ],
+      "expect": {},
+      "allow_unchanged": true
+    },
+    {
+      "name": "the right password",
+      "do": [
+        "type",
+        "played password 1"
+      ],
+      "expect": {
+        "never": [
+          "played password 1"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Save: the PIN set up, said On",
+      "do": [
+        "press_named",
+        "Save"
+      ],
+      "expect": {
+        "account_session": [
+          "so.oxy.settings setPin: localSignIn"
+        ],
+        "texts": [
+          "On",
+          "Change PIN…",
+          "Remove PIN…"
+        ],
+        "absent": [
+          "Set up a PIN"
+        ],
+        "never": [
+          "played password 1",
+          "482916"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the password's switch off asks for the current PIN",
+      "do": [
+        "press_named",
+        "Sign in with password"
+      ],
+      "expect": {
+        "texts": [
+          "Sign in with your PIN only?",
+          "Current PIN",
+          "Turn Off"
+        ],
+        "account_session": []
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "the PIN",
+      "do": [
+        "type",
+        "482916"
+      ],
+      "expect": {
+        "never": [
+          "482916"
+        ]
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Turn Off: the PIN the one local credential",
+      "do": [
+        "press_named",
+        "Turn Off"
+      ],
+      "expect": {
+        "account_session": [
+          "so.oxy.settings setPasswordSignIn: localSignIn"
+        ],
+        "absent": [
+          "Remove PIN…",
+          "Sign in with your PIN only?"
+        ],
+        "never": [
+          "482916",
+          "played password 1"
+        ]
+      },
+      "allow_unchanged": true
+    }
+  ],
+  "outputs": "1280x800"
+}

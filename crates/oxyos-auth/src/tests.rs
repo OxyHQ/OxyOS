@@ -494,9 +494,28 @@ session required pam_permit.so
     fn the_greeters_messages_round_trip_and_hide_the_password() {
         let attempt = ToLogin::Attempt {
             account: "oxy-aaaaaaaaaaaaaaaaaaaa".into(),
+            passcode: false,
             secret: Secret::new(PASSWORD.into()),
         };
         assert!(!format!("{attempt:?}").contains(PASSWORD));
+        // A PIN is told apart from a password by its first byte alone.
+        let Ok(ToLogin::Attempt {
+            account,
+            passcode: true,
+            secret,
+        }) = ToLogin::decode(b"p\x05oxy-a482916")
+        else {
+            panic!("a PIN's attempt");
+        };
+        assert_eq!(account, "oxy-a");
+        assert_eq!(&secret.0[..], b"482916");
+        assert!(matches!(
+            ToLogin::decode(b"a\x05oxy-a482916"),
+            Ok(ToLogin::Attempt {
+                passcode: false,
+                ..
+            })
+        ));
         assert!(ToLogin::decode(b"a").is_err());
         assert!(ToLogin::decode(b"a\x05abc").is_err());
         assert!(ToLogin::decode(b"a\x00").is_err());
@@ -524,24 +543,29 @@ session required pam_permit.so
         assert!(connection.receive().unwrap().is_none());
         // The login screen always names its account: without one, nothing is sent.
         assert_eq!(
-            client.attempt(None, Secret::new(PASSWORD.into())),
+            client.attempt(None, false, Secret::new(PASSWORD.into())),
             Some(Answer {
                 verdict: Verdict::Rejected,
                 wait_s: 0
             })
         );
         assert_eq!(
-            client.attempt(Some("oxy-a"), Secret::new(PASSWORD.into())),
+            client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD.into())),
             None
         );
         assert_eq!(
-            client.attempt(Some("oxy-a"), Secret::new(b"again".to_vec())),
+            client.attempt(Some("oxy-a"), true, Secret::new(b"again".to_vec())),
             Some(Answer {
                 verdict: Verdict::Busy,
                 wait_s: 0
             })
         );
-        let Some(ToLogin::Attempt { account, secret }) = connection.receive().unwrap() else {
+        let Some(ToLogin::Attempt {
+            account,
+            passcode: false,
+            secret,
+        }) = connection.receive().unwrap()
+        else {
             panic!("an attempt");
         };
         assert_eq!(account, "oxy-a");
@@ -560,7 +584,7 @@ session required pam_permit.so
         ));
         // The login program gone, an attempt is a rejection.
         assert_eq!(
-            client.attempt(Some("oxy-a"), Secret::new(PASSWORD.into())),
+            client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD.into())),
             None
         );
         // Shut down, not only closed: a process another test forks meanwhile may hold a copy of
