@@ -1600,7 +1600,7 @@ impl Compositor {
     }
 
     /// Tells `client` the answer to its request `serial` (0: unasked) as one sealed memory file
-    /// (SystemData, protocol version 35, docs/adr/0063-activity-monitor.mdx), where SystemText
+    /// (SystemData, protocol version 37, docs/adr/0063-activity-monitor.mdx), where SystemText
     /// would take a chunk of 32 bytes each: a client that does not read thousands of them at once
     /// would be dropped as unresponsive. False when it cannot be (a client of an older version, a
     /// local one, no file): the caller says it in chunks, or not at all.
@@ -1608,7 +1608,11 @@ impl Compositor {
         let Some(peer) = self.peers.get(&client) else {
             return false;
         };
-        if peer.protocol.version().is_none_or(|version| version < 35) {
+        if peer
+            .protocol
+            .version()
+            .is_none_or(|version| version < oxyos_protocol::SYSTEM_DATA_VERSION)
+        {
             return false;
         }
         let Ok(size) = u32::try_from(text.len()) else {

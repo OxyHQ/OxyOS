@@ -790,7 +790,7 @@ messages! {
         // decision 10): the session started in Safe Mode, told as they connect and only then. They
         // show it until the session ends.
         166 => SafeMode {},
-        // To a client the session answers in its vocabulary (version 35,
+        // To a client the session answers in its vocabulary (version 37,
         // docs/adr/0063-activity-monitor.mdx): an answer to its SystemRequest `serial` (0: told
         // unasked) too long for SystemText's chunks, as one sealed memory file of `size` bytes of
         // JSON text, the descriptor it carries, as a keymap is sent: one event, not thousands.

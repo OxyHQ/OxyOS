@@ -99,7 +99,7 @@ typedef struct OxyOSClient OxyOSClient;
 /* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 36). */
 #define OXYOS_EVENT_SAFE_MODE 166
 /* A long answer of the session's vocabulary whole (docs/adr/0063-activity-monitor.mdx, protocol
- * version 35). */
+ * version 37). */
 #define OXYOS_EVENT_SYSTEM_DATA 167
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
@@ -562,7 +562,7 @@ typedef struct OxyOSClient OxyOSClient;
  *                      once as it connects; show it until the session ends (protocol version 36).
  *   SYSTEM_DATA        the session's answer to the oxyos_client_system_request `code` (0: told
  *                      unasked) whole, `detail` bytes of JSON: oxyos_client_system_data gives it
- *                      (docs/adr/0063-activity-monitor.mdx, protocol version 35).
+ *                      (docs/adr/0063-activity-monitor.mdx, protocol version 37).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).

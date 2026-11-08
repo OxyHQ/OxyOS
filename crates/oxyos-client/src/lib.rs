@@ -95,7 +95,7 @@ pub struct Client {
     candidate_lists: candidates::CandidateLists,
     /// GPU buffers: the compositor's tables and this connection's timelines (ADR 0031).
     gpu: gpu::Gpu,
-    /// The text of the SystemData event last returned (version 35,
+    /// The text of the SystemData event last returned (version 37,
     /// docs/adr/0063-activity-monitor.mdx), read whole from the file it carried.
     system_data: Option<String>,
 }
