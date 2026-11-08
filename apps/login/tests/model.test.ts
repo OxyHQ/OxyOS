@@ -12,16 +12,20 @@ test("the accounts' service's list becomes the screen's accounts", () => {
   assert.deepEqual(accountsFrom([]), []);
   assert.deepEqual(
     accountsFrom([
-      { user: "oxy-a", name: "Ada Lovelace", picture: "/var/lib/oxyos/pictures/oxy-a" },
-      { user: "oxy-b", name: "  ", signInAgain: true },
+      { user: "oxy-a", name: "Ada Lovelace", picture: "/var/lib/oxyos/pictures/oxy-a", pin: "set", password: true },
+      { user: "oxy-b", name: "  ", pin: "locked", password: false, signInAgain: true },
       { name: "no user" },
       "nonsense",
     ]),
     [
-      { user: "oxy-a", name: "Ada Lovelace", picture: "file:///var/lib/oxyos/pictures/oxy-a", signInAgain: false },
-      { user: "oxy-b", name: "oxy-b", picture: null, signInAgain: true },
+      { user: "oxy-a", name: "Ada Lovelace", picture: "file:///var/lib/oxyos/pictures/oxy-a", signInAgain: false, pin: "set", password: true },
+      { user: "oxy-b", name: "oxy-b", picture: null, signInAgain: true, pin: "locked", password: false },
     ],
   );
+  // An older service's list (no PIN, nothing said of the password): the password, as before.
+  assert.deepEqual(accountsFrom([{ user: "oxy-c", name: "Cy", pin: "maybe" }]), [
+    { user: "oxy-c", name: "Cy", picture: null, signInAgain: false, pin: undefined, password: true },
+  ]);
 });
 
 test("the password is for the account chosen, else the first", () => {

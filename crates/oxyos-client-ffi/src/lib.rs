@@ -2959,6 +2959,41 @@ pub unsafe extern "C" fn oxyos_client_authenticate_account(
     length: usize,
 ) -> c_int {
     // SAFETY: forwarded caller contract.
+    unsafe { authenticate(client, surface, account, false, secret, length) }
+}
+
+/// As `oxyos_client_authenticate_account`, the secret being the account's PIN for this computer
+/// (docs/adr/0020-oxy-account-login.mdx decision 2): the session checks it as a PIN, never as the
+/// password and never online. Refused (nothing sent) by a compositor older than protocol version
+/// 32. 0 on success.
+///
+/// # Safety
+/// As `oxyos_client_authenticate_account`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_authenticate_passcode(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { authenticate(client, surface, account, true, secret, length) }
+}
+
+/// # Safety
+/// As `oxyos_client_authenticate_account`.
+#[allow(unsafe_code)]
+unsafe fn authenticate(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    passcode: bool,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {
         return fail("null client");
     };
@@ -2989,8 +3024,17 @@ pub unsafe extern "C" fn oxyos_client_authenticate_account(
                 None => return fail("an account is a user name of 1 to 31 bytes of UTF-8"),
             }
         };
+    // A PIN to a compositor that would not know it for one is never sent as a password.
+    if passcode && client.version() < oxyos_protocol::PASSCODE_VERSION {
+        return fail("the compositor takes no PIN (protocol version 32)");
+    }
     if let Some(user) = account.and_then(PreeditText::new) {
         if let Err(error) = client.send(&Request::AuthenticateAccount { surface, user }) {
+            return fail(error);
+        }
+    }
+    if passcode {
+        if let Err(error) = client.send(&Request::AuthenticatePasscode { surface }) {
             return fail(error);
         }
     }

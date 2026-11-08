@@ -26,7 +26,8 @@ die() {
     exit 1
 }
 
-[ -f /.dockerenv ] || [ -n "${OXYOS_IN_CONTAINER:-}" ] || die "run through tools/image/build.sh, not on a host"
+# Docker marks its containers with /.dockerenv, Podman with /run/.containerenv.
+[ -f /.dockerenv ] || [ -f /run/.containerenv ] || [ -n "${OXYOS_IN_CONTAINER:-}" ] || die "run through tools/image/build.sh, not on a host"
 
 ARCHITECTURE=${OXYOS_ARCHITECTURE:-amd64}
 BUILD=/work/build/$ARCHITECTURE

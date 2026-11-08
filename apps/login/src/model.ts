@@ -13,6 +13,11 @@ export type LoginAccount = {
   /** Oxy signed it out, or it was brought over from a backup (docs/adr/0059-backups.mdx): it is
       set up again online before its password opens it. */
   signInAgain?: boolean;
+  /** Its PIN for this computer (docs/adr/0020-oxy-account-login.mdx decision 2): `set`, or
+      `locked` after too many wrong ones; none without one. */
+  pin?: "set" | "locked";
+  /** Whether its password signs in on this computer (false: its PIN alone does). */
+  password?: boolean;
 };
 
 /** The accounts as the platform gives them: a list, or null while they cannot be read. */
@@ -23,7 +28,7 @@ export function accountsFrom(listed: unknown): Accounts {
   if (!Array.isArray(listed)) return null;
   return listed.flatMap((entry): LoginAccount[] => {
     if (typeof entry !== "object" || entry === null) return [];
-    const { user, name, picture, signInAgain } = entry as Record<string, unknown>;
+    const { user, name, picture, signInAgain, pin, password } = entry as Record<string, unknown>;
     if (typeof user !== "string" || !user) return [];
     return [
       {
@@ -31,6 +36,8 @@ export function accountsFrom(listed: unknown): Accounts {
         name: typeof name === "string" && name.trim() ? name : user,
         picture: typeof picture === "string" && picture ? `file://${picture}` : null,
         signInAgain: signInAgain === true,
+        pin: pin === "set" || pin === "locked" ? pin : undefined,
+        password: typeof password === "boolean" ? password : true,
       },
     ];
   });

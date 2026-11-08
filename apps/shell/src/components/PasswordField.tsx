@@ -13,6 +13,8 @@ import { useShellMessages } from "../useShellMessages";
 
 /** Linux-PAM's longest answer: the compositor takes no longer password (ADR 0010). */
 const MAX_PASSWORD_BYTES = 512;
+/** A PIN's most digits (docs/adr/0020-oxy-account-login.mdx, decision 2). */
+const MAX_PIN_DIGITS = 16;
 export const textShadow = {
   textShadowColor: "rgba(0,0,0,0.25)",
   textShadowOffset: { width: 0, height: 1 },
@@ -29,6 +31,9 @@ export const textShadow = {
  * announcements rather than a live region (which would say the countdown every second): an
  * attempt's answer at once; Caps Lock turned on, a wait's reminders (`waitReminder`) and its end
  * politely.
+ *
+ * With `passcode` it is the account's PIN for this computer (ADR 0020 decision 2): digits on a
+ * number pad, said as a PIN, and sent as one (the session checks it under its own service).
  */
 export function PasswordField({
   testID,
@@ -39,6 +44,7 @@ export function PasswordField({
   accessibilityLabel,
   announce,
   focusRequest = 0,
+  passcode = false,
 }: {
   /** Its field is `${testID}-password`, what it says `${testID}-hint`. */
   testID: string;
@@ -53,6 +59,8 @@ export function PasswordField({
   announce?: (text: string, polite: boolean) => void;
   /** Changed, the field takes the focus again (the login screen's chosen account chosen again). */
   focusRequest?: number;
+  /** The account's PIN rather than its password. */
+  passcode?: boolean;
 }) {
   const messages = useShellMessages();
   const words = messages.password;
@@ -98,7 +106,8 @@ export function PasswordField({
     const waiting = answer.wait > 0 ? waitSaid(answer.wait, messages) : null;
     if (answer.outcome === "rejected") {
       setMessage("incorrect");
-      say(waiting ? words.incorrectTryAgainIn(waiting) : words.incorrect, false);
+      if (passcode) say(waiting ? words.pinIncorrectTryAgainIn(waiting) : words.pinIncorrect, false);
+      else say(waiting ? words.incorrectTryAgainIn(waiting) : words.incorrect, false);
       shake.value = withSequence(
         ...[-12, 12, -9, 9, -5, 5, 0].map((x) => withTiming(x, { duration: 45 })),
       );
@@ -144,9 +153,11 @@ export function PasswordField({
   const hint =
     wait > 0
       ? words.tryAgainInSeconds(wait)
-      : message
-        ? words[message]
-        : checking
+      : message === "incorrect" && passcode
+        ? words.pinIncorrect
+        : message
+          ? words[message]
+          : checking
           ? words.checking
           : capsLock
             ? words.capsLock
@@ -157,18 +168,20 @@ export function PasswordField({
         <TextInput
           ref={input}
           testID={`${testID}-password`}
-          accessibilityLabel={accessibilityLabel ?? words.label}
+          accessibilityLabel={accessibilityLabel ?? (passcode ? words.pinLabel : words.label)}
           value={password}
           onChangeText={(text) => {
-            setPassword(text);
+            // A PIN is digits alone.
+            setPassword(passcode ? text.replace(/[^0-9]/g, "") : text);
             // Typing again clears what the last attempt said, as macOS does.
             setMessage(null);
           }}
           onSubmitEditing={({ nativeEvent }) => submit(nativeEvent.text)}
           secureTextEntry
           autoFocus
-          maxLength={MAX_PASSWORD_BYTES}
-          placeholder={placeholder ?? words.placeholder}
+          maxLength={passcode ? MAX_PIN_DIGITS : MAX_PASSWORD_BYTES}
+          keyboardType={passcode ? "number-pad" : "default"}
+          placeholder={placeholder ?? (passcode ? words.pinPlaceholder : words.placeholder)}
           placeholderTextColor="rgba(255,255,255,0.65)"
           returnKeyType="go"
           // Enter submits and the field stays focused for another try, as macOS's.

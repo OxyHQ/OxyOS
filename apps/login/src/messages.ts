@@ -84,7 +84,20 @@ const en = {
     added: (name: string) => `${name} was added to this computer`,
     retry: "Try Again",
     back: "Back",
+    checkingAccount: "Checking your account…",
+    accountUnchecked: "Your account couldn't be checked. Try again.",
+    pinTitle: "Choose a PIN for this computer",
+    pinDescription: "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it.",
+    pinAgainTitle: "Enter the PIN again",
+    pinPlaceholder: "PIN (4 to 16 digits)",
+    pinMismatch: "The PINs don't match. Choose it again.",
+    unusablePin: "A PIN is 4 to 16 digits, and not your password.",
+    notNow: "Not Now",
+    noPassword:
+      "OxyOS can't set up an Oxy account without a password yet: a PIN alone isn't supported until Oxy allows it. Nothing was changed on this computer.",
   },
+  pinLocked: "Too many incorrect PINs. Sign in with Oxy to choose a new one.",
+  signInWithOxy: "Sign In with Oxy",
 };
 
 /** The catalogue's shape, whatever its language. */
@@ -167,7 +180,20 @@ const es: LoginMessages = {
     added: (name: string) => `Se ha añadido ${name} a este ordenador`,
     retry: "Reintentar",
     back: "Volver",
+    checkingAccount: "Comprobando tu cuenta…",
+    accountUnchecked: "No se ha podido comprobar tu cuenta. Vuelve a intentarlo.",
+    pinTitle: "Elige un PIN para este ordenador",
+    pinDescription: "Úsalo para iniciar sesión y desbloquear, incluso sin conexión. Se queda en este ordenador: Oxy nunca lo ve.",
+    pinAgainTitle: "Vuelve a introducir el PIN",
+    pinPlaceholder: "PIN (de 4 a 16 cifras)",
+    pinMismatch: "Los PIN no coinciden. Vuelve a elegirlo.",
+    unusablePin: "Un PIN tiene de 4 a 16 cifras y no es tu contraseña.",
+    notNow: "Ahora no",
+    noPassword:
+      "OxyOS aún no puede configurar una cuenta de Oxy sin contraseña: un PIN solo no se admite hasta que Oxy lo permita. No se ha cambiado nada en este ordenador.",
   },
+  pinLocked: "Demasiados PIN incorrectos. Inicia sesión con Oxy para elegir uno nuevo.",
+  signInWithOxy: "Iniciar sesión con Oxy",
 };
 
 /** Each language's catalogue. */

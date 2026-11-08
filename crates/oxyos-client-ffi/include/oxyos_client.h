@@ -950,6 +950,11 @@ int oxyos_client_authenticate(OxyOSClient* client, uint32_t surface, const char*
  * its Unix user's name (NUL-terminated, 1 to 31 bytes; null for the session's own user). */
 int oxyos_client_authenticate_account(OxyOSClient* client, uint32_t surface, const char* account, const char* secret,
                                       size_t length);
+/* The same with the account's PIN for this computer (docs/adr/0020-oxy-account-login.mdx, decision
+ * 2): checked as a PIN, never as the password and never online. Refused, nothing sent, by a
+ * compositor older than protocol version 32. */
+int oxyos_client_authenticate_passcode(OxyOSClient* client, uint32_t surface, const char* account, const char* secret,
+                                       size_t length);
 /* Focuses (and restores, showing its workspace; a window hidden with its application brings back
  * the others), closes (the application is asked), minimizes or moves (to `workspace`) the window
  * numbered `window`, hides or quits its application; activates, adds or removes a workspace. */
@@ -2040,7 +2045,8 @@ int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
  * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "signInAgain" (Oxy signed
- * it out, or it was restored from a backup: it is set up again online)}]. Written as
+ * it out, or it was restored from a backup: it is set up again online), "pin" ("none", "set" or
+ * "locked"), "password" (whether it signs in)}]. Written as
  * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
 int64_t oxyos_accounts(char* out, size_t capacity);
 
@@ -2078,6 +2084,15 @@ int64_t oxyos_account_session_erase_preview(char* out, size_t capacity);
  * "unavailable", "failed"), "retryAfter"? (seconds, throttled)}}, nothing changed. Give
  * OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when the service could not be asked. */
 int64_t oxyos_account_session_erase_all(const char* password, char* out, size_t capacity);
+/* The account's local sign-in (docs/adr/0020-oxy-account-login.mdx, decision 2): JSON {"pin": "none" |
+ * "set" | "locked", "password": bool}. Settings and the shell may ask. OXYOS_ERROR otherwise. */
+int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
+/* Settings changes it: `change` "setPin" (with `pin`), "removePin", "passwordOn" or "passwordOff",
+ * proved by `password` or `current_pin` (the other null). Blocks: call it off the interface's
+ * thread. JSON {"localSignIn": {"pin", "password"}} or {"refused": {"reason", "retryAfter"?}},
+ * nothing changed. */
+int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
+                                           const char* current_pin, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */
@@ -2100,15 +2115,18 @@ int64_t oxyos_account_platform(char* out, size_t capacity);
 typedef struct OxyOSAccountEnrollment OxyOSAccountEnrollment;
 /* NULL when the service cannot be reached (oxyos_last_error). */
 OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
-/* Sends the setup: the device credential the SDK's sign-in obtained, the account's id and its
- * password (NUL-terminated UTF-8; the secrets are copied into buffers this library overwrites, the
- * caller overwrites its own). Blocks while the service signs in online. The answer, JSON:
+/* Sends the setup: the device credential the SDK's sign-in obtained, the account's id, its
+ * password (null for an account without one) and the PIN chosen for this computer (null for none;
+ * 4 to 16 digits; docs/adr/0020-oxy-account-login.mdx decision 2), NUL-terminated UTF-8; the
+ * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
+ * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
  * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}}; larger than `capacity`, oxyos_account_enrollment_answer gives it again.
+ * "retryAfterSeconds"}} ("passwordRequired": an account without a password cannot be set up yet;
+ * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
                                         const char* device_secret, const char* account_id,
-                                        const char* password, char* out, size_t capacity);
+                                        const char* password, const char* pin, char* out, size_t capacity);
 /* Answers the second factor the service asked for (`code`, secret): the answer as _enroll's; a wrong
  * code {"refused": {"reason": "secondFactorInvalid"}}, after which another may be sent. */
 int64_t oxyos_account_enrollment_second_factor(OxyOSAccountEnrollment* enrollment, const char* code,
