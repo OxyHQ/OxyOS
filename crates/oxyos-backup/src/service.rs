@@ -1285,6 +1285,7 @@ impl Service {
                 } else {
                     None
                 },
+                modified: node.mtime.as_deref().and_then(engine::seconds),
             },
             output.as_fd(),
         );
@@ -1339,12 +1340,15 @@ fn valid_snapshot(id: &str) -> bool {
     (8..=64).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// The versions newest first, a run of backups holding the same item (its kind, size and time
-/// of change) shown once, by its newest backup.
+/// The versions newest first, a run of backups holding the same file (its kind, size and time
+/// of change) shown once, by its newest backup. A folder is every backup's: what it holds may
+/// differ though its own time of change does not (a file in it changed), so each backup is a
+/// moment of it to browse, as Time Machine's timeline shows every backup.
 fn distinct(mut versions: Vec<Version>) -> Vec<Version> {
     versions.sort_by(|a, b| b.time.cmp(&a.time));
     let mut seen = BTreeSet::new();
-    versions.retain(|v| seen.insert((v.kind as u8, v.size, v.modified)));
+    versions
+        .retain(|v| v.kind == ItemKind::Folder || seen.insert((v.kind as u8, v.size, v.modified)));
     versions
 }
 
@@ -1400,6 +1404,20 @@ mod tests {
         ]);
         let times: Vec<i64> = versions.iter().map(|v| v.time).collect();
         assert_eq!(times, vec![400, 200]);
+    }
+
+    #[test]
+    fn a_folder_has_a_version_in_every_backup() {
+        let folder = |time: i64| Version {
+            kind: ItemKind::Folder,
+            size: None,
+            ..version(time, 0, 10)
+        };
+        let times: Vec<i64> = distinct(vec![folder(100), folder(300), folder(200)])
+            .iter()
+            .map(|v| v.time)
+            .collect();
+        assert_eq!(times, vec![300, 200, 100]);
     }
 
     #[test]

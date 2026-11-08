@@ -615,7 +615,7 @@ fn a_file_is_browsed_back_in_time_and_retrieved_from_its_own_home_only() {
     let (answer, fd) = client.receive_with_fd::<Value>().unwrap().unwrap();
     assert_eq!(
         answer.unwrap(),
-        serde_json::json!({"retrieving": {"kind": "file", "size": 6}})
+        serde_json::json!({"retrieving": {"kind": "file", "size": 6, "modified": versions[1]["modified"]}})
     );
     let mut bytes = String::new();
     fs::File::from(fd.unwrap())

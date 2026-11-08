@@ -2,6 +2,7 @@
 
 #include "files.h"
 #include "images.h"
+#include "system.h"
 #include "text.h"
 #include "websocket.h"
 
@@ -1753,6 +1754,9 @@ std::shared_ptr<TurboModule> createHostModule(
     // `as` is "text"); `OxyOSFilesEvent` says what watches saw and transfers' progress. Absent
     // elsewhere, so a call fails visibly.
     if (!services.files) return nullptr;
+    // Whether the person's backups may be asked (docs/adr/0059-backups.mdx): the adapter's
+    // `files.backups` is present only then.
+    module->constants(folly::dynamic::object("backups", LaunchCapabilities::current().allows("files")));
     auto asText = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
       return count > at && args[at].isString() && args[at].asString(rt).utf8(rt) == "text";
     };

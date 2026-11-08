@@ -27,7 +27,8 @@
 //!   → {"setAutomatic": {"enabled"}}             ← "set"                                (admin)
 //!   → {"versions": {"path"}}                    ← {"versions": [Version]}
 //!   → {"contents": {"destination", "snapshot", "path"}}   ← {"contents": [Item]}
-//!   → {"retrieve": {"destination", "snapshot", "path"}}   ← {"retrieving": {"kind", "size"}}
+//!   → {"retrieve": {"destination", "snapshot", "path"}}   ← {"retrieving": {"kind", "size",
+//!                                                  "modified"}}
 //!                                                  with a pipe's reading end: the file's bytes,
 //!                                                  or a folder as a tar archive; then, once it
 //!                                                  was all written, "retrieved"
@@ -116,14 +117,24 @@ pub enum Answer {
     Held,
     Released,
     Disks(Vec<DiskChoice>),
-    Added { id: String },
+    Added {
+        id: String,
+    },
     Removed,
     Set,
     Versions(Vec<Version>),
     Contents(Vec<Item>),
-    Retrieving { kind: ItemKind, size: Option<u64> },
+    Retrieving {
+        kind: ItemKind,
+        size: Option<u64>,
+        /// When the item was last changed, as the backup holds it: what the person's process
+        /// gives the item it writes back.
+        modified: Option<i64>,
+    },
     Retrieved,
-    Refused { reason: String },
+    Refused {
+        reason: String,
+    },
 }
 
 impl Answer {
