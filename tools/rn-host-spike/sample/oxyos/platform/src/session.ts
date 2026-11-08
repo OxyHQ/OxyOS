@@ -10,6 +10,17 @@ import { followed, type Told } from './followed.ts';
 export interface SystemModule {
   request(json: string): number;
   requestCapability?(capability: string): number;
+  getLaunch?(): Launch | null;
+}
+
+/** What this launch may use (docs/adr/0030-installing-applications.mdx, decision 8), as the host
+    holds it: an installed version (`narrowed`) only the capabilities its account granted, and
+    those granted at first use since; the system grants the image's policy gave it. */
+export interface Launch {
+  origin: string;
+  narrowed: boolean;
+  capabilities: string[];
+  grants: string[];
 }
 export interface Subscription {
   remove(): void;
@@ -58,6 +69,8 @@ export interface Session {
    * capability: those asked meanwhile share its answer.
    */
   requestCapability(capability: string): Promise<boolean>;
+  /** What this launch may use, as the host holds it now; null without the module. */
+  launch(): Launch | null;
   state: SessionState;
 }
 
@@ -182,6 +195,7 @@ export function createSession(native: SystemModule | null | undefined, events: E
     available: Boolean(native),
     request,
     requestCapability,
+    launch: () => native?.getLaunch?.() ?? null,
     state,
   };
 }

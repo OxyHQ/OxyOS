@@ -8,6 +8,7 @@ namespace oxyos {
 
 namespace {
 
+using facebook::react::NativeOxyOSApplicationCxxSpec;
 using facebook::react::NativeOxyOSClipboardCxxSpec;
 using facebook::react::NativeOxyOSNotificationsCxxSpec;
 using facebook::react::NativeOxyOSSoundsCxxSpec;
@@ -129,6 +130,48 @@ class NotificationsModule : public NativeOxyOSNotificationsCxxSpec<Notifications
   HostServices& services_;
 };
 
+// The application this host runs, behind `application` (docs/adr/0058-the-platform-api.mdx): what
+// it is (applicationConstants), and a URL opened with the application whose entry declares its
+// scheme, as a Mac's `NSWorkspace.open`: asked of the session from its window, citing the person's
+// latest press or key, the answer `{opened}` or `{refused: {reason, message}}`, never a rejection.
+class ApplicationModule : public NativeOxyOSApplicationCxxSpec<ApplicationModule> {
+ public:
+  ApplicationModule(std::shared_ptr<CallInvoker> invoker, HostServices& services)
+      : NativeOxyOSApplicationCxxSpec(std::move(invoker)), services_(services) {}
+
+  jsi::Object getConstants(jsi::Runtime& rt) {
+    return jsi::valueFromDynamic(rt, applicationConstants(services_.application)).asObject(rt);
+  }
+
+  jsi::Value open(jsi::Runtime& rt, std::string url) {
+    auto answer = [](const std::string& refusal, const std::string& message) -> folly::dynamic {
+      if (refusal.empty()) return folly::dynamic::object("opened", true)("refused", nullptr);
+      return folly::dynamic::object("opened", false)("refused",
+                                                     folly::dynamic::object("reason", refusal)("message", message));
+    };
+    if (!services_.openUrl) {
+      auto none = answer("unavailable", "OxyOS opens a URL only from an application's window");
+      return resolved(rt, jsi::valueFromDynamic(rt, none));
+    }
+    auto start = jsi::Function::createFromHostFunction(
+        rt, jsi::PropNameID::forAscii(rt, "open"), 2,
+        [&services = services_, invoker = jsInvoker_, url, answer](jsi::Runtime& rt, const jsi::Value&,
+                                                                   const jsi::Value* args, size_t) {
+          auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+          services.openUrl(url, [invoker, resolve, answer](const std::string& refusal, const std::string& message) {
+            invoker->invokeAsync([resolve, told = answer(refusal, message)](jsi::Runtime& rt) {
+              resolve->asObject(rt).asFunction(rt).call(rt, jsi::valueFromDynamic(rt, told));
+            });
+          });
+          return jsi::Value::undefined();
+        });
+    return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
+  }
+
+ private:
+  HostServices& services_;
+};
+
 }  // namespace
 
 std::shared_ptr<TurboModule> createPlatformModule(
@@ -140,6 +183,9 @@ std::shared_ptr<TurboModule> createPlatformModule(
   }
   if (name == NativeOxyOSClipboardCxxSpec<ClipboardModule>::kModuleName) {
     return std::make_shared<ClipboardModule>(invoker, services);
+  }
+  if (name == NativeOxyOSApplicationCxxSpec<ApplicationModule>::kModuleName) {
+    return std::make_shared<ApplicationModule>(invoker, services);
   }
   if (name == NativeOxyOSNotificationsCxxSpec<NotificationsModule>::kModuleName) {
     return std::make_shared<NotificationsModule>(invoker, services);

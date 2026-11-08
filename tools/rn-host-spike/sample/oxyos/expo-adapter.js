@@ -9,10 +9,9 @@
  * Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
-import { launch, requestCapability } from './system';
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
-import { isPlatformError, notifications, pasteboard } from '@oxyos/platform';
+import { application as platformApplication, isPlatformError, notifications, pasteboard } from '@oxyos/platform';
 
 installExpoGlobalPolyfill();
 
@@ -77,20 +76,19 @@ globalThis.expo.modules.ExpoCryptoAES = {
   },
 };
 
-// expo-constants: the application this process runs (OxyOSApplication), as its Android
+// expo-constants: the application this process runs (the platform's `application`), as its Android
 // ConstantsService answers: the public app config its build embedded next to the bundle
 // (`manifest`, null when it has none, as Android without `app.config`), a bare build's execution
 // environment, no status bar, the computer's name and the system's version. Nothing of a
 // platform's own (`platform` names none of Android's or iOS's).
-const application = TurboModuleRegistry.getEnforcing('OxyOSApplication').getConstants();
 globalThis.expo.modules.ExponentConstants = {
   sessionId: uuidv4(),
   executionEnvironment: 'bare',
   statusBarHeight: 0,
-  deviceName: application.deviceName || null,
+  deviceName: platformApplication.device.name || null,
   systemFonts: [],
-  systemVersion: application.systemVersion || null,
-  manifest: application.manifest,
+  systemVersion: platformApplication.device.systemVersion || null,
+  manifest: platformApplication.manifest,
   platform: {},
   getWebViewUserAgentAsync: async () => null,
 };
@@ -100,7 +98,7 @@ globalThis.expo.modules.ExponentConstants = {
 // or a URL of a scheme its entry declares, which Expo Router opens at its route,
 // docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a plain launch. None arrives
 // later (`onURLReceived` is never sent): a URL for an application running starts another process.
-let linkingURL = application.launchURL ?? null;
+let linkingURL = platformApplication.launchURL ?? null;
 const ExpoLinking = new globalThis.expo.EventEmitter();
 Object.assign(ExpoLinking, {
   getLinkingURL: () => linkingURL,
@@ -577,10 +575,7 @@ Object.assign(ExpoNotificationPresenter, {
 const granted = { status: 'granted', granted: true, canAskAgain: true, expires: 'never' };
 const denied = { status: 'denied', granted: false, canAskAgain: false, expires: 'never' };
 const undetermined = { status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' };
-const notificationsAllowed = () => {
-  const launched = launch();
-  return !launched || !launched.narrowed || launched.capabilities.includes('notifications');
-};
+const notificationsAllowed = () => platformApplication.permission('notifications') === 'granted';
 let notificationsAsked = false;
 const ExpoNotificationPermissionsModule = emitter();
 Object.assign(ExpoNotificationPermissionsModule, {
@@ -589,7 +584,7 @@ Object.assign(ExpoNotificationPermissionsModule, {
   requestPermissionsAsync: async () => {
     if (notificationsAllowed()) return granted;
     notificationsAsked = true;
-    return (await requestCapability('notifications')) ? granted : denied;
+    return (await platformApplication.requestPermission('notifications')) === 'granted' ? granted : denied;
   },
 });
 

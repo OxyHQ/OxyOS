@@ -6,8 +6,7 @@
 // by its slug, the install service resolves it from the store's signed metadata, the shell asks
 // the person in the system's sheet, and the session decides. Nothing here installs, verifies or
 // grants anything.
-import { settings, store } from '@oxyos/platform';
-import { launch } from './system';
+import { application, settings, store } from '@oxyos/platform';
 
 /** The person's language, for the store's texts the machine keeps in several. */
 function language() {
@@ -49,7 +48,7 @@ function storeUpdates(state) {
  * or null for a launch without `store`.
  */
 export function storeInstaller(StoreInstallerError) {
-  const granted = launch()?.grants ?? [];
+  const granted = application.grants;
   if (!granted.includes('store')) return null;
 
   /** What a session's answer that is not the one asked for means to the store. */

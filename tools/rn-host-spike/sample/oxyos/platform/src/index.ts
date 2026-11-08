@@ -3,9 +3,11 @@
 // private business; only these exports are a contract.
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
+import NativeOxyOSApplication from '../specs/NativeOxyOSApplication.ts';
 import NativeOxyOSClipboard from '../specs/NativeOxyOSClipboard.ts';
 import NativeOxyOSNotifications from '../specs/NativeOxyOSNotifications.ts';
 import NativeOxyOSSounds from '../specs/NativeOxyOSSounds.ts';
+import { createApplication } from './application.ts';
 import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
 import { createFiles, createFileService, type FilesModule } from './files.ts';
@@ -15,6 +17,7 @@ import { createPasteboard } from './pasteboard.ts';
 import { createSession, type SystemModule } from './session.ts';
 import { createSounds } from './sounds.ts';
 
+export type { Capability, Permission } from './application.ts';
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
@@ -78,3 +81,7 @@ export const fileService = createFileService(
 
 /** Items, places, the Trash, watching and tags (docs/adr/0028-file-access.mdx). */
 export const files = createFiles(fileService);
+
+/** This application: what the session started it as and to open, opening a URL elsewhere, and its
+    permissions (docs/adr/0030-installing-applications.mdx, decision 8). */
+export const application = createApplication(NativeOxyOSApplication, session);

@@ -38,6 +38,7 @@ import {
   useInputSourcesState,
 } from './oxyos/system';
 import {
+  application,
   audio as platformAudio,
   bluetooth as platformBluetooth,
   isPlatformError,
@@ -1062,7 +1063,7 @@ function useAccount(): AccountSnapshot | null {
  * manage the Oxy account, `oxyos-settings://oxy-account`); none for a plain launch.
  */
 function launchPage(): string | undefined {
-  const url: unknown = TurboModuleRegistry.get<any>('OxyOSApplication')?.getConstants().launchURL;
+  const url = application.launchURL;
   const match = typeof url === 'string' ? /^oxyos-settings:\/\/([a-z0-9-]+)\/?$/i.exec(url) : null;
   return match ? match[1]!.toLowerCase() : undefined;
 }

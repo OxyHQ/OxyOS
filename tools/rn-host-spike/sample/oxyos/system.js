@@ -1,8 +1,7 @@
 // What of the session's vocabulary has not moved to `@oxyos/platform` yet
 // (docs/adr/0058-the-platform-api.mdx, step 9): signing out, the input sources, AutoFill's list,
-// the shell's system sheets, the launch's capabilities and those asked at first use
-// (docs/adr/0030-installing-applications.mdx, decision 8). The session decides; nothing here
-// grants anything. A request that changes anything cites the latest press, as the session requires.
+// the shell's system sheets. The session decides; nothing here grants anything. A request that
+// changes anything cites the latest press, as the session requires.
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { session as connection } from '@oxyos/platform';
@@ -73,16 +72,6 @@ export const autofill = {
 export function useAutofillState() {
   return React.useSyncExternalStore(autofill.subscribe, autofill.current);
 }
-
-/** What this launch may use: `{origin, capabilities, narrowed}` (an installed version is narrowed
-    to what its account granted). */
-export function launch() {
-  return native ? native.getLaunch() : null;
-}
-
-/** Asks the session for a capability asked at first use (notifications, files, camera,
-    microphone, location); whether it is granted. Granted at once, it holds for this process. */
-export const requestCapability = (capability) => connection.requestCapability(capability);
 
 /** The shell's system sheets: those waiting, in order, and how the shell answers one. */
 export function useSystemSheets() {

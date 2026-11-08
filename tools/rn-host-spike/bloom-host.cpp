@@ -1273,26 +1273,31 @@ int main(int argc, char** argv) {
     // An application's requests to open a URL (the platform's Settings at a page, or another
     // application's, docs/adr/0058-the-platform-api.mdx, step 6), by their serial, each told what
     // the session answered.
-    std::map<uint32_t, std::function<void(bool, const std::string&)>> urlOpens;
+    std::map<uint32_t, std::function<void(const std::string&, const std::string&)>> urlOpens;
     if (!shellMode) {
       services.openUrl = [&window, &lastPress, &launchSerial, &urlOpens](
-                             const std::string& url, std::function<void(bool, const std::string&)> done) {
-        if (!window) return done(false, "OxyOS opens a URL only from an application's window");
+                             const std::string& url,
+                             std::function<void(const std::string&, const std::string&)> done) {
+        if (!window) return done("unavailable", "OxyOS opens a URL only from an application's window");
+        // A file is opened by its type, never as a URL: the compositor closes the connection for one.
+        if (!oxyos::urlOpensByScheme(url)) {
+          return done("invalid", oxyos::urlScheme(url) == "file" ? "OxyOS opens a file by its type, never as a URL"
+                                                                 : "it names no scheme");
+        }
         // Settings' since version 27; any other scheme's since 33: an older compositor closes the
         // connection for it.
-        std::string scheme = url.substr(0, url.find(':'));
-        std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+        std::string scheme = oxyos::urlScheme(url);
         uint32_t needs = scheme == OXYOS_PLATFORM_SETTINGS_SCHEME ? OXYOS_APPLICATION_OPENS_SETTINGS_VERSION
                                                                   : OXYOS_APPLICATION_OPENS_URLS_VERSION;
         if (window->protocolVersion() < needs) {
-          return done(false, "this session cannot open " + scheme + " links for an application (protocol version " +
+          return done("unavailable", "this session cannot open " + scheme + " links for an application (protocol version " +
                                  std::to_string(window->protocolVersion()) + ")");
         }
-        if (lastPress == 0) return done(false, "OxyOS opens a URL only for something the person did");
+        if (lastPress == 0) return done("needsInput", "OxyOS opens a URL only for something the person did");
         ++launchSerial;
         bool sent = window->openUrl(launchSerial, lastPress, url);
         oxyos::Report::get().input("url.open", 0, folly::dynamic::object("url", url)("sent", sent));
-        if (!sent) return done(false, "the request to open it could not be sent");
+        if (!sent) return done("unavailable", "the request to open it could not be sent");
         urlOpens[launchSerial] = std::move(done);
       };
       // The lock from an application (the Oxy SDK's sign in, docs/adr/0020-oxy-account-login.mdx):
@@ -2534,7 +2539,11 @@ int main(int argc, char** argv) {
           if (auto asked = urlOpens.find(result.code); asked != urlOpens.end()) {
             auto done = std::move(asked->second);
             urlOpens.erase(asked);
-            done(result.flag != 0, result.flag != 0 ? "" : "no application opened it");
+            if (result.flag != 0) {
+              done("", "");
+            } else {
+              done("notOpened", "no application opened it");
+            }
             continue;
           }
           instance->callFunctionOnModule(

@@ -523,6 +523,34 @@ jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
   return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
 }
 
+std::string urlScheme(const std::string& url) {
+  auto colon = url.find(':');
+  std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
+  std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+  return scheme;
+}
+
+bool urlOpensByScheme(const std::string& url) {
+  // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
+  auto scheme = urlScheme(url);
+  bool named = url.find(':') != std::string::npos && !scheme.empty() &&
+               std::isalpha(static_cast<unsigned char>(scheme[0])) &&
+               std::all_of(scheme.begin(), scheme.end(),
+                           [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
+  return named && scheme != "file";
+}
+
+folly::dynamic applicationConstants(const Application& application) {
+  auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
+  const char* launchURL = std::getenv("OXYOS_LAUNCH_URL");
+  return folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
+      "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
+                                                                     : folly::dynamic(nullptr))(
+      "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
+      "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
+      "launchURL", orNull(launchURL ? launchURL : ""));
+}
+
 folly::dynamic deviceDimensions(const Display& display) {
   folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
       "scale", display.scale)("fontScale", 1.0);
@@ -1722,21 +1750,6 @@ std::shared_ptr<TurboModule> createHostModule(
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
     module->listeners();
-  } else if (name == "OxyOSApplication") {
-    // The application this host runs (application.h), for the Expo modules built on it
-    // (sample/oxyos/expo-adapter.js): its id (the registry entry's), whether the session started
-    // it, its module, its embedded app config (expo-constants' manifest), its directories, and the
-    // machine's name and version for expo-constants.
-    const auto& application = services.application;
-    auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
-    module->constants(folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
-        "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
-                                                                       : folly::dynamic(nullptr))(
-        "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
-        "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
-        // What the session started it to open (its launch record's: a file, or a URL of its own
-        // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
-        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : "")));
   } else if (name == "IntentAndroid") {
     // React Native's Linking, as its Android module answers it. Its initial URL is what the
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
@@ -1755,26 +1768,12 @@ std::shared_ptr<TurboModule> createHostModule(
     // it. A file is opened by its type, never as a URL. `canOpenURL` says whether an application
     // of the session's registry declares the scheme (its entry's `x-scheme-handler/SCHEME`, as
     // Android's answers whether an activity handles the intent), read off the JavaScript thread.
-    auto schemeOf = [](const std::string& url) {
-      auto colon = url.find(':');
-      std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
-      std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
-      return scheme;
-    };
-    auto opensByScheme = [&services, schemeOf](const std::string& url) {
-      // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
-      auto scheme = schemeOf(url);
-      bool named = url.find(':') != std::string::npos && !scheme.empty() &&
-                   std::isalpha(static_cast<unsigned char>(scheme[0])) &&
-                   std::all_of(scheme.begin(), scheme.end(),
-                               [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
-      return services.openUrl && named && scheme != "file";
-    };
-    module->method("canOpenURL", [opensByScheme, schemeOf, invoker](jsi::Runtime& rt, const jsi::Value* args,
+    auto opensByScheme = [&services](const std::string& url) { return services.openUrl && urlOpensByScheme(url); };
+    module->method("canOpenURL", [opensByScheme, invoker](jsi::Runtime& rt, const jsi::Value* args,
                                                                    size_t count) {
       std::string url = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
       if (!opensByScheme(url)) return resolved(rt, jsi::Value(false));
-      std::string scheme = schemeOf(url);
+      std::string scheme = urlScheme(url);
       if (scheme == OXYOS_PLATFORM_SETTINGS_SCHEME) return resolved(rt, jsi::Value(true));
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "canOpenURL"), 2,
@@ -1808,21 +1807,16 @@ std::shared_ptr<TurboModule> createHostModule(
           });
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
-    module->method("openURL", [&services, invoker, opensByScheme, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
-                                                                           size_t count) {
+    module->method("openURL", [&services, invoker](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       std::string url = count > 0 ? text(rt, args[0]) : "";
-      if (!opensByScheme(url)) {
-        return rejected(rt, schemeOf(url) == "file"
-                                ? "OxyOS opens a file by its type, never as a URL (" + url + ")"
-                                : "OxyOS opens no " + url + " from here: not a URL it can ask to open");
-      }
+      if (!services.openUrl) return rejected(rt, "OxyOS opens a URL only from an application's window");
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "openURL"), 2,
           [&services, invoker, url](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
             auto reject = std::make_shared<jsi::Value>(rt, args[1]);
-            services.openUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
-              invoker->invokeAsync([resolve, reject, opened, reason, url](jsi::Runtime& rt) {
+            services.openUrl(url, [invoker, resolve, reject, url](const std::string& refusal, const std::string& reason) {
+              invoker->invokeAsync([resolve, reject, opened = refusal.empty(), reason, url](jsi::Runtime& rt) {
                 if (opened) {
                   resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(true));
                   return;

@@ -358,13 +358,17 @@ struct HostServices {
   // application opens `x-apple.systempreferences:`, or another application's (`dropsea://trash`),
   // which the session opens with the application whose entry declares the scheme, as a Mac's
   // `NSWorkspace.open`. The session is asked from its window, citing its latest press or key, and
-  // `done(opened, reason)` is called on the host's loop once it answers (`reason` empty when
-  // opened; said when the session opened nothing, when there was no input to cite, or when its
-  // compositor is older than the URL needs, OXYOS_APPLICATION_OPENS_SETTINGS_VERSION for Settings'
-  // and OXYOS_APPLICATION_OPENS_URLS_VERSION for any other, and would close the connection). The
-  // caller checks the URL names a scheme other than `file`, which would close it too. Unset for
+  // `done(refusal, message)` is called on the host's loop once it answers: `refusal` empty when it
+  // opened it; else the platform's word for why not (docs/adr/0058-the-platform-api.mdx, decision
+  // 3), with `message` saying it: `needsInput` (no input of the person's to cite), `notOpened` (the
+  // session opened nothing: no application declares the scheme, or the input was not the
+  // person's), `invalid` (a file, opened by its type, or text that names no scheme: both would
+  // close the connection), `unavailable` (no window, a request that could not be sent, or a
+  // compositor older than the URL needs, OXYOS_APPLICATION_OPENS_SETTINGS_VERSION for Settings'
+  // and OXYOS_APPLICATION_OPENS_URLS_VERSION for any other, which would close it too). Unset for
   // the shell and the login screen.
-  std::function<void(const std::string& url, std::function<void(bool opened, const std::string& reason)> done)>
+  std::function<void(const std::string& url,
+                     std::function<void(const std::string& refusal, const std::string& message)> done)>
       openUrl;
   // An application locks the session (docs/adr/0010-lock-screen.mdx), as the person locks it from
   // the Oxy menu: only while one of its windows is the active one; false when it could not be
@@ -381,6 +385,19 @@ struct HostServices {
     std::string frameworkURL;
   } runtime{};
 };
+
+// A URL's scheme, lowercase (all of it where it has no `:`).
+std::string urlScheme(const std::string& url);
+// Whether an application may ask the session to open `url` (docs/adr/0058-the-platform-api.mdx,
+// step 6): it names a scheme (RFC 3986) and the scheme is not `file`, which is opened by its type.
+bool urlOpensByScheme(const std::string& url);
+
+// The application this host runs (application.h), as `OxyOSApplication` tells it: its id (the
+// registry entry's), whether the session started it from its records, its module, its embedded app
+// config (expo-constants' manifest), its directories, the machine's name and version for
+// expo-constants, and what the session started it to open (its launch record's: a file, or a URL of
+// its own scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; null for a launch.
+folly::dynamic applicationConstants(const Application& application);
 
 // A module's answer as a promise: resolved with `value`, or rejected with an Error carrying
 // `message`.
