@@ -94,6 +94,9 @@ export type ShellSnapshot = {
   /** The Trash at the dock's end (docs/adr/0034-the-dock.mdx): how many items it holds, where the
       platform says; absent, the dock has no Trash. */
   trash?: { items?: number };
+  /** The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): the
+      top bar and the lock screen say so for the whole session. */
+  safeMode?: boolean;
 };
 /** Requests go to the platform owner. Rendering a shell never launches a fake app or manages native windows itself. */
 export type ShellActions = {

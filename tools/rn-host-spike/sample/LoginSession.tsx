@@ -126,7 +126,14 @@ export default function LoginSession() {
           <Wallpaper wallpaper={wallpaper} decorative />
           {state?.locked && (
             <Surface kind="lock" style={StyleSheet.absoluteFill}>
-              <LoginScreen accounts={accounts} actions={actions} wallpaper={wallpaper} now={now} Masked={Masked} />
+              <LoginScreen
+                accounts={accounts}
+                actions={actions}
+                wallpaper={wallpaper}
+                now={now}
+                Masked={Masked}
+                safeMode={state?.safeMode === true}
+              />
             </Surface>
           )}
         </View>

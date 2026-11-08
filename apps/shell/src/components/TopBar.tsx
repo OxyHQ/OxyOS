@@ -36,6 +36,7 @@ import type { ShellBattery, ShellBatteryMenu, ShellEnergyApp, ShellMenu, ShellMe
 import type { ShellKeyboard } from "../platform";
 import { barClock, clockSaid } from "../clock";
 import { useShellLocale, useShellMessages } from "../useShellMessages";
+import { SafeModeLabel } from "./SafeModeLabel";
 import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
@@ -750,6 +751,7 @@ const BarMenus = memo(function BarMenus({
  * battery when the session says it changed, the menus when the active window's do.
  */
 export const TopBar = memo(function TopBar({
+  safeMode = false,
   menus,
   now,
   overview,
@@ -776,6 +778,9 @@ export const TopBar = memo(function TopBar({
   onInputMenuChange,
   batteryMenu,
 }: {
+  /** The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): said
+      in red before the status items for the whole session, as a Mac's menu bar says "Safe Boot". */
+  safeMode?: boolean;
   menus: readonly ShellMenu[];
   now: Date;
   overview: () => void;
@@ -887,6 +892,7 @@ export const TopBar = memo(function TopBar({
         returnKeyboard={returnKeyboard}
       />
       <Box className="flex-row items-center gap-2.5">
+        {safeMode ? <SafeModeLabel /> : null}
         <Box className="flex-row items-center gap-4">
           {power &&
             (batteryMenu ? (

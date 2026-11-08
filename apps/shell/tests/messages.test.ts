@@ -134,3 +134,9 @@ test("the dock's menus in English are a Mac's", () => {
     ["Open", "Empty Trash"],
   );
 });
+
+test("Safe Mode is named as a Mac's menu bar names Safe Boot, in each language", () => {
+  // docs/adr/0054-recovery-and-erasing.mdx, decision 10.
+  assert.equal(shellMessages("en-US").safeMode, "Safe Mode");
+  assert.equal(shellMessages("es-ES").safeMode, "Modo seguro");
+});
