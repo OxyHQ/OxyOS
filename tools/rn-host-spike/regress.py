@@ -108,6 +108,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- crash_reports: the reports the session wrote of applications that quit unexpectedly
+  (docs/adr/0061-crashes-and-resetting-an-application.mdx), in the run's home
+  (`.local/state/oxyos/crash-reports`) once the step settled, exactly and oldest first: each
+  {"application": its id, "contains": [TEXT]} (each text in the report);
 - background: the applications' background activity (docs/adr/0060-login-items-and-background-
   activity.mdx): "ended", the processes the session ended in the step, by their application's id,
   exactly and in order (a step that ends one and does not say so fails); "running", given, the
@@ -519,7 +523,15 @@ exists (true) or not (false), a file's text, and `trash` the names in the home's
 `files/`), each with a `.trashinfo` naming where it was; with a `shell`, the dock's Trash follows
 that home's Trash (ADR 0034). Its `xattrs` ({PATH: {NAME: VALUE | false}}) checks an item's `user.`
 attributes: a value as above, or false for none. The home's attributes are read only in a scenario
-that sets or checks some. Every scenario runs in one fixed language, never the machine's
+that sets or checks some.
+
+A scenario with `home` and `backups` has that home backed up before the run (docs/adr/0059-backups.mdx)
+by a real `oxyos-backupd --development` (beside oxyos-offscreen, on a played disk named
+`backups.disk`, "Backup Disk" by default, over the machine's restic), which the application's files
+service asks (`OXYOS_BACKUPD_SOCKET`): `backups.states` is a list of the home's states, each
+{"items": {...}, "remove": [PATH, ...], "modified": SECONDS} changed from the one before (items as
+`home.items`, the first applied to `home.items`), each backed up in turn, a second or more apart;
+`backups.after` the change made once the last was taken. The service is stopped when the run ends. Every scenario runs in one fixed language, never the machine's
 (docs/adr/0040-language-and-region.mdx, decision 8): `LANG` and `LC_ALL` are `en_US.UTF-8`, or the
 scenario's `locale`, the session's language and region (what the shell, Settings, the login screen
 and the reader speak, unless its preferences choose another). Its `tz` is the time zone (`TZ`), else
@@ -638,7 +650,10 @@ points at a socket of its own, so none asks the machine's): the application ids 
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
-application's window first shows TEXT). A token it mints names the application it is for and is no
+application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
+service restarting as a package upgrade restarts it: every subscription closed under its
+application, then every process refused `notPermitted` for MS, as the real service refuses one until
+the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
 credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
@@ -1318,6 +1333,8 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # Until when the played service is restarting (`account.later`'s `restart`): it refuses everyone.
+    restarting = [0.0]
     # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
@@ -1358,8 +1375,28 @@ def serve_account_session(path, spec, log):
 
     ACCOUNT["push"] = push
 
+    def restart(refuse_for):
+        with lock:
+            restarting[0] = time.monotonic() + refuse_for / 1000
+            for connection in subscribers:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            subscribers.clear()
+
+    ACCOUNT["restart"] = restart
+
     def converse(connection):
         application = application_of(connection)
+        if time.monotonic() < restarting[0]:
+            with connection:
+                try:
+                    connection.recv(16384)
+                    connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
+                except OSError:
+                    pass
+            return
         with connection:
             while True:
                 try:
@@ -1483,7 +1520,7 @@ def serve_account_session(path, spec, log):
 def account_later(changes, report_path):
     """The played service's snapshot changing while the run goes on (`account.later`): each
     [{"when_shown": TEXT, "snapshot": {...}}] once the application's window first shows TEXT, the
-    revision one past the last."""
+    revision one past the last; {"when_shown": TEXT, "restart": {"refuse_for": MS}} restarts it."""
     started = time.monotonic_ns()
 
     def watch():
@@ -1497,10 +1534,14 @@ def account_later(changes, report_path):
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
+                # Every change waiting for what this frame shows, in order.
+                while waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
                         and entry.get("t", 0) >= started \
                         and any(waiting[0]["when_shown"] in shown for shown in entry.get("texts", [])):
                     change = waiting.pop(0)
+                    if "restart" in change:
+                        ACCOUNT["restart"](change["restart"].get("refuse_for", 0))
+                        continue
                     current = ACCOUNT["snapshot"]
                     ACCOUNT["push"](dict(current, **change["snapshot"], revision=current["revision"] + 1))
             seen = len(lines)
@@ -2386,6 +2427,27 @@ def check_home(state, wanted, fail):
                 fail(f"{relative} {'is missing' if want else 'is still there'}")
         elif state.get(relative) != want:
             fail(f"{relative} does not hold {want!r}")
+
+
+CRASH_REPORTS = ".local/state/oxyos/crash-reports/"
+
+
+def check_crash_reports(state, wanted, fail):
+    """A step's `crash_reports` (docs/adr/0061): the reports in the home, exactly, oldest first
+    (`<id>_<YYYY-MM-DD-HHMMSS>[-N].crash`, by when, then by name), each of the application wanted
+    and holding each text wanted."""
+    names = [path[len(CRASH_REPORTS):] for path in state
+             if path.startswith(CRASH_REPORTS) and path.endswith(".crash") and "/" not in path[len(CRASH_REPORTS):]]
+    names.sort(key=lambda name: (name[:-len(".crash")].rsplit("_", 1)[1], name))
+    got = [name[:-len(".crash")].rsplit("_", 1)[0] for name in names]
+    if got != [want["application"] for want in wanted]:
+        fail(f"the crash reports are of {got}, expected {[want['application'] for want in wanted]}")
+        return
+    for name, want in zip(names, wanted):
+        text = state[CRASH_REPORTS + name]
+        for needed in want.get("contains", []):
+            if not isinstance(text, str) or needed not in text:
+                fail(f"the crash report {name} does not say {needed!r}: {text!r:.400}")
 
 
 def latest_frames(report, until, closed_before):
@@ -3430,6 +3492,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
+    if "crash_reports" in expect:
+        check_crash_reports(home_root.at(end) if home_root else HomeState(), expect["crash_reports"], fail)
     if "react_hover" in expect:
         got = {}
         for line in report:
@@ -4822,6 +4886,80 @@ def install_service(spec, machine, offscreen):
     return base / "i", state
 
 
+def backup_service(spec, home_root, out, offscreen):
+    """A real oxyos-backupd for a scenario (`backups`, the module's docstring), in its development
+    mode (unprivileged, serving this user alone), backing the run's home up to a played disk: each
+    of `states` applied to the home and backed up in turn, then `after`. Its socket, and how to stop
+    it."""
+    import socket as sockets
+    import tempfile
+    backupd = pathlib.Path(offscreen).resolve().parent / "oxyos-backupd"
+    # A Unix socket's path is at most 107 bytes: a short directory of the run's own.
+    base = pathlib.Path(tempfile.mkdtemp(prefix="oxb", dir="/tmp"))
+    disk = base / "volumes" / "1234-ABCD"
+    disk.mkdir(parents=True)
+    (disk / ".oxyos-label").write_text(spec.get("disk", "Backup Disk"))
+    log = open(out / "backupd.log", "w")
+    process = subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
+                                "--volumes", str(base / "volumes"), "--cache", str(base / "cache"),
+                                "--source", str(home_root), "--socket", str(base / "s")],
+                               stdout=log, stderr=log)
+
+    def stop():
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+        log.close()
+        shutil.rmtree(base, ignore_errors=True)
+
+    def ask(request):
+        with sockets.socket(sockets.AF_UNIX, sockets.SOCK_SEQPACKET) as connection:
+            connection.settimeout(60)
+            connection.connect(str(base / "s"))
+            connection.send(json.dumps(request).encode())
+            return json.loads(connection.recv(65536))
+
+    def backups():
+        status = ask("status")["status"]
+        destination = (status["destinations"] or [{}])[0]
+        return destination.get("backups", 0) if status["running"] is None else -1
+
+    def change(state):
+        write_items(home_root, state.get("items", {}), state.get("modified", 1767348000))
+        for relative in state.get("remove", []):
+            path = home_root / relative.rstrip("/")
+            shutil.rmtree(path) if path.is_dir() and not path.is_symlink() else path.unlink()
+
+    try:
+        wait_for(base / "s")
+        for index, state in enumerate(spec["states"]):
+            if index:
+                # A backup's time is restic's, in seconds: each its own.
+                time.sleep(1.1)
+            change(state)
+            if index == 0:
+                # Added: backed up at once. The disk is seen as the service starts.
+                deadline = time.monotonic() + 30
+                while "added" not in (answer := ask({"addDisk": {"uuid": "1234-ABCD", "password": "scenario backups"}})):
+                    if time.monotonic() > deadline:
+                        raise RuntimeError(f"the backup disk was not added: {answer}")
+                    time.sleep(0.1)
+            elif ask({"backUpNow": {}}) != "started":
+                raise RuntimeError("the backup service did not start a backup")
+            deadline = time.monotonic() + 120
+            while backups() < index + 1:
+                if time.monotonic() > deadline:
+                    raise RuntimeError(f"backup {index + 1} never ended; see {out / 'backupd.log'}")
+                time.sleep(0.1)
+        change(spec.get("after", {}))
+    except Exception:
+        stop()
+        raise
+    return base / "s", stop
+
+
 # The run's install service (`install_service`): its state and log, for the final checks.
 INSTALLD = {}
 # The run's store (`store_fixture`): its directory (the images it answered) and whether the machine
@@ -5540,10 +5678,12 @@ def main():
             [path for path in env.get("VK_ADD_DRIVER_FILES", "").split(os.pathsep) if path]
             + vulkan_driver_folders(env))
     # What applications keep (their data and cache directories, application.h) is the run's own,
-    # never the user's; a scenario's `app_data` is there before the application starts.
-    for kept in ("xdg-data", "xdg-cache"):
+    # never the user's; a scenario's `app_data` is there before the application starts. So is the
+    # session's state (the crash reports it writes, docs/adr/0061).
+    for kept in ("xdg-data", "xdg-cache", "xdg-state"):
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
+    env["XDG_STATE_HOME"] = str(out / "xdg-state")
     env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache else out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
@@ -5624,6 +5764,7 @@ def main():
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
+        env["XDG_STATE_HOME"] = str(home_root / ".local/state")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
     else:
@@ -5637,6 +5778,12 @@ def main():
         (empty / ".config").mkdir(parents=True)
         env["HOME"] = str(empty)
         env["XDG_CONFIG_HOME"] = str(empty / ".config")
+    stop_backups = None
+    env.pop("OXYOS_BACKUPD_SOCKET", None)
+    if "backups" in scenario:
+        # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
+        backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
+        env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
@@ -5679,6 +5826,8 @@ def main():
             stop_bluetooth()
         if stop_power is not None:
             stop_power()
+        if stop_backups is not None:
+            stop_backups()
     if recorder is not None:
         recorder.stop()
     (out / "director.log").write_text(run.stdout + run.stderr)

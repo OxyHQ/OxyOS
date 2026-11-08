@@ -10,6 +10,8 @@ Status: **accepted; implemented** (the protocol, the scene, the C ABI, the Bloom
 
 **8 November 2026:** a notification the session itself posts may open a URL when pressed instead of activating its application ([ADR 0060](./0060-login-items-and-background-activity), decision 4: *Background Items Added*, which opens `oxyos-settings://login-items`): pressed in the shell, citing the shell's own input, the scene asks the session to open it as the shell's own `OpenUrl`. An application's never does.
 
+**8 November 2026:** the session posts notifications of its own about an application ([ADR 0061](./0061-crashes-and-resetting-an-application): *“Mention” quit unexpectedly*, with Reopen and Report…), shown as the application's (its icon and name) but the session's: pressed, the program running the compositor is told (`Scene::take_session_activations`) and the application is given no response and is not started; only the session and the shell withdraw one. A reset application's own notifications are withdrawn with its data. "The session's own processes post none yet", below, is no longer so.
+
 **5 November 2026:** a notification plays the system's notification sound as it arrives, as its handler's `shouldPlaySound` asks, never with Do Not Disturb or for an application whose sound the person turned off in Settings, and a burst sounds once ([ADR 0044](./0044-system-sounds), decision 6); this decision's "sounds" left out below are that.
 
 ## Problem

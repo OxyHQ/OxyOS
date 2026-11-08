@@ -170,11 +170,18 @@ again changes nothing that is already so:
   that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
   collides. Every run has a home of its own (`regress.py`), never the user's.
 
-`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere:
+`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere,
+with both labels; `machine.sh runner N merge` registers it with `oxyos-merge` alone. Seldon's are
+runners 1 to 3 with both and 4 and 5 for the merge queue alone:
 
 ```sh
-gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner 1
+token() { gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token; }
+for n in 1 2 3; do token | sudo sh tools/gate/machine.sh runner $n; done
+for n in 4 5; do token | sudo sh tools/gate/machine.sh runner $n merge; done
 ```
+
+Registering a runner again (`--replace`) sets its labels to these, so a label changed by hand on
+GitHub does not outlive the next run of `machine.sh` (stop the runner first, below).
 
 ### Runners stopped only when idle, and the watchdog
 

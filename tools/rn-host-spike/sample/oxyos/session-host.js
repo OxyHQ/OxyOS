@@ -67,16 +67,16 @@ export function createSessionHost(native = TurboModuleRegistry.get('OxyOSAccount
   const tell = () => {
     for (const listener of [...listeners]) listener();
   };
-  // Followed on one connection the service keeps. Once it ends (the service went away), the session
-  // is unavailable until the application next asks for a token, which follows it again: nothing
-  // wakes an idle application to look.
+  // Followed on one connection the service keeps. The host follows it again by itself when it ends
+  // (the service restarted under the application), and says null only if it stays unfollowed for
+  // more than a few seconds: the session is unavailable then, until a snapshot comes again.
   let following = false;
   const follow = () => {
     following = native.subscribe();
     if (!following && take(null)) tell();
   };
   events.addListener('OxyOSAccountSessionChanged', (told) => {
-    if (told === null) following = false;
+    following = told !== null;
     if (take(told)) tell();
   });
   follow();

@@ -5579,6 +5579,10 @@ fn the_header_matches_the_files_abi() {
         define("OXYOS_FILES_NO_NETWORK"),
         i64::from(OXYOS_FILES_NO_NETWORK)
     );
+    assert_eq!(
+        define("OXYOS_FILES_NO_BACKUPS"),
+        i64::from(OXYOS_FILES_NO_BACKUPS)
+    );
     type New = unsafe extern "C" fn(*const c_char, usize, *const c_char, usize) -> *mut OxyOSFiles;
     type NewWith =
         unsafe extern "C" fn(*const c_char, usize, *const c_char, usize, u32) -> *mut OxyOSFiles;

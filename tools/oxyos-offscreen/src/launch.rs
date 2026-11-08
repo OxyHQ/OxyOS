@@ -5341,8 +5341,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             )
             .with_installed(None)
             // What `--grant` gives, told to the applications it starts as the policy's would be.
-            .with_fixture_grants(launch.grants.clone()),
+            .with_fixture_grants(launch.grants.clone())
+            // Where each says why it ends, if it ends for a fault (docs/adr/0061), in the run's
+            // own folder.
+            .with_crash_reports(session.directory().join("reports"))?,
         );
+        // What an erasure a crash interrupted left aside, deleted as a session starts.
+        if let Err(error) = oxyos_apps::data::sweep(&oxyos_apps::data::bases()) {
+            eprintln!("[launch] what resets left is not all deleted: {error}");
+        }
         if let Some(root) = &launch.installed_fixture {
             let user = oxyos_apps::session_user().unwrap_or_default();
             session.launcher = session.launcher.take().map(|launcher| {

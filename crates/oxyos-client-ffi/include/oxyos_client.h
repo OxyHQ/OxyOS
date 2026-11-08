@@ -1994,7 +1994,14 @@ OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char
  * downloads and uploads fail as the network's would ({"ok": false, "error": "network"}) before anything
  * is asked. */
 #define OXYOS_FILES_NO_NETWORK 1
-/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK); other bits are ignored. */
+/* oxyos_files_new_with's flag: the application may not ask the person's backups (an installed version
+ * whose account did not grant `files`, docs/adr/0059-backups.mdx), so `backups`, `watchBackups`,
+ * `versions`, `versionContents` and `restoreVersion` fail ({"ok": false, "error": "not-permitted"})
+ * before the backup service is asked. */
+#define OXYOS_FILES_NO_BACKUPS 2
+/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK, OXYOS_FILES_NO_BACKUPS); other bits are
+ * ignored. The backups are the system's backup service's (/run/oxyos/backupd/socket), or those of the
+ * service $OXYOS_BACKUPD_SOCKET names (a developer's, oxyos-backupd --development). */
 OxyOSFiles* oxyos_files_new_with(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length,
                                  uint32_t flags);
 /* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */

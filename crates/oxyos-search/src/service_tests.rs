@@ -400,6 +400,22 @@ fn applications_see_files_and_their_own_items_and_the_shell_sees_all() {
         json!({"done": {}})
     );
     assert!(service.query("garcia").is_empty());
+    // An application reset (docs/adr/0061, decision 5): the session has the index forget what it
+    // donated, as its data is erased; another's stays.
+    for (client, id) in [(2, "so.oxy.allo"), (4, "so.oxy.dropsea")] {
+        assert_eq!(
+            service.ask_as(
+                client,
+                application(id),
+                json!({"donate": {"items": [{"id": "ana", "title": "Ana García", "category": "contact", "url": "allo://contact/ana"}]}}),
+            ),
+            json!({"done": {}})
+        );
+    }
+    service.say(json!({"forget": {"application": "so.oxy.allo"}}));
+    service.until("garcia", |found| found == ["so.oxy.dropsea:ana"]);
+    service.say(json!({"forget": {"application": "so.oxy.dropsea"}}));
+    service.until("garcia", |found| found.is_empty());
 
     // Opened from a search: it rises.
     write(&service.home.join("ana-budget.txt"), "x");
