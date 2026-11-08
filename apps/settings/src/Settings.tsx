@@ -2398,6 +2398,30 @@ function OxyAccountPage({ actions, strings, view }: PageProps & { view: AccountV
   );
 }
 
+/** What every page is given, from `Settings`: a context, so that what the session tells renders the
+    page that shows it and not the window around it. */
+const PagePropsContext = React.createContext<PageProps | null>(null);
+
+/** A page, given what pages are given. */
+function WithPageProps({ render: Page }: { render: React.ComponentType<PageProps> }) {
+  const props = React.useContext(PagePropsContext);
+  return props ? <Page {...props} /> : null;
+}
+
+/** Oxy account's page: the account as the platform tells it, while it has one to show. */
+function CurrentOxyAccountPage(props: PageProps) {
+  const view = accountView(props.snapshot.account);
+  return view ? <OxyAccountPage {...props} view={view} /> : null;
+}
+
+/** Mouse's page and Trackpad's: each its own natural scrolling (docs/adr/0042-scrolling.mdx). */
+function MousePage(props: PageProps) {
+  return <ScrollingPage {...props} preference="mouseNaturalScrolling" />;
+}
+function TrackpadPage(props: PageProps) {
+  return <ScrollingPage {...props} preference="trackpadNaturalScrolling" />;
+}
+
 /**
  * Settings, in the session's language (docs/adr/0040-language-and-region.mdx, decision 5): its
  * catalogue is chosen from the locale its root gives `BloomProvider`, so it switches in the same
@@ -2416,7 +2440,11 @@ export function Settings({
   const told = useBloomLocale();
   const strings = messagesFor(resolveBloomLanguage(told));
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
-  const props = { snapshot, actions, strings, locale };
+  // What every page is given changes with everything the session tells (a preference, a volume, a
+  // network's strength): it reaches the pages through a context, so that a change renders the page
+  // that shows it, never the window around it (the rail, the toolbar, the panels). Only what the
+  // window is made of (the language, which pages there are) makes it again.
+  const props = React.useMemo(() => ({ snapshot, actions, strings, locale }), [snapshot, actions, strings, locale]);
   const words = strings.pages;
   // Wi-Fi, Bluetooth and Network first, as a Mac lists them: Wi-Fi and Network only with the
   // platform's `network` grant, Bluetooth only with its `bluetooth` grant (docs/adr/0055-bluetooth.mdx);
@@ -2425,21 +2453,16 @@ export function Settings({
   const networked = snapshot.network !== undefined;
   const bluetooth = snapshot.bluetooth !== undefined;
   const power = snapshot.power;
-  const connectionItems: SettingsNavGroup["items"] = [
-    ...(networked ? [{ key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" }] : []),
-    ...(bluetooth ? [{ key: "bluetooth", label: words.bluetooth, icon: RiBluetoothLine, page: "bluetooth" }] : []),
-    ...(networked ? [{ key: "network", label: words.network, icon: RiGlobalLine, page: "network" }] : []),
-    ...(power
-      ? [{ key: "battery", label: power.battery ? words.battery : words.energy, icon: RiBatteryLine, page: "battery" }]
-      : []),
-  ];
-  const connections: SettingsNavGroup[] =
-    connectionItems.length === 0
-      ? []
-      : [{ key: "connections", label: strings.groups.connections, items: connectionItems }];
+  // The sidebar's Battery or Energy item, once the session told the power; its page's title, also
+  // before (opened by its URL, `oxyos-settings://battery`, the battery's menu's Battery Settings…).
+  const powerItem = power ? (power.battery ? words.battery : words.energy) : null;
+  const powerPage = power === undefined ? null : power?.battery || power === null ? "battery" : "energy";
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
+  const accountKind = account?.kind;
+  const accountName = account?.kind === "signed_in" ? account.name : null;
+  const accountPicture = account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : "";
   const AccountIcon = React.useMemo(() => {
     if (account?.kind !== "signed_in") return RiUserLine;
     const shown = account;
@@ -2453,113 +2476,125 @@ export function Settings({
       );
     };
     // The picture changes only with what it shows.
-  }, [account?.kind, account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : ""]);
-  const accountGroup: SettingsNavGroup[] = account
-    ? [
-        {
-          key: "account",
-          label: strings.account.group,
-          items: [
-            {
-              key: "oxy-account",
-              label: account.kind === "signed_in" ? account.name : strings.account.group,
-              icon: AccountIcon,
-              page: "oxy-account",
+  }, [accountKind, accountPicture]);
+  const groups = React.useMemo<SettingsNavGroup[]>(() => {
+    const connectionItems: SettingsNavGroup["items"] = [
+      ...(networked ? [{ key: "wifi", label: words.wifi, icon: RiWifiLine, page: "wifi" }] : []),
+      ...(bluetooth ? [{ key: "bluetooth", label: words.bluetooth, icon: RiBluetoothLine, page: "bluetooth" }] : []),
+      ...(networked ? [{ key: "network", label: words.network, icon: RiGlobalLine, page: "network" }] : []),
+      ...(powerItem ? [{ key: "battery", label: powerItem, icon: RiBatteryLine, page: "battery" }] : []),
+    ];
+    const connections: SettingsNavGroup[] =
+      connectionItems.length === 0
+        ? []
+        : [{ key: "connections", label: strings.groups.connections, items: connectionItems }];
+    const accountGroup: SettingsNavGroup[] = accountKind
+      ? [
+          {
+            key: "account",
+            label: strings.account.group,
+            items: [
+              {
+                key: "oxy-account",
+                label: accountName ?? strings.account.group,
+                icon: AccountIcon,
+                page: "oxy-account",
+              },
+            ],
+          },
+        ]
+      : [];
+    return [
+      ...accountGroup,
+      ...connections,
+      {
+        key: "personal",
+        label: strings.groups.personal,
+        items: [
+          { key: "appearance", label: words.appearance, icon: RiPaletteLine, page: "appearance" },
+          { key: "wallpaper", label: words.wallpaper, icon: RiImageLine, page: "wallpaper" },
+          { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
+          { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
+          { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
+          { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
+          { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
+        ],
+      },
+      {
+        key: "general",
+        label: strings.groups.general,
+        items: [
+          { key: "language-region", label: words.languageRegion, icon: RiTranslate2, page: "language-region" },
+          { key: "keyboard", label: words.keyboard, icon: RiKeyboardLine, page: "keyboard" },
+          // After Keyboard, as a Mac's System Settings lists them.
+          { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
+          { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
+          { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
+          { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
+          // After Software Update, as a Mac's General lists Transfer or Reset.
+          { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
+          // Just above Privacy, as a Mac's System Settings lists Spotlight.
+          { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
+          { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
+          { key: "about", label: words.about, icon: RiInformationLine, page: "about" },
+        ],
+      },
+    ];
+  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon]);
+  const pages = React.useMemo<Record<string, SettingsModalPage>>(
+    () => ({
+      ...(accountKind
+        ? { "oxy-account": { title: strings.account.group, content: <WithPageProps render={CurrentOxyAccountPage} /> } }
+        : {}),
+      appearance: { title: words.appearance, content: <WithPageProps render={AppearancePage} /> },
+      wallpaper: { title: words.wallpaper, content: <WithPageProps render={WallpaperPage} /> },
+      notifications: { title: words.notifications, content: <WithPageProps render={NotificationsPage} /> },
+      sound: { title: words.sound, content: <WithPageProps render={SoundPage} /> },
+      "lock-screen": { title: words.lockScreen, content: <WithPageProps render={LockScreenPage} /> },
+      displays: { title: words.displays, content: <WithPageProps render={DisplaysPage} /> },
+      accessibility: { title: words.accessibility, content: <WithPageProps render={AccessibilityPage} /> },
+      keyboard: { title: words.keyboard, content: <WithPageProps render={KeyboardPage} /> },
+      mouse: { title: words.mouse, content: <WithPageProps render={MousePage} /> },
+      trackpad: { title: words.trackpad, content: <WithPageProps render={TrackpadPage} /> },
+      "language-region": { title: words.languageRegion, content: <WithPageProps render={LanguageRegionPage} /> },
+      "date-time": { title: words.dateTime, content: <WithPageProps render={DateTimePage} /> },
+      about: { title: words.about, content: <WithPageProps render={AboutPage} /> },
+      "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
+      "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
+      spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },
+      privacy: { title: words.privacy, content: <WithPageProps render={PrivacyPage} /> },
+      ...(networked
+        ? {
+            wifi: { title: words.wifi, content: <WithPageProps render={WifiPage} /> },
+            network: { title: words.network, content: <WithPageProps render={NetworkPage} /> },
+          }
+        : {}),
+      ...(bluetooth ? { bluetooth: { title: words.bluetooth, content: <WithPageProps render={BluetoothPage} /> } } : {}),
+      ...(powerPage
+        ? {
+            battery: {
+              title: powerPage === "battery" ? words.battery : words.energy,
+              content: <WithPageProps render={BatteryPage} />,
             },
-          ],
-        },
-      ]
-    : [];
-  const groups: SettingsNavGroup[] = [
-    ...accountGroup,
-    ...connections,
-    {
-      key: "personal",
-      label: strings.groups.personal,
-      items: [
-        { key: "appearance", label: words.appearance, icon: RiPaletteLine, page: "appearance" },
-        { key: "wallpaper", label: words.wallpaper, icon: RiImageLine, page: "wallpaper" },
-        { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
-        { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
-        { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
-        { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
-        { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
-      ],
-    },
-    {
-      key: "general",
-      label: strings.groups.general,
-      items: [
-        { key: "language-region", label: words.languageRegion, icon: RiTranslate2, page: "language-region" },
-        { key: "keyboard", label: words.keyboard, icon: RiKeyboardLine, page: "keyboard" },
-        // After Keyboard, as a Mac's System Settings lists them.
-        { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
-        { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
-        { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
-        { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
-        // After Software Update, as a Mac's General lists Transfer or Reset.
-        { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
-        // Just above Privacy, as a Mac's System Settings lists Spotlight.
-        { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
-        { key: "privacy", label: words.privacy, icon: RiShieldLine, page: "privacy" },
-        { key: "about", label: words.about, icon: RiInformationLine, page: "about" },
-      ],
-    },
-  ];
-  const pages: Record<string, SettingsModalPage> = {
-    ...(account
-      ? {
-          "oxy-account": {
-            title: strings.account.group,
-            content: <OxyAccountPage {...props} view={account} />,
-          },
-        }
-      : {}),
-    appearance: { title: words.appearance, content: <AppearancePage {...props} /> },
-    wallpaper: { title: words.wallpaper, content: <WallpaperPage {...props} /> },
-    notifications: { title: words.notifications, content: <NotificationsPage {...props} /> },
-    sound: { title: words.sound, content: <SoundPage {...props} /> },
-    "lock-screen": { title: words.lockScreen, content: <LockScreenPage {...props} /> },
-    displays: { title: words.displays, content: <DisplaysPage {...props} /> },
-    accessibility: { title: words.accessibility, content: <AccessibilityPage {...props} /> },
-    keyboard: { title: words.keyboard, content: <KeyboardPage {...props} /> },
-    mouse: { title: words.mouse, content: <ScrollingPage {...props} preference="mouseNaturalScrolling" /> },
-    trackpad: { title: words.trackpad, content: <ScrollingPage {...props} preference="trackpadNaturalScrolling" /> },
-    "language-region": { title: words.languageRegion, content: <LanguageRegionPage {...props} /> },
-    "date-time": { title: words.dateTime, content: <DateTimePage {...props} /> },
-    about: { title: words.about, content: <AboutPage {...props} /> },
-    "software-update": { title: words.softwareUpdate, content: <SoftwareUpdatePage {...props} /> },
-    "transfer-reset": { title: words.transferReset, content: <TransferResetPage {...props} /> },
-    spotlight: { title: words.spotlight, content: <SpotlightPage {...props} /> },
-    privacy: { title: words.privacy, content: <PrivacyPage {...props} /> },
-    ...(snapshot.network === undefined
-      ? {}
-      : {
-          wifi: { title: words.wifi, content: <WifiPage {...props} /> },
-          network: { title: words.network, content: <NetworkPage {...props} /> },
-        }),
-    ...(bluetooth ? { bluetooth: { title: words.bluetooth, content: <BluetoothPage {...props} /> } } : {}),
-    // Opened by its URL (`oxyos-settings://battery`, the battery's menu's Battery Settings…) even
-    // before the session has told the state, which it then shows.
-    ...(power === undefined
-      ? {}
-      : {
-          battery: {
-            title: power?.battery || power === null ? words.battery : words.energy,
-            content: <BatteryPage {...props} />,
-          },
-        }),
-  };
+          }
+        : {}),
+    }),
+    [strings, words, networked, bluetooth, powerPage, accountKind],
+  );
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);
-  return (
-    <SettingsLayout
-      groups={groups}
-      pages={pages}
-      defaultPage={opened ? initialPage : "appearance"}
-      initialView={opened ? "page" : "navigation"}
-      labels={{ nav: strings.title }}
-      testID="settings"
-    />
+  const layout = React.useMemo(
+    () => (
+      <SettingsLayout
+        groups={groups}
+        pages={pages}
+        defaultPage={opened ? initialPage : "appearance"}
+        initialView={opened ? "page" : "navigation"}
+        labels={{ nav: strings.title }}
+        testID="settings"
+      />
+    ),
+    [groups, pages, opened, initialPage, strings.title],
   );
+  return <PagePropsContext.Provider value={props}>{layout}</PagePropsContext.Provider>;
 }
