@@ -49,6 +49,10 @@ fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
     std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
     std::env::set_var("XDG_CACHE_HOME", home.join(".cache"));
     std::env::set_var("USER", "ffi-test");
+    // The backup service the files service asks (docs/adr/0059-backups.mdx): one played here.
+    let backupd = home.join("backupd.socket");
+    std::env::set_var("OXYOS_BACKUPD_SOCKET", &backupd);
+    let played = played_backup_service(&backupd, &home);
     let id = "so.oxy.ffi";
     // SAFETY: a live service, and requests and buffers that outlive each call.
     unsafe {
@@ -258,7 +262,147 @@ fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
         }
         let (_, unwatched, _) = call(format!(r#"{{"op":"unwatch","watch":{watch}}}"#), &[]);
         assert_eq!(unwatched, r#"{"ok":true,"value":null}"#);
+        // The person's backups: where they are kept, a file's versions, and the older one
+        // restored beside it as the person (Keep Both), its bytes through the service's pipe.
+        let notes = format!("file://{}/Documents/backed-up.txt", home.display());
+        std::fs::write(home.join("Documents/backed-up.txt"), "newer").unwrap();
+        ask(20, r#"{"op":"backups"}"#.into());
+        let state = reply_to(20, &mut events);
+        assert!(
+            state.contains(r#""name":"Backup Disk""#)
+                && state.contains(r#""lastBackup":1767348000000"#),
+            "{state}"
+        );
+        ask(21, format!(r#"{{"op":"versions","uri":"{notes}"}}"#));
+        let versions = reply_to(21, &mut events);
+        assert_eq!(
+            versions,
+            r#"{"ok":true,"value":[{"backup":{"destination":"d1","id":"30742fd0","time":1767348000000},"isDirectory":false,"lastModified":1767300000000,"size":5}]}"#
+        );
+        ask(
+            22,
+            format!(
+                r#"{{"op":"restoreVersion","backup":{{"destination":"d1","id":"30742fd0"}},"uri":"{notes}"}}"#
+            ),
+        );
+        let restored = reply_to(22, &mut events);
+        let kept = home.join("Documents/backed-up (original).txt");
+        assert_eq!(
+            restored,
+            format!(
+                r#"{{"ok":true,"value":{{"skipped":0,"uri":"{}"}}}}"#,
+                oxyos_files::uri::of(&kept, false)
+            )
+        );
+        assert_eq!(std::fs::read_to_string(&kept).unwrap(), "older");
+        assert_eq!(
+            std::fs::read_to_string(home.join("Documents/backed-up.txt")).unwrap(),
+            "newer"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.contains(r#""transfer":22"#)
+                    && event.contains(r#""bytesWritten":5"#)),
+            "{events:?}"
+        );
         oxyos_files_free(files);
+        // Without `files` granted: refused, the service never asked.
+        let refused = oxyos_files_new_with(
+            id.as_ptr().cast(),
+            id.len(),
+            std::ptr::null(),
+            0,
+            OXYOS_FILES_NO_BACKUPS,
+        );
+        assert!(!refused.is_null());
+        let json = format!(r#"{{"op":"versions","uri":"{notes}"}}"#);
+        assert_eq!(
+            oxyos_files_request(
+                refused,
+                1,
+                json.as_ptr().cast(),
+                json.len(),
+                std::ptr::null(),
+                0
+            ),
+            0
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let answer = loop {
+            let reply = oxyos_files_take(refused);
+            if !reply.is_null() {
+                break files_reply(reply);
+            }
+            assert!(std::time::Instant::now() < deadline, "no reply");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(
+            answer.1.contains(r#""error":"not-permitted""#),
+            "{answer:?}"
+        );
+        oxyos_files_free(refused);
     }
+    assert_eq!(
+        played.join().unwrap(),
+        3,
+        "the service was asked three times"
+    );
+    std::env::remove_var("OXYOS_BACKUPD_SOCKET");
     std::fs::remove_dir_all(home).unwrap();
+}
+
+/// A backup service played on `socket` for the C ABI's test, as `oxyos-backupd` answers: one
+/// destination, one version of `Documents/backed-up.txt`, and that version's bytes through a
+/// pipe. It answers three connections, and says how many it served.
+fn played_backup_service(
+    socket: &std::path::Path,
+    home: &std::path::Path,
+) -> std::thread::JoinHandle<usize> {
+    use oxyos_install::socket::Listener;
+    use serde_json::{json, Value};
+    let listener = Listener::bind(socket, 0o600).unwrap();
+    let path = home.join("Documents/backed-up.txt").display().to_string();
+    std::thread::spawn(move || {
+        let mut served = 0;
+        while served < 3 {
+            let connection = listener.accept().unwrap();
+            let request: Value = connection.receive().unwrap().unwrap().unwrap();
+            served += 1;
+            if request == json!("status") {
+                connection
+                    .send(&json!({"status": {
+                        "destinations": [{"id": "d1", "name": "Backup Disk", "kind": "disk",
+                            "available": true, "lastBackup": 1_767_348_000_i64,
+                            "oldestBackup": 1_767_348_000_i64}],
+                        "lastBackup": 1_767_348_000_i64, "running": null}}))
+                    .unwrap();
+            } else if request["versions"]["path"] == path.as_str() {
+                connection
+                    .send(
+                        &json!({"versions": [{"destination": "d1", "snapshot": "30742fd0",
+                        "time": 1_767_348_000_i64, "kind": "file", "size": 5,
+                        "modified": 1_767_300_000_i64}]}),
+                    )
+                    .unwrap();
+            } else if request["retrieve"]["path"] == path.as_str() {
+                let (reading, mut writing) = std::io::pipe().unwrap();
+                connection
+                    .send_with_fd(
+                        &json!({"retrieving": {"kind": "file", "size": 5, "modified": 1_767_300_000_i64}}),
+                        std::os::fd::AsFd::as_fd(&reading),
+                    )
+                    .unwrap();
+                drop(reading);
+                std::io::Write::write_all(&mut writing, b"older").unwrap();
+                drop(writing);
+                connection.send(&json!("retrieved")).unwrap();
+            } else {
+                connection
+                    .send(&json!({"refused": {"reason": "notFound"}}))
+                    .unwrap();
+            }
+        }
+        served
+    })
 }

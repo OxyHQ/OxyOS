@@ -2,6 +2,7 @@
 
 #include "files.h"
 #include "images.h"
+#include "system.h"
 #include "text.h"
 #include "websocket.h"
 
@@ -1763,6 +1764,9 @@ std::shared_ptr<TurboModule> createHostModule(
     // `as` is "text"); `OxyOSFilesEvent` says what watches saw and transfers' progress. Absent
     // elsewhere, so a call fails visibly.
     if (!services.files) return nullptr;
+    // Whether the person's backups may be asked (docs/adr/0059-backups.mdx): the adapter's
+    // `files.backups` is present only then.
+    module->constants(folly::dynamic::object("backups", LaunchCapabilities::current().allows("files")));
     auto asText = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
       return count > at && args[at].isString() && args[at].asString(rt).utf8(rt) == "text";
     };
@@ -1846,42 +1850,86 @@ std::shared_ptr<TurboModule> createHostModule(
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
     // thumbnail pressed, `file://`, docs/adr/0028-file-access.mdx, decision 6) or a URL of a scheme
     // its entry declares (the dock's Trash opening Dropsea at dropsea://trash, docs/adr/0034-the-dock.mdx);
-    // else none. An application opens no other application's links yet (there is no browser, and no
-    // request for one) but the platform's Settings (below): any other fails with the reason.
+    // else none.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       const char* url = std::getenv("OXYOS_LAUNCH_URL");
       if (url && *url) return resolved(rt, jsi::String::createFromUtf8(rt, url));
       return resolved(rt, jsi::Value::null());
     });
-    // The one kind an application opens is the platform's Settings at a page
-    // (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), as a Mac's application opens
-    // `x-apple.systempreferences:`: asked of the session from its window, citing the person's
-    // latest press or key, resolved once the session opened it.
+    // It opens a URL by its scheme (docs/adr/0058-the-platform-api.mdx, step 6): the platform's
+    // Settings at a page, as a Mac's application opens `x-apple.systempreferences:`, or the
+    // application whose entry declares the scheme, as `NSWorkspace.open`: asked of the session
+    // from its window, citing the person's latest press or key, resolved once the session opened
+    // it. A file is opened by its type, never as a URL. `canOpenURL` says whether an application
+    // of the session's registry declares the scheme (its entry's `x-scheme-handler/SCHEME`, as
+    // Android's answers whether an activity handles the intent), read off the JavaScript thread.
     auto schemeOf = [](const std::string& url) {
       auto colon = url.find(':');
       std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
       std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
       return scheme;
     };
-    auto opensSettings = [&services, schemeOf](const std::string& url) {
-      return services.openSettingsUrl && url.find(':') != std::string::npos &&
-             schemeOf(url) == OXYOS_PLATFORM_SETTINGS_SCHEME;
+    auto opensByScheme = [&services, schemeOf](const std::string& url) {
+      // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
+      auto scheme = schemeOf(url);
+      bool named = url.find(':') != std::string::npos && !scheme.empty() &&
+                   std::isalpha(static_cast<unsigned char>(scheme[0])) &&
+                   std::all_of(scheme.begin(), scheme.end(),
+                               [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
+      return services.openUrl && named && scheme != "file";
     };
-    module->method("canOpenURL", [opensSettings](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      return resolved(rt, jsi::Value(count > 0 && args[0].isString() && opensSettings(args[0].asString(rt).utf8(rt))));
+    module->method("canOpenURL", [opensByScheme, schemeOf, invoker](jsi::Runtime& rt, const jsi::Value* args,
+                                                                   size_t count) {
+      std::string url = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
+      if (!opensByScheme(url)) return resolved(rt, jsi::Value(false));
+      std::string scheme = schemeOf(url);
+      if (scheme == OXYOS_PLATFORM_SETTINGS_SCHEME) return resolved(rt, jsi::Value(true));
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "canOpenURL"), 2,
+          [invoker, scheme](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            std::thread([invoker, resolve, scheme] {
+              bool declared = false;
+              int64_t length = oxyos_applications(nullptr, 0);
+              if (length >= 0) {
+                std::string json(static_cast<size_t>(length) + 1, '\0');
+                oxyos_applications(json.data(), json.size());
+                json.resize(static_cast<size_t>(length));
+                const std::string handler = "x-scheme-handler/" + scheme;
+                try {
+                  for (const auto& app : folly::parseJson(json)) {
+                    const auto* opens = app.get_ptr("opens");
+                    if (!opens || !opens->isArray()) continue;
+                    declared = declared || std::any_of(opens->begin(), opens->end(), [&](const folly::dynamic& kind) {
+                                 return kind.isString() && kind.getString() == handler;
+                               });
+                  }
+                } catch (const std::exception&) {
+                  // A registry that cannot be read declares nothing.
+                }
+              }
+              invoker->invokeAsync([resolve, declared](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(declared));
+              });
+            }).detach();
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
-    module->method("openURL", [&services, invoker, opensSettings, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
+    module->method("openURL", [&services, invoker, opensByScheme, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
                                                                            size_t count) {
       std::string url = count > 0 ? text(rt, args[0]) : "";
-      if (!opensSettings(url)) {
-        return rejected(rt, "OxyOS has no application that opens " + schemeOf(url) + " links yet (" + url + ")");
+      if (!opensByScheme(url)) {
+        return rejected(rt, schemeOf(url) == "file"
+                                ? "OxyOS opens a file by its type, never as a URL (" + url + ")"
+                                : "OxyOS opens no " + url + " from here: not a URL it can ask to open");
       }
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "openURL"), 2,
           [&services, invoker, url](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
             auto reject = std::make_shared<jsi::Value>(rt, args[1]);
-            services.openSettingsUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
+            services.openUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
               invoker->invokeAsync([resolve, reject, opened, reason, url](jsi::Runtime& rt) {
                 if (opened) {
                   resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(true));
@@ -1920,11 +1968,13 @@ std::shared_ptr<TurboModule> createHostModule(
     //   for the SDK's sign-in, while the application's window is the active one.
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
     //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
-    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
-    //   person gives the password again (null: the account has none) and chooses a PIN for this
-    //   computer (`enroll(password, pin)`; null for none), then `secondFactor(code)` while asked,
-    //   each a promise of the service's answer ({failed} when it could not be asked);
-    //   `endEnrollment()` forgets it all. The secrets go to the service and are forgotten here;
+    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password, pin,
+    //   appearance)` with the password (null: none), the PIN chosen for this computer (null: none)
+    //   and the new account's appearance, then `secondFactor(code)` while asked and
+    //   `retryEnrollment()` after a {failed} answer (the sign-in the service kept), each a promise
+    //   of the service's answer ({failed} when it could not be asked), its stages told as
+    //   `OxyOSAccountSetupStage` events as the service reaches them; `endEnrollment()` forgets it
+    //   all. The secrets go to the service and are forgotten here;
     //   nothing of them is logged.
     // - The account's local sign-in (docs/adr/0020-oxy-account-login.mdx decision 2):
     //   `localSignIn()`, a promise of {pin: "none" | "set" | "locked", password} (Settings, and the
@@ -2059,7 +2109,17 @@ std::shared_ptr<TurboModule> createHostModule(
                                args[2].asString(rt).utf8(rt));
       return jsi::Value(true);
     });
-    module->method("enroll", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+    // A setup's stages as the service starts them, told as `OxyOSAccountSetupStage` ({stage}):
+    // the login screen's progress; nothing secret.
+    auto stages = [&services]() -> AccountSession::Stage {
+      return [&services](const std::string& stage) {
+        if (services.emit) services.emit("OxyOSAccountSetupStage", folly::dynamic::object("stage", stage));
+      };
+    };
+    // `enroll(password, pin, appearance)`: one of the password and the PIN at least (null: none),
+    // and the new account's appearance ("light", "dark", "auto"; null: none).
+    module->method("enroll", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value* args,
+                                                                       size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: only the login screen sets accounts up");
       bool hasPassword = count > 0 && args[0].isString();
       bool hasPin = count > 1 && args[1].isString();
@@ -2068,18 +2128,28 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       std::string password = hasPassword ? args[0].asString(rt).utf8(rt) : "";
       std::string pin = hasPin ? args[1].asString(rt).utf8(rt) : "";
-      return promise(rt, [session, settle, password = std::move(password),
-                          pin = std::move(pin)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().enroll(std::move(password), std::move(pin), settle(resolve, "setup", false));
+      std::string appearance = count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : "";
+      return promise(rt, [session, settle, stages, password = std::move(password), pin = std::move(pin),
+                          appearance = std::move(appearance)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().enroll(std::move(password), std::move(pin), std::move(appearance), stages(),
+                         settle(resolve, "setup", false));
       });
     });
-    module->method("secondFactor", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
-                                                                     size_t count) {
+    module->method("secondFactor", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value* args,
+                                                                             size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: only the login screen sets accounts up");
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: a code");
       std::string code = args[0].asString(rt).utf8(rt);
-      return promise(rt, [session, settle, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().secondFactor(std::move(code), settle(resolve, "setup", false));
+      return promise(rt, [session, settle, stages, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().secondFactor(std::move(code), stages(), settle(resolve, "setup", false));
+      });
+    });
+    // The setup again after a {failed} answer, with what the service kept: never a new sign-in.
+    module->method("retryEnrollment", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value*,
+                                                                                size_t) {
+      if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.retryEnrollment: only the login screen sets accounts up");
+      return promise(rt, [session, settle, stages](std::shared_ptr<jsi::Value> resolve) {
+        session().retry(stages(), settle(resolve, "setup", false));
       });
     });
     module->method("endEnrollment", [setup, session](jsi::Runtime&, const jsi::Value*, size_t) {

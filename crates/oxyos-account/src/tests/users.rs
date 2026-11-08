@@ -2,12 +2,13 @@
 
 use super::{account, crypt_verifies, Root, TempDir, PASSWORD};
 use crate::users::{
-    group_members, passwd_entry, verifier_password, SystemUsers, Users, UsersError, ADMINISTRATORS,
+    group_members, passwd_entry, verifier_password, SystemUsers, UnixUser, Users, UsersError,
+    ADMINISTRATORS,
 };
 use crate::Secret;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn a_user_is_made_with_its_own_group_and_a_home_only_it_opens() {
@@ -207,4 +208,47 @@ fn a_groups_members_are_read_from_its_fourth_field() {
     assert_eq!(group_members(&group, "wheel"), Ok(None));
     assert!(group_members(&group, "broken").is_err());
     assert!(group_members(&dir.path().join("missing"), "sudo").is_err());
+}
+
+#[test]
+fn a_new_homes_file_is_written_inside_it_and_never_through_a_link() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = TempDir::new("seed");
+    let home = root.path().join("home/oxy-seed");
+    std::fs::create_dir_all(&home).unwrap();
+    let users = SystemUsers::with_prefix(root.path());
+    let user = UnixUser {
+        uid: 1000,
+        gid: 1000,
+        home: PathBuf::from("/home/oxy-seed"),
+    };
+    let file = Path::new(".config/oxyos/preferences");
+    users
+        .seed_home(&user, file, b"appearance = dark\n")
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(home.join(file)).unwrap(),
+        "appearance = dark\n"
+    );
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&home.join(".config")), 0o755);
+    assert_eq!(mode(&home.join(".config/oxyos")), 0o755);
+    assert_eq!(mode(&home.join(file)), 0o644);
+    // A link where a directory is expected is not followed out of the home.
+    let elsewhere = root.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let linked = root.path().join("home/oxy-linked");
+    std::fs::create_dir_all(&linked).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, linked.join(".config")).unwrap();
+    let user = UnixUser {
+        home: PathBuf::from("/home/oxy-linked"),
+        ..user
+    };
+    assert!(users
+        .seed_home(&user, file, b"appearance = dark\n")
+        .is_err());
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+    // Nothing outside it is named.
+    assert!(users.seed_home(&user, Path::new("../escape"), b"").is_err());
+    assert!(users.seed_home(&user, Path::new("/etc/x"), b"").is_err());
 }

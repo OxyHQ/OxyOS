@@ -84,7 +84,6 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Add an Oxy Account",
             "Sign in",
             "Email or username",
             "Scan with Commons to sign in",
@@ -114,14 +113,13 @@
           "GET /auth/session/status/{token} 200",
           "POST /auth/session/claim 200",
           "POST /session/device/add 200",
-          "GET /users/me 200",
-          "GET /users/me/sign-in-methods 200"
+          "GET /users/me 200"
         ],
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Choose a PIN for this computer",
-            "Use it to sign in and unlock, even offline. It stays on this computer: Oxy never sees it."
+            "Create a PIN",
+            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it."
           ],
           "absent": [
             "Choose an account",
@@ -156,7 +154,7 @@
         ],
         "in_shell": {
           "texts": [
-            "Enter the PIN again"
+            "Enter Your PIN Again"
           ],
           "absent": [
             "Enter Ada Lovelace's password",
@@ -172,64 +170,72 @@
       }
     },
     {
-      "name": "typed again: the account set up with its PIN alone, by the credential the QR's sign-in handed over; listed and chosen, its PIN's field focused",
+      "name": "typed again: the look's page",
       "do": [
         "keyboard",
         "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
-        "accounts_asked": [
-          "enroll: enrolled"
-        ],
+        "accounts_asked": [],
         "delivered": {},
-        "never": [
-          "482916"
-        ],
         "in_shell": {
           "texts": [
-            "Bea Ramos",
-            "Ada Lovelace",
-            "Add Account"
-          ],
-          "absent": [
-            "Add an Oxy Account",
-            "Enter Ada Lovelace's password",
-            "Use Password"
-          ],
-          "never": [
-            "482916"
-          ],
-          "focus_input": "login-pin-password"
+            "Choose Your Look",
+            "Continue"
+          ]
         },
-        "oxy_requests_times": {
-          "POST /auth/session/claim 200": 0,
-          "POST /auth/session/create 200": 0
+        "never": [
+          "482916"
+        ]
+      }
+    },
+    {
+      "name": "Dark chosen",
+      "do": [
+        "press_named",
+        "Dark"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look"
+          ]
         }
       }
     },
     {
-      "name": "its PIN signs it in",
+      "name": "Continue pressed",
       "do": [
-        "keyboard",
-        "482916\n"
+        "press_named",
+        "Continue"
       ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
+          "appearance: dark",
+          "enroll: enrolled",
           "verifyPin: accepted"
-        ],
+        ]
+      }
+    },
+    {
+      "name": "Continue: the account set up with what was chosen, its stages shown, and signed in with it at once, never asked again",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
         "shell": {
           "locked": true,
           "signed_in": true
         },
-        "never": [
-          "482916"
-        ],
-        "in_shell": {
-          "never": [
-            "482916"
-          ]
+        "in_shell": {},
+        "oxy_requests_times": {
+          "POST /auth/session/create 200": 0
         }
       }
     }

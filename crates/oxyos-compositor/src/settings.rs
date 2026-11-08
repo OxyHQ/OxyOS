@@ -930,11 +930,11 @@ mod tests {
         );
         // Settings shows no window: its choice is the primary's, the default; the other display
         // keeps the old default as its own.
-        ask(&mut compositor, 1, "wallpaper=horizon");
+        ask(&mut compositor, 1, "wallpaper=ocean");
         assert_eq!(settings.serve(&mut compositor, DAY), ["wallpaper"]);
         assert_eq!(
             wallpapers_told(&mut compositor, SHELL),
-            (vec![(1, "horizon".to_owned())], vec!["horizon".to_owned()])
+            (vec![(1, "ocean".to_owned())], vec!["ocean".to_owned()])
         );
         // A long path, in chunks; a bad choice refused.
         let photo = format!("photo:fit:000000:/home/ana/{}.jpg", "f".repeat(300));

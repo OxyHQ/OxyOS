@@ -19,6 +19,7 @@ fn request(password: Option<&str>, pin: Option<&str>) -> Request {
         account: ACCOUNT.into(),
         password: password.map(Secret::new),
         pin: pin.map(Secret::new),
+        appearance: None,
     }
 }
 

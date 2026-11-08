@@ -9,6 +9,7 @@ publish.workspace = true
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 oxyos-account = { path = "../../crates/oxyos-account", default-features = false }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
+oxyos-seqpacket = { path = "../../crates/oxyos-seqpacket" }
 oxyos-vt = { path = "../../crates/oxyos-vt" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process", "net", "event", "time"] }
 signal-hook = { version = "0.3", default-features = false }

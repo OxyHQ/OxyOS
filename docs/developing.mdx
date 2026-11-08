@@ -181,7 +181,26 @@ for n in 4 5; do token | sudo sh tools/gate/machine.sh runner $n merge; done
 ```
 
 Registering a runner again (`--replace`) sets its labels to these, so a label changed by hand on
-GitHub does not outlive the next run of `machine.sh`.
+GitHub does not outlive the next run of `machine.sh` (stop the runner first, below).
+
+### Runners stopped only when idle, and the watchdog
+
+A runner stopped, moved or registered again under a job leaves that job in progress on GitHub with
+nobody to end it: `timeout-minutes` ends a job its runner runs, not one no runner runs, and GitHub
+keeps counting the runner busy, so every queued job (the merge queue's among them) waits behind it.
+On 8 November 2026 four such jobs held the queue for hours.
+
+- A runner is restarted or stopped only once idle: `sudo sh tools/gate/restart-runner.sh N
+  [restart|stop]` waits until runner N has no job (no `Runner.Worker` in its service), then acts. Never
+  move a runner's directory or cache, or register it again, but after stopping it through this.
+- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, every ten minutes, on a
+  GitHub-hosted runner with that run's token: Actions on this repository alone, no secret on the
+  gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
+  one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
+  started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
+  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+  for any more (a group superseded when the queue changed: an entry removed or another put ahead),
+  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
 
 ### Images on the gate's machine
 
