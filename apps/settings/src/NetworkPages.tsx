@@ -24,6 +24,11 @@ import {
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
 import { RiGlobalLine, RiLockLine, RiMoreLine, RiWifiLine } from "@oxy.so/bloom/icons";
 import { Loading } from "@oxy.so/bloom/loading";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+  SegmentedControlItemText,
+} from "@oxy.so/bloom/segmented-control";
 import { SettingsSelect } from "@oxy.so/bloom/settings-modal";
 import { Switch } from "@oxy.so/bloom/switch";
 import { useTheme } from "@oxy.so/bloom/theme";
@@ -31,7 +36,7 @@ import { Text } from "@oxy.so/bloom/typography";
 import {
   currentNetwork,
   detailRows,
-  diagnosticSections,
+  diagnosticRows,
   ethernetStatus,
   failureLabel,
   failureOf,
@@ -142,11 +147,12 @@ function Notice({ title, testID }: { title: string; testID: string }) {
 }
 
 /**
- * A known network's sheet, as a Mac's Details: its Private Wi-Fi Address, chosen among Off, Fixed
- * and Rotating (one set elsewhere shows none chosen), and, for the network joined, the address in
- * use, its IP details and that changing the address rejoins it; then Forget This Network…. The
- * session sets the address on NetworkManager's connection and rejoins; the state it then tells is
- * what the sheet shows.
+ * A known network's sheet, as a Mac's Details: its Wi-Fi part (the Private Wi-Fi Address, chosen
+ * among Off, Fixed and Rotating, one set elsewhere showing none chosen; for the network joined, the
+ * address in use and that changing it rejoins; then Forget This Network…) and, for the network
+ * joined, its TCP/IP part (its addresses, router and DNS), each a tab as a Mac's sheet has them in
+ * its sidebar. The session sets the address on NetworkManager's connection and rejoins; the state
+ * it then tells is what the sheet shows.
  */
 function NetworkSheet({
   ssid,
@@ -173,6 +179,12 @@ function NetworkSheet({
   const joined = known ? isJoined(wifi, known) : false;
   const chosen = setting ?? (known ? privateChoice(known) : null);
   const footer = joined ? `${words.privateFooter} ${words.privateRejoins(ssid)}` : words.privateFooter;
+  // Each time it opens, at its Wi-Fi part, as a Mac's.
+  const [tab, setTab] = React.useState<"wifi" | "tcpip">("wifi");
+  React.useEffect(() => {
+    if (open) setTab("wifi");
+  }, [open, ssid]);
+  const shown = joined ? tab : "wifi";
   return (
     <Dialog
       open={open}
@@ -183,7 +195,22 @@ function NetworkSheet({
       testID="wifi-details-sheet"
     >
       <View style={{ gap: 16 }}>
-        {known ? (
+        {joined ? (
+          <SegmentedControl<"wifi" | "tcpip">
+            label={words.detailsLabel(ssid)}
+            type="tabs"
+            value={shown}
+            onValueChange={setTab}
+            testID="wifi-details-tabs"
+          >
+            {(["wifi", "tcpip"] as const).map((part) => (
+              <SegmentedControlItem key={part} value={part} testID={`wifi-details-tab-${part}`}>
+                <SegmentedControlItemText>{words.sheetTabs[part]}</SegmentedControlItemText>
+              </SegmentedControlItem>
+            ))}
+          </SegmentedControl>
+        ) : null}
+        {known && shown === "wifi" ? (
           <GroupedSection footer={footer}>
             <GroupedSectionItem
               title={words.privateAddress}
@@ -214,8 +241,10 @@ function NetworkSheet({
             ) : null}
           </GroupedSection>
         ) : null}
-        {joined ? <GroupedSection>{detailItems(wifi.details, strings, null, "wifi-details")}</GroupedSection> : null}
-        {known ? (
+        {shown === "tcpip" ? (
+          <GroupedSection>{detailItems(wifi.details, strings, null, "wifi-details")}</GroupedSection>
+        ) : null}
+        {known && shown === "wifi" ? (
           <GroupedSection>
             <GroupedSectionItem
               title={words.forgetItem}
@@ -263,12 +292,13 @@ function DiagnosticsSheet({
     setOutcome(told);
     setRunning(false);
     if ("found" in told) {
-      const said = diagnosticSections(told.found, words, strings.wifi.wifiAddress, language)
-        .filter((section) => section.key !== "connection")
-        .map((section) => `${section.title}: ${section.rows[0]?.value ?? ""}`);
+      // Its verdicts said once, as they come: the sheet's own rows say the rest.
+      const said = diagnosticRows(told.found, words, language)
+        .filter((row) => row.key !== "connection")
+        .map((row) => `${row.title}: ${row.value}`);
       AccessibilityInfo.announceForAccessibility(said.join(". "));
     }
-  }, [run, words, strings, language]);
+  }, [run, words, language]);
   // Once as it opens; a closed sheet forgets what it found, and an answer that comes after is
   // dropped.
   React.useEffect(() => {
@@ -279,7 +309,7 @@ function DiagnosticsSheet({
     setOutcome(null);
     void check();
   }, [open]);
-  const sections = outcome && "found" in outcome ? diagnosticSections(outcome.found, words, strings.wifi.wifiAddress, language) : [];
+  const rows = outcome && "found" in outcome ? diagnosticRows(outcome.found, words, language) : [];
   return (
     <Dialog
       open={open}
@@ -311,19 +341,18 @@ function DiagnosticsSheet({
       ) : (
         <View style={{ gap: 16 }}>
           {outcome.found.link ? null : <Notice title={words.notJoined} testID="wifi-diagnostics-not-joined" />}
-          {sections.map((section) => (
-            <GroupedSection key={section.key} title={section.title}>
-              {section.rows.map((row) => (
-                <GroupedSectionItem
-                  key={row.key}
-                  title={row.title || row.value}
-                  value={row.title ? row.value : undefined}
-                  titleNumberOfLines={0}
-                  testID={`wifi-diagnostics-${row.key}`}
-                />
-              ))}
-            </GroupedSection>
-          ))}
+          <GroupedSection>
+            {rows.map((row) => (
+              <GroupedSectionItem
+                key={row.key}
+                title={row.title}
+                value={row.value}
+                description={row.detail || undefined}
+                descriptionLines={0}
+                testID={`wifi-diagnostics-${row.key}`}
+              />
+            ))}
+          </GroupedSection>
         </View>
       )}
     </Dialog>

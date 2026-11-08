@@ -1,0 +1,318 @@
+{
+ "about": "Reset Network Settings (docs/adr/0038-networks.mdx, 8 November 2026), as an iPhone's, on Settings' Network page, over a NetworkManager played on the run's own bus that refuses changes to connections for every user: LukeSkyRouter (joined) and Vecinos, this person's own, Oficina for every user, a VPN of the person's, an Ethernet configuration someone made and the daemon's own automatic one. The confirmation names what goes (the two networks and the VPN, with their passwords) and what is kept and why (Oficina, an administrator's; Ethernet's), never the daemon's own; cancelled, nothing changes; confirmed, the daemon keeps only those, and Wi-Fi knows Oficina alone. At 1.25.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Vecinos",
+    "strength": 30,
+    "security": "wpa",
+    "password": "hunter22!"
+   },
+   {
+    "ssid": "Oficina",
+    "strength": 45,
+    "security": "wpa",
+    "password": "office pass"
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse",
+    "permissions": [
+     "user:someone:"
+    ]
+   },
+   {
+    "ssid": "Vecinos",
+    "password": "hunter22!",
+    "permissions": [
+     "user:someone:"
+    ]
+   },
+   {
+    "ssid": "Oficina",
+    "password": "office pass"
+   },
+   {
+    "type": "vpn",
+    "name": "Work VPN",
+    "permissions": [
+     "user:someone:"
+    ]
+   },
+   {
+    "type": "ethernet",
+    "name": "Office static"
+   },
+   {
+    "type": "ethernet",
+    "name": "Wired connection 1",
+    "flags": 2
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged",
+  "deny_system": true
+ },
+ "secrets": [
+  "correct horse",
+  "hunter22!"
+ ],
+ "steps": [
+  {
+   "name": "Settings with the network grant: its pages there once the session told it the network",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Network"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Network",
+   "do": [
+    "press_named",
+    "Network"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Ethernet",
+     "Reset Network Settings…"
+    ]
+   }
+  },
+  {
+   "name": "Reset Network Settings…: Settings asks what would go, which changes nothing",
+   "do": [
+    "press_named",
+    "Reset Network Settings…"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The confirmation lists what goes, with their passwords, and what is kept and why",
+   "do": [
+    "wait_named",
+    [
+     "Reset",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Reset network settings?",
+     "These are removed, with their passwords:",
+     "Wi-Fi: LukeSkyRouter, Vecinos",
+     "VPN: Work VPN",
+     "Kept, as only an administrator can remove them: Oficina.",
+     "Kept: Office static, Ethernet's configuration"
+    ],
+    "absent": [
+     "Wired connection 1"
+    ],
+    "network": {
+     "connections": [
+      {
+       "name": "LukeSkyRouter"
+      },
+      {
+       "name": "Vecinos"
+      },
+      {
+       "name": "Oficina"
+      },
+      {
+       "name": "Work VPN"
+      },
+      {
+       "name": "Office static"
+      },
+      {
+       "name": "Wired connection 1"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Cancelled",
+   "do": [
+    "press_named",
+    "Cancel"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Nothing removed",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "connections": [
+      {
+       "name": "LukeSkyRouter"
+      },
+      {
+       "name": "Vecinos"
+      },
+      {
+       "name": "Oficina"
+      },
+      {
+       "name": "Work VPN"
+      },
+      {
+       "name": "Office static"
+      },
+      {
+       "name": "Wired connection 1"
+      }
+     ],
+     "active": "LukeSkyRouter"
+    }
+   }
+  },
+  {
+   "name": "Again",
+   "do": [
+    "press_named",
+    "Reset Network Settings…"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The confirmation",
+   "do": [
+    "wait_named",
+    [
+     "Reset",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Reset",
+   "do": [
+    "press_named",
+    "Reset"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Reset: said; the daemon keeps only the administrator's network, Ethernet's configuration and its own, no password of the person's; the computer left the network",
+   "do": [
+    "wait_named",
+    [
+     "Network settings were reset.",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "connections": [
+      {
+       "name": "Oficina",
+       "psk": "office pass"
+      },
+      {
+       "name": "Office static"
+      },
+      {
+       "name": "Wired connection 1"
+      }
+     ],
+     "active": null
+    }
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Wi-Fi: Oficina alone is known",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "Oficina"
+    ]
+   }
+  }
+ ]
+}

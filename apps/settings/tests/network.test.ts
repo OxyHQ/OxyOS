@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   currentNetwork,
   detailRows,
-  diagnosticSections,
+  diagnosticRows,
   ethernetStatus,
   failureLabel,
   failureOf,
@@ -256,57 +256,53 @@ const found: Diagnostics = {
   dns: { servers: ["192.168.8.1"], name: "oxy.so", verdict: "resolved", ms: 14, addresses: 2 },
 };
 
-test("diagnostics: each check's verdict first, only what was measured", () => {
+test("diagnostics: a row a check, its verdict and what was measured, nothing else", () => {
   const en = messagesFor("en");
-  const sections = diagnosticSections(found, en.wifi.diagnostics, en.wifi.wifiAddress, "en");
+  assert.deepEqual(diagnosticRows(found, en.wifi.diagnostics, "en"), [
+    {
+      key: "connection",
+      title: "LukeSkyRouter",
+      value: "Good · 73%",
+      detail: "Channel 36, 5 GHz, 80 MHz · 866 Mb/s · WPA2 Personal\nAccess point A0:B1:C2:D3:E4:F5 · Wi-Fi address 1A:2B:3C:4D:5E:6F",
+    },
+    { key: "router", title: "Router 192.168.8.1", value: "Answers", detail: "3 of 3 answered in 1.2 ms" },
+    { key: "internet", title: "Internet", value: "Not checked", detail: "No connectivity check is set up on this computer." },
+    { key: "dns", title: "DNS", value: "Resolved", detail: "oxy.so in 14 ms · Servers 192.168.8.1" },
+  ]);
+  // Not joined, nothing measured: no connection, no counts, no times.
   assert.deepEqual(
-    sections.map((section) => [section.key, section.rows.map((row) => [row.title, row.value])]),
+    diagnosticRows(
+      {
+        link: null,
+        connectivity: { checked: true, state: "portal" },
+        router: { address: null, verdict: "notChecked", sent: 0, answered: 0, ms: null },
+        dns: { servers: [], name: "oxy.so", verdict: "notChecked", ms: null, addresses: 0 },
+      },
+      en.wifi.diagnostics,
+      "en",
+    ).map((row) => [row.title, row.value, row.detail]),
     [
-      [
-        "connection",
-        [
-          ["Network", "LukeSkyRouter"],
-          ["Signal", "Good · 73%"],
-          ["Channel", "36 · 5 GHz, 80 MHz"],
-          ["Transmit rate", "866 Mb/s"],
-          ["Security", "WPA2 Personal"],
-          ["Access point", "A0:B1:C2:D3:E4:F5"],
-          ["Wi-Fi address", "1A:2B:3C:4D:5E:6F"],
-        ],
-      ],
-      ["router", [["192.168.8.1", "Answers"], ["", "3 of 3 answered · 1.2 ms"]]],
-      ["internet", [["Internet", "Not checked: no connectivity check is set up on this computer"]]],
-      ["dns", [["DNS", "Resolved oxy.so in 14 ms"], ["DNS servers", "192.168.8.1"]]],
+      ["Router", "Not checked", ""],
+      ["Internet", "Sign-in required", "A sign-in page blocks the internet."],
+      ["DNS", "Not checked", "No servers"],
     ],
   );
-  // Not joined, nothing measured: no connection, no counts, no times.
-  const quiet = diagnosticSections(
-    {
-      link: null,
-      connectivity: { checked: true, state: "portal" },
-      router: { address: null, verdict: "notChecked", sent: 0, answered: 0, ms: null },
-      dns: { servers: [], name: "oxy.so", verdict: "notChecked", ms: null, addresses: 0 },
-    },
+  // There but silent: none answered, no time; said why.
+  const silent = diagnosticRows(
+    { ...found, router: { address: "192.168.8.1", verdict: "present", sent: 3, answered: 0, ms: null } },
     en.wifi.diagnostics,
-    en.wifi.wifiAddress,
     "en",
   );
-  assert.deepEqual(
-    quiet.map((section) => section.rows.map((row) => row.value)),
-    [["Not checked"], ["A sign-in page blocks the internet"], ["Not checked", "None"]],
-  );
+  assert.equal(silent[1].detail, "0 of 3 answered · It answers for its address, but not to pings.");
   const es = messagesFor("es");
-  const spanish = diagnosticSections(
+  const spanish = diagnosticRows(
     { ...found, link: { ...found.link!, band: "2.4", channel: 6, width: null, txRate: null } },
     es.wifi.diagnostics,
-    es.wifi.wifiAddress,
     "es",
   );
-  const rows = Object.fromEntries(spanish.flatMap((section) => section.rows.map((row) => [row.key, row.value])));
-  assert.equal(rows.channel, "6 · 2,4 GHz");
-  assert.equal(rows.txRate, undefined, "a rate the daemon did not say is not shown");
-  assert.equal(rows["router-answered"], "3 de 3 respondidos · 1,2 ms");
-  assert.equal(rows["dns-verdict"], "oxy.so resuelto en 14 ms");
+  assert.equal(spanish[0].detail.split("\n")[0], "Canal 6, 2,4 GHz · WPA2 Personal", "a rate the daemon did not say is not shown");
+  assert.equal(spanish[1].detail, "3 de 3 respondidos en 1,2 ms");
+  assert.equal(spanish[3].detail, "oxy.so en 14 ms · Servidores 192.168.8.1");
 });
 
 test("a time measured", () => {

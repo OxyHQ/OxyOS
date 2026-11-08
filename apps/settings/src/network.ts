@@ -339,8 +339,8 @@ export function resetLines(
   return lines;
 }
 
-/** A diagnostics row: what it is, what was found. */
-export type DiagnosticRow = { key: string; title: string; value: string };
+/** A check of diagnostics: what it is, its verdict, and what was measured. */
+export type DiagnosticRow = { key: "connection" | "router" | "internet" | "dns"; title: string; value: string; detail: string };
 
 /** A time measured, as people read it: tenths under 10 ms ("1.2 ms", "1,2 ms"), whole above. */
 export function formatMs(ms: number | null, language: string): string {
@@ -349,76 +349,74 @@ export function formatMs(ms: number | null, language: string): string {
   return `${new Intl.NumberFormat(language, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(ms)} ms`;
 }
 
-/** Diagnostics' sections, each a list of rows, the verdict first: the connection (when Wi-Fi is
-    joined), the router, the internet, DNS. Only what was measured is shown. */
-export function diagnosticSections(
-  found: Diagnostics,
-  words: {
-    connection: string;
-    network: string;
-    signal: string;
-    quality: Record<"good" | "fair" | "poor", string>;
-    channel: string;
-    channelValue: (channel: string, band: string, width: string) => string;
-    txRate: string;
-    security: string;
-    securities: Record<Security, string>;
-    accessPoint: string;
-    router: string;
-    routerVerdicts: Record<RouterVerdict, string>;
-    answered: (answered: number, sent: number, time: string) => string;
-    internet: string;
-    connectivity: Record<ConnectivityState, string>;
-    dns: string;
-    dnsServers: string;
-    noServers: string;
-    dnsVerdicts: Record<DnsVerdict, (name: string, time: string) => string>;
-  },
-  wifiAddress: string,
-  language: string,
-): { key: string; title: string; rows: DiagnosticRow[] }[] {
-  const sections: { key: string; title: string; rows: DiagnosticRow[] }[] = [];
+/** The words diagnostics are said in. */
+export type DiagnosticWords = {
+  quality: Record<"good" | "fair" | "poor", string>;
+  channel: (channel: string, band: string, width: string) => string;
+  securities: Record<Security, string>;
+  accessPoint: (bssid: string) => string;
+  address: (address: string) => string;
+  router: (address: string | null) => string;
+  routerVerdicts: Record<RouterVerdict, string>;
+  routerDetails: Partial<Record<RouterVerdict, string>>;
+  answered: (answered: number, sent: number, time: string) => string;
+  internet: string;
+  connectivity: Record<ConnectivityState, string>;
+  connectivityDetails: Partial<Record<ConnectivityState, string>>;
+  dns: string;
+  dnsVerdicts: Record<DnsVerdict, string>;
+  dnsDetails: Record<DnsVerdict, (name: string, time: string) => string>;
+  servers: (servers: string) => string;
+  noServers: string;
+};
+
+/** Diagnostics as rows, one a check, each with its plain verdict and, under it, what was measured:
+    the connection (when Wi-Fi is joined), the router, the internet, DNS. Nothing not measured is
+    shown. */
+export function diagnosticRows(found: Diagnostics, words: DiagnosticWords, language: string): DiagnosticRow[] {
+  const rows: DiagnosticRow[] = [];
+  const line = (...parts: string[]) => parts.filter(Boolean).join(" · ");
   const link = found.link;
   if (link) {
     const percent = new Intl.NumberFormat(language, { style: "percent" }).format(link.signal / 100);
-    const rows: DiagnosticRow[] = [
-      { key: "network", title: words.network, value: link.ssid },
-      { key: "signal", title: words.signal, value: `${words.quality[link.quality]} · ${percent}` },
-    ];
     const band = link.band ? `${link.band.replace(".", language === "es" ? "," : ".")} GHz` : "";
     const width = link.width ? `${link.width} MHz` : "";
-    const channel = link.channel === null ? "" : String(link.channel);
-    if (channel || band) rows.push({ key: "channel", title: words.channel, value: words.channelValue(channel, band, width) });
-    if (link.txRate) rows.push({ key: "txRate", title: words.txRate, value: `${link.txRate} Mb/s` });
-    rows.push({ key: "security", title: words.security, value: words.securities[link.security] });
-    rows.push({ key: "accessPoint", title: words.accessPoint, value: link.bssid });
-    rows.push({ key: "address", title: wifiAddress, value: link.address });
-    sections.push({ key: "connection", title: words.connection, rows });
+    const channel = link.channel === null && !band ? "" : words.channel(link.channel === null ? "" : String(link.channel), band, width);
+    rows.push({
+      key: "connection",
+      title: link.ssid,
+      value: `${words.quality[link.quality]} · ${percent}`,
+      detail: [
+        line(channel, link.txRate ? `${link.txRate} Mb/s` : "", words.securities[link.security]),
+        line(words.accessPoint(link.bssid), words.address(link.address)),
+      ].join("\n"),
+    });
   }
   const router = found.router;
-  const routerRows: DiagnosticRow[] = [
-    { key: "router-verdict", title: router.address ?? words.router, value: words.routerVerdicts[router.verdict] },
-  ];
-  if (router.sent > 0)
-    routerRows.push({
-      key: "router-answered",
-      title: "",
-      value: words.answered(router.answered, router.sent, formatMs(router.ms, language)),
-    });
-  sections.push({ key: "router", title: words.router, rows: routerRows });
-  sections.push({
+  rows.push({
+    key: "router",
+    title: words.router(router.address),
+    value: words.routerVerdicts[router.verdict],
+    detail: line(
+      router.sent > 0 ? words.answered(router.answered, router.sent, formatMs(router.ms, language)) : "",
+      words.routerDetails[router.verdict] ?? "",
+    ),
+  });
+  rows.push({
     key: "internet",
     title: words.internet,
-    rows: [{ key: "internet-verdict", title: words.internet, value: words.connectivity[found.connectivity.state] }],
+    value: words.connectivity[found.connectivity.state],
+    detail: words.connectivityDetails[found.connectivity.state] ?? "",
   });
   const dns = found.dns;
-  sections.push({
+  rows.push({
     key: "dns",
     title: words.dns,
-    rows: [
-      { key: "dns-verdict", title: words.dns, value: words.dnsVerdicts[dns.verdict](dns.name, formatMs(dns.ms, language)) },
-      { key: "dns-servers", title: words.dnsServers, value: dns.servers.length ? dns.servers.join(", ") : words.noServers },
-    ],
+    value: words.dnsVerdicts[dns.verdict],
+    detail: line(
+      words.dnsDetails[dns.verdict](dns.name, formatMs(dns.ms, language)),
+      dns.servers.length ? words.servers(dns.servers.join(", ")) : words.noServers,
+    ),
   });
-  return sections;
+  return rows;
 }

@@ -1276,6 +1276,11 @@ enum Act {
     /// The computer started again: another boot's id (`${BOOT}`), for the addresses of the next
     /// joins.
     Restart {},
+    /// The network behind the daemon changed, for diagnostics: the router, the resolver, the
+    /// daemon's connectivity check.
+    Router(RouterSpec),
+    Resolver(ResolverSpec),
+    Connectivity(ConnectivitySpec),
 }
 
 #[derive(Deserialize)]
@@ -1316,7 +1321,8 @@ fn point_changed(model: &Shared, ssid: &str, changes: HashMap<&str, Value>) {
 impl Control {
     /// Changes the machine: `{"ethernet":"plugged"}`, `{"access_point":{…}}`,
     /// `{"remove_access_point":"ssid"}`, `{"hardware_enabled":false}`,
-    /// `{"strength":{"ssid":…,"strength":N}}`, `{"seen":"ssid"}`.
+    /// `{"strength":{"ssid":…,"strength":N}}`, `{"seen":"ssid"}`, `{"restart":{}}`, and the
+    /// network behind it: `{"router":{…}}`, `{"resolver":{…}}`, `{"connectivity":{…}}`.
     fn act(&self, what: String) -> zbus::fdo::Result<()> {
         let act: Act = serde_json::from_str(&what)
             .map_err(|error| zbus::fdo::Error::InvalidArgs(error.to_string()))?;
@@ -1395,6 +1401,9 @@ impl Control {
                 m.boot += 1;
                 m.save();
             }
+            Act::Router(router) => model.lock().unwrap().router = router,
+            Act::Resolver(resolver) => model.lock().unwrap().resolver = resolver,
+            Act::Connectivity(connectivity) => model.lock().unwrap().connectivity = connectivity,
         });
         Ok(())
     }

@@ -1,0 +1,423 @@
+{
+ "about": "Settings' Private Wi-Fi Address (docs/adr/0038-networks.mdx, 8 November 2026), as a Mac's, over a NetworkManager played on the run's own bus: LukeSkyRouter joined (saved before, no address set: the card's own), Vecinos saved with a fixed address. The joined network's sheet shows Off, the address in use and that changing it rejoins; Fixed sets the connection's `assigned-mac-address` to `stable` (its password kept, never read) and joins it again once with the daemon's address for it, shown; Rotating sets its stable-id to `${CONNECTION}/${BOOT}` and joins again with another; Vecinos' sheet, from its menu, shows Fixed, no address and no rejoining, and Off sets `permanent` without joining anything. At 1.25.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   },
+   {
+    "ssid": "Vecinos",
+    "strength": 30,
+    "security": "wpa",
+    "password": "hunter22!"
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Vecinos",
+    "password": "hunter22!",
+    "assigned": "stable"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "secrets": [
+  "correct horse",
+  "hunter22!"
+ ],
+ "steps": [
+  {
+   "name": "Settings with the network grant: its pages there once the session told it the network",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Wi-Fi"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "LukeSkyRouter",
+     "Vecinos"
+    ]
+   }
+  },
+  {
+   "name": "Details of the network joined: its sheet",
+   "do": [
+    "press_named",
+    "Details of “LukeSkyRouter”"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Its Private Wi-Fi address, Off (the daemon's default for a network saved before), the address in use (the card's own), that changing it rejoins, its addresses and Forget This Network…",
+   "do": [
+    "wait_named",
+    [
+     "Private Wi-Fi address",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Private Wi-Fi address",
+     "Off",
+     "Wi-Fi address",
+     "F4:A4:75:12:34:56",
+     "Changing it rejoins “LukeSkyRouter”.",
+     "192.168.8.133",
+     "Forget This Network…"
+    ],
+    "network": {
+     "address": "F4:A4:75:12:34:56",
+     "attempts": []
+    }
+   }
+  },
+  {
+   "name": "The private address's choices",
+   "do": [
+    "press_named",
+    "Private Wi-Fi address"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Off, Fixed and Rotating",
+   "do": [
+    "wait_named",
+    [
+     "Rotating",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Off",
+     "Fixed",
+     "Rotating"
+    ]
+   }
+  },
+  {
+   "name": "Fixed chosen",
+   "do": [
+    "press_named",
+    "Fixed"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Set (`stable`, its password kept) and joined again once with an address of the daemon's making, shown",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "62:37:67:8C:C4:FA"
+    ],
+    "network": {
+     "active": "LukeSkyRouter",
+     "address": "62:37:67:8C:C4:FA",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter",
+       "assigned": "stable",
+       "stable_id": null,
+       "psk": "correct horse"
+      },
+      {
+       "ssid": "Vecinos",
+       "assigned": "stable"
+      }
+     ],
+     "attempts": [
+      {
+       "ssid": "LukeSkyRouter",
+       "address": "62:37:67:8C:C4:FA"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The choices again",
+   "do": [
+    "press_named",
+    "Private Wi-Fi address"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Rotating",
+   "do": [
+    "wait_named",
+    [
+     "Rotating",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Rotating chosen",
+   "do": [
+    "press_named",
+    "Rotating"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Set (its stable-id the connection and the boot) and joined again once with another address",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "42:38:C4:B9:53:66"
+    ],
+    "absent": [
+     "62:37:67:8C:C4:FA"
+    ],
+    "network": {
+     "active": "LukeSkyRouter",
+     "address": "42:38:C4:B9:53:66",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter",
+       "assigned": "stable",
+       "stable_id": "${CONNECTION}/${BOOT}",
+       "psk": "correct horse"
+      },
+      {
+       "ssid": "Vecinos"
+      }
+     ],
+     "attempts": [
+      {
+       "ssid": "LukeSkyRouter",
+       "address": "62:37:67:8C:C4:FA"
+      },
+      {
+       "ssid": "LukeSkyRouter",
+       "address": "42:38:C4:B9:53:66"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Closed",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Private Wi-Fi address"
+    ]
+   }
+  },
+  {
+   "name": "A known network's menu",
+   "do": [
+    "press_named",
+    "More for “Vecinos”"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Network Settings…",
+   "do": [
+    "press_named",
+    "Network Settings…"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Its sheet: Fixed, as set; not joined, so no address in use and nothing said of rejoining",
+   "do": [
+    "wait_named",
+    [
+     "Private Wi-Fi address",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Fixed",
+     "Using a private address helps reduce tracking"
+    ],
+    "absent": [
+     "Changing it rejoins",
+     "Wi-Fi address"
+    ]
+   }
+  },
+  {
+   "name": "The choices",
+   "do": [
+    "press_named",
+    "Private Wi-Fi address"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Off",
+   "do": [
+    "wait_named",
+    [
+     "Off",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Off chosen",
+   "do": [
+    "press_named",
+    "Off"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Set (`permanent`) and nothing joined: the network joined keeps its address",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "active": "LukeSkyRouter",
+     "address": "42:38:C4:B9:53:66",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter"
+      },
+      {
+       "ssid": "Vecinos",
+       "assigned": "permanent",
+       "stable_id": null,
+       "psk": "hunter22!"
+      }
+     ],
+     "attempts": [
+      {
+       "ssid": "LukeSkyRouter"
+      },
+      {
+       "ssid": "LukeSkyRouter"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  }
+ ]
+}

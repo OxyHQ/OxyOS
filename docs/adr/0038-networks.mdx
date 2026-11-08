@@ -6,7 +6,7 @@ order: 47
 
 # ADR 0038: Wi-Fi and networks
 
-Status: **accepted; implemented** (the session's side, the shell's Control Center and password sheet, Settings' Wi-Fi and Network pages, scenarios over a played daemon). Amends [ADR 0025](./0025-hardware-keys-and-control-center), which left "choosing a Wi-Fi network, passwords, VPNs" out, and [ADR 0019](./0019-settings), which left networks to their own decision. Builds on [ADR 0030](./0030-installing-applications) (system grants of the image's policy, the session's vocabulary over `SystemRequest`, system sheets).
+Status: **accepted; implemented** (the session's side, the shell's Control Center and password sheet, Settings' Wi-Fi and Network pages, scenarios over a played daemon); amended on 8 November 2026 with private Wi-Fi addresses, forgetting from a network's sheet, resetting the network settings and Wi-Fi Diagnostics ([below](#private-addresses-forgetting-resetting-and-diagnostics)). Amends [ADR 0025](./0025-hardware-keys-and-control-center), which left "choosing a Wi-Fi network, passwords, VPNs" out, and [ADR 0019](./0019-settings), which left networks to their own decision. Builds on [ADR 0030](./0030-installing-applications) (system grants of the image's policy, the session's vocabulary over `SystemRequest`, system sheets).
 
 ## Problem
 
@@ -45,6 +45,7 @@ An OxyOS session had no way to see or join a network ("no hay forma de ver wifis
    | `{"forget":{"id":"…"}}` | `network` or `shell` | yes | `{"forgotten":{}}` or `{"failed":{"reason"}}` |
    | `{"wifi":{"enabled":bool}}` | `network` or `shell` | yes | `{"network": State}` |
    | `{"password":{"sheet":n,"password":"…"}}` | `shell` | yes | none: the join the sheet belongs to answers |
+   | `{"privateAddress"}`, `{"networkResetPreview"}`, `{"networkReset"}`, `{"wifiDiagnostics"}` | `network` or `shell` | decision 13 | [below](#private-addresses-forgetting-resetting-and-diagnostics), decision 13 |
 
    `State` is `{available, wifi, ethernet, joining}`:
    - `available`: whether the daemon answers;
@@ -90,8 +91,87 @@ An OxyOS session had no way to see or join a network ("no hay forma de ver wifis
 - **The session's side** (`networks/tests.rs`, 9, over a daemon played in memory): the vocabulary read strictly and told apart from the store's; the state told to the shell and the `network` grant alone, refused to another; changes refused without an input; an open network joining, told joining then joined, nothing asked; a protected network's sheet to the shell, its password refused from Settings, without an input and for another sheet, then taken from the shell and given to the daemon alone, the sheet withdrawn, and no client told it; a wrong password asking again saying so, one too short asked again without the daemon, cancelling ending the join with nothing kept; one join at a time; none while locked; the asker going ending its join; an unsupported network's note; forgetting and Wi-Fi off told.
 - **Scenarios** over the played daemon (each at 1 and at 1.25, and in the ThinkPad's deploy gate): `network-control-center` and `network-settings`, described with what each step checks of the daemon's state in their `about`; both check that the password typed is in neither the preferences file, the user's configuration nor Settings' report (`secrets`).
 
+## Private addresses, forgetting, resetting and diagnostics
+
+Added 8 November 2026.
+
+### Problem
+
+A Mac and an iPhone protect a person on Wi-Fi in ways OxyOS did not: every known network has a **Private Wi-Fi Address** (Fixed, Rotating or Off, iOS 18 and macOS 15), a known network is forgotten from its own sheet, an iPhone resets every network setting at once (**Reset Network Settings**), and a Mac diagnoses its Wi-Fi (Option-clicking the Wi-Fi menu shows the link's figures; Wireless Diagnostics checks the router and DNS). OxyOS joined every network with the card's own address, forgot a network only from a menu, could not reset, and could not say why a network does not work.
+
+### What NetworkManager has
+
+- **The address a connection joins with** is its own setting, `802-11-wireless.cloned-mac-address` (`assigned-mac-address` on D-Bus, whose `cloned-mac-address` holds only explicit addresses): `preserve` (the daemon's default when its configuration sets none), `permanent` (the card's), `random` (another at every activation), `stable` (hashed from the connection's `connection.stable-id` and the machine's own key, `/var/lib/NetworkManager/secret_key`, locally administered) and, since 1.46, `stable-ssid`. `connection.stable-id`'s substitutions are `${CONNECTION}`, `${DEVICE}`, `${MAC}`, `${NETWORK_SSID}`, `${BOOT}` and `${RANDOM}`; unset, it is `default${CONNECTION}`, one per connection. There is no substitution by time: nothing in the daemon changes an address every few weeks.
+- **Scanning** uses a random address of its own by default (`wifi.scan-rand-mac-address`, `[device]` of `NetworkManager.conf`, default `yes`). Debian's package and the image's `config/` set nothing that changes it.
+- **Updating a connection** (`Update`) without its secrets keeps those the daemon has (`nm-settings-connection.c`: "we do not want to remove all secrets"), so an address is changed without its password ever being read. An address takes effect as the connection activates.
+- **Deleting a connection** deletes its secrets with it (they are in it, `psk-flags` 0) and leaves the network if it is the one joined. polkit decides as for every change (decision 4): `settings.modify.system` for a connection for every user, `settings.modify.own` for one of this user's. `GetPermissions` says beforehand what polkit answers this caller now (`yes`, `auth`, `no`).
+- **Ethernet's automatic configuration** (`Wired connection 1`) is made by the daemon once, as a port appears (`device_realized`, in memory, flagged `NM_GENERATED`); deleting it records the port in `no-auto-default.state` so it is never made again, and deleting a configuration that replaced it leaves the port unconfigured until the daemon starts again.
+- **The link**: the access point's `HwAddress` (BSSID), `Frequency`, `Strength` (0–100), `MaxBitrate`, `Bandwidth` (since 1.46) and flags; the device's `Bitrate` (what it sends at now), `HwAddress` (the address in use) and `PermHwAddress`. The daemon does not expose the noise or the signal in dBm.
+- **The internet**: its connectivity check (`CheckConnectivity`, `Connectivity`), which runs only when a check URI is configured and enabled (`ConnectivityCheckAvailable`, `ConnectivityCheckEnabled`). Debian's package configures none (`network-manager-config-connectivity-debian` does); without one, the daemon's `Connectivity` is an assumption, not a check.
+- **DNS**: the configuration it applied, `DnsManager.Configuration` (each interface's servers).
+
+### Decision
+
+9. **A Private Wi-Fi Address for each known network, NetworkManager's own.**
+
+   | OxyOS | `assigned-mac-address` | `connection.stable-id` | The address |
+   | --- | --- | --- | --- |
+   | **Fixed** | `stable` | unset (the daemon's per-connection `default${CONNECTION}`) | One of the daemon's making for this network alone, the same at every join; another after the network is forgotten or the network settings reset (a new connection) |
+   | **Rotating** | `stable` | `${CONNECTION}/${BOOT}` | One for this network alone, another after every start of the computer |
+   | **Off** | `permanent` | unset | The card's own |
+
+   - **Read back** as the daemon has it: none or `preserve` is Off (the card's address, the daemon's default), `random` is Rotating, `stable` with a stable-id naming `${BOOT}` or `${RANDOM}` is Rotating, `stable` otherwise and `stable-ssid` are Fixed, an explicit address is "Set elsewhere" (none of the three chosen; never set from OxyOS).
+   - **A new network is joined with a Fixed address**, as an iPhone and a Mac join one. Networks saved before keep what they have (most read Off): changing an address silently would break the reservations and address filters a person relies on, so Settings shows each network's and the person chooses.
+   - **Why the boot, not a calendar.** Apple's Rotating changes about every two weeks. NetworkManager has no substitution by time, and making one would mean the session rewriting root's connections on a timer of its own, behind the person, for an address that changes only at the next join anyway. `random` would change it at every join, every wake from sleep, making every captive portal and DHCP reservation forget the computer each time. `${BOOT}` is the daemon's own mechanism and changes it as often as the computer starts. The stable-id also seeds the IPv6 stable-privacy address and the DHCP identities, so they rotate with it, as they must: a fixed IPv6 address would follow the computer across a rotating hardware address.
+   - **Why the connection, not the name.** `stable-ssid` (or `${NETWORK_SSID}`) would be the same after forgetting the network and after resetting, as the machine's key stays; an iPhone gives a network a new private address after Reset Network Settings. One connection per name is OxyOS's (decision 4), so the connection's id is the network's.
+   - **Changing it for the network joined joins it again** (`ActivateConnection`): the new address is used only as a connection activates. The sheet says so beneath the choice ("Changing it rejoins “…”"), as an iPhone warns. A network that refuses the new address (one admitting listed addresses only) is said: the address is changed, but the network could not be joined again; Off joins it with the card's own.
+   - **The address in use** (the device's `HwAddress`) is shown under the choice for the network joined. The daemon makes a network's address only as it joins it, so none is shown for another.
+   - **Scanning stays the daemon's random address** (`wifi.scan-rand-mac-address`), which OxyOS keeps.
+
+10. **Forget This Network, as a Mac's.** From a known network's menu, as before, and from its sheet. Confirmed ("Your computer will no longer join this network, and its saved password will be removed."), the session deletes NetworkManager's connection, which holds the password: nothing else of the network exists. OxyOS keeps nothing of a network of its own (no preference, no cache), and the session never gives a joined network's password to the keychain ([ADR 0050](./0050-keychain-autofill-and-passkeys)), so nothing of it is there. The network joined is left. Cancelling the confirmation of a forget from the sheet returns to the sheet, as a Mac's alert returns to its sheet. polkit refusing is said ("Only an administrator can forget this network.").
+
+11. **Reset Network Settings, as an iPhone's, on the Network page.** A Mac has none; an iPhone has it under General › Transfer or Reset; on OxyOS the networks are on the Network and Wi-Fi pages, and Network has it at its foot.
+    - **What goes**: every saved Wi-Fi network and VPN configuration (`vpn`, `wireguard`) polkit lets this person remove, as `GetPermissions` says, each with its password. **What stays**: those only an administrator may remove (listed by name), and Ethernet's configurations: deleting one leaves the port unconfigured until the daemon starts again (its automatic configuration is made once and, deleted, never again), and OxyOS has no way to configure Ethernet yet. The daemon's own (generated, volatile or external) are not the person's and are not listed. Wi-Fi's switch stays as it is. OxyOS keeps no network setting of its own, so nothing else is reset; new networks then get new fixed addresses, as an iPhone's do after a reset.
+    - **The confirmation lists it**: Settings asks what would go (`networkResetPreview`, which changes nothing), and the alert names each network and VPN removed and each kept with why. Confirmed, the session removes them; one the daemon refused after all is said. Not while a join is under way (`busy`): the join would save what is being removed.
+
+12. **Wi-Fi Diagnostics, in Settings.** A Mac shows the link's figures when the Wi-Fi menu is Option-clicked and diagnoses from an application. OxyOS's panels have no modifier-click, and a hidden gesture has no path for the keyboard or a screen reader, so diagnostics are Settings' Wi-Fi page's: **Wi-Fi Diagnostics…** at its foot while a network is joined, a sheet. It runs once as it opens and again only on **Check Again**; nothing runs while it stays open or after it closes, and the session starts nothing until it is asked. Each check has a plain verdict, and only what was measured is shown:
+    - **Connection**, from the daemon: the network, its signal with its verdict (Good, Fair, Poor: the arcs the glyph fills), channel, band and width, the rate the card sends at, the security, the access point and the address in use. Noise is not shown: the daemon does not expose it, and reading the card's figures beside the daemon (nl80211) for one number is a second reader of its state.
+    - **Router**: three echo requests (ICMP, one second each) to the network's IPv4 router through an unprivileged ICMP socket, the kernel's (`IPPROTO_ICMP`, which `net.ipv4.ping_group_range` allows every group on a machine with systemd's defaults): no root, no setuid, no helper. Its verdict and the median round trip of those answered; none answered, the kernel's neighbour table says whether the router answered for its address (ARP): "Connected, but doesn't answer pings", else "Not answering". A machine that allows no echoes says so.
+    - **Internet**: NetworkManager's connectivity check, run now, only where one is configured; else "Not checked: no connectivity check is set up on this computer".
+    - **DNS**: the servers the daemon configured, and a name (`oxy.so`, OxyOS's own) resolved through the system's resolver (`getaddrinfo`, what every application uses), timed, given up after ten seconds.
+    - It cites an input (it sends traffic), and only the asker is told.
+
+13. **The vocabulary** (decision 3) gains, each for a client holding `network` or `shell`:
+
+    | Request | Input | Answer |
+    | --- | --- | --- |
+    | `{"privateAddress":{"id":"…","mode":"fixed"\|"rotating"\|"off"}}` | yes | `{"privateAddress":{"mode","rejoined"}}`, with `rejoinFailed` (a reason) when the network joined could not be joined again, or `{"failed":{"reason"}}` |
+    | `{"networkResetPreview":{}}` | no | `{"networkResetPreview":{"removed":[{id,name,kind}],"kept":[{id,name,kind,because}]}}` (`kind` `wifi`, `vpn` or `ethernet`; `because` `notPermitted`, `ethernet` or `failed`) |
+    | `{"networkReset":{}}` | yes | `{"networkReset":{"removed","kept"}}` as it went, or `{"failed":{"reason"}}` (`busy` while a join is under way) |
+    | `{"wifiDiagnostics":{}}` | yes | `{"wifiDiagnostics":{"link","connectivity","router","dns"}}` |
+
+    A known network (`State.wifi.known`) gains `privateAddress`: `fixed`, `rotating`, `off` or `other`. No protocol message is added.
+
+### What was built
+
+- **`oxyos-networks`**: `PrivateAddress` (the mapping both ways) and `NetworkManager::set_private_address`, which updates the connection without its secrets and joins it again when it is the one joined (`Rejoin`); a new connection with a fixed address; `reset_plan` and `reset` (`GetPermissions`, each connection's type, users and flags); `survey` (the link, the connectivity check, the router, the DNS configuration) and `diagnose` over a `Probe`, the machine's own (`SystemProbe`: an ICMP datagram socket through rustix, `/proc/net/arp`, `getaddrinfo` on a thread of its own, joined once it answers).
+- **`oxyos-fake-networkmanager`** models them: each connection's `assigned-mac-address` and `stable-id` and the address it joins with (hashed as the daemon's, the boot's id changed by `{"restart":{}}`), the device's address in use and its active connection, an update keeping the secrets, a deleted connection's signals and the network it leaves, an access point admitting listed addresses only, VPN and Ethernet connections with their users and flags, `GetPermissions`, the connectivity check, the DNS configuration, the link's figures, and the network behind it (`Probe`: the router's echoes and ARP, the resolver), counting each probe; `{"router"}`, `{"resolver"}` and `{"connectivity"}` change them.
+- **The session** (`oxyos_compositor::networks`): the four requests, each on a thread of its own; `Networks::on_bus_probed` for the development compositor, whose probe is the played daemon's (`played_network.rs`).
+- **Settings**: `NetworkPages.tsx` (the Wi-Fi and Network pages, out of `Settings.tsx`): each known network's sheet (Details…, Network Settings…) with its Private Wi-Fi Address, the address in use and Forget This Network…; Wi-Fi Diagnostics…; Reset Network Settings…. `network.ts` reads the answers and lays out the confirmation and the diagnostics.
+
+### Tests
+
+- **`oxyos-networks`**: the mapping both ways and every value read; band and channel from a frequency; the neighbour table; diagnostics' verdicts from what a played probe measured, asked once each, nothing asked without a network joined. Against the played daemon (`tests/daemon.rs`): a new network joined with a fixed address of the daemon's making, shown; Rotating set and the network joined again with another, the same address across joins and another after a restart; Fixed back to its address; Off the card's; another network set without joining it; its password kept; refused by polkit; an address-filtering network set but not joined again, Off joining it; forgetting the network joined leaving it, its password gone; resetting removing the person's networks and VPNs, keeping Ethernet's and an administrator's, never listing the daemon's own; the link read as the daemon has it, its connectivity check run once, none without one configured. **Idle** (`tests/diagnostics_idle.rs`): the machine's own probe echoing the loopback address and resolving `localhost` (or saying echoes are not allowed, as the machine's `ping_group_range` says), then no thread of it left and nothing waking for two seconds.
+- **The session's side** (`networks/tests.rs`, 4 more): the requests read strictly and refused without an input or the grant; a private address set, the network joined again and the state told; a reset's preview changing nothing, refused while joining, then removing; diagnostics probed once when asked, only the asker told.
+- **Settings' model** (`tests/network.test.ts`, 6 more): a known network's sheet's state; a private address's answer; a reset's lines in English and Spanish; its answers; diagnostics' sections and words in both languages; times.
+- **Scenarios** over the played daemon, each at 1 and at 1.25: `wifi-privacy`, `wifi-forget`, `network-reset` and `wifi-diagnostics`, described with what each step checks of the daemon's state in their `about`.
+
 ## Not in this decision
 
 - Bluetooth (on and off, pairing): its own decision, [ADR 0055](./0055-bluetooth), which follows this one's shape.
 - A secret agent (NetworkManager asking the session for a password it lacks when it autoconnects), enterprise networks, hidden networks, captive portals, VPNs, proxies, metered connections (ADR 0030's downloads read NetworkManager's `Metered`), a manual IP configuration.
 - Setup's network step ([ADR 0023](./0023-installing-oxyos)), which will use the same requests.
+- **Limit IP address tracking.** Apple's hides the computer's IP address from known trackers in Mail and Safari by sending those connections through iCloud Private Relay, two relays run by different companies, so neither sees both who asks and what. An operating system cannot hide its address from a server it talks to without such a relay: there is no setting of the machine that does it. A DNS blocklist blocks trackers, which is a different feature (and a list to keep), and Tor is another trust model and another network's speed; neither is what the name promises. It comes, if ever, with a relay of Oxy's.
+- A rotation every two weeks (above), a Private Wi-Fi Address for networks joined before this decision without the person choosing it, the address a network not joined would use, and DHCP's hostname (which the daemon sends by default, `dhcp-send-hostname`) for networks with a private address.
+- Resetting Ethernet's configurations (above) and cellular settings (OxyOS has no cellular yet).
+- Noise and dBm in diagnostics (above), a Mac's Wireless Diagnostics' logs and its monitoring over time, and diagnostics from the shell's Control Center.

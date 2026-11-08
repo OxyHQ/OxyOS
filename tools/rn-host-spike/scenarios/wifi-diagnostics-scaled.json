@@ -1,0 +1,295 @@
+{
+ "about": "Wi-Fi Diagnostics (docs/adr/0038-networks.mdx, 8 November 2026) from Settings' Wi-Fi page, over a NetworkManager played on the run's own bus with the network behind it (the router's echoes and ARP, the resolver, the daemon's connectivity check), each probe counted: nothing is probed until the sheet opens; it runs once, showing the link as the daemon has it (signal, channel, band and width, rate, security, access point, address in use), the router's verdict and its median round trip, the internet not checked where no check is set up, and oxy.so resolved with its time; nothing runs while it stays open; Check Again, after the router stops answering echoes, the resolver fails and a check finds a sign-in page, says each as measured, with no time made up; closed, nothing runs. At 1.25.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse",
+    "frequency": 5180,
+    "bssid": "A0:B1:C2:D3:E4:F5",
+    "rate": 866,
+    "max_rate": 1201,
+    "width": 80
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "secrets": [
+  "correct horse"
+ ],
+ "steps": [
+  {
+   "name": "Settings with the network grant: its pages there once the session told it the network",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Wi-Fi"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "Wi-Fi Diagnostics…"
+    ]
+   }
+  },
+  {
+   "name": "Nothing is probed until asked",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "probes": [],
+     "connectivity_checks": 0
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi Diagnostics…",
+   "do": [
+    "press_named",
+    "Wi-Fi Diagnostics…"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Run once as it opens: the link as the daemon has it, the router answering its three echoes, the internet not checked (no connectivity check set up), oxy.so resolved; each probe once",
+   "do": [
+    "wait_named",
+    [
+     "DNS servers",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Connection",
+     "LukeSkyRouter",
+     "Good · 73%",
+     "36 · 5 GHz, 80 MHz",
+     "866 Mb/s",
+     "WPA2 Personal",
+     "A0:B1:C2:D3:E4:F5",
+     "F4:A4:75:12:34:56",
+     "Answers",
+     "3 of 3 answered · 1.2 ms",
+     "Not checked: no connectivity check is set up on this computer",
+     "Resolved oxy.so in 14 ms",
+     "192.168.8.1"
+    ],
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so"
+     ],
+     "connectivity_checks": 0
+    }
+   }
+  },
+  {
+   "name": "Left open: nothing runs again",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so"
+     ]
+    }
+   }
+  },
+  {
+   "name": "The router stops answering echoes, still answering ARP; the resolver fails; a connectivity check set up finds a sign-in page",
+   "do": [
+    "network",
+    {
+     "router": {
+      "answers": false,
+      "neighbour": true
+     }
+    }
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The resolver",
+   "do": [
+    "network",
+    {
+     "resolver": {
+      "does": "fails",
+      "ms": 30
+     }
+    }
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The check",
+   "do": [
+    "network",
+    {
+     "connectivity": {
+      "check": true,
+      "state": 2
+     }
+    }
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Check Again",
+   "do": [
+    "press_named",
+    "Check Again"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Said as measured: the router there but silent, a sign-in page, oxy.so not resolved; each probe once more",
+   "do": [
+    "wait_named",
+    [
+     "DNS servers",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Connected, but doesn't answer pings",
+     "0 of 3 answered",
+     "Couldn't resolve oxy.so",
+     "A sign-in page blocks the internet"
+    ],
+    "absent": [
+     "1.2 ms",
+     "Resolved oxy.so"
+    ],
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so",
+      "ping 192.168.8.1",
+      "neighbour 192.168.8.1",
+      "resolve oxy.so"
+     ],
+     "connectivity_checks": 1
+    }
+   }
+  },
+  {
+   "name": "Done",
+   "do": [
+    "press_named",
+    "Done"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Closed: nothing runs",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Check Again"
+    ],
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so",
+      "ping 192.168.8.1",
+      "neighbour 192.168.8.1",
+      "resolve oxy.so"
+     ],
+     "connectivity_checks": 1
+    }
+   }
+  }
+ ]
+}
