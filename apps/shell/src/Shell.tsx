@@ -862,6 +862,7 @@ export const Shell = memo(function Shell({
           onKeyboardLost={keyboardLost}
         >
           <TopBar
+            safeMode={snapshot.safeMode}
             keyboardRequest={barRequest}
             keyboardLost={barLost}
             onKeyboard={setBarKeyboard}
@@ -887,7 +888,6 @@ export const Shell = memo(function Shell({
             openKeyboardSettings={inputMethod?.openKeyboardSettings}
             onInputMenuChange={inputMenuChanged}
             batteryMenu={battery}
-            safeMode={snapshot.safeMode}
           />
         </Surface>
         {(inputMethod || autofill) && (
