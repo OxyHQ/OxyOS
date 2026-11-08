@@ -1,6 +1,6 @@
 /**
  * expo-document-picker on OxyOS: the native module its JavaScript reaches (`ExpoDocumentPicker`,
- * `getDocumentAsync`), over the system's file chooser (file-chooser.js,
+ * `getDocumentAsync`), over the platform's `chooser` (`@oxyos/platform`,
  * docs/adr/0029-chromium-on-oxyos.mdx, decision 8), as its Android implementation answers.
  *
  * The panel is the session's, a sheet of this window, asked for citing the person's latest press or
@@ -8,7 +8,8 @@
  * copied first into the application's cache unless `copyToCacheDirectory` is false, as Expo copies
  * it on every platform; a cancellation, and the session's refusal (said), answer as cancelled.
  */
-import { acceptedTypes, chooseFiles } from './file-chooser';
+import { chooser } from '@oxyos/platform';
+
 import { callFiles, requestFiles } from './files';
 
 const { NativeModule } = globalThis.expo;
@@ -43,15 +44,15 @@ async function asset(uri, copyToCacheDirectory) {
 const ExpoDocumentPicker = new NativeModule();
 Object.assign(ExpoDocumentPicker, {
   async getDocumentAsync({ type, copyToCacheDirectory = true, multiple = false } = {}) {
-    const answer = await chooseFiles({ open: { multiple: multiple === true, types: acceptedTypes(type) } });
-    if (!answer?.chosen) {
-      if (answer?.refused) {
-        console.warn(`expo-document-picker: OxyOS's file chooser refused (${answer.refused.reason}); it answers as cancelled`);
-      }
-      return { canceled: true, assets: null };
+    let chosen;
+    try {
+      chosen = await chooser.open({ multiple: multiple === true, types: type == null ? [] : [].concat(type) });
+    } catch (error) {
+      console.warn(`expo-document-picker: OxyOS's file chooser refused (${error.code}); it answers as cancelled`);
     }
+    if (!chosen) return { canceled: true, assets: null };
     const assets = [];
-    for (const uri of answer.chosen) assets.push(await asset(uri, copyToCacheDirectory !== false));
+    for (const uri of chosen) assets.push(await asset(uri, copyToCacheDirectory !== false));
     return { canceled: false, assets };
   },
 });

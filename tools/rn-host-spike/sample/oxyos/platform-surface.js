@@ -30,10 +30,14 @@
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
-import { answerChooser, chooserRequest } from './file-chooser';
 import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
 import { createSearch, searchAvailable } from './search';
-import { drag as platformDrag, sounds as platformSounds } from '@oxyos/platform';
+import { chooser as platformChooser, drag as platformDrag, sounds as platformSounds } from '@oxyos/platform';
+
+// The file manager the session started as a file chooser: what it was asked to show (the platform's
+// `chooser.request`), null in any other application.
+const chooserRequest = platformChooser.request;
+const answerLost = () => console.error('OxyOS: the file chooser could not give its answer to the session');
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -390,10 +394,10 @@ function createFiles() {
       ? Object.freeze({
           request: chooserRequest,
           choose(uris) {
-            answerChooser({ chosen: [...uris] });
+            platformChooser.choose(uris).catch(answerLost);
           },
           cancel() {
-            answerChooser({ cancelled: {} });
+            platformChooser.cancel().catch(answerLost);
           },
         })
       : undefined,

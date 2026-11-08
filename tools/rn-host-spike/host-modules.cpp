@@ -977,7 +977,7 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "OxyOSFileChooser") {
-    // File choosers (sample/oxyos/file-chooser.js, docs/adr/0029-chromium-on-oxyos.mdx, decision
+    // File choosers (the platform's `chooser`, docs/adr/0029-chromium-on-oxyos.mdx, decision
     // 8): files asked for this window, answered once by an `OxyOSFilesChosen` naming the request's
     // serial; a request withdrawn; and, in the chooser the session started, what it was asked to
     // show (`request`, null in any other application) and the person's answer. Both cite the

@@ -3,6 +3,7 @@
 // private business; only these exports are a contract.
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
+import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
 import { createFrameworks } from './frameworks.ts';
 import { createPasteboard, type ClipboardModule } from './pasteboard.ts';
@@ -13,6 +14,7 @@ export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.t
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type { ChooserRequest, OpenPanelOptions, SavePanelOptions } from './chooser.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
 export { SYSTEM_SOUNDS, type SystemSound } from './sounds.ts';
 
@@ -37,3 +39,9 @@ export const sounds = createSounds(TurboModuleRegistry.get('OxyOSSounds') as Sou
 
 /** Dragging content to other applications, and drags over the window (docs/adr/0035-drag-and-drop.mdx). */
 export const drag = createDrag(TurboModuleRegistry.get('OxyOSDrag') as DragModule | null, DeviceEventEmitter);
+
+/** The system's open and save panels (docs/adr/0029-chromium-on-oxyos.mdx, decision 8). */
+export const chooser = createChooser(
+  TurboModuleRegistry.get('OxyOSFileChooser') as FileChooserModule | null,
+  DeviceEventEmitter,
+);
