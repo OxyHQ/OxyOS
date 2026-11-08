@@ -10,15 +10,19 @@
  * SDK's: the email's code or link, the password, the authenticator, the QR approved on a phone, or
  * a new account. Nothing here is a sign-in of OxyOS's own.
  *
- * Once signed in, the account's sign-in methods say whether it has a password (decision 2): with
- * one, it is asked once more; without, the person chooses a PIN and is never asked to make an Oxy
- * password. Methods that cannot be read are never taken for "no password": the screen says so and
- * asks again, and nothing goes on until they are read (failing closed).
+ * Once signed in, how it signed in decides what the computer keeps (decision 2 as amended): the
+ * SDK tells the store (`save`'s context, @oxy.so/services 14.15.2) whether it was the QR (a Commons
+ * approval: the PIN alone, never a password), the password (typed here: taken as it was typed, held
+ * only until the setup sends it, never asked again), or another way. The account's sign-in methods
+ * say whether it has a password; methods that cannot be read are never taken for "no password":
+ * the screen says so and asks again, and nothing goes on until they are read (failing closed). An
+ * SDK that tells nothing is taken as another way.
  */
 import * as React from 'react';
 import { Pressable, Text, TurboModuleRegistry, View } from 'react-native';
 import { OxyAuthChooser, OxyProvider, OxySurfaceFrame, useOxy } from '@oxy.so/services';
 import type { SetupSignInProps } from '../../../apps/login/src/LoginScreen';
+import type { SignedInAccount } from '../../../apps/login/src/setup';
 import { useLoginMessages } from '../../../apps/login/src/useLoginMessages';
 
 const native = TurboModuleRegistry.get<{
@@ -26,15 +30,33 @@ const native = TurboModuleRegistry.get<{
 }>('OxyOSAccountSession');
 
 type Persisted = { sessionId: string; userId: string; deviceId?: string; deviceSecret?: string };
+/** What the SDK tells a platform's setup store of the sign-in it commits (14.15.2). */
+type SaveContext = { method?: unknown; password?: unknown };
+/** How the account signed in, and the password typed for a password sign-in. */
+export type Handed = { accountId: string; via: SignedInAccount['via']; password?: string };
+
+/** How the SDK says the account signed in, read strictly: anything else is another way. */
+function viaOf(context: SaveContext | undefined): { via: SignedInAccount['via']; password?: string } {
+  if (context?.method === 'qr') return { via: 'qr' };
+  if (context?.method === 'password' && typeof context.password === 'string' && context.password) {
+    return { via: 'password', password: context.password };
+  }
+  return { via: 'other' };
+}
 
 /** The setup's store: nothing kept, nothing loaded; a committed credential goes to the host. */
-function handingOverStore(onHanded: (accountId: string) => void) {
+function handingOverStore(onHanded: (handed: Handed) => void) {
   return {
     load: async () => null,
-    save: async (state: Persisted) => {
+    save: async (state: Persisted, context?: SaveContext) => {
       if (!state.deviceId || !state.deviceSecret || !state.userId || !native) return false;
       const held = native.holdCredential(state.deviceId, state.deviceSecret, state.userId);
-      if (held) onHanded(state.userId);
+      if (held) {
+        const handed = { accountId: state.userId, ...viaOf(context) };
+        // How it signed in, for the log; never the password.
+        console.info(`[setup] signed in by ${handed.via}${handed.password ? ', its password typed' : ''}`);
+        onHanded(handed);
+      }
       return held;
     },
     clear: async () => {},
@@ -49,7 +71,8 @@ type Methods = { state: 'reading' } | { state: 'read'; hasPassword: boolean } | 
  * it has a password. Not read (offline, refused, an answer outside the contract), it says so and
  * offers to read them again; it never guesses.
  */
-function AfterSignIn({ accountId, onSignedIn }: { accountId: string; onSignedIn: SetupSignInProps['onSignedIn'] }) {
+function AfterSignIn({ handed, onSignedIn }: { handed: Handed; onSignedIn: SetupSignInProps['onSignedIn'] }) {
+  const { accountId } = handed;
   const words = useLoginMessages().setup;
   const { oxyServices, user } = useOxy() as {
     oxyServices: { auth: { methods(): Promise<{ hasPassword?: unknown }> } };
@@ -75,8 +98,10 @@ function AfterSignIn({ accountId, onSignedIn }: { accountId: string; onSignedIn:
     };
   }, [oxyServices, attempt]);
   React.useEffect(() => {
-    if (methods.state === 'read') onSignedIn({ id: accountId, name, hasPassword: methods.hasPassword });
-  }, [methods, accountId, name, onSignedIn]);
+    if (methods.state === 'read') {
+      onSignedIn({ id: accountId, name, hasPassword: methods.hasPassword, via: handed.via }, handed.password);
+    }
+  }, [methods, accountId, name, onSignedIn, handed]);
   if (methods.state === 'read') return null;
   return (
     <View testID="login-setup-methods" style={{ alignItems: 'center', paddingVertical: 16 }}>
@@ -104,17 +129,17 @@ function AfterSignIn({ accountId, onSignedIn }: { accountId: string; onSignedIn:
  * credential of, now the provider's. Then what it signs in with on this computer.
  */
 function Setup({
-  accountId,
+  handed,
   onSignedIn,
   onFrameWidth,
 }: {
-  accountId: string | null;
+  handed: Handed | null;
   onSignedIn: SetupSignInProps['onSignedIn'];
   onFrameWidth: SetupSignInProps['onFrameWidth'];
 }) {
   const { user } = useOxy() as { user?: { id?: string } | null };
-  if (accountId && user?.id === accountId) {
-    return <AfterSignIn accountId={accountId} onSignedIn={onSignedIn} />;
+  if (handed && user?.id === handed.accountId) {
+    return <AfterSignIn handed={handed} onSignedIn={onSignedIn} />;
   }
   return (
     <OxySurfaceFrame onMaxWidthChange={onFrameWidth}>
@@ -124,12 +149,14 @@ function Setup({
 }
 
 export function SetupSignIn({ platform, onSignedIn, onFrameWidth }: SetupSignInProps) {
-  const [accountId, setAccountId] = React.useState<string | null>(null);
-  const store = React.useMemo(() => handingOverStore(setAccountId), []);
+  // Held while the setup's next step is chosen; the password, once handed on, is the login
+  // screen's to send and forget.
+  const [handed, setHanded] = React.useState<Handed | null>(null);
+  const store = React.useMemo(() => handingOverStore(setHanded), []);
   return (
     <View testID="login-setup-sign-in" style={{ width: '100%' }}>
       <OxyProvider baseURL={platform.api} clientId={platform.clientId} authStateStore={store}>
-        <Setup accountId={accountId} onSignedIn={onSignedIn} onFrameWidth={onFrameWidth} />
+        <Setup handed={handed} onSignedIn={onSignedIn} onFrameWidth={onFrameWidth} />
       </OxyProvider>
     </View>
   );

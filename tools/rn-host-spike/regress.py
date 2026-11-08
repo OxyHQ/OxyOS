@@ -108,6 +108,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- background: the applications' background activity (docs/adr/0060-login-items-and-background-
+  activity.mdx): "ended", the processes the session ended in the step, by their application's id,
+  exactly and in order (a step that ends one and does not say so fails); "running", given, the
+  applications with a process running in the background once the step settled, exactly;
+  "idle_cpu_ms_max" and "idle_wakeups_max", the most CPU each such process used and the most
+  times its threads woke since the step before (nothing wakes one with nothing to do);
+- notifications: the notifications the session keeps once the step settled (docs/adr/0026-
+  notifications.mdx), exactly, oldest first, each {"number", "application", "title"}: the number is
+  one more for every post, so a notification posted twice, or once more than it should be, shows;
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
@@ -382,7 +391,13 @@ drag goes on into the steps after it, each step's frame showing it midway (`move
 pointer there and releases it, dropping it or ending it over nothing.
 
 A `swipe` step ([fingers, dx, dy, steps]) is three or four fingers swiped on the touchpad, the
-system's (Mission Control up, App Exposé down, ADR 0045); a `scroll_named` step ([name, dy] a
+system's (Mission Control up, App Exposé down, ADR 0045; which fingers the person chose,
+docs/adr/0046-interactive-gestures.mdx); through the virtual devices, the fingers on the virtual
+touchpad, which libinput recognizes and counts, resting before they lift so nothing is flicked. A
+`pinch` step ([x, y, percent, degrees] or [x, y, percent, degrees, fingers]) pinches at a point of
+the window, two fingers unless it says (the thumb and three fingers: Launchpad's); a step's
+`delivered` count may be a [least, most] (a pinch through libinput, as many updates as it
+recognized frames of the fingers). A `scroll_named` step ([name, dy] a
 wheel's notch, [name, dy, events] a touchpad's two fingers in that many events, then lifted)
 scrolls on the node of that accessible name (a dock icon), and a `scroll_output` step ([x, y, dy]
 or [x, y, dy, events]) at a point of the output.
@@ -446,10 +461,11 @@ Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
 `wallpaper_all_desktops`, and the session's own lines, `wallpaper.DISPLAY` and
-`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). A
-scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
-follows (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on) and the time zone whose sun a
-`sun` wallpaper's Automatic follows (ADR 0012).
+`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). Every
+run fixes the moment and the place a `sun` wallpaper's Automatic follows (ADR 0012): the default,
+Solar Gradients, shows its Midday (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on: 14:00
+in Madrid on the June solstice; `OXYOS_WALLPAPER_PLACE`, Madrid). A scenario with `wallpaper`
+({tz, now}) fixes its own moment and the time zone whose sun it follows.
 
 A scenario with `reader` ({}) runs the session's screen reader (`oxyos-reader`, beside the
 offscreen compositor unless `--reader` names it), which speaks the session's language (the
@@ -588,9 +604,9 @@ for the one account it plays, committing the device credential `oxy.device`; eve
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
-lists `enroll.account` once enrolled; `enroll.password` null plays an account without one, refused
-`passwordRequired` as the service refuses it, and a `pin` given with the setup becomes the account's
-PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
+lists `enroll.account` once enrolled; a setup without a password and with a PIN is a sign-in by the
+QR, which the real service redeems through Oxy's device-proof route (played as its answer: enrolled,
+its password not signing in), and a `pin` given with the setup becomes the account's PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
 listed `pin: set`; `login.pin_failures`: {USER: N} wrong ones before the run) is checked by `oxyos-pin-check`, which the login program's PIN service runs
 (`oxyos-login-pin`, pam_exec, as the real one is), asking the stand-in's `verifyPin`: the tenth
 wrong one in a row locks it out (listed `locked`). A step's `accounts_asked` is what the setup asked the service
@@ -701,6 +717,12 @@ RUN_LOCALE = FIXED_LOCALE
 SPANISH_WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 SPANISH_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
                   "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+# What every run's sun wallpaper follows unless a scenario says (ADR 0048): 2026-06-21 12:00 UTC,
+# 14:00 in Madrid.
+SOLSTICE_AFTERNOON = 1782043200
+MADRID = "40.4,-3.68"
 
 
 def clock_said(t_ns):
@@ -915,7 +937,8 @@ def director_args(step, out):
         return args + ["--scroll-output", f"{value[0]},{value[1]},{value[2]},{events}"]
     if kind == "swipe":
         # Fingers swiped on the touchpad and lifted (Mission Control, App Exposé, the desktops, ADR
-        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz].
+        # 0045, ADR 0046): [fingers, dx, dy, steps] or [fingers, dx, dy, steps, hz]; through the
+        # virtual devices, on the virtual touchpad.
         return args + ["--swipe", ",".join(map(str, value))]
     if kind == "swipe_begin":
         # The same, the fingers left down for the steps after it: a swipe partway.
@@ -927,6 +950,7 @@ def director_args(step, out):
         # The fingers left down lifted, this many milliseconds after their last motion.
         return args + ["--swipe-end", str(value)]
     if kind == "pinch":
+        # [x, y, percent, degrees] two fingers, or [x, y, percent, degrees, fingers].
         return args + ["--pinch", ",".join(map(str, value))]
     if kind == "type":
         return args + ["--type", value]
@@ -1116,9 +1140,12 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = {"refused": {"reason": "credentialRefused"}}
         elif pin is not None and (not re.fullmatch(r"[0-9]{4,16}", pin) or pin == request.get("password")):
             answer = {"refused": {"reason": "unusablePin"}}
+        elif request.get("password") is None and pin is None:
+            answer = {"refused": {"reason": "pinRequired"}}
         elif request.get("password") is None:
-            # The platform credential is issued only to the platform's password sign-in.
-            answer = {"refused": {"reason": "passwordRequired"}}
+            # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
+            # (the real service's; played here as its answer), and the PIN is the local credential.
+            answer = None
         elif request.get("password") != played["password"]:
             answer = {"refused": {"reason": "wrongPassword"}}
         elif played.get("code"):
@@ -1127,7 +1154,7 @@ def serve_accounts(path, accounts, login=None, log=None):
             answer = None
         while True:
             if answer is None:
-                listed = dict(played["account"], password=True)
+                listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
                     failures.pop(listed["user"], None)
@@ -3356,7 +3383,8 @@ def check_views(index, step, result, results, failures):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None):
+               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None,
+               previous=None):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -3898,7 +3926,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         companion = delivered.pop("companion", {})
         shell_drags = delivered.pop("shell_drags", {})
         wanted = dict(expect["delivered"])
-        if "companion" in wanted and companion != wanted.pop("companion"):
+        if "companion" in wanted and not counts_match(companion, wanted.pop("companion")):
             fail(f"the companion was delivered {companion}, expected exactly {expect['delivered']['companion']}")
         if "shell_drags" in wanted and shell_drags != wanted.pop("shell_drags"):
             fail(f"the shell was delivered drag events {shell_drags}, expected exactly {expect['delivered']['shell_drags']}")
@@ -3914,7 +3942,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"the file chooser was delivered {chooser}, expected exactly {expect['delivered']['chooser']}")
         if leaked:
             fail(f"{leaked} input events reached another client")
-        if delivered != wanted:
+        if not counts_match(delivered, wanted):
             fail(f"compositor delivered {delivered}, expected exactly {wanted}")
     elif result.get("delivered", {}).get("leaked"):
         # Whatever a step says, no input reaches a client that is neither the application, its
@@ -4434,6 +4462,37 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                    for url in expect.get("urls_opened", [])]
     if urls != wanted_urls:
         fail(f"URLs opened: {urls}, expected {wanted_urls}")
+    # Background activity (docs/adr/0060-login-items-and-background-activity.mdx): the processes the
+    # session ended in the step, by application, exactly (a step that ends one and does not say so
+    # fails), and, given, the applications with a process running in the background once it settled.
+    background = result.get("background") or {"running": [], "ended": []}
+    if not step.get("within"):
+        wanted_background = expect.get("background", {})
+        if background["ended"] != wanted_background.get("ended", []):
+            fail(f"background processes ended: {background['ended']}, expected {wanted_background.get('ended', [])}")
+        if "running" in wanted_background and background["running"] != wanted_background["running"]:
+            fail(f"running in the background: {background['running']}, expected {wanted_background['running']}")
+        # Nothing wakes a process in the background that has nothing to do: since the step before,
+        # each used at most `idle_cpu_ms_max` of CPU and woke at most `idle_wakeups_max` times.
+        if "idle_cpu_ms_max" in wanted_background or "idle_wakeups_max" in wanted_background:
+            before = (previous or {}).get("background", {}).get("used", {})
+            for id, now in background.get("used", {}).items():
+                if id not in before:
+                    fail(f"{id}: in the background only since this step, nothing to compare")
+                    continue
+                cpu = now["cpu_ms"] - before[id]["cpu_ms"]
+                wakeups = now["wakeups"] - before[id]["wakeups"]
+                if cpu > wanted_background.get("idle_cpu_ms_max", float("inf")):
+                    fail(f"{id} used {cpu:.1f} ms of CPU in the background, at most {wanted_background['idle_cpu_ms_max']}")
+                if wakeups > wanted_background.get("idle_wakeups_max", float("inf")):
+                    fail(f"{id} woke {wakeups} times in the background, at most {wanted_background['idle_wakeups_max']}")
+    # The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+    # given: exactly those, oldest first, each its number (one more for every post: a notification
+    # posted twice, or replaced, shows in it), application and title.
+    if "notifications" in expect and not step.get("within"):
+        kept = result.get("notifications") or []
+        if kept != expect["notifications"]:
+            fail(f"notifications kept: {kept}, expected {expect['notifications']}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
     # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,
@@ -5037,6 +5096,18 @@ def wait_for(path, seconds=10):
         time.sleep(0.05)
 
 
+def counts_match(got, wanted):
+    """Whether what the compositor delivered (`got`: by window, each event's count) is `wanted`
+    exactly: the same windows and events, each count the same, or within the [least, most] a step
+    gives for it (a pinch through libinput, which reports as many updates as it recognized frames
+    of the fingers)."""
+    if isinstance(wanted, list) and len(wanted) == 2 and isinstance(got, int):
+        return wanted[0] <= got <= wanted[1]
+    if isinstance(wanted, dict) and isinstance(got, dict):
+        return wanted.keys() == got.keys() and all(counts_match(got[key], wanted[key]) for key in wanted)
+    return got == wanted
+
+
 def matches_within(wanted, got, where):
     """How `got` differs from `wanted`: each key `wanted` gives (a dict's keys, a list's items, of
     the same length), compared exactly otherwise."""
@@ -5520,11 +5591,16 @@ def main():
     # developer's machine's.
     env["OXYOS_WALLPAPERS"] = str(pathlib.Path(__file__).resolve().parents[2] /
                                   "config/includes.chroot_after_packages/usr/share/oxyos/wallpapers")
-    env.pop("OXYOS_WALLPAPER_NOW", None)
+    # The default wallpaper, Solar Gradients, follows the sun: what any run sees of it is fixed, the
+    # sun at 14:00 in Madrid on the June solstice (its Midday), whatever the machine's clock and
+    # time zone.
+    env["OXYOS_WALLPAPER_NOW"] = str(SOLSTICE_AFTERNOON)
+    env["OXYOS_WALLPAPER_PLACE"] = MADRID
     if scenario.get("wallpaper"):
-        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), fixed.
+        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), the scenario's.
         wallpaper = scenario["wallpaper"]
         env["TZ"] = wallpaper["tz"]
+        env.pop("OXYOS_WALLPAPER_PLACE")
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
@@ -5561,10 +5637,12 @@ def main():
     env["TZ"] = RUN_TZ = scenario.get("tz", scenario.get("wallpaper", {}).get("tz", FIXED_TZ))
     # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
     # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first",
-    # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26).
+    # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26); or an
+    # application window's host, between a modal's own focus and the host following the modal
+    # coming: "window-focus-first" (decision 27).
     env.pop("OXYOS_HOST_TEST_ORDER", None)
     if "host_order" in scenario:
-        if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first"):
+        if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first", "window-focus-first"):
             raise ValueError(f"unknown host_order {scenario['host_order']!r}")
         env["OXYOS_HOST_TEST_ORDER"] = scenario["host_order"]
     recorder = None
@@ -5622,7 +5700,8 @@ def main():
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, through_devices,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
-                           out / "preferences", refresh_hz, recorder)
+                           out / "preferences", refresh_hz, recorder,
+                           previous=summary["steps"][index - 1] if index else None)
         check_views(index, step, result, summary["steps"], failures)
     # The person's input reached whom it should, once (every scenario, every step).
     check_input_delivery(summary, host_reports(out), failures)

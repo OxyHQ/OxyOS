@@ -137,6 +137,9 @@ class Window {
   // session tells Settings them: among `preferences()` under this key, ids joined by commas, and
   // changed through `setPreference` with it, as the file keeps it.
   static constexpr const char* kNotificationSoundsOff = "notification_sounds_off";
+  // The applications the session opens at login (docs/adr/0060-login-items-and-background-activity.mdx),
+  // the dock's list too, kept among Settings' preferences and changed through it as the file keeps it.
+  static constexpr const char* kOpenAtLogin = "open_at_login";
   // Asks the session to change a preference (Settings only); a PREFERENCE_RESULT with `serial`
   // answers. False if it could not be sent.
   bool setPreference(uint32_t serial, const std::string& key, const std::string& value);
@@ -145,6 +148,19 @@ class Window {
   bool systemRequest(uint32_t serial, uint64_t input, const std::string& text);
   void sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial);
   bool requestCapability(uint32_t serial, uint64_t input, uint8_t capability);
+  // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
+  // protocol version 33): how one of this application's background items stands, or registering or
+  // unregistering it (OXYOS_BACKGROUND_ITEM_*), answered by a BACKGROUND_ITEM_STATE naming `serial`.
+  // False if it could not be sent.
+  bool backgroundItem(uint32_t serial, uint8_t kind, uint8_t action);
+  // The application runs on in the background without its window (its background activity,
+  // docs/adr/0060-login-items-and-background-activity.mdx): the window goes, as a closed one does,
+  // and is never presented again; what reads its last size still can.
+  void closeToplevel();
+  bool toplevelClosed() const { return toplevelClosed_; }
+  // A surface that went with the window closed to run in the background: nothing is asked of it,
+  // or the compositor would end the connection over a surface it no longer has.
+  bool closedSurface(uint32_t id) const { return toplevelClosed_ && id == kToplevel; }
   // Search (docs/adr/0051-search.mdx, protocol version 30): a request of the search index's
   // vocabulary, answered by SEARCH_TEXT events naming `serial`. False if it could not be sent.
   bool searchRequest(uint32_t serial, const std::string& text);
@@ -418,7 +434,7 @@ class Window {
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far
-  std::string receivingSoundsOff_;  // the silenced applications' chunks so far
+  std::map<uint32_t, std::string> receivingLists_;  // Settings' lists' chunks so far, by list
   std::string locale_;
   std::string receivingLocale_;  // the locale's chunks so far
   // A display's name, modes and scales being told, applied by its DISPLAY.
@@ -433,6 +449,8 @@ class Window {
   Trial trial_;
   bool active_ = false;
   uint64_t presented_ = 0;
+  // The window went, the application running on in the background (closeToplevel).
+  bool toplevelClosed_ = false;
   std::chrono::steady_clock::time_point resizedAt_{};
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;
