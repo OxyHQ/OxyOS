@@ -758,3 +758,98 @@ fn quit_ends_it_with_its_windows_where_closing_them_keeps_it_running() {
             .unwrap(),
     );
 }
+
+#[test]
+fn in_safe_mode_no_application_but_the_systems_runs_in_the_background_and_nothing_is_changed() {
+    let installed = installed("safe-mode");
+    decide(
+        &installed,
+        "so.oxy.chat",
+        &[("background", "granted"), ("login-item", "granted")],
+    );
+    let mut session = Session::new(Some(installed.clone()));
+    session.background.set_safe_mode();
+    let chat = || {
+        Some(launched(
+            "so.oxy.chat",
+            "Chat",
+            Origin::Installed { version_code: 3 },
+        ))
+    };
+    let clients = [
+        (APP, 100, chat()),
+        (
+            SECOND,
+            101,
+            Some(launched("so.oxy.dropsea", "Dropsea", Origin::System)),
+        ),
+    ];
+    for (client, serial) in [(APP, 1), (SECOND, 2)] {
+        session.ask(
+            client,
+            serial,
+            BackgroundItemKind::Background,
+            BackgroundItemAction::Register,
+            &clients,
+            &showing(&[100, 101]),
+        );
+    }
+    // The installed application is not permitted; the image's own is.
+    assert_eq!(
+        session.told(),
+        (
+            vec![
+                (
+                    APP,
+                    1,
+                    BackgroundItemKind::Background,
+                    BackgroundStatus::NotPermitted
+                ),
+                (
+                    SECOND,
+                    2,
+                    BackgroundItemKind::Background,
+                    BackgroundStatus::Enabled
+                ),
+            ],
+            vec![]
+        )
+    );
+    // Its window closed, Chat ends as any application does (it registered nothing); Dropsea runs on.
+    assert!(session
+        .turn(Turn::default(), &clients, &none(), None)
+        .is_empty());
+    assert_eq!(
+        session.background.in_background(),
+        BTreeSet::from(["so.oxy.dropsea".to_string()])
+    );
+    // Its login item is the person's still: it may add itself for the next normal start.
+    session.ask(
+        APP,
+        3,
+        BackgroundItemKind::LoginItem,
+        BackgroundItemAction::Register,
+        &clients,
+        &none(),
+    );
+    assert_eq!(
+        session.settings.preferences().open_at_login,
+        ["so.oxy.chat"]
+    );
+    // The account's decision is as it was.
+    assert_eq!(
+        oxyos_apps::capability_decisions(&installed, "so.oxy.chat")
+            .get("background")
+            .map(String::as_str),
+        Some("granted")
+    );
+    let _ = std::fs::remove_dir_all(
+        installed
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap(),
+    );
+}

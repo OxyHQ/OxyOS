@@ -130,6 +130,9 @@ pub struct BackgroundActivity {
     login_items: Option<Vec<String>>,
     /// The session's language, for the notification.
     spanish: bool,
+    /// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): no application but the
+    /// image's has background activity.
+    safe_mode: bool,
 }
 
 impl BackgroundActivity {
@@ -140,7 +143,16 @@ impl BackgroundActivity {
             in_background: BTreeMap::new(),
             login_items: None,
             spanish: false,
+            safe_mode: false,
         }
+    }
+
+    /// The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): only
+    /// the system's own applications have background activity, every other told it is not
+    /// permitted, its process ending with its window as any application's does. Nothing is
+    /// changed: the account's decisions stand for the next normal start.
+    pub fn set_safe_mode(&mut self) {
+        self.safe_mode = true;
     }
 
     /// The applications with a process running in the background now.
@@ -161,6 +173,12 @@ impl BackgroundActivity {
         match launched.origin {
             Origin::System => Allowance::Allowed,
             Origin::Development => Allowance::NotPermitted,
+            // Safe Mode: no application but the image's runs in the background.
+            Origin::Installed { .. }
+                if self.safe_mode && kind == BackgroundItemKind::Background =>
+            {
+                Allowance::NotPermitted
+            }
             Origin::Installed { .. } => {
                 let decisions = self
                     .installed

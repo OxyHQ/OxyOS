@@ -25,6 +25,9 @@ firmware's variables kept from boot to boot, as a computer keeps its disk and NV
    neither the old password nor the old recovery key opens and whose first 64 MiB do not hold the
    old volume's UUID; the recovery untouched.
 6. **Erase and Reinstall** from the recovery's own menu, with the same result.
+7. **Safe Mode by a key** (decision 10): each kernel has its Safe Mode entry beside its own, never
+   counted; holding Space shows it in the picker after the recovery; chosen, the system boots with
+   `oxyos.safe-mode=1` on its command line, spends no try, and the next start is normal.
 
 Screens, both serial logs and QEMU's log of each boot are kept under `--out`/recovery/.
 """
@@ -255,6 +258,12 @@ class Scenario:
         self.check("after a complete boot the entry has its three tries again, beside the recovery's",
                    any(re.fullmatch(r"oxyos-.+\+3\.conf", e) for e in entries) and "oxyos-recovery.conf" in entries,
                    " ".join(entries))
+        safe = [e for e in entries if re.fullmatch(r"oxyos-safe-mode-[0-9].*\.conf", e)]
+        safe_text = sh(f"cat /efi/loader/entries/{safe[0]}") if safe else ""
+        self.check("each kernel has its Safe Mode entry beside its own, never counted, oxyos.safe-mode=1 on its command line",
+                   len(safe) == 1 and not re.search(r"\+[0-9]+(-[0-9]+)?\.conf$", safe[0])
+                   and "title      OxyOS Safe Mode" in safe_text and " oxyos.safe-mode=1" in safe_text,
+                   " ".join(entries) + "; " + safe_text)
         slots = sh("cryptsetup luksDump /dev/vda3 | grep -c '^  [0-9]*: luks2'").strip()
         self.check("the disk opens with the developer's password and the recovery key, not the install key",
                    slots == "2" and " none " in sh("cat /etc/crypttab"), f"{slots} keyslots")
@@ -286,9 +295,9 @@ class Scenario:
         menu = self.screen()
         self.save(menu, "boot-menu")
         picker = self.m.serial_text()[console:]
-        self.check("holding Space as the machine starts shows the startup picker: OxyOS, its Recovery and the firmware's menu",
+        self.check("holding Space as the machine starts shows the startup picker: OxyOS, its Recovery, its Safe Mode and the firmware's menu",
                    shown and not menu.is_black() and "Reboot Into Firmware Interface" in picker
-                   and "EFI Default Loader" not in picker)
+                   and "OxyOS Safe Mode" in picker and "EFI Default Loader" not in picker)
         # The menu's first entry is OxyOS; the recovery is the next.
         self.m.keys("down")
         self.m.keys("ret")
@@ -308,6 +317,34 @@ class Scenario:
         entries = self.entries(sh)
         self.check("Restart in the recovery goes back to OxyOS", any(re.fullmatch(r"oxyos-.+\+3\.conf", e) for e in entries),
                    " ".join(entries))
+        return self.restart(sh)
+
+    def safe_mode_by_key(self, marks):
+        console, debug = marks
+        shown = self.hold_space(console)
+        menu = self.screen()
+        self.save(menu, "boot-menu-safe-mode")
+        picker = self.m.serial_text()[console:]
+        self.check("the startup picker offers OxyOS Safe Mode", shown and "OxyOS Safe Mode" in picker)
+        # OxyOS, OxyOS Recovery, then OxyOS Safe Mode.
+        self.m.keys("down")
+        self.m.keys("down")
+        self.m.keys("ret")
+        self.unlock()
+        sh = self.shell(debug)
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
+        cmdline = sh("cat /proc/cmdline")
+        self.check("Safe Mode boots the kernel with oxyos.safe-mode=1 on its command line",
+                   "oxyos.safe-mode=1" in cmdline and "oxyos-recovery.target" not in cmdline, cmdline)
+        entries = self.entries(sh)
+        self.check("choosing Safe Mode spends none of OxyOS's tries",
+                   any(re.fullmatch(r"oxyos-[0-9].+\+3\.conf", e) for e in entries), " ".join(entries))
+        marks = self.restart(sh)
+        self.unlock()
+        sh = self.shell(marks[1])
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
+        cmdline = sh("cat /proc/cmdline")
+        self.check("the next start is normal", "oxyos.safe-mode" not in cmdline, cmdline)
         return self.restart(sh)
 
     def failed_starts(self, marks):
@@ -414,6 +451,7 @@ def recovery(args, run, helpers):
     try:
         marks = scenario.installed()
         marks = scenario.recovery_by_key(marks)
+        marks = scenario.safe_mode_by_key(marks)
         marks = scenario.failed_starts(marks)
         marks = scenario.erase_from_settings(marks)
         scenario.reinstall_from_recovery(marks)

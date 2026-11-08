@@ -342,6 +342,14 @@ fn main() -> Result<()> {
         read
     };
     compositor.records = false;
+    // Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): the start the person chose
+    // in the picker, read once from the kernel's command line; the shell and the login screen are
+    // told as they connect, and show it for the whole session.
+    let safe_mode = oxyos_compositor::safe_mode::this_start();
+    if safe_mode {
+        eprintln!("[session] Safe Mode: the system's own parts alone");
+        compositor.scene.set_safe_mode();
+    }
     // What it does record: a turn that took longer than a refresh, and where the time went.
     compositor.slow_turns = true;
     // Applied before any client connects, so each is told them with its Welcome.
@@ -610,8 +618,14 @@ fn main() -> Result<()> {
     // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
     // the applications' own, decided by their launch records and their account's decisions. The
     // login screen has none.
-    let mut background = (!greeter)
-        .then(|| oxyos_compositor::background::BackgroundActivity::new(installed.clone()));
+    let mut background = (!greeter).then(|| {
+        let mut background =
+            oxyos_compositor::background::BackgroundActivity::new(installed.clone());
+        if safe_mode {
+            background.set_safe_mode();
+        }
+        background
+    });
     let mut installs = if greeter {
         None
     } else {
@@ -718,7 +732,12 @@ fn main() -> Result<()> {
     let mut input_methods = if greeter {
         None
     } else {
-        oxyos_compositor::input_methods::for_session(&mut compositor, &settings, &runtime)
+        oxyos_compositor::input_methods::for_session(
+            &mut compositor,
+            &settings,
+            &runtime,
+            safe_mode,
+        )
     };
     let mut versions = Versions::default();
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): any application asks, the
@@ -768,7 +787,11 @@ fn main() -> Result<()> {
     // The applications the person opens at login (docs/adr/0034-the-dock.mdx), in their order, as
     // the session starts; none on the login screen. One the registry no longer lists is said and
     // passed over.
-    if !greeter {
+    // In Safe Mode none is (docs/adr/0054-recovery-and-erasing.mdx, decision 10), and the list stays
+    // the person's for the next normal start.
+    if safe_mode && !greeter {
+        eprintln!("[session] Safe Mode: nothing opened at login");
+    } else if !greeter {
         for id in &settings.preferences().open_at_login {
             match launcher.launch(id) {
                 Ok(pid) => eprintln!("[session] opened {id} at login ({pid})"),

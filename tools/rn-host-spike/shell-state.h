@@ -56,6 +56,8 @@ class ShellState {
   //   locked shell), notificationPolicy: { doNotDisturb, previews },
   //   applicationLists: { dock: { chosen, ids } | null, openAtLogin: [ids] | null } (the person's
   //   lists of applications, docs/adr/0034-the-dock.mdx: null until told),
+  //   safeMode: the session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx,
+  //   decision 10: false unless told),
   //   trashItems: what the user's Trashes hold, null until told }
   // A window also has `responding`: its process answers the compositor's pings.
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
@@ -107,6 +109,8 @@ class ShellState {
   folly::dynamic applicationLists() const;
   // How many items the user's Trashes hold, as the session told it; -1 until told.
   int64_t trashItems_ = -1;
+  // The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+  bool safeMode_ = false;
   std::map<uint32_t, Window> windows_;
   // A title or application id being received, by window.
   std::map<uint32_t, std::string> title_, appId_;
