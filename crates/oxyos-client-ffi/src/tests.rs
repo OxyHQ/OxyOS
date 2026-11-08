@@ -4025,7 +4025,7 @@ fn the_header_matches_the_wallpaper_abi() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers");
     let json = catalog_json(&oxyos_wallpaper::Catalog::read(&root), "es-ES");
-    assert_eq!(json["default"], "oxyos");
+    assert_eq!(json["default"], "solar-gradients");
     assert_eq!(json["categories"][0]["id"], "dynamic");
     let horizon = json["categories"][0]["wallpapers"]
         .as_array()

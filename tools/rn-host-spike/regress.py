@@ -446,10 +446,11 @@ Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
 `wallpaper_all_desktops`, and the session's own lines, `wallpaper.DISPLAY` and
-`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). A
-scenario with `wallpaper` ({tz, now}) fixes the moment the wallpaper
-follows (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on) and the time zone whose sun a
-`sun` wallpaper's Automatic follows (ADR 0012).
+`wallpaper.DISPLAY.N`; `{repo}` in a value is the repository's root, for a photo's path). Every
+run fixes the moment and the place a `sun` wallpaper's Automatic follows (ADR 0012): the default,
+Solar Gradients, shows its Midday (`OXYOS_WALLPAPER_NOW`, unix seconds, which never moves on: 14:00
+in Madrid on the June solstice; `OXYOS_WALLPAPER_PLACE`, Madrid). A scenario with `wallpaper`
+({tz, now}) fixes its own moment and the time zone whose sun it follows.
 
 A scenario with `reader` ({}) runs the session's screen reader (`oxyos-reader`, beside the
 offscreen compositor unless `--reader` names it), which speaks the session's language (the
@@ -690,6 +691,12 @@ RUN_LOCALE = FIXED_LOCALE
 SPANISH_WEEKDAYS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 SPANISH_MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
                   "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+# What every run's sun wallpaper follows unless a scenario says (ADR 0048): 2026-06-21 12:00 UTC,
+# 14:00 in Madrid.
+SOLSTICE_AFTERNOON = 1782043200
+MADRID = "40.4,-3.68"
 
 
 def clock_said(t_ns):
@@ -5421,11 +5428,16 @@ def main():
     # developer's machine's.
     env["OXYOS_WALLPAPERS"] = str(pathlib.Path(__file__).resolve().parents[2] /
                                   "config/includes.chroot_after_packages/usr/share/oxyos/wallpapers")
-    env.pop("OXYOS_WALLPAPER_NOW", None)
+    # The default wallpaper, Solar Gradients, follows the sun: what any run sees of it is fixed, the
+    # sun at 14:00 in Madrid on the June solstice (its Midday), whatever the machine's clock and
+    # time zone.
+    env["OXYOS_WALLPAPER_NOW"] = str(SOLSTICE_AFTERNOON)
+    env["OXYOS_WALLPAPER_PLACE"] = MADRID
     if scenario.get("wallpaper"):
-        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), fixed.
+        # The moment the wallpaper follows and the time zone of its sun (ADR 0012), the scenario's.
         wallpaper = scenario["wallpaper"]
         env["TZ"] = wallpaper["tz"]
+        env.pop("OXYOS_WALLPAPER_PLACE")
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
