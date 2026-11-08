@@ -21,6 +21,7 @@ import {
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiKey2Line,
   RiLoginBoxLine,
   RiLockLine,
   RiMouseLine,
@@ -139,6 +140,7 @@ import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { PasswordsPage } from "./PasswordsPage";
 import { StoragePage } from "./StoragePage";
 import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
@@ -2271,6 +2273,9 @@ export function Settings({
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
   const accountKind = account?.kind;
+  // Passwords where the platform keeps an account's keychain: with an account session, once it told
+  // the account (docs/adr/0050-keychain-autofill-and-passkeys.mdx: the keychain is the account's).
+  const keychain = actions.keychain !== undefined && accountKind !== undefined;
   const accountName = account?.kind === "signed_in" ? account.name : null;
   const accountPicture = account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : "";
   const AccountIcon = React.useMemo(() => {
@@ -2326,6 +2331,9 @@ export function Settings({
           { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
           { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
           { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
+          // After Lock Screen, as a Mac lists Passwords after Touch ID & Password: where the
+          // platform has an account session to keep them (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+          ...(keychain ? [{ key: "passwords", label: words.passwords, icon: RiKey2Line, page: "passwords" }] : []),
           { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
           { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
         ],
@@ -2355,7 +2363,7 @@ export function Settings({
         ],
       },
     ];
-  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon]);
+  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon, keychain]);
   const pages = React.useMemo<Record<string, SettingsModalPage>>(
     () => ({
       ...(accountKind
@@ -2366,6 +2374,7 @@ export function Settings({
       notifications: { title: words.notifications, content: <WithPageProps render={NotificationsPage} /> },
       sound: { title: words.sound, content: <WithPageProps render={SoundPage} /> },
       "lock-screen": { title: words.lockScreen, content: <WithPageProps render={LockScreenPage} /> },
+      ...(keychain ? { passwords: { title: words.passwords, content: <WithPageProps render={PasswordsPage} /> } } : {}),
       displays: { title: words.displays, content: <WithPageProps render={DisplaysPage} /> },
       accessibility: { title: words.accessibility, content: <WithPageProps render={AccessibilityPage} /> },
       keyboard: { title: words.keyboard, content: <WithPageProps render={KeyboardPage} /> },
@@ -2396,7 +2405,7 @@ export function Settings({
           }
         : {}),
     }),
-    [strings, words, networked, bluetooth, powerPage, accountKind],
+    [strings, words, networked, bluetooth, powerPage, accountKind, keychain],
   );
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);
