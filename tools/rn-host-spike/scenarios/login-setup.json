@@ -1,5 +1,5 @@
 {
-  "about": "Adding an Oxy account at the first boot (docs/adr/0020-oxy-account-login.mdx, decision 4, step 2), against a played Oxy API and a played accounts' service (no credential of anyone's): online, the login screen runs the Oxy SDK's own sign-in (OxyProvider with OxyOS's client id from the service's `platform`, and a store that hands the credential to the host and keeps nothing); the account signs in with the code sent to its email and, having no password, sets one through the SDK's own flow, confirmed with a code; the person gives the password once more (a wrong one shakes the field and is said), and the accounts' service sets the account up with the credential and the password, asking the authenticator's code on the same conversation (a wrong code said, then the right one). Enrolled, the new account is listed and chosen, and its password signs in.",
+  "about": "Adding an Oxy account at the first boot (docs/adr/0020-oxy-account-login.mdx, decisions 2 and 4, step 2), against a played Oxy API and a played accounts' service (no credential of anyone's): online, the login screen runs the Oxy SDK's own sign-in (OxyProvider with OxyOS's client id from the service's `platform`, and a store that hands the credential to the host and keeps nothing); the account signs in with the code sent to its email; the person chooses a PIN for this computer, typed twice, then gives the account's password once more (a wrong one shakes the field and is said), and the accounts' service sets the account up with the credential, the password and the PIN, asking the authenticator's code on the same conversation (a wrong code said, then the right one). Enrolled, the new account is listed and chosen, its PIN's field focused, and its PIN signs in.",
   "shell": "OxyOSLogin",
   "outputs": "1280x1000",
   "login": {
@@ -14,7 +14,7 @@
       "id": "0123456789abcdef01234569",
       "username": "ada",
       "name": "Ada Lovelace",
-      "has_password": false,
+      "has_password": true,
       "device": {
         "deviceId": "played-device-1",
         "deviceSecret": "played-device-secret-1"
@@ -120,104 +120,7 @@
       "expect": {}
     },
     {
-      "name": "no password yet: the SDK's own flow sets one",
-      "do": [
-        "wait",
-        1500
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "in_shell": {
-          "texts": [
-            "Set a password",
-            "New password",
-            "Repeat the password"
-          ]
-        }
-      }
-    },
-    {
-      "name": "a password",
-      "do": [
-        "type",
-        "played password 1"
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "repeated",
-      "do": [
-        "press",
-        [
-          639,
-          505
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "typed again",
-      "do": [
-        "type",
-        "played password 1"
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "Send code: confirmed with a code sent by email",
-      "do": [
-        "press_named",
-        "Send code"
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "oxy_requests": [
-          "POST /users/me/reauth/email 200"
-        ]
-      }
-    },
-    {
-      "name": "the code's field",
-      "do": [
-        "wait",
-        1200
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "in_shell": {
-          "texts": [
-            "We sent a 6-digit code to your email."
-          ]
-        }
-      }
-    },
-    {
-      "name": "the code",
-      "do": [
-        "type",
-        "246810"
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "Save password: the account has a password",
-      "do": [
-        "press_named",
-        "Save password"
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "oxy_requests": [
-          "PUT /users/me/password 200"
-        ]
-      }
-    },
-    {
-      "name": "the password once more, for OxyOS",
+      "name": "signed in: a PIN for this computer asked, its field focused",
       "do": [
         "wait",
         2000
@@ -226,12 +129,37 @@
       "expect": {
         "in_shell": {
           "texts": [
+            "Choose a PIN for this computer",
+            "Not Now"
+          ],
+          "absent": [
+            "Set a password"
+          ],
+          "focus_input": "login-setup-pin-password"
+        }
+      }
+    },
+    {
+      "name": "the PIN, typed twice",
+      "do": [
+        "keyboard",
+        "482916\n482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
             "Enter Ada Lovelace's password",
             "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
           ],
           "absent": [
-            "Set a password"
-          ]
+            "Choose a PIN for this computer"
+          ],
+          "focus_input": "login-setup-password"
         }
       }
     },
@@ -299,32 +227,40 @@
         "in_shell": {
           "texts": [
             "Ada Lovelace",
-            "Add Account"
+            "Add Account",
+            "Use Password"
           ],
           "absent": [
             "Add an Oxy Account",
             "Enter the code from your authenticator app"
-          ]
+          ],
+          "focus_input": "login-pin-password"
         }
       }
     },
     {
-      "name": "its password signs it in",
+      "name": "its PIN signs it in",
       "do": [
         "keyboard",
-        "oxyos.correcta\n"
+        "482916\n"
       ],
+      "allow_unchanged": true,
       "expect": {
+        "accounts_asked": [
+          "verifyPin: accepted"
+        ],
         "shell": {
           "locked": true,
           "signed_in": true
         },
         "never": [
+          "482916",
           "oxyos.correcta",
           "played password 1"
         ],
         "in_shell": {
           "never": [
+            "482916",
             "oxyos.correcta",
             "played password 1"
           ]
