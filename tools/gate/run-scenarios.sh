@@ -17,6 +17,7 @@
 #
 # The runs, in order:
 #   1. every scenario but those below, GATE_JOBS at a time;
+#   Phases 1 to 4 run for one gate at a time on the machine (a lock; builds may overlap).
 #   2. one at a time, alone on the cores the machine reserves for the gate (oxyos-gate-cpus, where
 #      the machine has it, tools/gate/machine.sh): the scenarios that hold a budget on time (perf-*,
 #      refresh-*), which beside siblings would measure each other, and then once more each that
@@ -98,6 +99,8 @@ done
 # paint on the CPU, as the scenarios' pixels were written (a machine with a GPU offers it to the
 # hosts, whose Ganesh draws a level or two apart, and keeps scratch textures); phase 4 is the GPU's.
 cat > "$R/run-one.sh" <<EOF
+# The gate's lock is the gate's: nothing a run starts keeps it.
+exec 8>&-
 n=\$1; shift
 out=$R/scenarios/\$n
 python3 -X faulthandler tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/\${n%%@*}.json --offscreen $T/oxyos-offscreen \\
@@ -108,14 +111,16 @@ EOF
 mkdir -p "$R/scenarios"; : > "$R/failed"
 said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3 | cut -c1-240; }
 
+# One gate's scenarios at a time on this machine, whoever runs it (the runner, a deploy): beside
+# another gate's they would measure each other, and the reserved cores below are the gate's slice's,
+# so another run's would share them. Builds may run beside each other; scenarios may not.
+lock=/run/lock/oxyos-gate.lock; [ -w $lock ] || lock=$OXYOS_CACHE/gate.lock
+exec 8>>"$lock"
+flock -n 8 || { phase "waiting for another gate run's scenarios to end"; flock 8; }
 grep -vE '^(perf|refresh)-' "$R/list" | xargs -P "$GATE_JOBS" -I{} sh -c "sh '$R/run-one.sh' {} --renderer cpu || echo {} >> '$R/failed'"
 phase "$(grep -vcE '^(perf|refresh)-' "$R/list") scenarios run, $GATE_JOBS at a time: $(wc -l < "$R/failed") failed"
 
-# Alone, on the reserved cores: one run at a time on this machine (the lock), and the cores given
-# back however this ends.
-lock=/run/lock/oxyos-gate-timing.lock; [ -w $lock ] || lock=$W/.locks/timing
-exec 8>>"$lock"
-flock 8
+# Alone, on the reserved cores, given back however this ends.
 reserve=/usr/local/libexec/oxyos-gate-cpus
 reserved=
 if [ -x $reserve ] && sudo -n $reserve reserve 2>/dev/null; then
@@ -132,7 +137,6 @@ for n in $(cat "$R/failed"); do
   sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"; fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"; }
 done
 [ -n "$reserved" ] && { sudo -n $reserve release; trap - EXIT; }
-flock -u 8
 phase "$(grep -cE '^(perf|refresh)-' "$R/list") timing scenarios run alone; every failure passed alone"
 
 # Through the kernel's virtual devices (docs/adr/0042-scrolling.mdx): each reads only its own
@@ -177,5 +181,6 @@ else
   done
   phase "gpu-client and $(echo $GPU_ONLY_SCENARIOS | wc -w) scenarios composed on the GPU alone run"
 fi
+flock -u 8
 phase "scenarios passed"
 [ -z "$own" ] || rm -rf "$R"

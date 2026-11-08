@@ -150,8 +150,8 @@ $GATE_USER ALL=(root) NOPASSWD: /usr/local/libexec/oxyos-gate-cpus reserve, /usr
 EOF
 chmod 440 /etc/sudoers.d/oxyos-gate
 visudo -cq -f /etc/sudoers.d/oxyos-gate
-# One run at a time on the reserved cores, whoever runs it (the runner, a deploy).
-echo "f /run/lock/oxyos-gate-timing.lock 0666 root root -" > /etc/tmpfiles.d/oxyos-gate.conf
+# One gate's scenarios at a time, whoever runs it (the runner, a deploy).
+echo "f /run/lock/oxyos-gate.lock 0666 root root -" > /etc/tmpfiles.d/oxyos-gate.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/oxyos-gate.conf
 systemctl daemon-reload
 echo "machine.sh: $GATE_USER, oxyosgate.slice, $(sed -n 's/^GATE_CPUS=//p' /etc/oxyos-gate.conf) reserved"

@@ -145,7 +145,8 @@ prepares it, and running it again changes nothing that is already so:
 - `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
   the first four physical cores and their SMT siblings for the gate alone while its timing
   scenarios run, every other CPU for the rest of the machine; a reservation releases itself after
-  30 minutes, and one gate run at a time holds it (`/run/lock/oxyos-gate-timing.lock`).
+  30 minutes. Only one gate's scenarios run at a time on the machine (`/run/lock/oxyos-gate.lock`):
+  a deploy's gate waits for the runner's, and the other way round. Their builds may overlap.
 
 `machine.sh runner` registers the runner with a registration token on stdin, never written anywhere:
 
