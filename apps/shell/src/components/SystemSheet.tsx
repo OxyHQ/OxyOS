@@ -13,6 +13,8 @@ import {
   type SheetText,
 } from "../sheet";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 export const SHEET_WIDTH = 380;
 /** Every sheet is this tall, its words scrolling within it, and its buttons are this wide at its
@@ -65,6 +67,7 @@ export const SystemSheet = memo(function SystemSheet({
   /** The keys its surface receives, where the platform offers them. */
   keyboard?: ShellKeyboard;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const view = sheetView(text, messages, names);
   const [password, setPassword] = useState("");
@@ -124,7 +127,7 @@ export const SystemSheet = memo(function SystemSheet({
         style={{
           width: SHEET_WIDTH,
           height: SHEET_HEIGHT,
-          backgroundColor: "#ffffffee",
+          backgroundColor: glass("#ffffffee", reduced),
           borderRadius: 18,
           padding: 20,
           gap: 12,

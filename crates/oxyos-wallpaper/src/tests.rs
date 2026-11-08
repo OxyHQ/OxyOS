@@ -36,8 +36,8 @@ fn catalog(name: &str) -> Catalog {
                          {"id": "dark", "name": {"en": "Dark"}, "file": "dark.svg", "appearance": "dark"}]}"#,
     );
     write(
-        &root.join("horizon/wallpaper.json"),
-        r#"{"name": {"en": "Horizon", "es": "Horizonte"}, "category": "dynamic", "automatic": "sun", "preview": "day",
+        &root.join("solar-gradients/wallpaper.json"),
+        r#"{"name": {"en": "Solar Gradients", "es": "Degradados solares"}, "category": "dynamic", "automatic": "sun", "preview": "day",
             "variants": [{"id": "night", "name": {"en": "Night"}, "file": "night.svg", "sun": {"elevation": -30, "azimuth": 0}},
                          {"id": "dawn", "name": {"en": "Dawn"}, "file": "dawn.svg", "sun": {"elevation": -12, "azimuth": 90}},
                          {"id": "day", "name": {"en": "Day"}, "file": "day.svg", "sun": {"elevation": 60, "azimuth": 180}},
@@ -67,10 +67,10 @@ fn catalog(name: &str) -> Catalog {
     for file in [
         "oxyos/light.svg",
         "oxyos/dark.svg",
-        "horizon/night.svg",
-        "horizon/dawn.svg",
-        "horizon/day.svg",
-        "horizon/dusk.svg",
+        "solar-gradients/night.svg",
+        "solar-gradients/dawn.svg",
+        "solar-gradients/day.svg",
+        "solar-gradients/dusk.svg",
     ] {
         write(&root.join(file), SVG);
     }
@@ -96,14 +96,14 @@ const MADRID: oxyos_solar::Place = oxyos_solar::Place {
 fn the_catalog_is_read_strictly_in_its_categories_order() {
     let catalog = catalog("read");
     let ids: Vec<&str> = catalog.wallpapers.iter().map(|w| w.id.as_str()).collect();
-    assert_eq!(ids, ["horizon", "oxyos", "iris", "ocean"]);
+    assert_eq!(ids, ["oxyos", "solar-gradients", "iris", "ocean"]);
     assert_eq!(catalog.default.as_deref(), Some("oxyos"));
     assert_eq!(catalog.colors[0].color, Rgb([0x1f, 0x4f, 0xd8]));
     assert_eq!(catalog.colors[0].name.get("es-ES"), "Azul");
     assert_eq!(catalog.colors[1].name.get("es"), "Black");
     assert_eq!(
-        catalog.wallpaper("horizon").unwrap().name.get("es"),
-        "Horizonte"
+        catalog.wallpaper("solar-gradients").unwrap().name.get("es"),
+        "Degradados solares"
     );
     // No catalog: nothing, and the shell's blue shown.
     let none = Catalog::read(Path::new("/nonexistent"));
@@ -141,30 +141,54 @@ fn automatic_follows_the_appearance_or_the_sun() {
         "oxyos/light"
     );
     // The sun: Madrid at 03:00 on the June solstice is night, noon is day; no place, the preview.
-    let horizon = Choice::parse("horizon").unwrap();
+    let solar = Choice::parse("solar-gradients").unwrap();
     let night = show(
         &catalog,
-        &horizon,
+        &solar,
         &Moment {
             place: Some(MADRID),
             ..moment(1_782_003_600)
         },
     );
-    assert_eq!(night.key, "horizon/night");
+    assert_eq!(night.key, "solar-gradients/night");
     assert!(night.next.is_some_and(|next| next > 1_782_003_600));
     let noon = show(
         &catalog,
-        &horizon,
+        &solar,
         &Moment {
             place: Some(MADRID),
             ..moment(1_782_043_200)
         },
     );
-    assert_eq!(noon.key, "horizon/day");
+    assert_eq!(noon.key, "solar-gradients/day");
     assert_eq!(
-        show(&catalog, &horizon, &moment(1_782_003_600)).key,
-        "horizon/day"
+        show(&catalog, &solar, &moment(1_782_003_600)).key,
+        "solar-gradients/day"
     );
+}
+
+#[test]
+fn a_saved_horizon_shows_solar_gradients_following_the_sun() {
+    // Horizon was withdrawn (ADR 0048): a choice of it, Automatic or a fixed variant, is Solar
+    // Gradients' Automatic, never the default's or a missing wallpaper's.
+    let catalog = catalog("withdrawn");
+    for text in ["horizon", "horizon/day", "horizon/sunset"] {
+        let choice = Choice::parse(text).unwrap();
+        let at = |now| Moment {
+            place: Some(MADRID),
+            ..moment(now)
+        };
+        assert_eq!(
+            show(&catalog, &choice, &at(1_782_003_600)).key,
+            "solar-gradients/night",
+            "{text}"
+        );
+        assert_eq!(
+            show(&catalog, &choice, &at(1_782_043_200)).key,
+            "solar-gradients/day",
+            "{text}"
+        );
+    }
 }
 
 #[test]
@@ -331,6 +355,14 @@ fn the_images_catalog_is_whole() {
         (solar.automatic, solar.variants.len()),
         (Automatic::Sun, 16)
     );
+    // And it is the only one that follows the sun (Horizon was withdrawn, ADR 0048).
+    let sun: Vec<&str> = catalog
+        .wallpapers
+        .iter()
+        .filter(|w| w.automatic == Automatic::Sun)
+        .map(|w| w.id.as_str())
+        .collect();
+    assert_eq!(sun, ["solar-gradients"]);
     assert!(!catalog.colors.is_empty());
     for wallpaper in &catalog.wallpapers {
         assert!(

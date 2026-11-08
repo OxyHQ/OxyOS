@@ -229,6 +229,41 @@ fn a_client_polls_for_events_without_blocking() {
     assert_eq!(closed.kind(), io::ErrorKind::UnexpectedEof);
 }
 
+/// The last event a compositor sends before it closes is read before the end, polled or waited
+/// for. Linux can report the end of a SEQPACKET connection with that event still queued, when
+/// the peer sends and closes between the two looks of one receive (`recv_packet`); believed, it
+/// lost the event (`accessibility_through_the_c_abi` saw the end where its action was). Many
+/// rounds, since each one is a race.
+#[test]
+fn the_last_event_before_the_end_is_read_before_the_end() {
+    let event = Event::Focus {
+        surface: 1,
+        focused: true,
+    };
+    for round in 0..2000 {
+        let (client, server) = Connection::pair().unwrap();
+        let compositor = std::thread::spawn(move || server.send_event(&event, None).unwrap());
+        let received = if round % 2 == 0 {
+            loop {
+                match client.try_recv_event() {
+                    Ok(Some((received, _))) => break received,
+                    Ok(None) => std::hint::spin_loop(),
+                    Err(error) => panic!("round {round}: {error} before the event"),
+                }
+            }
+        } else {
+            match client.recv_event() {
+                Ok((received, _)) => received,
+                Err(error) => panic!("round {round}: {error} before the event"),
+            }
+        };
+        assert_eq!(received, event);
+        compositor.join().unwrap();
+        let closed = client.try_recv_event().unwrap_err();
+        assert_eq!(closed.kind(), io::ErrorKind::UnexpectedEof);
+    }
+}
+
 #[test]
 fn the_compositor_reads_a_client_without_waiting_for_it() {
     let (client, server) = Connection::pair().unwrap();

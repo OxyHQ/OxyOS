@@ -176,12 +176,12 @@ void AccountSession::changeLocal(std::string change, std::string pin, std::strin
       std::move(done));
 }
 
-void AccountSession::enroll(std::string password, std::string pin, Done done) {
+void AccountSession::enroll(std::string password, std::string pin, std::string appearance, Stage stage, Done done) {
   auto credential = held_;
   auto secret = std::make_shared<std::string>(std::move(password));
   auto passcode = std::make_shared<std::string>(std::move(pin));
   run(
-      [this, credential, secret, passcode] {
+      [this, credential, secret, passcode, appearance = std::move(appearance), stage = std::move(stage)] {
         Answer answer;
         oxyos_account_enrollment_free(enrollment_);
         enrollment_ = nullptr;
@@ -189,7 +189,11 @@ void AccountSession::enroll(std::string password, std::string pin, Done done) {
           answer.error = "no credential was handed over";
         } else if (!(enrollment_ = oxyos_account_enrollment_new())) {
           answer.error = oxyos_last_error();
+        } else if (!appearance.empty() &&
+                   oxyos_account_enrollment_set_appearance(enrollment_, appearance.c_str()) != 0) {
+          answer.error = oxyos_last_error();
         } else {
+          reportStages(stage);
           std::string buffer(kMessage, '\0');
           auto& [deviceId, deviceSecret, accountId] = *credential;
           answer = answered(oxyos_account_enrollment_enroll(
@@ -205,14 +209,15 @@ void AccountSession::enroll(std::string password, std::string pin, Done done) {
       std::move(done));
 }
 
-void AccountSession::secondFactor(std::string code, Done done) {
+void AccountSession::secondFactor(std::string code, Stage stage, Done done) {
   auto secret = std::make_shared<std::string>(std::move(code));
   run(
-      [this, secret] {
+      [this, secret, stage = std::move(stage)] {
         Answer answer;
         if (!enrollment_) {
           answer.error = "no setup is under way";
         } else {
+          reportStages(stage);
           std::string buffer(kMessage, '\0');
           answer = answered(
               oxyos_account_enrollment_second_factor(enrollment_, secret->c_str(), buffer.data(), buffer.size()),
@@ -222,6 +227,55 @@ void AccountSession::secondFactor(std::string code, Done done) {
         return answer;
       },
       std::move(done));
+}
+
+void AccountSession::retry(Stage stage, Done done) {
+  run(
+      [this, stage = std::move(stage)] {
+        Answer answer;
+        if (!enrollment_) {
+          answer.error = "no setup is under way";
+        } else {
+          reportStages(stage);
+          std::string buffer(kMessage, '\0');
+          answer = answered(oxyos_account_enrollment_retry(enrollment_, buffer.data(), buffer.size()), buffer);
+        }
+        return answer;
+      },
+      std::move(done));
+}
+
+namespace {
+// What a setup's stages are told to: the session and the JavaScript function, for the call under
+// way (the worker's alone, replaced by each call).
+struct StageReport {
+  AccountSession* session;
+  AccountSession::Stage stage;
+};
+thread_local std::unique_ptr<StageReport> currentReport;
+}  // namespace
+
+void AccountSession::reportStages(Stage stage) {
+  currentReport = stage ? std::make_unique<StageReport>(StageReport{this, std::move(stage)}) : nullptr;
+  oxyos_account_enrollment_on_progress(enrollment_, currentReport ? &AccountSession::reported : nullptr,
+                                       currentReport.get());
+}
+
+void AccountSession::reported(void* context, const char* stage) {
+  auto* report = static_cast<StageReport*>(context);
+  if (!report || !stage) return;
+  std::string name(stage);
+  auto told = report->stage;
+  report->session->post(Answer{}, [told, name](Answer&) { told(name); });
+}
+
+void AccountSession::post(Answer answer, Done done) {
+  {
+    std::lock_guard lock(mutex_);
+    answers_.emplace_back(std::move(answer), std::move(done));
+  }
+  uint64_t one = 1;
+  if (write(wake_, &one, sizeof one) < 0) std::cerr << "[host] the Oxy session could not wake the host\n";
 }
 
 void AccountSession::endEnrollment() {
@@ -250,12 +304,7 @@ void AccountSession::work() {
     }
     Answer answer = next.first();
     if (!next.second) continue;
-    {
-      std::lock_guard lock(mutex_);
-      answers_.emplace_back(std::move(answer), std::move(next.second));
-    }
-    uint64_t one = 1;
-    if (write(wake_, &one, sizeof one) < 0) std::cerr << "[host] the Oxy session could not wake the host\n";
+    post(std::move(answer), std::move(next.second));
   }
 }
 

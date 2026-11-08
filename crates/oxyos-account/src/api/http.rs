@@ -297,6 +297,7 @@ struct PasswordRequest<'a> {
 struct PlatformDeviceRequest<'a> {
     device: Proof<'a>,
     platform_client: &'a PlatformClient,
+    redemption_key: &'a RedemptionKey,
 }
 
 #[derive(Serialize)]
@@ -419,18 +420,21 @@ impl OxyApi for HttpApi {
         &self,
         device: &DeviceCredential,
         platform: &PlatformClient,
+        key: &RedemptionKey,
     ) -> Result<SignedIn, ApiError> {
         let answer = self.post(
             "/session/device/platform",
             &PlatformDeviceRequest {
                 device: device.into(),
                 platform_client: platform,
+                redemption_key: key,
             },
         )?;
         match parse::<SignInAnswer>(&answer) {
             Ok(step) => signed_in(step),
-            // One answer for every proof that cannot be redeemed (replayed, stale, another
-            // client's, an account no longer on the device, a wrong secret): never told apart.
+            // One answer for every proof that cannot be redeemed (replayed without its key or with
+            // another, stale, another client's, an account no longer on the device, a wrong
+            // secret): never told apart.
             Err(ApiError::Refused { status: 401, .. }) => Err(ApiError::InvalidDeviceSecret),
             Err(error) => Err(error),
         }

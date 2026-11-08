@@ -1,5 +1,5 @@
 {
-  "about": "The login screen at the first boot (docs/adr/0020-oxy-account-login.mdx, step 2): no account is enrolled, so it opens on adding one; offline (Oxy's API is a refused port), setup says it needs the network and does nothing else: no account, no password field, nobody signed in, and no way back to an empty list. Reintentar looks again, offline still.",
+  "about": "The login screen at the first boot, offline (docs/adr/0020-oxy-account-login.mdx, step 2 and the setup assistant's amendment), in Spanish: no account is enrolled, so it opens on the setup assistant's welcome. Empezar checks the connection: offline (Oxy's API is a refused port), the assistant's Connect page says why setup needs the internet once and that it works offline after, with Reintentar and Atrás (to the welcome): no account, no password field, nobody signed in. Reintentar looks again, offline still.",
   "locale": "es_ES.UTF-8",
   "shell": "OxyOSLogin",
   "login": {
@@ -9,13 +9,10 @@
   },
   "steps": [
     {
-      "name": "Reintentar: still offline, and nothing else is offered",
+      "name": "the welcome",
       "do": [
-        "a11y-action",
-        [
-          "activate",
-          "Reintentar"
-        ]
+        "wait",
+        1500
       ],
       "allow_unchanged": true,
       "expect": {
@@ -33,12 +30,101 @@
         },
         "in_shell": {
           "texts": [
-            "Añadir una cuenta de Oxy",
-            "Para añadir una cuenta hace falta conexión a internet",
+            "Te damos la bienvenida a OxyOS",
+            "Empezar"
+          ],
+          "absent": [
+            "Atrás",
+            "Introduce la contraseña"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Empezar pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Empezar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Empezar: offline, the Connect page, step 2 of 6",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false,
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Conéctate a internet",
+            "Para configurar una cuenta hace falta internet una vez, para iniciar sesión con Oxy.",
+            "Reintentar",
+            "Atrás",
+            "Paso 2 de 6"
+          ],
+          "absent": [
+            "Introduce la contraseña"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reintentar pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Reintentar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Reintentar: still offline, and nothing else is offered",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false,
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        },
+        "in_shell": {
+          "texts": [
+            "Conéctate a internet",
+            "Para configurar una cuenta hace falta internet una vez, para iniciar sesión con Oxy.",
             "Reintentar"
           ],
           "absent": [
-            "Volver",
             "Introduce la contraseña"
           ]
         }
@@ -48,10 +134,7 @@
   "final": {
     "in_shell": {
       "texts": [
-        "Para añadir una cuenta hace falta conexión a internet"
-      ],
-      "absent": [
-        "Volver"
+        "Para configurar una cuenta hace falta internet una vez, para iniciar sesión con Oxy."
       ]
     }
   }

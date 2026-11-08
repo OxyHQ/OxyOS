@@ -45,6 +45,7 @@
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
+#include <algorithm>
 #include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -500,7 +501,10 @@ int main(int argc, char** argv) {
   // given the region the keyboard; "popup-focus-first", the compositor's keyboard moves (its focus
   // in and out) held from a menu's opening until its tree is published with JavaScript's
   // accessibility focus, as a loaded machine reads the keyboard's enter on a menu after Bloom's
-  // move into it. Unset, nothing is forced.
+  // move into it; "window-focus-first", an application window's (never the shell's) commits mounted
+  // only at the host's frame, so a dialog's mount, the focus it asks for its default control
+  // (Bloom's `initialFocus`) and the host following it coming fall in one frame, before the dialog
+  // has measured itself and shown (decision 27). Unset, nothing is forced.
   const std::string testOrder = [] {
     const char* order = std::getenv("OXYOS_HOST_TEST_ORDER");
     return std::string(order ? order : "");
@@ -508,6 +512,7 @@ int main(int argc, char** argv) {
   const bool focusFirst = shellMode && testOrder == "focus-first";
   const bool grantFirst = shellMode && testOrder == "grant-first";
   const bool popupFocusFirst = shellMode && testOrder == "popup-focus-first";
+  const bool windowFocusFirst = !shellMode && testOrder == "window-focus-first";
   const bool windowed = outPath == "--window" || shellMode;
   const uint32_t output = shellMode && argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4])) : 1;
   const char* socket = std::getenv("OXYOS_COMPOSITOR_SOCKET");
@@ -693,7 +698,9 @@ int main(int argc, char** argv) {
                   if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
                   if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
                   if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
-                  std::cerr << "[host] TurboModule unavailable: " << name << "\n";
+                  // One write: `std::cerr` writes each `<<` at once, and the session's other
+                  // processes write to the same log while an application starts.
+                  std::cerr << ("[host] TurboModule unavailable: " + name + "\n");
                   return nullptr;
                 }));
   });
@@ -781,7 +788,7 @@ int main(int argc, char** argv) {
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
-  mounter.mountAtFrame = focusFirst;
+  mounter.mountAtFrame = focusFirst || windowFocusFirst;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -1188,6 +1195,8 @@ int main(int argc, char** argv) {
     folly::dynamic toldShellState = nullptr;
     // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
+    // Reduce transparency as the session told it at connect: expo-blur's views blur nothing.
+    if (window) oxyos::setReducedTransparency(window->drawing().reduceTransparency);
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
     // The session's locale as JavaScript was last told it (docs/adr/0040-language-and-region.mdx):
@@ -1274,23 +1283,30 @@ int main(int argc, char** argv) {
     uint32_t controlSerial = 0;
     // Launches and the URLs the shell opens are numbered together: each LAUNCH_RESULT names one.
     uint32_t launchSerial = 0;
-    // An application's requests to open the platform's Settings at a page, by their serial, each
-    // told what the session answered (docs/adr/0019-settings.mdx).
-    std::map<uint32_t, std::function<void(bool, const std::string&)>> settingsOpens;
+    // An application's requests to open a URL (the platform's Settings at a page, or another
+    // application's, docs/adr/0058-the-platform-api.mdx, step 6), by their serial, each told what
+    // the session answered.
+    std::map<uint32_t, std::function<void(bool, const std::string&)>> urlOpens;
     if (!shellMode) {
-      services.openSettingsUrl = [&window, &lastPress, &launchSerial, &settingsOpens](
-                                     const std::string& url, std::function<void(bool, const std::string&)> done) {
-        if (!window) return done(false, "OxyOS opens Settings only from an application's window");
-        if (window->protocolVersion() < OXYOS_APPLICATION_OPENS_SETTINGS_VERSION) {
-          return done(false, "this session cannot open Settings for an application (protocol version " +
+      services.openUrl = [&window, &lastPress, &launchSerial, &urlOpens](
+                             const std::string& url, std::function<void(bool, const std::string&)> done) {
+        if (!window) return done(false, "OxyOS opens a URL only from an application's window");
+        // Settings' since version 27; any other scheme's since 34: an older compositor closes the
+        // connection for it.
+        std::string scheme = url.substr(0, url.find(':'));
+        std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+        uint32_t needs = scheme == OXYOS_PLATFORM_SETTINGS_SCHEME ? OXYOS_APPLICATION_OPENS_SETTINGS_VERSION
+                                                                  : OXYOS_APPLICATION_OPENS_URLS_VERSION;
+        if (window->protocolVersion() < needs) {
+          return done(false, "this session cannot open " + scheme + " links for an application (protocol version " +
                                  std::to_string(window->protocolVersion()) + ")");
         }
-        if (lastPress == 0) return done(false, "OxyOS opens Settings only for something the person did");
+        if (lastPress == 0) return done(false, "OxyOS opens a URL only for something the person did");
         ++launchSerial;
         bool sent = window->openUrl(launchSerial, lastPress, url);
         oxyos::Report::get().input("url.open", 0, folly::dynamic::object("url", url)("sent", sent));
-        if (!sent) return done(false, "the request to open Settings could not be sent");
-        settingsOpens[launchSerial] = std::move(done);
+        if (!sent) return done(false, "the request to open it could not be sent");
+        urlOpens[launchSerial] = std::move(done);
       };
       // The lock from an application (the Oxy SDK's sign in, docs/adr/0020-oxy-account-login.mdx):
       // only while its window is the active one, which the compositor checks too.
@@ -1712,6 +1728,14 @@ int main(int argc, char** argv) {
     facebook::react::Tag modalFirstPending = -1;
     facebook::react::Tag lastScope = -1;
     uint32_t lastScopeSurface = 0;
+    // The application's last move of the keyboard's focus while it navigated, and what had the
+    // keyboard before it: a move into a modal the navigation had not followed yet (its default
+    // control, focused as it mounts: Bloom's dialog's `initialFocus`) leaves the keyboard there,
+    // and `from` is what the keyboard goes back to as the modal goes (docs/adr/0039-keyboard-access.mdx,
+    // decision 27).
+    struct ApplicationFocus {
+      facebook::react::Tag to = -1, from = -1;
+    } applicationFocus;
     // A dialog popup the keyboard went into from a control with its ring (a popover opened by Space
     // on its button), and that control, which has the keyboard back once the popup has gone.
     struct PopupReturn {
@@ -1762,9 +1786,28 @@ int main(int argc, char** argv) {
         return;
       }
       bool ring = keyboardFocus.ringShown();
-      if (was >= 0 && tree.views().count(was) && insideOf(scope, was) && scope != was) {
+      auto focused = keyboardFocus.focused();
+      bool came = was >= 0 && tree.views().count(was) && insideOf(scope, was) && scope != was;
+      if (came && focused >= 0 && insideOf(focused, scope)) {
+        // A modal came whose own control the application had already focused (a dialog's default
+        // button, focused in the commit that mounted it): that control keeps the keyboard, never the
+        // modal's first in its place (a destructive Delete before the default Cancel), and the
+        // keyboard goes back to what had it before as the modal goes.
+        auto back = applicationFocus.to == focused ? applicationFocus.from : -1;
+        bool outside = back >= 0 && tree.views().count(back) && !insideOf(back, scope);
+        keyboardFocus.remember(scope, outside ? back : -1, outside);
+      } else if (came && keyboardAfterMount >= 0 && tree.views().count(keyboardAfterMount) &&
+                 insideOf(keyboardAfterMount, scope)) {
+        // A modal came whose own control the application asked to focus before it could take the
+        // keyboard (a dialog's buttons until it has measured itself and shows, a frame later): the
+        // keyboard waits for that control (`keyboardAfterMount`), never the modal's first in its
+        // place, and goes back to what it was on as the modal goes. The modal's first has it if
+        // that control never can.
+        keyboardFocus.remember(scope, focused, ring);
+        modalFirstPending = ring ? scope : -1;
+      } else if (came) {
         // A modal came over what had the keyboard.
-        keyboardFocus.remember(scope, keyboardFocus.focused(), ring);
+        keyboardFocus.remember(scope, focused, ring);
         if (ring) {
           auto first = oxyos::focusables(tree, scope);
           moveKeyboardFocus(first.empty() ? -1 : first.front(), true, keyboardSurface);
@@ -1951,6 +1994,9 @@ int main(int argc, char** argv) {
         }
         auto target = keyboardFocus.next(navigationScope(event.surface), key == NavigationKey::Previous);
         if (target >= 0) moveKeyboardFocus(target, true, event.surface);
+        // The person moved the keyboard: a control the application asked for, not focusable yet, no
+        // longer takes it.
+        keyboardAfterMount = -1;
         return;
       }
       const auto& shadow = tree.views().at(keyboardFocus.focused()).view;
@@ -2023,15 +2069,18 @@ int main(int argc, char** argv) {
         popups.changed();
         shellSurfaces.changed();
         // While the keyboard is navigating, the application's focus moves (Bloom giving a closed
-        // menu's or dialog's trigger the focus back) take the keyboard's with them.
+        // menu's or dialog's trigger the focus back) take the keyboard's with them: its ring shows,
+        // or a modal came with it showing and waits for a control of its own (`modalFirstPending`).
         // A view not in the tree yet is created by that commit (a field mounted with the focus, the
         // login screen's for the account just chosen): its place is known once it is mounted.
         auto scope = navigationScope(keyboardSurface);
-        if (keyboardFocus.ringShown() && scope >= 0 && view.tag != keyboardFocus.focused()) {
+        if ((keyboardFocus.ringShown() || modalFirstPending == scope) && scope >= 0 &&
+            view.tag != keyboardFocus.focused()) {
           if (!tree.views().count(view.tag)) {
             keyboardAfterMount = view.tag;
           } else if (insideOf(view.tag, scope)) {
             if (oxyos::focusable(tree, view.tag)) {
+              applicationFocus = {view.tag, keyboardFocus.focused()};
               moveKeyboardFocus(view.tag, true, keyboardSurface);
             } else {
               keyboardAfterMount = view.tag;
@@ -2250,6 +2299,7 @@ int main(int argc, char** argv) {
               // takes focus off a control that is no text input (a press focuses inputs itself).
               if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && !withheld) {
                 modalFirstPending = -1;
+                keyboardAfterMount = -1;
               }
               if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && !withheld &&
                   keyboardFocus.focused() >= 0) {
@@ -2422,6 +2472,14 @@ int main(int argc, char** argv) {
             dirty = true;
           }
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
+          // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
+          // again), every one of them, though none of their props changed: the window is drawn
+          // again whole, as when the painter changes.
+          if (now.reduceTransparency != toldDrawing->reduceTransparency) {
+            oxyos::setReducedTransparency(now.reduceTransparency);
+            painterChanged = true;
+            dirty = true;
+          }
           emit("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;
@@ -2582,11 +2640,11 @@ int main(int argc, char** argv) {
         for (const auto& result : launchResults) {
           oxyos::Report::get().input("launch.result", 0,
                                      folly::dynamic::object("serial", result.code)("launched", result.flag != 0));
-          // An application's Settings opened at a page: its own answer.
-          if (auto asked = settingsOpens.find(result.code); asked != settingsOpens.end()) {
+          // An application's URL opened: its own answer.
+          if (auto asked = urlOpens.find(result.code); asked != urlOpens.end()) {
             auto done = std::move(asked->second);
-            settingsOpens.erase(asked);
-            done(result.flag != 0, result.flag != 0 ? "" : "the session did not open Settings");
+            urlOpens.erase(asked);
+            done(result.flag != 0, result.flag != 0 ? "" : "no application opened it");
             continue;
           }
           instance->callFunctionOnModule(
@@ -2827,11 +2885,15 @@ int main(int argc, char** argv) {
         followScope();
         if (modalFirstPending >= 0) {
           auto scope = navigationScope(keyboardSurface);
-          // The ring was showing as it came (it is set only then); a focus since (a press, an
-          // application's) ends the wait.
-          if (scope != modalFirstPending || keyboardFocus.focused() >= 0) {
+          // The ring was showing as it came (it is set only then); a focus in it since (a press, an
+          // application's) ends the wait, and a control of its own the application asked for, not
+          // laid out or shown yet, prolongs it.
+          auto focused = keyboardFocus.focused();
+          bool awaited = keyboardAfterMount >= 0 && tree.views().count(keyboardAfterMount) &&
+                         insideOf(keyboardAfterMount, scope);
+          if (scope != modalFirstPending || (focused >= 0 && insideOf(focused, scope))) {
             modalFirstPending = -1;
-          } else if (auto first = oxyos::focusables(tree, scope); !first.empty()) {
+          } else if (auto first = oxyos::focusables(tree, scope); !awaited && !first.empty()) {
             modalFirstPending = -1;
             moveKeyboardFocus(first.front(), true, keyboardSurface);
           }
@@ -2840,9 +2902,17 @@ int main(int argc, char** argv) {
           auto tag = keyboardAfterMount;
           keyboardAfterMount = -1;
           auto scope = navigationScope(keyboardSurface);
-          if (keyboardFocus.ringShown() && scope >= 0 && tag != keyboardFocus.focused() && tree.views().count(tag) &&
-              oxyos::focusable(tree, tag) && insideOf(tag, scope)) {
-            moveKeyboardFocus(tag, true, keyboardSurface);
+          if ((keyboardFocus.ringShown() || modalFirstPending == scope) && scope >= 0 &&
+              tag != keyboardFocus.focused() && tree.views().count(tag) && insideOf(tag, scope)) {
+            if (oxyos::focusable(tree, tag)) {
+              applicationFocus = {tag, keyboardFocus.focused()};
+              moveKeyboardFocus(tag, true, keyboardSurface);
+            } else if (modalFirstPending == scope && oxyos::focusableOnceShown(tree, tag)) {
+              // A control of a modal coming that is not laid out or shown yet (a dialog's buttons
+              // until it has measured itself, a frame later): the modal waits for it, and it takes
+              // the keyboard once it can, unless the person moves the keyboard first.
+              keyboardAfterMount = tag;
+            }
           }
         }
         // A shell region given the keyboard puts its focus where it asks (its `focusTarget`).

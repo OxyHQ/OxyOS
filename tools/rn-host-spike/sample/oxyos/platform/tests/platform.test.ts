@@ -71,6 +71,22 @@ test('a call is the wire request, and resolves with what succeeded', async () =>
   assert.deepEqual(sent.at(-1)?.body, { bluetoothConnect: { id: 'dev' } });
 });
 
+test("Wi-Fi's private address, resetting and diagnostics are the session's requests (ADR 0038)", async () => {
+  const { platform, sent, answer } = played();
+  const set = platform.network.setPrivateAddress('uuid-1', 'rotating');
+  assert.deepEqual(sent.at(-1)?.body, { privateAddress: { id: 'uuid-1', mode: 'rotating' } });
+  answer(sent.at(-1)!.serial, { privateAddress: { mode: 'rotating', rejoined: true } });
+  assert.deepEqual(await set, { privateAddress: { mode: 'rotating', rejoined: true } });
+  void platform.network.resetPreview();
+  assert.deepEqual(sent.at(-1)?.body, { networkResetPreview: {} });
+  const reset = platform.network.reset();
+  assert.deepEqual(sent.at(-1)?.body, { networkReset: {} });
+  answer(sent.at(-1)!.serial, { failed: { reason: 'busy' } });
+  await assert.rejects(reset, (error) => isPlatformError(error, 'busy') && error.domain === 'network');
+  void platform.network.diagnose();
+  assert.deepEqual(sent.at(-1)?.body, { wifiDiagnostics: {} });
+});
+
 test('a refusal or a failure rejects with a PlatformError of its framework, never resolves', async () => {
   const { platform, sent, answer } = played();
   const refused = platform.power.setChargeLimit(true);

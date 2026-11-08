@@ -448,8 +448,9 @@ fn a_qr_sign_in_is_redeemed_by_its_device_proof_alone_naming_the_platform() {
         "",
         r#"{"sessionId":"s-1","deviceId":"device-1","expiresAt":"2026-11-06T00:00:00.000Z","accessToken":"token-2","deviceSecret":"platform-secret-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"}}"#,
     );
+    let key = RedemptionKey::new().unwrap();
     let signed_in = api(&base)
-        .platform_device_sign_in(&credential(), &platform_client())
+        .platform_device_sign_in(&credential(), &platform_client(), &key)
         .unwrap();
     assert_eq!(
         signed_in,
@@ -461,14 +462,21 @@ fn a_qr_sign_in_is_redeemed_by_its_device_proof_alone_naming_the_platform() {
     );
     let request = request.join().unwrap();
     assert_eq!(request.line, "POST /session/device/platform HTTP/1.1");
-    // Exactly the contract's keys: the proof and the platform, no password, no identifier.
+    // Exactly the contract's keys: the proof, the platform and the redemption's key (R7), no
+    // password, no identifier.
     assert_eq!(
         request.body,
         serde_json::json!({
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
             "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+            "redemptionKey": key.expose(),
         })
     );
+    // 256 bits, as 64 hexadecimal digits: within the contract's 43 to 128 URL-safe characters.
+    assert_eq!(key.expose().len(), 64);
+    assert!(key.expose().bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_ne!(key.expose(), RedemptionKey::new().unwrap().expose());
+    assert_eq!(format!("{key:?}"), "RedemptionKey(…)");
     assert_eq!(request.header("origin"), None);
 }
 
@@ -479,14 +487,15 @@ fn a_proof_that_cannot_be_redeemed_is_one_refusal_and_a_limit_says_when() {
         "",
         r#"{"error":"invalid_grant","message":"Invalid grant"}"#,
     );
+    let key = RedemptionKey::new().unwrap();
     assert_eq!(
-        api(&base).platform_device_sign_in(&credential(), &platform_client()),
+        api(&base).platform_device_sign_in(&credential(), &platform_client(), &key),
         Err(ApiError::InvalidDeviceSecret)
     );
     request.join().unwrap();
     let (base, request) = server(429, "Retry-After: 120\r\n", r#"{"error":"rate_limited"}"#);
     assert_eq!(
-        api(&base).platform_device_sign_in(&credential(), &platform_client()),
+        api(&base).platform_device_sign_in(&credential(), &platform_client(), &key),
         Err(ApiError::Locked {
             retry_after: Some(120)
         })
