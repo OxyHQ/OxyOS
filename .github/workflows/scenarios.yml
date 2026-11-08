@@ -1,0 +1,37 @@
+name: Scenarios
+
+# The scenario gate (docs/developing.mdx): this tree's runtime and the applications' packages
+# built with Bloom, Dropsea and Atlas at tools/dev/pins, and every scenario run against them, on the gate
+# machine (a self-hosted runner, label oxyos-gate), for each pull request and for the merge queue,
+# so main only takes what passes together with what main already has. A required check of main.
+# Nothing here builds or publishes an image.
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scenarios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scenarios:
+    # A fork's pull request does not run on the gate machine (its code would run there unreviewed):
+    # the merge queue runs it once a maintainer queues it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, oxyos-gate]
+    timeout-minutes: 150
+    env:
+      # Kept between runs, outside the checkout (cleaned for every run): the Cargo build. The rest
+      # (toolchain, input methods, the applications at tools/dev/pins) is tools/dev/bootstrap's
+      # cache in the runner user's home (docs/developing.mdx).
+      CARGO_TARGET_DIR: ${{ github.workspace }}/../cargo-target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Every scenario
+        run: sh tools/gate/run-scenarios.sh
