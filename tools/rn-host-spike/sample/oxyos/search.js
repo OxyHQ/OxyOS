@@ -39,7 +39,7 @@ let stateLast = null;
 function tellState(state) {
   if (stateListeners.size === 0) return;
   stateLast = state;
-  for (const listener of [...stateListeners]) listener();
+  for (const listener of [...stateListeners]) listener(state);
 }
 
 if (native) {
@@ -127,8 +127,8 @@ export function createSearch() {
     setPreferences: (preferences) => ask({ setPreferences: preferences }),
     /** What the index holds and is doing, once. */
     status: () => ask({ status: {} }),
-    /** What the index holds and is doing, followed (`current`, `subscribe`: what React's
-        `useSyncExternalStore` takes): `{indexing, items, partial, rebuilding, found, ...}`, told by
+    /** What the index holds and is doing, followed (`@oxyos/platform`'s `Followed`: `current`,
+        `subscribe`, what React's `useSyncExternalStore` takes): `{indexing, items, partial, rebuilding, found, ...}`, told by
         the index as it changes, and only while someone follows it. The first subscriber asks the
         index to tell it; the last one gone asks it to stop. */
     state: Object.freeze({
