@@ -1011,37 +1011,6 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value(services.fileChooser.answer(args[0].asString(rt).utf8(rt)));
     });
     module->listeners();
-  } else if (name == "OxyOSNotifications") {
-    // An application's notifications, behind expo-notifications (sample/oxyos/expo-adapter.js,
-    // docs/adr/0026-notifications.mdx): posting, withdrawing, and the responses the session gave.
-    auto ready = [&services](jsi::Runtime& rt) {
-      if (!services.notifications.post) {
-        throw jsi::JSError(rt, "OxyOSNotifications: notifications need a connection to the compositor on OxyOS");
-      }
-    };
-    module->method("post", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      if (count < 2 || !args[0].isNumber() || !args[1].isObject()) {
-        throw jsi::JSError(rt, "OxyOSNotifications.post: a serial and the notification");
-      }
-      // An installed version posts only once its account granted it (ADR 0030, decision 8).
-      if (services.system.allows && !services.system.allows("notifications")) return jsi::Value(false);
-      return jsi::Value(services.notifications.post(static_cast<uint32_t>(args[0].asNumber()),
-                                                    jsi::dynamicFromValue(rt, args[1])));
-    });
-    module->method("withdraw", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      services.notifications.withdraw(count > 0 && args[0].isNumber() ? static_cast<uint32_t>(args[0].asNumber()) : 0);
-      return jsi::Value::undefined();
-    });
-    // Each response once: taken, it is JavaScript's.
-    module->method("takeResponses", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      folly::dynamic taken = folly::dynamic::array();
-      for (auto& response : services.notifications.responses) taken.push_back(std::move(response));
-      services.notifications.responses.clear();
-      return jsi::valueFromDynamic(rt, taken);
-    });
-    module->listeners();
   } else if (name == "OxyOSWindow") {
     // The application's own window (sample/oxyos/platform-surface.js, docs/adr/0016-windows.mdx).
     // `metrics` are the platform's: where the controls are and the room they take, the same for

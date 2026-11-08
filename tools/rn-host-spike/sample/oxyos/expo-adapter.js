@@ -3,17 +3,16 @@
  * expo-clipboard, expo-notifications, expo-constants, expo-crypto, expo-linking,
  * expo-localization, expo-secure-store, expo-haptics, expo-web-browser, @expo/app-integrity,
  * expo-blur's views and expo-image's view and module). expo-modules-core's own global polyfill
- * provides the module classes; the native work is done by the host's TurboModules
- * (OxyOSFontRegistry, OxyOSClipboard, OxyOSNotifications, OxyOSApplication, OxyOSCrypto,
- * OxyOSLocale, OxyOSExpoImage) and host components (expo-blur.h, expo-image.h). Anything OxyOS
- * cannot do fails loudly.
+ * provides the module classes; the native work is done by the platform API (`@oxyos/platform`:
+ * the pasteboard, notifications), the host's TurboModules (OxyOSFontRegistry, OxyOSApplication,
+ * OxyOSCrypto, OxyOSLocale, OxyOSExpoImage) and host components (expo-blur.h, expo-image.h).
+ * Anything OxyOS cannot do fails loudly.
  * expo-file-system's module is expo-file-system.js, installed after this.
  */
 import { launch, requestCapability } from './system';
 import { installExpoGlobalPolyfill } from 'expo-modules-core/src/polyfill/dangerous-internal';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
-import { pasteboard } from '@oxyos/platform';
-
+import { isPlatformError, notifications, pasteboard } from '@oxyos/platform';
 
 installExpoGlobalPolyfill();
 
@@ -425,12 +424,11 @@ Object.assign(ExpoImage, {
 globalThis.expo.modules.ExpoImage = ExpoImage;
 
 // expo-notifications (docs/adr/0026-notifications.mdx): an application's notifications are the
-// session's, posted through the host's OxyOSNotifications module. The session keeps them (the
+// session's, posted through the platform's `notifications` (`@oxyos/platform`). The session keeps them (the
 // Notification Center), shows them as banners as its preferences allow (Do Not Disturb) and gives
 // the application the response once when the person presses one; the application is its launch
 // record, never a claim. Only notifications presented now are OxyOS's: a scheduled trigger, push
 // tokens, badges and background tasks fail loudly.
-const notifications = TurboModuleRegistry.get('OxyOSNotifications');
 const DEFAULT_ACTION = 'expo.modules.notifications.actions.DEFAULT';
 const notSupported = (what) => async () => {
   throw new Error(`expo-notifications' ${what} is not available on OxyOS`);
@@ -442,9 +440,6 @@ const presented = new Map();
 const numbered = new Map();
 const categories = new Map();
 let lastResponse = null;
-// Posts waiting for the session's answer, by serial.
-const posting = new Map();
-let nextSerial = 0;
 
 const ExpoNotificationsEmitter = emitter();
 Object.assign(ExpoNotificationsEmitter, {
@@ -481,27 +476,42 @@ const behaviorFor = (identifier, notification) =>
     ExpoNotificationsHandlerModule.emit('onHandleNotification', { id: identifier, notification });
   });
 
-const actionsOf = (content) => {
-  const actions = categories.get(content.categoryIdentifier)?.actions ?? [];
-  if (actions.length > 3) throw new Error('OxyOS shows at most 3 actions on a notification');
-  return actions.map((action) => ({
+const actionsOf = (content) =>
+  (categories.get(content.categoryIdentifier)?.actions ?? []).map((action) => ({
     id: String(action.identifier),
     label: String(action.buttonTitle),
     // A text input makes it a reply; its placeholder is the field's.
-    reply: action.textInput ? String(action.textInput.placeholder ?? '') : null,
+    ...(action.textInput ? { reply: String(action.textInput.placeholder ?? '') } : {}),
     background: action.options?.opensAppToForeground === false,
   }));
+
+// Why the platform did not post a notification, in expo-notifications' words.
+const notPosted = (error) => {
+  if (isPlatformError(error, 'busy')) return new Error('OxyOS refused the notification: too many in a short time');
+  if (isPlatformError(error, 'notPermitted')) {
+    return new Error(
+      error.reason === 'notLaunched'
+        ? 'OxyOS refused the notification: the session did not start this application'
+        : 'OxyOS refused the notification: this application may not post notifications',
+    );
+  }
+  if (isPlatformError(error, 'invalid')) {
+    return new Error(
+      error.reason === 'actions'
+        ? 'OxyOS shows at most 3 actions on a notification'
+        : 'A notification keeps at most 4096 bytes of data on OxyOS',
+    );
+  }
+  return new Error('OxyOS could not post the notification');
 };
 
 const ExpoNotificationScheduler = emitter();
 Object.assign(ExpoNotificationScheduler, {
   scheduleNotificationAsync: async (identifier, content, trigger) => {
-    if (!notifications) throw new Error('OxyOS has no notifications here: the host is not connected');
+    if (!notifications.available) throw new Error('OxyOS has no notifications here: the host is not connected');
     if (trigger !== null) {
       throw new Error('OxyOS presents notifications now (a null trigger); scheduled triggers are not available');
     }
-    const data = JSON.stringify(content.data ?? {});
-    if (data.length > 4096) throw new Error('A notification keeps at most 4096 bytes of data on OxyOS');
     const notification = {
       date: Date.now(),
       request: { identifier, content: { ...content, data: content.data ?? {} }, trigger: null },
@@ -519,29 +529,20 @@ Object.assign(ExpoNotificationScheduler, {
     // own (a file name) plays the system's: OxyOS plays no application's files.
     const sound = content.sound !== false && !!behavior.shouldPlaySound;
     if (banner || behavior.shouldShowList) {
-      const serial = ++nextSerial;
-      const answer = new Promise((resolve) => posting.set(serial, resolve));
-      const sent = notifications.post(serial, {
-        identifier,
-        title: content.title ?? '',
-        subtitle: content.subtitle ?? '',
-        body: content.body ?? '',
-        data,
-        actions: actionsOf(content),
-        banner,
-        sound,
-      });
-      if (!sent) {
-        posting.delete(serial);
-        throw new Error('OxyOS could not post the notification');
-      }
-      const { outcome, notification: number } = await answer;
-      if (outcome !== 'posted') {
-        throw new Error(
-          outcome === 'throttled'
-            ? 'OxyOS refused the notification: too many in a short time'
-            : 'OxyOS refused the notification: the session did not start this application',
-        );
+      let number;
+      try {
+        number = await notifications.post({
+          identifier,
+          title: content.title ?? '',
+          subtitle: content.subtitle ?? '',
+          body: content.body ?? '',
+          data: content.data ?? {},
+          actions: actionsOf(content),
+          banner,
+          sound,
+        });
+      } catch (error) {
+        throw notPosted(error);
       }
       // The same identifier again replaces it, as the session does.
       const replaced = presented.get(identifier);
@@ -562,9 +563,9 @@ Object.assign(ExpoNotificationPresenter, {
   getPresentedNotificationsAsync: async () => [...presented.values()].map(({ notification }) => notification),
   dismissNotificationAsync: async (identifier) => {
     const shown = presented.get(identifier);
-    if (shown) notifications?.withdraw(shown.number);
+    if (shown) await notifications.withdraw(shown.number);
   },
-  dismissAllNotificationsAsync: async () => notifications?.withdraw(0),
+  dismissAllNotificationsAsync: () => notifications.withdrawAll(),
 });
 
 // The session decides how notifications show (Do Not Disturb, the lock screen); an application the
@@ -603,53 +604,43 @@ Object.assign(ExpoNotificationCategoriesModule, {
   deleteNotificationCategoryAsync: async (identifier) => categories.delete(identifier),
 });
 
-// The session's response to a press, each once (the host keeps them until taken): the
-// notification as it was presented (or, for an application started by the press, as the session
-// kept it), the action and the reply.
-const respond = () => {
-  if (!notifications) return;
-  for (const taken of notifications.takeResponses()) {
-    const identifier = taken.identifier;
-    const shown = presented.get(identifier);
-    presented.delete(identifier);
-    numbered.delete(taken.notification);
-    let data = {};
-    try {
-      data = taken.data ? JSON.parse(taken.data) : {};
-    } catch {}
-    const notification = shown?.notification ?? {
-      date: Date.now(),
-      request: {
-        identifier,
-        content: { title: taken.title || null, subtitle: taken.subtitle || null, body: taken.body || null, data },
-        trigger: null,
+// The session's response to a press, each once: the notification as it was presented (or, for an
+// application started by the press, as the session kept it), the action and the reply. One that
+// started this application, which came before JavaScript did, is told as this follows them.
+notifications.onResponse((taken) => {
+  const shown = presented.get(taken.identifier);
+  presented.delete(taken.identifier);
+  numbered.delete(taken.notification);
+  const notification = shown?.notification ?? {
+    date: Date.now(),
+    request: {
+      identifier: taken.identifier,
+      content: {
+        title: taken.title || null,
+        subtitle: taken.subtitle || null,
+        body: taken.body || null,
+        data: taken.data,
       },
-    };
-    const response = {
-      notification,
-      actionIdentifier: taken.action === 0 ? DEFAULT_ACTION : taken.actionId,
-      ...(taken.reply ? { userText: taken.reply } : {}),
-    };
-    lastResponse = response;
-    ExpoNotificationsEmitter.emit('onDidReceiveNotificationResponse', response);
-  }
-};
-DeviceEventEmitter.addListener('OxyOSNotificationResponse', respond);
-DeviceEventEmitter.addListener('OxyOSNotificationResult', (result) => {
-  posting.get(result.serial)?.(result);
-  posting.delete(result.serial);
+      trigger: null,
+    },
+  };
+  const response = {
+    notification,
+    actionIdentifier: taken.action ?? DEFAULT_ACTION,
+    ...(taken.reply ? { userText: taken.reply } : {}),
+  };
+  lastResponse = response;
+  ExpoNotificationsEmitter.emit('onDidReceiveNotificationResponse', response);
 });
 // Dismissed in the Notification Center, replaced, or withdrawn: no longer presented.
-DeviceEventEmitter.addListener('OxyOSNotificationRemoved', ({ notification }) => {
-  const identifier = numbered.get(notification);
-  numbered.delete(notification);
-  if (identifier !== undefined && presented.get(identifier)?.number === notification) {
+notifications.onRemoved((number) => {
+  const identifier = numbered.get(number);
+  numbered.delete(number);
+  if (identifier !== undefined && presented.get(identifier)?.number === number) {
     presented.delete(identifier);
     ExpoNotificationsEmitter.emit('onNotificationsDeleted', {});
   }
 });
-// A response that started this application came before JavaScript did.
-respond();
 
 const ExpoPushTokenManager = emitter();
 Object.assign(ExpoPushTokenManager, {

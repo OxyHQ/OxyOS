@@ -9,6 +9,7 @@ namespace oxyos {
 namespace {
 
 using facebook::react::NativeOxyOSClipboardCxxSpec;
+using facebook::react::NativeOxyOSNotificationsCxxSpec;
 using facebook::react::NativeOxyOSSoundsCxxSpec;
 
 // The system's interface sounds, behind `sounds` (docs/adr/0044-system-sounds.mdx): an application
@@ -82,6 +83,52 @@ class ClipboardModule : public NativeOxyOSClipboardCxxSpec<ClipboardModule> {
   HostServices& services_;
 };
 
+// An application's notifications, behind `notifications` (docs/adr/0026-notifications.mdx):
+// posting, withdrawing, and the responses the session gave, each taken once. A post's outcome
+// arrives as `OxyOSNotificationResult`, naming its serial.
+class NotificationsModule : public NativeOxyOSNotificationsCxxSpec<NotificationsModule> {
+ public:
+  NotificationsModule(std::shared_ptr<CallInvoker> invoker, HostServices& services)
+      : NativeOxyOSNotificationsCxxSpec(std::move(invoker)), services_(services) {}
+
+  jsi::String post(jsi::Runtime& rt, double serial, jsi::Object notification) {
+    ready(rt);
+    // An installed version posts only once its account granted it (ADR 0030, decision 8).
+    if (services_.system.allows && !services_.system.allows("notifications")) {
+      return jsi::String::createFromAscii(rt, "notPermitted");
+    }
+    bool sent = services_.notifications.post(static_cast<uint32_t>(serial),
+                                             jsi::dynamicFromValue(rt, jsi::Value(rt, notification)));
+    return jsi::String::createFromAscii(rt, sent ? "sent" : "notSent");
+  }
+
+  void withdraw(jsi::Runtime& rt, double notification) {
+    ready(rt);
+    services_.notifications.withdraw(static_cast<uint32_t>(notification));
+  }
+
+  // Each response once: taken, it is JavaScript's.
+  jsi::Array takeResponses(jsi::Runtime& rt) {
+    folly::dynamic taken = folly::dynamic::array();
+    for (auto& response : services_.notifications.responses) taken.push_back(std::move(response));
+    services_.notifications.responses.clear();
+    return jsi::valueFromDynamic(rt, taken).asObject(rt).asArray(rt);
+  }
+
+  // The host emits its events whether or not anything listens: nothing to count.
+  void addListener(jsi::Runtime&, std::string) {}
+  void removeListeners(jsi::Runtime&, double) {}
+
+ private:
+  void ready(jsi::Runtime& rt) const {
+    if (!services_.notifications.post) {
+      throw jsi::JSError(rt, "OxyOSNotifications: notifications need a connection to the compositor on OxyOS");
+    }
+  }
+
+  HostServices& services_;
+};
+
 }  // namespace
 
 std::shared_ptr<TurboModule> createPlatformModule(
@@ -93,6 +140,9 @@ std::shared_ptr<TurboModule> createPlatformModule(
   }
   if (name == NativeOxyOSClipboardCxxSpec<ClipboardModule>::kModuleName) {
     return std::make_shared<ClipboardModule>(invoker, services);
+  }
+  if (name == NativeOxyOSNotificationsCxxSpec<NotificationsModule>::kModuleName) {
+    return std::make_shared<NotificationsModule>(invoker, services);
   }
   return nullptr;
 }

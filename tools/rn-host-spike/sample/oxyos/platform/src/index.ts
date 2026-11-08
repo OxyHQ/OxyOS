@@ -4,10 +4,12 @@
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 
 import NativeOxyOSClipboard from '../specs/NativeOxyOSClipboard.ts';
+import NativeOxyOSNotifications from '../specs/NativeOxyOSNotifications.ts';
 import NativeOxyOSSounds from '../specs/NativeOxyOSSounds.ts';
 import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
 import { createFrameworks } from './frameworks.ts';
+import { createNotifications } from './notifications.ts';
 import { createPasteboard } from './pasteboard.ts';
 import { createSession, type SystemModule } from './session.ts';
 import { createSounds } from './sounds.ts';
@@ -18,6 +20,13 @@ export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
 export type { ChooserRequest, OpenPanelOptions, SavePanelOptions } from './chooser.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
+export {
+  MAX_NOTIFICATION_ACTIONS,
+  MAX_NOTIFICATION_DATA,
+  type Notification,
+  type NotificationAction,
+  type NotificationResponse,
+} from './notifications.ts';
 export { SYSTEM_SOUNDS, type SystemSound } from './sounds.ts';
 
 const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { api: number } } | null;
@@ -44,3 +53,6 @@ export const chooser = createChooser(
   TurboModuleRegistry.get('OxyOSFileChooser') as FileChooserModule | null,
   DeviceEventEmitter,
 );
+
+/** Posting notifications and their responses (docs/adr/0026-notifications.mdx). */
+export const notifications = createNotifications(NativeOxyOSNotifications, DeviceEventEmitter);

@@ -26,6 +26,7 @@ export type PlatformDomain =
   | 'chooser'
   | 'drag'
   | 'network'
+  | 'notifications'
   | 'pasteboard'
   | 'power'
   | 'settings'
