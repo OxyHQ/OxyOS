@@ -1557,7 +1557,7 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
   const updates = snapshot.updates;
   const [progress, setProgress] = React.useState<Record<string, { state: UpdateProgress; row: UpdateRow }>>({});
   // The updates the disk had no room for, by id: the bytes more each needs (the install service
-  // checks before it downloads anything, docs/adr/0059-storage.mdx).
+  // checks before it downloads anything, docs/adr/0062-storage.mdx).
   const [noRoom, setNoRoom] = React.useState<Record<string, number>>({});
   // The rows as last shown, in order: a row the service's list dropped keeps its place.
   const shownOrder = React.useRef<string[]>([]);
@@ -2553,7 +2553,7 @@ export function Settings({
           { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
           { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
-          // After Software Update, as a Mac's General lists Storage (docs/adr/0059-storage.mdx).
+          // After Software Update, as a Mac's General lists Storage (docs/adr/0062-storage.mdx).
           { key: "storage", label: words.storage, icon: RiHardDrive2Line, page: "storage" },
           // After Software Update, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },

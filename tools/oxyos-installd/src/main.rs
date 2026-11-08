@@ -27,7 +27,7 @@
 //! (as `oxyos-install --developer` is): unprivileged, on directories given, the fetcher serving
 //! only its own user and the service refusing every other. Refused as root; never an install of
 //! the system's. With it alone, `--available BYTES` plays a disk with that much free space, so a
-//! scenario can show a download refused for want of room (docs/adr/0059-storage.mdx).
+//! scenario can show a download refused for want of room (docs/adr/0062-storage.mdx).
 //!
 //! The services log on standard error, the journal's.
 

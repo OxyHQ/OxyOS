@@ -69,7 +69,7 @@ fn the_vocabulary_is_read_strictly_by_grant_and_input() {
     assert!(!Ask::UpdateAll {}.allowed(&grants(false, false, true)));
     assert!(Ask::Privacy {}.allowed(&grants(false, false, true)));
     assert!(!Ask::Privacy {}.allowed(&grants(true, true, false)));
-    // Removing: the store's, and Settings' (Storage, docs/adr/0059-storage.mdx); confirmed in the
+    // Removing: the store's, and Settings' (Storage, docs/adr/0062-storage.mdx); confirmed in the
     // same sheet, citing an input.
     let uninstall = Ask::Uninstall { id: "x".into() };
     assert!(uninstall.allowed(&grants(true, false, false)));

@@ -73,7 +73,7 @@ export type Preferences = {
   sleepAdapter: number;
   /** The display slightly dimmer on battery. */
   dimOnBattery: boolean;
-  /** *Empty Trash Automatically* (docs/adr/0059-storage.mdx): the session erases what has been in
+  /** *Empty Trash Automatically* (docs/adr/0062-storage.mdx): the session erases what has been in
       the Trash for more than 30 days. Off, as a Mac ships. */
   emptyTrashAutomatically: boolean;
 };
@@ -233,7 +233,7 @@ export type SettingsActions = {
   erase?: EraseActions;
   /** Settings › Spotlight's platform (docs/adr/0051-search.mdx). */
   search?: SettingsSearch;
-  /** Settings › Storage's platform (docs/adr/0059-storage.mdx): none where the session measures
+  /** Settings › Storage's platform (docs/adr/0062-storage.mdx): none where the session measures
       nothing (no `settings` grant), which shows Storage is not available here. */
   storage?: StorageActions;
   /** The system's folder chooser (docs/adr/0028-file-access.mdx): the folder chosen, as a

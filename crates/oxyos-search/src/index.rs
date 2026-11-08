@@ -9,7 +9,7 @@
 //!   as words with positions (phrases), every folder above a file (`within`, and a folder's items
 //!   removed in one step), its dates, its size and the blocks it occupies. Words are folded:
 //!   lowercase, accents and other marks removed (`camion` finds `Camión`).
-//! - **What the files occupy** (docs/adr/0059-storage.mdx): each file's blocks and category are
+//! - **What the files occupy** (docs/adr/0062-storage.mdx): each file's blocks and category are
 //!   fast fields, so Settings › Storage's sums by kind and its largest files are read from the
 //!   index's columns, never by walking the disk.
 //! - **The text is not stored:** a file's text is read again from the file for a result's snippet,
@@ -41,7 +41,7 @@ use tantivy::tokenizer::{
 use tantivy::{IndexReader, IndexWriter, Order, ReloadPolicy, TantivyDocument, Term};
 
 /// The index's layout: a change makes a new index beside the old, which is removed. Version 2
-/// keeps each file's blocks and its category as fast fields (docs/adr/0059-storage.mdx).
+/// keeps each file's blocks and its category as fast fields (docs/adr/0062-storage.mdx).
 pub const VERSION: u32 = 2;
 /// What the writer may hold before it writes a segment (tantivy's least).
 const WRITER_BUDGET: usize = 15_000_000;
@@ -658,7 +658,7 @@ impl Searcher {
         Ok(files)
     }
 
-    /// What the files inside `within` occupy, by category (docs/adr/0059-storage.mdx): each
+    /// What the files inside `within` occupy, by category (docs/adr/0062-storage.mdx): each
     /// category's files and their blocks, from the index's columns. Folders are not files.
     pub fn occupied(&self, within: &Path) -> tantivy::Result<BTreeMap<Category, (u64, u64)>> {
         let searcher = self.reader.searcher();

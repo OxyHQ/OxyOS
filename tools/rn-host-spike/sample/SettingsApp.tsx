@@ -339,7 +339,7 @@ function preferencesOf(values: Record<string, string>): Preferences {
     sleepBattery: minutesOf(values[PREFERENCE_KEYS.sleepBattery], ENERGY_DEFAULTS.sleepBattery),
     sleepAdapter: minutesOf(values[PREFERENCE_KEYS.sleepAdapter], ENERGY_DEFAULTS.sleepAdapter),
     dimOnBattery: values[PREFERENCE_KEYS.dimOnBattery] !== 'false',
-    // Off unless the person turned it on (docs/adr/0059-storage.mdx).
+    // Off unless the person turned it on (docs/adr/0062-storage.mdx).
     emptyTrashAutomatically: flag(PREFERENCE_KEYS.emptyTrashAutomatically),
   };
 }
@@ -1003,7 +1003,7 @@ const LARGE_FILES_FIXTURE: LargeFile[] = [
 ];
 
 /**
- * Settings › Storage (docs/adr/0059-storage.mdx): in a session, the session's measurement (its
+ * Settings › Storage (docs/adr/0062-storage.mdx): in a session, the session's measurement (its
  * `settings` grant), the search index's sums and largest files, the file service's Trash and the
  * store's uninstall, each asked when the page asks; without one, the reference ThinkPad's.
  */

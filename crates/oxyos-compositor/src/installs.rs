@@ -88,7 +88,7 @@ impl Ask {
         match self {
             Ask::Status { .. } | Ask::Install { .. } | Ask::Open { .. } => grants.store,
             // Settings › Storage removes an application the person has not used in a while, as
-            // the store does, confirmed in the same sheet (docs/adr/0059-storage.mdx, decision 6).
+            // the store does, confirmed in the same sheet (docs/adr/0062-storage.mdx, decision 6).
             Ask::Uninstall { .. } => grants.store || grants.settings,
             Ask::State {} | Ask::Check {} | Ask::Update { .. } | Ask::UpdateAll {} => {
                 grants.store || grants.updates

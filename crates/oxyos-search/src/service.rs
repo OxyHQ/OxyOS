@@ -38,7 +38,7 @@
 //! other client sees the files, and an application the session launched its own items
 //! too. Donating and removing are a launched application's, its own items alone; the preferences
 //! are Settings' (the `settings` grant), and so are what the home's files occupy by kind and its
-//! largest files (`storage`, `largest`: Settings › Storage, docs/adr/0059-storage.mdx), read from
+//! largest files (`storage`, `largest`: Settings › Storage, docs/adr/0062-storage.mdx), read from
 //! the index's columns, never by walking the disk.
 //!
 //! **Threads:** this one answers, at the normal priority, so a question is answered at once while

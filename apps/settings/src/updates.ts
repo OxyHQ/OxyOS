@@ -56,7 +56,7 @@ export type UpdateOutcome = {
   id: string;
   outcome: "switched" | "atNextLaunch" | "awaitingConsent" | "upToDate" | "failed" | string;
   /** Failed for want of room: the bytes more the disk needs to download it (the install service
-      checks before it fetches anything, docs/adr/0059-storage.mdx). */
+      checks before it fetches anything, docs/adr/0062-storage.mdx). */
   needed?: number;
 };
 

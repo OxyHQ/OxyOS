@@ -66,7 +66,7 @@ fn nothing_wakes_while_nothing_happens() {
     let mut writer = ours.try_clone().unwrap();
     let mut reader = BufReader::new(ours);
     let mut ask = |serial: u32, ask: Value| -> Value {
-        // Settings' asker: Storage's questions are its alone (docs/adr/0059-storage.mdx).
+        // Settings' asker: Storage's questions are its alone (docs/adr/0062-storage.mdx).
         let line = json!({"ask": {"client": 1, "serial": serial, "asker": {"shell": true, "settings": true}, "text": ask.to_string()}});
         writer.write_all(format!("{line}\n").as_bytes()).unwrap();
         loop {

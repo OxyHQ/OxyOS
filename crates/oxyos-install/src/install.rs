@@ -34,7 +34,7 @@
 //!   records. A check asked for while one runs joins it. Watchers are told each change.
 //! - **Removal and collection:** a version tree goes once no account's current, previous or staged
 //!   version names it and no session holds it; objects once no tree links them.
-//! - **Room first** (docs/adr/0059-storage.mdx, decision 8): before anything is fetched, the disk
+//! - **Room first** (docs/adr/0062-storage.mdx, decision 8): before anything is fetched, the disk
 //!   must have room for what a version fetches and for the bytecode compiled from its entry;
 //!   otherwise nothing is fetched, and the refusal says how many bytes more are needed.
 //! - **What an account's applications occupy and when it last used them** (decision 6): `list`

@@ -1,5 +1,5 @@
 /**
- * Settings › General › Storage (docs/adr/0059-storage.mdx): what the volume holding the person's
+ * Settings › General › Storage (docs/adr/0062-storage.mdx): what the volume holding the person's
  * home occupies, by what occupies it, as a Mac's Storage page shows it. The figures are the
  * platform's: the session measures the volume, the system's image, the Trash and each application
  * (`{storage: {}}`), and the search index says what the home's files occupy by kind and which are
@@ -220,7 +220,7 @@ export function indexedOf(answer: unknown): IndexedStorage | null {
 }
 
 /**
- * What Settings › Storage asks of the platform (docs/adr/0059-storage.mdx). Each is asked when the
+ * What Settings › Storage asks of the platform (docs/adr/0062-storage.mdx). Each is asked when the
  * page is shown, or after one of its own changes; nothing is followed.
  */
 export type StorageActions = {

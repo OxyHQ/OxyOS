@@ -17,7 +17,7 @@
       "privacy"
     ]
   },
-  "about": "Software Update when the disk has no room (docs/adr/0059-storage.mdx, decision 8), on a real oxyos-installd whose disk is played with nothing free: Inbox 1 is installed and the store publishes 2; Check for Updates lists Inbox 2; Update All is refused by the install service before it fetches anything, and Inbox's row says how much more space is needed to download the update (what it fetches and room for its bytecode), Inbox staying at version 1, Update All offered again.",
+  "about": "Software Update when the disk has no room (docs/adr/0062-storage.mdx, decision 8), on a real oxyos-installd whose disk is played with nothing free: Inbox 1 is installed and the store publishes 2; Check for Updates lists Inbox 2; Update All is refused by the install service before it fetches anything, and Inbox's row says how much more space is needed to download the update (what it fetches and room for its bytecode), Inbox staying at version 1, Update All offered again.",
   "installd": {
     "publish": [
       "so.oxy.inbox"

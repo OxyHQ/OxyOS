@@ -114,7 +114,7 @@ export function createSearch() {
     setPreferences: (preferences) => ask({ setPreferences: preferences }),
     /** What the index holds and is doing. */
     status: () => ask({ status: {} }),
-    /** Settings › Storage (docs/adr/0059-storage.mdx; Settings alone): what the home's files
+    /** Settings › Storage (docs/adr/0062-storage.mdx; Settings alone): what the home's files
         occupy by kind, `{home, kinds: {KIND: {files, bytes}}, indexing, partial}`, and the home's
         largest files, the largest first, as a question's items. */
     storage: () => ask({ storage: {} }),

@@ -1,4 +1,4 @@
-//! Settings › Storage for the program running the compositor (docs/adr/0059-storage.mdx): what the
+//! Settings › Storage for the program running the compositor (docs/adr/0062-storage.mdx): what the
 //! volume holding the person's home occupies, by what occupies it, as only the session can measure
 //! it (the image's packages, the Trash, every application's package and own data), and showing an
 //! item in the file manager.
@@ -230,7 +230,7 @@ fn installed_size(status: &str) -> u64 {
     total
 }
 
-/// What an application's own data occupies (docs/adr/0059-storage.mdx, decision 3): its data's
+/// What an application's own data occupies (docs/adr/0062-storage.mdx, decision 3): its data's
 /// and its caches' blocks. The measure Settings › Storage shows, and the one any part that clears
 /// an application's data says it freed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]

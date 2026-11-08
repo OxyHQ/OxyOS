@@ -172,7 +172,7 @@ pub enum Reason {
     Release,
     Fetch,
     Compile,
-    /// The disk has no room for it (docs/adr/0059-storage.mdx): `needed` says how much more.
+    /// The disk has no room for it (docs/adr/0062-storage.mdx): `needed` says how much more.
     NoSpace,
     Failed,
 }

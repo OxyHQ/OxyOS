@@ -208,7 +208,7 @@ pub struct Preferences {
     pub do_not_disturb: bool,
     /// What the lock screen shows of notifications.
     pub notification_previews: Previews,
-    /// *Empty Trash Automatically* (docs/adr/0059-storage.mdx): the session erases what has been
+    /// *Empty Trash Automatically* (docs/adr/0062-storage.mdx): the session erases what has been
     /// in the Trash for more than 30 days. Off, as a Mac ships.
     pub empty_trash_automatically: bool,
     /// Each display's mode and scale, by its identity, the one changed last at the end.

@@ -865,7 +865,7 @@ pub struct Launch {
     /// `--trash`: the user's Trashes followed for the dock as the session follows them
     /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
     pub trash: bool,
-    /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0059-storage.mdx),
+    /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0062-storage.mdx),
     /// on the run's own home, the volume's figures and the system's a played disk's (FILE, JSON:
     /// `name`, `capacity`, `available`, `reserved`, `system`), never the developer's disk.
     pub storage: Option<PathBuf>,
@@ -4991,7 +4991,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.trash = Some(trash);
     }
     session.installed_fixture = launch.installed_fixture.clone();
-    // Settings › Storage (docs/adr/0059-storage.mdx), on the run's home and a played disk.
+    // Settings › Storage (docs/adr/0062-storage.mdx), on the run's home and a played disk.
     if let Some(file) = &launch.storage {
         let text = std::fs::read_to_string(file)?;
         let disk: oxyos_compositor::storage::PlayedDisk =

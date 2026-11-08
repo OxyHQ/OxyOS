@@ -138,7 +138,7 @@ export const session = {
 };
 
 /**
- * Settings › Storage (docs/adr/0059-storage.mdx), with Settings' `settings` grant: the session's
+ * Settings › Storage (docs/adr/0062-storage.mdx), with Settings' `settings` grant: the session's
  * measurement of the volume, the system's image, the Trash and each application, asked as the
  * page shows it (`{storage: {volume, system, trash, apps}}`, nothing followed); an item shown in
  * the file manager, citing the press that asked (`{revealed: {}}`); and an application removed

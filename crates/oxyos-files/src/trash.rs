@@ -15,11 +15,11 @@
 //!   operations reach it ([`Scope`] refuses it everywhere else).
 //! - **Restoring** moves it back to where it was, never over an item there, and removes its info.
 //!   **Removing** it, or emptying the Trash, deletes it for good: the only deletion there is.
-//! - **What it occupies** (docs/adr/0059-storage.mdx): each item's blocks, as `du -B1` counts them;
+//! - **What it occupies** (docs/adr/0062-storage.mdx): each item's blocks, as `du -B1` counts them;
 //!   a folder's kept in the specification's directory size cache (`directorysizes`, beside
 //!   `files/`), valid while its info is the one it was measured with, since nothing changes a
 //!   folder once it is in the Trash. Other desktops' file managers read and write the same cache.
-//! - **Erasing what has been in it too long** (*Empty Trash Automatically*, docs/adr/0059-storage.mdx):
+//! - **Erasing what has been in it too long** (*Empty Trash Automatically*, docs/adr/0062-storage.mdx):
 //!   the items deleted more than [`KEPT_FOR_MS`] ago, by their info's deletion date, go for good;
 //!   one whose info gives no date is kept, since nothing says how long it has been there.
 

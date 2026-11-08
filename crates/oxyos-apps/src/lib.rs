@@ -753,7 +753,7 @@ pub fn cache_directory(id: &str) -> Option<PathBuf> {
     )
 }
 
-/// An application's own data on this account (docs/adr/0059-storage.mdx, decision 3): its data
+/// An application's own data on this account (docs/adr/0062-storage.mdx, decision 3): its data
 /// directory ([`data_directory`]) and its cache directory ([`cache_directory`]), and nothing else
 /// of the account's. The one definition of what is an application's own: Settings › Storage
 /// measures it, uninstalling removes it, and resetting the application clears it.

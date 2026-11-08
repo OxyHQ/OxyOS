@@ -1,5 +1,5 @@
 /**
- * General › Storage (docs/adr/0059-storage.mdx), as a Mac's: the volume's bar of what occupies it
+ * General › Storage (docs/adr/0062-storage.mdx), as a Mac's: the volume's bar of what occupies it
  * (Bloom's `UsageCard`, the free space and its legend), the recommendations that make space
  * (*Empty Trash Automatically*, *Review Files*, *Remove Unused Apps*), and every application with
  * what it occupies, each one's details a sheet whose actions are what can be done to it. The

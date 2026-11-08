@@ -1,4 +1,4 @@
-//! What a tree occupies on the disk (docs/adr/0059-storage.mdx): its blocks, as `du -B1` counts
+//! What a tree occupies on the disk (docs/adr/0062-storage.mdx): its blocks, as `du -B1` counts
 //! them, which is what the volume's own figures (`statvfs`) count, so the parts of Settings ›
 //! Storage add up to what the volume says is used.
 //!

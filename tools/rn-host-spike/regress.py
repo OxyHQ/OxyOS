@@ -480,7 +480,7 @@ A scenario with `home` runs with a home of the run's own (docs/adr/0028-file-acc
 afresh in its output directory: `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
 inside it, never the developer's. `home.items` maps each path in it to what it is: a folder ("/" at the end), a file's
 text ("{days_ago:N}" in it the local time N days before the run, as a Trash's `.trashinfo` writes a
-DeletionDate: an item put in the Trash then, docs/adr/0059-storage.mdx), or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour), or for a
+DeletionDate: an item put in the Trash then, docs/adr/0062-storage.mdx), or {"bytes": N} (N zero bytes) or {"png": [W, H, "#rrggbb"]} (a picture of one colour), or for a
 folder {"tree": [FOLDERS, FILES]} (FOLDERS folders in it, FILES empty files in each: a
 `node_modules` of thousands of files, made without listing each); each
 modified at `home.modified` (unix seconds; 2026-01-02 10:00 UTC by default), so dates read the same
@@ -509,7 +509,7 @@ application's data directory before it starts; the `final` `app_data` expectatio
 file holds that JSON once the run ended.
 
 A scenario with `storage` ({"name", "capacity", "available", "reserved", "system"}, bytes) has the
-development compositor serve Settings › Storage as the session does (docs/adr/0059-storage.mdx,
+development compositor serve Settings › Storage as the session does (docs/adr/0062-storage.mdx,
 `--storage`): the volume's and the system's figures are that played disk's, never the developer's;
 the Trash, the files the search index holds and the applications' own data are the run's home's.
 Its `installd` may say `available` (the install service's played disk has that many bytes free: a
@@ -2001,7 +2001,7 @@ def write_items(root, items, modified):
 
 def days_ago(text):
     """`text` with each "{days_ago:N}" the local time N days before now, as the Trash
-    specification writes a DeletionDate (docs/adr/0059-storage.mdx: an item put in the Trash then)."""
+    specification writes a DeletionDate (docs/adr/0062-storage.mdx: an item put in the Trash then)."""
     import datetime
     return re.sub(r"\{days_ago:(\d+)\}",
                   lambda match: (datetime.datetime.now() - datetime.timedelta(days=int(match.group(1))))
@@ -4538,7 +4538,7 @@ def install_service(spec, machine, offscreen):
                                   stdout=logs, stderr=logs)]
     wait_for(base / "f")
     # A disk with this many bytes free (`available`), played: a download it has no room for is
-    # refused before anything is fetched (docs/adr/0059-storage.mdx).
+    # refused before anything is fetched (docs/adr/0062-storage.mdx).
     available = ["--available", str(spec["available"])] if "available" in spec else []
     processes.append(subprocess.Popen([str(installd), "--development", "--state", str(state), "--anchor",
                                        str(repository / "metadata/1.root.json"), "--runtimes",
@@ -4550,7 +4550,7 @@ def install_service(spec, machine, offscreen):
     for id in spec.get("installed", []):
         installd_ask(base / "i", [{"prepare": {"id": id}}, "commit"])
     # Last opened that many days ago (`last_used_days_ago`: {ID: DAYS}), as the account's record
-    # keeps it once a session held it then (docs/adr/0059-storage.mdx): an application unused.
+    # keeps it once a session held it then (docs/adr/0062-storage.mdx): an application unused.
     for id, days in spec.get("last_used_days_ago", {}).items():
         record = state / "users" / me.pw_name / f"{id}.json"
         kept = json.loads(record.read_text())
@@ -5159,7 +5159,7 @@ def main():
                                     for key, value in scenario["controls"].items()))
         command += ["--controls", str(controls)]
     if "storage" in scenario:
-        # Settings › Storage as the session serves it (docs/adr/0059-storage.mdx), the volume's and
+        # Settings › Storage as the session serves it (docs/adr/0062-storage.mdx), the volume's and
         # the system's figures a played disk's ({"name", "capacity", "available", "reserved",
         # "system"}), never the developer's disk; the Trash, the files and the applications' data
         # the run's home's.

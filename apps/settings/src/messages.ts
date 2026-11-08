@@ -579,11 +579,11 @@ const en = {
     applications: "Apps",
     version: (version: string, size: string) => `Version ${version} · ${size}`,
     unavailable: "Updates are not available here.",
-    /** An update the disk has no room for (docs/adr/0059-storage.mdx, decision 8). */
+    /** An update the disk has no room for (docs/adr/0062-storage.mdx, decision 8). */
     noSpace: (size: string) => `${size} more is needed to download this update.`,
     noSpaceLabel: (name: string, size: string) => `${name}: ${size} more is needed to download this update`,
   },
-  /** Settings › General › Storage (docs/adr/0059-storage.mdx), as a Mac's. */
+  /** Settings › General › Storage (docs/adr/0062-storage.mdx), as a Mac's. */
   storage: {
     volume: "Internal Storage",
     calculating: "Calculating…",

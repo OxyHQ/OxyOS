@@ -5,7 +5,7 @@
 //! platform's: the session empties it; what an application keeps in a Trash of its own (Oxy Files')
 //! is the application's.
 //!
-//! **Empty Trash Automatically** (docs/adr/0059-storage.mdx, decision 5): while the person has it
+//! **Empty Trash Automatically** (docs/adr/0062-storage.mdx, decision 5): while the person has it
 //! on, the session erases what has been in the Trash for more than 30 days, by each item's
 //! deletion date. It looks when the session starts, when the person turns it on, when the Trash
 //! changes, and when the earliest item left reaches its 30 days: the turn waits no longer than

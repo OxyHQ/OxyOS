@@ -648,13 +648,13 @@ impl Session {
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx), emptying
-        // itself as the person has it (docs/adr/0059-storage.mdx).
+        // itself as the person has it (docs/adr/0062-storage.mdx).
         if let Some(trash) = self.trash.as_mut() {
             trash.set_empty_automatically(self.settings.preferences().empty_trash_automatically);
             trash.serve(&mut self.compositor.scene);
             self.compositor.play_sounds();
         }
-        // Settings › Storage (docs/adr/0059-storage.mdx), before the install service takes the
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the install service takes the
         // requests left: an item revealed opens the file manager as the shell's URLs do.
         if let Some(storage) = self.storage.as_mut() {
             storage.set_locale(&self.settings.locale());

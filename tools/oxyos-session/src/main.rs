@@ -578,7 +578,7 @@ fn main() -> Result<()> {
         compositor.wakers.push(installs.wake_fd()?);
         Some(installs)
     };
-    // Settings › Storage (docs/adr/0059-storage.mdx): the volume, the system's, the Trash's and
+    // Settings › Storage (docs/adr/0062-storage.mdx): the volume, the system's, the Trash's and
     // each application's, measured when Settings asks and never otherwise; an item shown in the
     // file manager. The login screen has none.
     let mut storage = if greeter {
@@ -743,7 +743,7 @@ fn main() -> Result<()> {
             }
         }
         if let Some(trash) = trash.as_mut() {
-            // Empty Trash Automatically, as the person has it (docs/adr/0059-storage.mdx).
+            // Empty Trash Automatically, as the person has it (docs/adr/0062-storage.mdx).
             trash.set_empty_automatically(settings.preferences().empty_trash_automatically);
             trash.serve(&mut compositor.scene);
             // Its sound now, not a turn later.
@@ -800,7 +800,7 @@ fn main() -> Result<()> {
                 controls.bluetooth_is(&mut compositor.scene, status);
             }
         }
-        // Settings › Storage (docs/adr/0059-storage.mdx), before the store, which takes the
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the store, which takes the
         // requests left: an item revealed opens the file manager as the shell's URLs do.
         if let Some(storage) = storage.as_mut() {
             storage.set_locale(&settings.locale());
