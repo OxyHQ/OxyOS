@@ -92,16 +92,29 @@ it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the
    display opened), `gpu-client` with `tools/oxyos-gpu-client` as its client, and the session
    composed on the GPU alone (`--gpu-only`). Without one this is said and skipped.
 
+A scenario in `tools/gate/quarantine` (flaky on main under load, its issue open) still runs and is
+retried, but failing twice is reported, not counted; it leaves the quarantine with its fix.
+
 Left out: `astro*` (an Astro engine, a deploy's `ASTRO_PACKAGE`), `terminal` (a real display) and
 `fidelity-thresholds` (settings, not a scenario). A failed scenario's record (its log, frames, a
 host's backtrace) is kept in the run's directory, `~/.cache/oxyos/runs/` unless `--out` names one;
 a run that passes leaves nothing there.
 
-The gate is the **Scenarios** check of every pull request and of the merge queue
-(`.github/workflows/scenarios.yml`), and main requires it: pull requests merged separately can no
-longer break main together, because the merge queue runs the gate on each one with main and the
-pull requests ahead of it. A fork's pull request runs it only in the merge queue, once a maintainer
-queues it, never on its own.
+### Merging: the merge queue is the gate
+
+A pull request is merged by putting it in the merge queue: `gh pr merge N --auto` (or the merge
+button), once its fast checks pass: the **Native foundation** jobs (`verify` and `passwd-tools`, on
+x86-64 and AArch64, required). The queue then runs the gate, the **Scenarios** check
+(`.github/workflows/scenarios.yml`), on each entry's combined tree: main with the pull requests
+ahead of it and its own, so pull requests merged separately cannot break main together. A run that
+passes merges the entry (a merge commit); one that fails takes the pull request out of the queue, its
+failure in the run's log and its records on the gate's machine, and the pull request goes back in
+once fixed.
+
+On a pull request the gate runs only when asked: the `gate` label (each push then runs it again), or
+the workflow dispatched for a branch (`gh workflow run scenarios.yml --ref BRANCH`). Otherwise it is
+skipped, which lets the pull request join the queue. A fork's pull request never runs it on its own,
+only in the queue once a maintainer queues it.
 
 ## Deploying to a test machine
 
@@ -129,29 +142,65 @@ passwordless sudo and rustup's cargo.
 
 ## The gate's machine
 
-The **Scenarios** check runs on a self-hosted runner (label `oxyos-gate`) on a machine that also does
-other work, which keeps its priority. `tools/gate/machine.sh`, run as root on a Debian trixie machine,
-prepares it, and running it again changes nothing that is already so:
+The **Scenarios** check runs on self-hosted runners on a machine that also does other work, which
+keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
+labelled `oxyos-merge` alone (two of them on seldon), so a merge never waits behind a pull request's
+run. `tools/gate/machine.sh`, run as root on a Debian trixie machine, prepares it, and running it
+again changes nothing that is already so:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
-  `tools/dev/bootstrap` makes; the runner is in `/var/lib/oxyos-gate/actions-runner`;
-- `oxyosgate.slice`, where the runner and every gate run are: a CPU weight of 20 against the 100 of
-  `system.slice` (the machine's own work), at most 24 CPUs and 24 GB. (Its name has no dash: systemd
-  nests a slice under the part of its name before one.);
+  `tools/dev/bootstrap` makes for each runner;
+- `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
+  machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
+  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, sharing it evenly, each at most
+  16 GB. (No dash in the parent's name: systemd nests a slice under the part of its name before
+  one.);
+- several runners (`machine.sh runner N`), whose runs share nothing they change: each works in
+  `/var/lib/oxyos-gate/runner-N`, with a cache of its own (`~/.cache/oxyos-runner-N`) and a `/tmp` of
+  its own;
 - the GPU's render node (group `render`), KVM (`kvm`), and `/dev/uinput` with the event nodes of the
   development compositor's own virtual devices (named `oxyos-offscreen …`, group `oxyos-uinput`), so
   the `uinput` scenarios run without root;
 - `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
-  the first four physical cores and their SMT siblings for the gate alone while its timing
-  scenarios run, every other CPU for the rest of the machine; a reservation releases itself after
-  30 minutes, and one gate run at a time holds it (`/run/lock/oxyos-gate-timing.lock`).
+  the first four physical cores and their SMT siblings for the calling gate's slice alone while its
+  timing scenarios run, every other CPU for the rest of the machine and the other gates; a reservation releases itself after
+  30 minutes. One gate at a time holds them (`/run/lock/oxyos-gate-timing.lock`); the rest of every gate
+  runs at once beside the others, and a scenario that serves its probe on a fixed port waits for
+  that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
+  collides. Every run has a home of its own (`regress.py`), never the user's.
 
-`machine.sh runner` registers the runner with a registration token on stdin, never written anywhere:
+`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere,
+with both labels; `machine.sh runner N merge` registers it with `oxyos-merge` alone. Seldon's are
+runners 1 to 3 with both and 4 and 5 for the merge queue alone:
 
 ```sh
-gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner
+token() { gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token; }
+for n in 1 2 3; do token | sudo sh tools/gate/machine.sh runner $n; done
+for n in 4 5; do token | sudo sh tools/gate/machine.sh runner $n merge; done
 ```
+
+Registering a runner again (`--replace`) sets its labels to these, so a label changed by hand on
+GitHub does not outlive the next run of `machine.sh` (stop the runner first, below).
+
+### Runners stopped only when idle, and the watchdog
+
+A runner stopped, moved or registered again under a job leaves that job in progress on GitHub with
+nobody to end it: `timeout-minutes` ends a job its runner runs, not one no runner runs, and GitHub
+keeps counting the runner busy, so every queued job (the merge queue's among them) waits behind it.
+On 8 November 2026 four such jobs held the queue for hours.
+
+- A runner is restarted or stopped only once idle: `sudo sh tools/gate/restart-runner.sh N
+  [restart|stop]` waits until runner N has no job (no `Runner.Worker` in its service), then acts. Never
+  move a runner's directory or cache, or register it again, but after stopping it through this.
+- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, every ten minutes, on a
+  GitHub-hosted runner with that run's token: Actions on this repository alone, no secret on the
+  gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
+  one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
+  started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
+  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+  for any more (a group superseded when the queue changed: an entry removed or another put ahead),
+  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
 
 ### Images on the gate's machine
 

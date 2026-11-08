@@ -49,6 +49,16 @@ export function createFrameworks(session: Session) {
     join: (ssid: string, options?: CallOptions) => net({ join: { ssid } }, options),
     forget: (id: string, options?: CallOptions) => net({ forget: { id } }, options),
     setWifi: (enabled: boolean, options?: CallOptions) => net({ wifi: { enabled } }, options),
+    /** A known network's private Wi-Fi address; the network joined is joined again with it
+        (ADR 0038, 8 November 2026). */
+    setPrivateAddress: (id: string, mode: 'fixed' | 'rotating' | 'off', options?: CallOptions) =>
+      net({ privateAddress: { id, mode } }, options),
+    /** What resetting the network settings would remove and keep; nothing changes. */
+    resetPreview: (options?: CallOptions) => net({ networkResetPreview: {} }, options),
+    /** Removes the saved networks and VPNs this person may, with their passwords. */
+    reset: (options?: CallOptions) => net({ networkReset: {} }, options),
+    /** Wi-Fi Diagnostics, run once: the link, the router, the internet, DNS. */
+    diagnose: (options?: CallOptions) => net({ wifiDiagnostics: {} }, options),
   };
 
   /** Bluetooth (docs/adr/0055-bluetooth.mdx): the `bluetooth` grant, or `shell`. */

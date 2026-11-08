@@ -69,11 +69,14 @@ pub(crate) fn machine_as(api: FakeApi, password: &str, uid: Option<u32>) -> Mach
         account: ACCOUNT.into(),
         password: Some(Secret::new(password)),
         pin: None,
+        appearance: None,
     };
     match setup.enroll(request).unwrap() {
         Progress::Enrolled(_) => {}
-        Progress::SecondFactor(pending) => {
-            setup.second_factor(&pending, &Secret::new(CODE)).unwrap();
+        Progress::SecondFactor(mut pending) => {
+            setup
+                .second_factor(&mut pending, &Secret::new(CODE))
+                .unwrap();
         }
     }
     if let Some(uid) = uid {
@@ -283,6 +286,7 @@ fn oxy_ending_the_device_session_signs_the_account_out_on_the_machine() {
         account: ACCOUNT.into(),
         password: Some(Secret::new(PASSWORD)),
         pin: None,
+        appearance: None,
     };
     request.credential.device_secret = Secret::new(OTHER_DEVICE_SECRET);
     let Progress::Enrolled(enrolled) = machine.platform.setup().enroll(request).unwrap() else {

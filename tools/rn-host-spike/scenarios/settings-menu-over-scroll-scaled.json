@@ -1,0 +1,229 @@
+{
+ "about": "A popup's press is its own (input.cpp's barAt, 8 November 2026): a menu opened from a row of a Settings page long enough to scroll (Wi-Fi with twelve networks nearby, over a NetworkManager played on the run's own bus) lies over the page's scroll view, under which React portals its views; a press on its item reached the page's overlay scroll bar instead (a scrollBeginDrag on the page, the item never pressed, no confirmation). The item is pressed, exactly once, no scroll bar shows or moves, and the confirmation comes; cancelled, the daemon keeps the network. At 1.25.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Oficina",
+    "strength": 64,
+    "security": "wpa",
+    "password": "office pass"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 60
+   },
+   {
+    "ssid": "Vecinos",
+    "strength": 55,
+    "security": "wpa",
+    "password": "xxxxxxxx"
+   },
+   {
+    "ssid": "Biblioteca",
+    "strength": 50
+   },
+   {
+    "ssid": "Panadería",
+    "strength": 45,
+    "security": "wpa",
+    "password": "xxxxxxxx"
+   },
+   {
+    "ssid": "Hotel Sol",
+    "strength": 40
+   },
+   {
+    "ssid": "Casa 2G",
+    "strength": 35,
+    "security": "wpa",
+    "password": "xxxxxxxx"
+   },
+   {
+    "ssid": "Casa 5G",
+    "strength": 30
+   },
+   {
+    "ssid": "Taller",
+    "strength": 25,
+    "security": "wpa",
+    "password": "xxxxxxxx"
+   },
+   {
+    "ssid": "Ático",
+    "strength": 20
+   },
+   {
+    "ssid": "Portal",
+    "strength": 15,
+    "security": "wpa",
+    "password": "xxxxxxxx"
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Oficina",
+    "password": "office pass"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "steps": [
+  {
+   "name": "Settings with the network grant",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Wi-Fi"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi: twelve networks nearby, as the reference ThinkPad sees, more than the window shows: the page scrolls",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "Other Networks",
+     "Oficina"
+    ]
+   }
+  },
+  {
+   "name": "A known network's menu, a popup over the page",
+   "do": [
+    "press_named",
+    "More for “Oficina”"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "popups": 1
+   }
+  },
+  {
+   "name": "Its item pressed: the press is the item's, not the page's scroll bar beneath the popup (which neither shows nor scrolls), and the confirmation comes",
+   "do": [
+    "press_named",
+    "Forget This Network…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "scrollbars": {},
+    "react_presses": {
+     "pointerDown@wifi-forget-Oficina": 1,
+     "pointerUp@wifi-forget-Oficina": 1
+    }
+   }
+  },
+  {
+   "name": "The confirmation",
+   "do": [
+    "wait_named",
+    [
+     "Forget",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Forget Wi-Fi network “Oficina”?"
+    ],
+    "network": {
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter",
+       "psk": "correct horse"
+      },
+      {
+       "ssid": "Oficina",
+       "psk": "office pass"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Cancelled: nothing forgotten",
+   "do": [
+    "press_named",
+    "Cancel"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter",
+       "psk": "correct horse"
+      },
+      {
+       "ssid": "Oficina",
+       "psk": "office pass"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

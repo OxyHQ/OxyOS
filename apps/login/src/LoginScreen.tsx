@@ -1,57 +1,20 @@
-import React, { useEffect, useRef, useState, type ComponentType } from "react";
-import {
-  AccessibilityInfo,
-  Pressable,
-  ScrollView,
-  TextInput,
-  useWindowDimensions,
-} from "react-native";
+import React, { useEffect, useState, type ComponentType } from "react";
+import { AccessibilityInfo, Pressable } from "react-native";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../../shell/src/primitives";
 import { LockBackdrop } from "../../shell/src/components/LockScreen";
 import { UserPicture } from "../../shell/src/components/UserPicture";
-import { PasswordField, textShadow } from "../../shell/src/components/PasswordField";
+import { textShadow } from "../../shell/src/components/PasswordField";
 import { SecretFields } from "../../shell/src/components/LockScreen";
 import type { ShellLock, ShellWallpaper } from "../../shell/src/model";
 import type { MaskedProps } from "../../shell/src/platform";
 import { chosenAccount, opensOnSetup, type Accounts, type LoginAccount } from "./model";
-import {
-  afterEnroll,
-  usablePin,
-  type EnrollAnswer,
-  type SetupPlatform,
-  type SetupStep,
-  type SignedInAccount,
-} from "./setup";
+import { SetupAssistant, type SetupActions } from "./SetupAssistant";
 import { useLoginMessages } from "./useLoginMessages";
 
 export type { LoginAccount, Accounts } from "./model";
-
-/** The SDK's own sign-in, as the platform runs it for setup: it calls `onSignedIn` once the
-    credential a sign-in committed was handed over, and the account has a password. */
-export type SetupSignInProps = {
-  platform: SetupPlatform;
-  onSignedIn: (account: SignedInAccount) => void;
-  /** The width the SDK's sign-in asks of its card (its split card, with the QR), padding
-      included; null for the card's own. */
-  onFrameWidth: (maxWidth: number | null) => void;
-};
-
-/** Setting an account up (docs/adr/0020-oxy-account-login.mdx, decision 4): the platform's. */
-export type SetupActions = {
-  /** Where the SDK's sign-in runs, from the accounts' service; null when it sets nothing up. */
-  platform: () => SetupPlatform | null;
-  /** The SDK's own sign-in. */
-  SignIn: ComponentType<SetupSignInProps>;
-  /** The account's password once more (null: it has none) and the PIN chosen for this computer
-      (null: none for now), with the credential the sign-in handed over. */
-  enroll: (password: string | null, pin: string | null) => Promise<EnrollAnswer>;
-  /** The second factor the accounts' service asked for, on the same setup. */
-  secondFactor: (code: string) => Promise<EnrollAnswer>;
-  /** Ends the setup: what the platform held of it is forgotten. */
-  end: () => void;
-};
+export type { SetupActions, SetupAssistantFrameProps, AssistantPage, EnrollRequest } from "./SetupAssistant";
 
 /** What the login screen asks of its platform. It holds no authority over who signs in. */
 export type LoginActions = {
@@ -100,319 +63,6 @@ function Link({
     >
       <Text style={white(13, "600", 0.9)}>{label}</Text>
     </Pressable>
-  );
-}
-
-/** A setup's message, said as it changes. */
-function SetupMessage({ text }: { text: string }) {
-  return (
-    <Text
-      testID="login-setup-message"
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
-      style={{ ...white(13, "400", 0.85), marginTop: 10, textAlign: "center" }}
-    >
-      {text}
-    </Text>
-  );
-}
-
-/** The second factor the accounts' service asked for: the authenticator's code, said wrong when
-    it was, sent with Return or Continue. The code goes to the platform, never kept here. */
-function SecondFactor({
-  invalid,
-  submit,
-  busy,
-}: {
-  invalid: boolean;
-  submit: (code: string) => void;
-  busy: boolean;
-}) {
-  const words = useLoginMessages().setup;
-  const [code, setCode] = useState("");
-  // What the field holds as Return is pressed (`nativeEvent.text`), not the state: typed quickly,
-  // Return arrives before the last characters' state is rendered.
-  const send = (typed: string) => {
-    if (!busy && typed.trim()) {
-      submit(typed.trim());
-      setCode("");
-    }
-  };
-  return (
-    <>
-      <TextInput
-        testID="login-setup-code"
-        accessibilityLabel={words.code}
-        value={code}
-        onChangeText={setCode}
-        onSubmitEditing={({ nativeEvent }) => send(nativeEvent.text)}
-        autoFocus
-        keyboardType="number-pad"
-        autoComplete="one-time-code"
-        placeholder={words.code}
-        placeholderTextColor="rgba(255,255,255,0.65)"
-        submitBehavior="submit"
-        maxLength={32}
-        style={{
-          marginTop: 12,
-          width: 200,
-          height: 30,
-          borderRadius: 15,
-          paddingHorizontal: 14,
-          backgroundColor: "rgba(255,255,255,0.22)",
-          color: "#fff",
-          fontSize: 13,
-        }}
-      />
-      {invalid ? <SetupMessage text={words.secondFactorInvalid} /> : null}
-      <Link testID="login-setup-continue" label={words.continue} onPress={() => send(code)} />
-    </>
-  );
-}
-
-/**
- * Adding an account (docs/adr/0020-oxy-account-login.mdx, decisions 2 and 4): online only, as ADR
- * 0020 decides; offline it says so and does nothing else. Online, the SDK's own sign-in (the
- * platform's); then a PIN for this computer, chosen and typed again (an account with a password
- * may leave it for later), and the account's password once more when it has one, with which the
- * platform's accounts' service sets the account up, asking a second factor when Oxy does. An
- * account without a password is never asked to make one: it cannot be set up yet, and the panel
- * says so, nothing changed. Enrolled, the new account is chosen.
- */
-function SetupPanel({
-  step,
-  setStep,
-  actions,
-  enrolled,
-  back,
-}: {
-  step: SetupStep;
-  setStep: (step: SetupStep) => void;
-  actions: LoginActions;
-  enrolled: (user: string, name: string) => void;
-  back?: () => void;
-}) {
-  const words = useLoginMessages().setup;
-  const { height } = useWindowDimensions();
-  const setup = actions.setup;
-  // The card the SDK's sign-in is on: as wide as it asks (its split card, with the QR a phone
-  // scans, beside the form), else the setup's own.
-  const [frameWidth, setFrameWidth] = useState<number | null>(null);
-  const [answer, setAnswer] = useState<ShellLock["answer"]>(undefined);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const answered = useRef(0);
-  // The PIN chosen, until the account is set up with it (or the setup ends): the platform's then.
-  const chosenPin = useRef<string | null>(null);
-  const account = "account" in step ? step.account : null;
-  const enroll = (password: string | null, at: "password" | "pin") => {
-    if (!setup) return;
-    setProblem(null);
-    setBusy(true);
-    setup.enroll(password, chosenPin.current).then((told) => settle(told, at));
-  };
-  const settle = (told: EnrollAnswer, at: "password" | "pin" | "secondFactor") => {
-    setBusy(false);
-    const next = afterEnroll(told, at === "pin" ? "password" : at);
-    const id = ++answered.current;
-    switch (next.next) {
-      case "enrolled":
-        setProblem(null);
-        chosenPin.current = null;
-        enrolled(next.user, account ? account.name || account.id : "");
-        return;
-      case "secondFactor":
-        if (account) setStep({ step: "secondFactor", account, invalid: next.invalid });
-        return;
-      case "pin":
-        chosenPin.current = null;
-        if (account) setStep({ step: "pin", account, problem: "unusable" });
-        return;
-      case "noPassword":
-        chosenPin.current = null;
-        setup?.end();
-        if (account) setStep({ step: "noPassword", account });
-        return;
-      case "password":
-        setProblem(next.problem === "unusable" ? words.unusablePassword : next.problem === "failed" ? words.failed : null);
-        if (account && !account.hasPassword) {
-          // No password to ask again: the PIN's step says it failed.
-          setStep({ step: "pin", account });
-          return;
-        }
-        if (account) setStep({ step: "password", account });
-        setAnswer({
-          id,
-          outcome: next.problem === "incorrect" ? "rejected" : next.problem === "throttled" ? "throttled" : "busy",
-          wait: next.wait,
-        });
-        return;
-      case "signIn":
-        chosenPin.current = null;
-        setup?.end();
-        setStep({ step: "checking" });
-        return;
-      case "offline":
-        chosenPin.current = null;
-        setup?.end();
-        setStep({ step: "offline" });
-    }
-  };
-  let content: React.ReactNode;
-  if (step.step === "signIn" && setup) {
-    const SignIn = setup.SignIn;
-    // The SDK's sign-in on a card of its own over the dimmed wallpaper, as a Mac's setup shows its
-    // sign-in: its words in its own colours, legible whatever the wallpaper. The card is the
-    // SDK's surface, as an app's account dialog is: it grows to the width the sign-in asks.
-    content = (
-      <Box
-        className="mt-4 overflow-hidden"
-        style={{
-          width: "100%",
-          backgroundColor: "rgba(18,18,22,0.88)",
-          borderRadius: 24,
-        }}
-      >
-        {/* Taller than the screen (a code under a form), it scrolls within its card. */}
-        <ScrollView
-          testID="login-setup-card"
-          style={{ maxHeight: Math.max(240, height - 150) }}
-          contentContainerStyle={{ paddingHorizontal: 32, paddingVertical: 28 }}
-        >
-          <SignIn
-            platform={step.platform}
-            onSignedIn={(signedIn) => {
-              chosenPin.current = null;
-              setStep({ step: "pin", account: signedIn });
-            }}
-            onFrameWidth={setFrameWidth}
-          />
-        </ScrollView>
-      </Box>
-    );
-  } else if (step.step === "pin" && setup) {
-    const again = step.first !== undefined;
-    const said =
-      step.problem === "mismatch" ? words.pinMismatch : step.problem === "unusable" ? words.unusablePin : problem;
-    content = (
-      <>
-        <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>
-          {again ? words.pinAgainTitle : words.pinTitle}
-        </Text>
-        {again ? null : (
-          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>{words.pinDescription}</Text>
-        )}
-        <PasswordField
-          key={again ? "again" : `first-${step.problem ?? ""}`}
-          testID={again ? "login-setup-pin-again" : "login-setup-pin"}
-          passcode
-          placeholder={words.pinPlaceholder}
-          accessibilityLabel={again ? words.pinAgainTitle : words.pinTitle}
-          authenticate={(pin) => {
-            setProblem(null);
-            if (!again) {
-              setStep(usablePin(pin) ? { step: "pin", account: step.account, first: pin } : { step: "pin", account: step.account, problem: "unusable" });
-              return true;
-            }
-            if (pin !== step.first) {
-              setStep({ step: "pin", account: step.account, problem: "mismatch" });
-              return true;
-            }
-            chosenPin.current = pin;
-            if (step.account.hasPassword) setStep({ step: "password", account: step.account });
-            else enroll(null, "pin");
-            return true;
-          }}
-          answer={undefined}
-          announce={actions.announce}
-        />
-        {said ? <SetupMessage text={said} /> : null}
-        {busy ? <SetupMessage text={words.adding} /> : null}
-        {step.account.hasPassword && !again ? (
-          <Link
-            testID="login-setup-pin-later"
-            label={words.notNow}
-            onPress={() => {
-              chosenPin.current = null;
-              setStep({ step: "password", account: step.account });
-            }}
-          />
-        ) : null}
-      </>
-    );
-  } else if (step.step === "noPassword") {
-    content = <SetupMessage text={words.noPassword} />;
-  } else if (step.step === "password" && setup) {
-    content = (
-      <>
-        <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>
-          {words.passwordTitle(step.account.name || step.account.id)}
-        </Text>
-        <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>
-          {words.passwordDescription}
-        </Text>
-        <PasswordField
-          testID="login-setup"
-          placeholder={words.passwordPlaceholder}
-          accessibilityLabel={words.passwordPlaceholder}
-          authenticate={(password) => {
-            enroll(password, "password");
-            return true;
-          }}
-          answer={answer}
-          capsLock={actions.capsLock}
-          announce={actions.announce}
-        />
-        {problem ? <SetupMessage text={problem} /> : null}
-      </>
-    );
-  } else if (step.step === "secondFactor" && setup) {
-    content = (
-      <>
-        <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>{words.secondFactorTitle}</Text>
-        <SecondFactor
-          invalid={step.invalid}
-          busy={busy}
-          submit={(code) => {
-            setBusy(true);
-            setup.secondFactor(code).then((told) => settle(told, "secondFactor"));
-          }}
-        />
-        {busy ? <SetupMessage text={words.adding} /> : null}
-      </>
-    );
-  } else {
-    const message =
-      step.step === "checking" ? words.checking : step.step === "offline" ? words.offline : words.notConfigured;
-    content = (
-      <>
-        <SetupMessage text={message} />
-        {step.step !== "checking" && (
-          <Link testID="login-setup-retry" label={words.retry} onPress={() => setStep({ step: "checking" })} />
-        )}
-      </>
-    );
-  }
-  return (
-    <Box
-      testID="login-setup"
-      className="items-center"
-      style={step.step === "signIn" ? { width: frameWidth ?? 512, maxWidth: "100%" } : { maxWidth: 360 }}
-    >
-      <Text style={white(17, "600")}>{words.title}</Text>
-      {content}
-      {back && (
-        <Link
-          testID="login-setup-back"
-          label={words.back}
-          onPress={() => {
-            chosenPin.current = null;
-            setup?.end();
-            back();
-          }}
-        />
-      )}
-    </Box>
   );
 }
 
@@ -471,41 +121,33 @@ export function LoginScreen({
   wallpaper,
   now,
   Masked,
+  safeMode = false,
 }: {
   accounts: Accounts;
   actions: LoginActions;
   wallpaper: ShellWallpaper;
   now: Date;
   Masked?: ComponentType<MaskedProps>;
+  /** The machine started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): said
+      at the top right, in red, as a Mac's login window says "Safe Boot". */
+  safeMode?: boolean;
 }) {
   const words = useLoginMessages();
   const [chosen, setChosen] = useState<string | null>(null);
   // Choosing the account already chosen goes on to its password, as Return on a Mac's chosen
   // account does: its field takes the focus again.
   const [toPassword, setToPassword] = useState(0);
-  // Setup: closed (null), or where it stands.
-  const [setup, setSetup] = useState<SetupStep | null>(null);
-  // The first boot: no account yet, so setup is what the screen offers.
-  const first = opensOnSetup(accounts);
-  const shown: SetupStep | null = setup ?? (first ? { step: "checking" } : null);
-  // The platform's checks, as they are now: a new render does not check again.
-  const latest = useRef(actions);
-  latest.current = actions;
+  // Setup: closed (null), or open, and whether it opened as the computer's first account (its
+  // welcome, and no going back to an empty list). The first boot opens on it, and it stays open
+  // once the account it adds is listed: the assistant ends it, signed in.
+  const [settingUp, setSettingUp] = useState<{ first: boolean } | null>(null);
+  const firstBoot = opensOnSetup(accounts);
   useEffect(() => {
-    if (shown?.step !== "checking") return undefined;
-    let current = true;
-    const platform = latest.current.setup?.platform() ?? null;
-    latest.current
-      .online(platform?.api)
-      .catch(() => false)
-      .then((online) => {
-        if (!current) return;
-        setSetup(!online ? { step: "offline" } : platform ? { step: "signIn", platform } : { step: "notConfigured" });
-      });
-    return () => {
-      current = false;
-    };
-  }, [shown?.step]);
+    if (firstBoot && !settingUp) setSettingUp({ first: true });
+  }, [firstBoot, settingUp]);
+  const open = settingUp ?? (firstBoot ? { first: true } : null);
+  const shown = open !== null;
+  const first = open?.first ?? false;
   const account = chosenAccount(accounts, chosen);
   let content: React.ReactNode;
   if (accounts === null) {
@@ -514,24 +156,42 @@ export function LoginScreen({
         {words.unreadable}
       </Text>
     );
-  } else if (shown) {
+  } else if (shown && actions.setup) {
+    const setup = actions.setup;
     content = (
-      <SetupPanel
-        step={shown}
-        setStep={setSetup}
-        actions={actions}
+      <SetupAssistant
+        first={first}
+        accounts={accounts}
+        host={{
+          setup,
+          online: actions.online,
+          signIn: (user, secret) =>
+            "pin" in secret
+              ? !!actions.authenticatePin?.(user, secret.pin)
+              : actions.authenticate(user, secret.password),
+          answer: actions.answer,
+          capsLock: actions.capsLock,
+          announce: actions.announce,
+          reloadAccounts: actions.reloadAccounts,
+        }}
+        close={account && !first ? () => setSettingUp(null) : undefined}
         enrolled={(user, name) => {
-          // Said once, as the new account is listed and chosen, its password field focused.
-          const added = words.setup.added(name);
+          // Set up but not signed in (the login program refused what was just chosen): the new
+          // account listed and chosen, its field focused, said once.
+          const added = words.setup.added(name || user);
           if (actions.announce) actions.announce(added, false);
           else AccessibilityInfo.announceForAccessibility(added);
-          actions.setup?.end();
           actions.reloadAccounts?.();
           setChosen(user);
-          setSetup(null);
+          setSettingUp(null);
         }}
-        back={account ? () => setSetup(null) : undefined}
       />
+    );
+  } else if (shown) {
+    content = (
+      <Text testID="login-setup-message" accessibilityRole="alert" style={white(13, "400", 0.85)}>
+        {words.setup.notConfigured}
+      </Text>
     );
   } else if (account) {
     content = (
@@ -565,7 +225,7 @@ export function LoginScreen({
             >
               {words.pinLocked}
             </Text>
-            <Link testID="login-sign-in-oxy" label={words.signInWithOxy} onPress={() => setSetup({ step: "checking" })} />
+            <Link testID="login-sign-in-oxy" label={words.signInWithOxy} onPress={() => setSettingUp({ first: false })} />
           </>
         ) : (
           <SecretFields
@@ -583,12 +243,19 @@ export function LoginScreen({
             focusRequest={toPassword}
           />
         )}
-        <Link testID="login-add" label={words.addAccount} onPress={() => setSetup({ step: "checking" })} />
+        <Link testID="login-add" label={words.addAccount} onPress={() => setSettingUp({ first: false })} />
       </>
     );
   }
   return (
-    <LockBackdrop testID="login" wallpaper={wallpaper} now={now} Masked={Masked} clock={shown?.step !== "signIn"}>
+    <LockBackdrop
+      testID="login"
+      wallpaper={wallpaper}
+      now={now}
+      Masked={Masked}
+      clock={!shown}
+      safeMode={safeMode}
+    >
       {content}
     </LockBackdrop>
   );

@@ -380,12 +380,12 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
 fn a_refused_setup_ends_it() {
     let (socket, dir) = socket_path("accountd");
     let served = service(&socket, 1, |message| {
-        // An account without a password: only its PIN is sent, and Oxy cannot set it up yet.
+        // A sign-in by the QR: only its PIN is sent (refused here as the service refuses one it lacks).
         assert_eq!(
             message.clone(),
             json!({"enroll": {"deviceId": "d", "deviceSecret": "s", "accountId": "a", "pin": "4829"}})
         );
-        vec![json!({"refused": {"reason": "passwordRequired"}})]
+        vec![json!({"refused": {"reason": "pinRequired"}})]
     });
     let mut enrollment = Enrollment::connect(&socket).unwrap();
     let answer = enrollment
@@ -400,7 +400,7 @@ fn a_refused_setup_ends_it() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&answer).unwrap(),
-        json!({"refused": {"reason": "passwordRequired", "retryAfterSeconds": null}})
+        json!({"refused": {"reason": "pinRequired", "retryAfterSeconds": null}})
     );
     assert!(enrollment.second_factor(&Secret::new("1")).is_err());
     served.join().unwrap();
@@ -553,4 +553,112 @@ fn settings_keychain_requests_go_rebuilt_and_only_settings_ones() {
         assert!(!refused.to_string().contains("fixture-password"));
     }
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
+    let (socket, dir) = socket_path("accountd");
+    let served = service(&socket, 1, |message| {
+        if message.get("enroll").is_some() {
+            vec![
+                json!({"progress": "securing"}),
+                json!({"progress": "verifying"}),
+                json!({"progress": "preparing"}),
+                json!({"progress": "signingIn"}),
+                json!({"failed": {"reason": "unreachable"}}),
+            ]
+        } else {
+            vec![
+                json!({"progress": "preparing"}),
+                json!({"progress": "signingIn"}),
+                json!({"progress": "finishing"}),
+                json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "uid": 1001,
+                "profile": {"id": "a1", "username": "nate", "displayName": null, "avatar": null}}}),
+            ]
+        }
+    });
+    let mut enrollment = Enrollment::connect(&socket).unwrap();
+    assert!(enrollment.retry().is_err(), "nothing sent yet");
+    let told = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let told = told.clone();
+        enrollment.on_progress(Box::new(move |stage| {
+            told.borrow_mut()
+                .push(stage_name(stage).to_str().unwrap().to_owned())
+        }));
+    }
+    enrollment.set_appearance(Appearance::Dark);
+    let failed = enrollment
+        .enroll(
+            "d",
+            &Secret::new("s"),
+            "a",
+            None,
+            Some(&Secret::new("4829")),
+        )
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        serde_json::from_str::<Value>(&failed).unwrap(),
+        json!({"failed": {"reason": "unreachable"}})
+    );
+    assert_eq!(
+        *told.borrow(),
+        ["securing", "verifying", "preparing", "signingIn"]
+    );
+    let enrolled = enrollment.retry().unwrap().to_owned();
+    assert_eq!(
+        serde_json::from_str::<Value>(&enrolled).unwrap(),
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+    );
+    assert_eq!(told.borrow()[4..], ["preparing", "signingIn", "finishing"]);
+    assert!(
+        enrollment.retry().is_err(),
+        "an ended setup sends nothing more"
+    );
+    let received = served.join().unwrap();
+    assert_eq!(
+        received[0],
+        json!({"enroll": {"deviceId": "d", "deviceSecret": "s", "accountId": "a", "pin": "4829", "appearance": "dark"}})
+    );
+    assert_eq!(received[1], json!("retry"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn the_setups_c_abi_takes_a_progress_function_an_appearance_and_a_retry() {
+    let header: String = include_str!("../../include/oxyos_client.h")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for declared in [
+        "typedef void (*OxyOSAccountEnrollmentProgressFn)(void* context, const char* stage);",
+        "int oxyos_account_enrollment_on_progress(OxyOSAccountEnrollment* enrollment, OxyOSAccountEnrollmentProgressFn progress, void* context);",
+        "int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);",
+        "int64_t oxyos_account_enrollment_retry(OxyOSAccountEnrollment* enrollment, char* out, size_t capacity);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(
+        *mut OxyOSAccountEnrollment,
+        OxyOSAccountEnrollmentProgressFn,
+        *mut c_void,
+    ) -> c_int = oxyos_account_enrollment_on_progress;
+    let _: unsafe extern "C" fn(*mut OxyOSAccountEnrollment, *const c_char) -> c_int =
+        oxyos_account_enrollment_set_appearance;
+    let _: unsafe extern "C" fn(*mut OxyOSAccountEnrollment, *mut c_char, usize) -> i64 =
+        oxyos_account_enrollment_retry;
+    // Null setups are refused, never read; an appearance that is not one sets nothing.
+    // SAFETY: null is the case under test.
+    unsafe {
+        assert_eq!(
+            oxyos_account_enrollment_set_appearance(std::ptr::null_mut(), c"dark".as_ptr()),
+            crate::OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_account_enrollment_on_progress(std::ptr::null_mut(), None, std::ptr::null_mut()),
+            crate::OXYOS_ERROR
+        );
+    }
 }

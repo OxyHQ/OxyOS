@@ -1,7 +1,10 @@
 #include "host-modules.h"
 
+#include "crash-report.h"
+
 #include "files.h"
 #include "images.h"
+#include "system.h"
 #include "text.h"
 #include "websocket.h"
 
@@ -574,10 +577,13 @@ std::shared_ptr<TurboModule> createHostModule(
         "localeIdentifier", androidLocale(intlTag(oxyos_intl_default_locale))));
     module->unsupported({"allowRTL", "forceRTL", "swapLeftAndRightInRTL"});
   } else if (name == "AppState") {
+    // `active` while it has its window; `background` once it runs on without it, its background
+    // activity (docs/adr/0060-login-items-and-background-activity.mdx), told by `appStateDidChange`
+    // as Android tells an activity's going.
     module->constants(folly::dynamic::object("initialAppState", "active"));
-    module->method("getCurrentAppState", [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+    module->method("getCurrentAppState", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       jsi::Object state(rt);
-      state.setProperty(rt, "app_state", "active");
+      state.setProperty(rt, "app_state", jsi::String::createFromUtf8(rt, services.appState));
       return count > 0 ? call(rt, args[0], jsi::Value(rt, state)) : jsi::Value::undefined();
     });
     module->listeners();
@@ -621,30 +627,45 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->unsupported({"setAccessibilityFocus"});
   } else if (name == "ExceptionsManager") {
-    auto report = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count > 0 && args[0].isObject()) {
-        auto data = args[0].asObject(rt);
-        std::cerr << "[js exception] " << text(rt, data.getProperty(rt, "message")) << "\n";
-        auto stack = data.getProperty(rt, "stack");
-        if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
-          auto frames = stack.asObject(rt).asArray(rt);
-          for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
-            auto frame = frames.getValueAtIndex(rt, i);
-            if (!frame.isObject()) continue;
-            auto f = frame.asObject(rt);
-            std::cerr << "    at " << text(rt, f.getProperty(rt, "methodName")) << " ("
-                      << text(rt, f.getProperty(rt, "file")) << ":" << text(rt, f.getProperty(rt, "lineNumber"))
-                      << ")\n";
-          }
+    // An exception React Native reports: said in the log; a fatal one (React Native's `isFatal`,
+    // or `reportFatalException`) ends the application with its report (crash-report.h), as a
+    // release build of React Native ends on Android and iOS.
+    auto said = [](jsi::Runtime& rt, const jsi::Value& message, const jsi::Value& stack) {
+      std::string text_ = text(rt, message) + "\n";
+      if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
+        auto frames = stack.asObject(rt).asArray(rt);
+        for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
+          auto frame = frames.getValueAtIndex(rt, i);
+          if (!frame.isObject()) continue;
+          auto f = frame.asObject(rt);
+          text_ += "    at " + text(rt, f.getProperty(rt, "methodName")) + " (" + text(rt, f.getProperty(rt, "file")) +
+                   ":" + text(rt, f.getProperty(rt, "lineNumber")) + ")\n";
         }
-      } else if (count > 0) {
-        std::cerr << "[js exception] " << text(rt, args[0]) << "\n";
       }
-      return jsi::Value::undefined();
+      return text_;
     };
-    module->method("reportException", report);
-    module->method("reportFatalException", report);
-    module->method("reportSoftException", report);
+    auto report = [said](bool fatal) {
+      return [said, fatal](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        std::string text_;
+        bool isFatal = fatal;
+        if (count > 0 && args[0].isObject()) {
+          // reportException(data): its message, stack and isFatal.
+          auto data = args[0].asObject(rt);
+          text_ = said(rt, data.getProperty(rt, "message"), data.getProperty(rt, "stack"));
+          auto fatalData = data.getProperty(rt, "isFatal");
+          isFatal = isFatal || (fatalData.isBool() && fatalData.getBool());
+        } else if (count > 0) {
+          // reportFatalException(message, stack, id) and reportSoftException's.
+          text_ = count > 1 ? said(rt, args[0], args[1]) : said(rt, args[0], jsi::Value::undefined());
+        }
+        if (isFatal) oxyos::endForFatalJavaScriptError(text_);
+        std::cerr << "[js exception] " << text_;
+        return jsi::Value::undefined();
+      };
+    };
+    module->method("reportException", report(false));
+    module->method("reportFatalException", report(true));
+    module->method("reportSoftException", report(false));
     module->unsupported({"updateExceptionMessage", "dismissRedbox"});
   } else if (name == "DeviceEventManager") {
     module->unsupported({"invokeDefaultBackPressHandler"});
@@ -1108,7 +1129,9 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::valueFromDynamic(rt, systemFacts());
     });
     // The session's applications (its registry, docs/adr/0013-launching-applications.mdx), by id
-    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx).
+    // and name in its language: Notifications' sound for each (docs/adr/0044-system-sounds.mdx),
+    // Open at Login's (docs/adr/0060-login-items-and-background-activity.mdx). Read again when the
+    // host tells `OxyOSApplicationsChanged` (the registry or the language changed).
     module->method("getApplications", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       folly::dynamic applications = folly::dynamic::array();
       int64_t length = oxyos_applications(nullptr, 0);
@@ -1769,6 +1792,9 @@ std::shared_ptr<TurboModule> createHostModule(
     // `as` is "text"); `OxyOSFilesEvent` says what watches saw and transfers' progress. Absent
     // elsewhere, so a call fails visibly.
     if (!services.files) return nullptr;
+    // Whether the person's backups may be asked (docs/adr/0059-backups.mdx): the adapter's
+    // `files.backups` is present only then.
+    module->constants(folly::dynamic::object("backups", LaunchCapabilities::current().allows("files")));
     auto asText = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
       return count > at && args[at].isString() && args[at].asString(rt).utf8(rt) == "text";
     };
@@ -1807,57 +1833,131 @@ std::shared_ptr<TurboModule> createHostModule(
     // (sample/oxyos/expo-adapter.js): its id (the registry entry's), whether the session started
     // it, its module, its embedded app config (expo-constants' manifest), its directories, and the
     // machine's name and version for expo-constants.
-    const auto& application = services.application;
-    auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
-    module->constants(folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
+    // Read when JavaScript first asks, once the host has connected (whether it can ask about its
+    // background items is the connection's).
+    module->constants([&services] {
+      const auto& application = services.application;
+      auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
+      return folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
         "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
                                                                        : folly::dynamic(nullptr))(
         "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
         "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
         // What the session started it to open (its launch record's: a file, or a URL of its own
         // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
-        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : "")));
+        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : ""))(
+        // Its login item and background activity can be asked about (protocol version 32).
+        "backgroundItems", static_cast<bool>(services.backgroundItems.ask));
+    });
+    // Login items and background activity (`@oxyos/platform`'s `application`,
+    // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or
+    // registering or unregistering it, by name (`loginItem`, `background`; `status`, `register`,
+    // `unregister`): its serial, 0 if it was not sent; `OxyOSBackgroundItemState` answers.
+    module->method("backgroundItem", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an action");
+      }
+      std::string kind = args[0].asString(rt).utf8(rt), action = args[1].asString(rt).utf8(rt);
+      uint8_t kindCode = kind == "loginItem"    ? OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+                         : kind == "background" ? OXYOS_BACKGROUND_ITEM_BACKGROUND
+                                                : 0;
+      uint8_t actionCode = action == "status"       ? OXYOS_BACKGROUND_ITEM_STATUS
+                           : action == "register"   ? OXYOS_BACKGROUND_ITEM_REGISTER
+                           : action == "unregister" ? OXYOS_BACKGROUND_ITEM_UNREGISTER
+                                                    : 0;
+      if (kindCode == 0 || actionCode == 0) {
+        throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an "
+                               "action ('status', 'register' or 'unregister')");
+      }
+      if (!services.backgroundItems.ask) return jsi::Value(0);
+      return jsi::Value(static_cast<double>(services.backgroundItems.ask(kindCode, actionCode)));
+    });
+    module->listeners();
   } else if (name == "IntentAndroid") {
     // React Native's Linking, as its Android module answers it. Its initial URL is what the
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
     // thumbnail pressed, `file://`, docs/adr/0028-file-access.mdx, decision 6) or a URL of a scheme
     // its entry declares (the dock's Trash opening Dropsea at dropsea://trash, docs/adr/0034-the-dock.mdx);
-    // else none. An application opens no other application's links yet (there is no browser, and no
-    // request for one) but the platform's Settings (below): any other fails with the reason.
+    // else none.
     module->method("getInitialURL", [](jsi::Runtime& rt, const jsi::Value*, size_t) {
       const char* url = std::getenv("OXYOS_LAUNCH_URL");
       if (url && *url) return resolved(rt, jsi::String::createFromUtf8(rt, url));
       return resolved(rt, jsi::Value::null());
     });
-    // The one kind an application opens is the platform's Settings at a page
-    // (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), as a Mac's application opens
-    // `x-apple.systempreferences:`: asked of the session from its window, citing the person's
-    // latest press or key, resolved once the session opened it.
+    // It opens a URL by its scheme (docs/adr/0058-the-platform-api.mdx, step 6): the platform's
+    // Settings at a page, as a Mac's application opens `x-apple.systempreferences:`, or the
+    // application whose entry declares the scheme, as `NSWorkspace.open`: asked of the session
+    // from its window, citing the person's latest press or key, resolved once the session opened
+    // it. A file is opened by its type, never as a URL. `canOpenURL` says whether an application
+    // of the session's registry declares the scheme (its entry's `x-scheme-handler/SCHEME`, as
+    // Android's answers whether an activity handles the intent), read off the JavaScript thread.
     auto schemeOf = [](const std::string& url) {
       auto colon = url.find(':');
       std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
       std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
       return scheme;
     };
-    auto opensSettings = [&services, schemeOf](const std::string& url) {
-      return services.openSettingsUrl && url.find(':') != std::string::npos &&
-             schemeOf(url) == OXYOS_PLATFORM_SETTINGS_SCHEME;
+    auto opensByScheme = [&services, schemeOf](const std::string& url) {
+      // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
+      auto scheme = schemeOf(url);
+      bool named = url.find(':') != std::string::npos && !scheme.empty() &&
+                   std::isalpha(static_cast<unsigned char>(scheme[0])) &&
+                   std::all_of(scheme.begin(), scheme.end(),
+                               [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
+      return services.openUrl && named && scheme != "file";
     };
-    module->method("canOpenURL", [opensSettings](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      return resolved(rt, jsi::Value(count > 0 && args[0].isString() && opensSettings(args[0].asString(rt).utf8(rt))));
+    module->method("canOpenURL", [opensByScheme, schemeOf, invoker](jsi::Runtime& rt, const jsi::Value* args,
+                                                                   size_t count) {
+      std::string url = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
+      if (!opensByScheme(url)) return resolved(rt, jsi::Value(false));
+      std::string scheme = schemeOf(url);
+      if (scheme == OXYOS_PLATFORM_SETTINGS_SCHEME) return resolved(rt, jsi::Value(true));
+      auto start = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "canOpenURL"), 2,
+          [invoker, scheme](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
+            std::thread([invoker, resolve, scheme] {
+              bool declared = false;
+              int64_t length = oxyos_applications(nullptr, 0);
+              if (length >= 0) {
+                std::string json(static_cast<size_t>(length) + 1, '\0');
+                oxyos_applications(json.data(), json.size());
+                json.resize(static_cast<size_t>(length));
+                const std::string handler = "x-scheme-handler/" + scheme;
+                try {
+                  for (const auto& app : folly::parseJson(json)) {
+                    const auto* opens = app.get_ptr("opens");
+                    if (!opens || !opens->isArray()) continue;
+                    declared = declared || std::any_of(opens->begin(), opens->end(), [&](const folly::dynamic& kind) {
+                                 return kind.isString() && kind.getString() == handler;
+                               });
+                  }
+                } catch (const std::exception&) {
+                  // A registry that cannot be read declares nothing.
+                }
+              }
+              invoker->invokeAsync([resolve, declared](jsi::Runtime& rt) {
+                resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(declared));
+              });
+            }).detach();
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
-    module->method("openURL", [&services, invoker, opensSettings, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
+    module->method("openURL", [&services, invoker, opensByScheme, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
                                                                            size_t count) {
       std::string url = count > 0 ? text(rt, args[0]) : "";
-      if (!opensSettings(url)) {
-        return rejected(rt, "OxyOS has no application that opens " + schemeOf(url) + " links yet (" + url + ")");
+      if (!opensByScheme(url)) {
+        return rejected(rt, schemeOf(url) == "file"
+                                ? "OxyOS opens a file by its type, never as a URL (" + url + ")"
+                                : "OxyOS opens no " + url + " from here: not a URL it can ask to open");
       }
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "openURL"), 2,
           [&services, invoker, url](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
             auto reject = std::make_shared<jsi::Value>(rt, args[1]);
-            services.openSettingsUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
+            services.openUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
               invoker->invokeAsync([resolve, reject, opened, reason, url](jsi::Runtime& rt) {
                 if (opened) {
                   resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(true));
@@ -1896,11 +1996,13 @@ std::shared_ptr<TurboModule> createHostModule(
     //   for the SDK's sign-in, while the application's window is the active one.
     // - In the login screen (`setup`): `platform()` ({api, clientId}, or null), and the setup:
     //   `holdCredential(deviceId, deviceSecret, accountId)`, the credential the SDK's sign-in
-    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password)` once the
-    //   person gives the password again (null: the account has none) and chooses a PIN for this
-    //   computer (`enroll(password, pin)`; null for none), then `secondFactor(code)` while asked,
-    //   each a promise of the service's answer ({failed} when it could not be asked);
-    //   `endEnrollment()` forgets it all. The secrets go to the service and are forgotten here;
+    //   obtained, handed over at once and held here, not in JavaScript; `enroll(password, pin,
+    //   appearance)` with the password (null: none), the PIN chosen for this computer (null: none)
+    //   and the new account's appearance, then `secondFactor(code)` while asked and
+    //   `retryEnrollment()` after a {failed} answer (the sign-in the service kept), each a promise
+    //   of the service's answer ({failed} when it could not be asked), its stages told as
+    //   `OxyOSAccountSetupStage` events as the service reaches them; `endEnrollment()` forgets it
+    //   all. The secrets go to the service and are forgotten here;
     //   nothing of them is logged.
     // - The account's local sign-in (docs/adr/0020-oxy-account-login.mdx decision 2):
     //   `localSignIn()`, a promise of {pin: "none" | "set" | "locked", password} (Settings, and the
@@ -2049,7 +2151,17 @@ std::shared_ptr<TurboModule> createHostModule(
                                args[2].asString(rt).utf8(rt));
       return jsi::Value(true);
     });
-    module->method("enroll", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+    // A setup's stages as the service starts them, told as `OxyOSAccountSetupStage` ({stage}):
+    // the login screen's progress; nothing secret.
+    auto stages = [&services]() -> AccountSession::Stage {
+      return [&services](const std::string& stage) {
+        if (services.emit) services.emit("OxyOSAccountSetupStage", folly::dynamic::object("stage", stage));
+      };
+    };
+    // `enroll(password, pin, appearance)`: one of the password and the PIN at least (null: none),
+    // and the new account's appearance ("light", "dark", "auto"; null: none).
+    module->method("enroll", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value* args,
+                                                                       size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.enroll: only the login screen sets accounts up");
       bool hasPassword = count > 0 && args[0].isString();
       bool hasPin = count > 1 && args[1].isString();
@@ -2058,18 +2170,28 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       std::string password = hasPassword ? args[0].asString(rt).utf8(rt) : "";
       std::string pin = hasPin ? args[1].asString(rt).utf8(rt) : "";
-      return promise(rt, [session, settle, password = std::move(password),
-                          pin = std::move(pin)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().enroll(std::move(password), std::move(pin), settle(resolve, "setup", false));
+      std::string appearance = count > 2 && args[2].isString() ? args[2].asString(rt).utf8(rt) : "";
+      return promise(rt, [session, settle, stages, password = std::move(password), pin = std::move(pin),
+                          appearance = std::move(appearance)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().enroll(std::move(password), std::move(pin), std::move(appearance), stages(),
+                         settle(resolve, "setup", false));
       });
     });
-    module->method("secondFactor", [setup, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
-                                                                     size_t count) {
+    module->method("secondFactor", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value* args,
+                                                                             size_t count) {
       if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: only the login screen sets accounts up");
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSAccountSession.secondFactor: a code");
       std::string code = args[0].asString(rt).utf8(rt);
-      return promise(rt, [session, settle, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
-        session().secondFactor(std::move(code), settle(resolve, "setup", false));
+      return promise(rt, [session, settle, stages, code = std::move(code)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().secondFactor(std::move(code), stages(), settle(resolve, "setup", false));
+      });
+    });
+    // The setup again after a {failed} answer, with what the service kept: never a new sign-in.
+    module->method("retryEnrollment", [setup, session, promise, settle, stages](jsi::Runtime& rt, const jsi::Value*,
+                                                                                size_t) {
+      if (!setup) throw jsi::JSError(rt, "OxyOSAccountSession.retryEnrollment: only the login screen sets accounts up");
+      return promise(rt, [session, settle, stages](std::shared_ptr<jsi::Value> resolve) {
+        session().retry(stages(), settle(resolve, "setup", false));
       });
     });
     module->method("endEnrollment", [setup, session](jsi::Runtime&, const jsi::Value*, size_t) {

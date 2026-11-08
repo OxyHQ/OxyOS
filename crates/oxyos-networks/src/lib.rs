@@ -10,10 +10,20 @@
 //!
 //! What a joined network needs ([`Plan`]) is decided here from what its access point says; the
 //! person's part (a password sheet, its retries) is the session's.
+//!
+//! A known network's private Wi-Fi address ([`PrivateAddress`]) is NetworkManager's per-connection
+//! address setting; resetting the network settings ([`ResetPlan`]) removes what the person may
+//! remove of the daemon's saved connections; Wi-Fi Diagnostics ([`diagnose`]) reads the link from
+//! the daemon and checks the router and the resolver once, when asked, through a [`Probe`].
 
+mod diagnostics;
 mod nm;
 mod secret;
 
+pub use diagnostics::{
+    diagnose, Connectivity, Diagnostics, DnsCheck, DnsVerdict, Link, LinkQuality, Ping, Probe,
+    Resolved, RouterCheck, RouterVerdict, Survey, SystemProbe, DIAGNOSTIC_NAME,
+};
 pub use nm::{watch, Changes, Follow, NetworkManager};
 
 /// The system bus's address when the environment names none (the D-Bus specification's).
@@ -260,6 +270,131 @@ pub struct Known {
     pub id: String,
     pub ssid: String,
     pub auto_join: bool,
+    /// The address the computer uses on it.
+    pub private_address: PrivateAddress,
+}
+
+/// The address a known network is joined with (docs/adr/0038-networks.mdx, 8 November 2026), as a
+/// Mac's and an iPhone's Private Wi-Fi Address: NetworkManager's per-connection
+/// `802-11-wireless.cloned-mac-address` (`assigned-mac-address` on D-Bus) and, for one that
+/// rotates, `connection.stable-id`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PrivateAddress {
+    /// `stable`: an address of the daemon's making for this connection alone (its UUID hashed with
+    /// the machine's own key), the same every time it is joined. What a new network gets.
+    #[default]
+    Fixed,
+    /// `stable` with the stable-id [`ROTATING_STABLE_ID`]: another address after every start of
+    /// the computer, still one per network; `random` (another at every join) reads as this too.
+    Rotating,
+    /// `permanent`: the hardware's own address. A connection that names none (`preserve`, the
+    /// daemon's default when its configuration sets none) reads as this.
+    Off,
+    /// A fixed hardware address someone set: not one of the three, shown as it is.
+    Other,
+}
+
+/// The stable-id of a connection whose private address rotates: its UUID and the boot's id, so the
+/// address (and the IPv6 stable-privacy address and DHCP identity seeded from it) changes at every
+/// start of the computer and is never shared with another network.
+pub const ROTATING_STABLE_ID: &str = "${CONNECTION}/${BOOT}";
+
+impl PrivateAddress {
+    /// What a connection's `assigned-mac-address` and `stable-id` mean.
+    pub fn of(assigned: Option<&str>, stable_id: Option<&str>) -> Self {
+        let rotates = |id: Option<&str>| {
+            id.is_some_and(|id| id.contains("${BOOT}") || id.contains("${RANDOM}"))
+        };
+        match assigned.map(str::trim).filter(|value| !value.is_empty()) {
+            None | Some("preserve" | "permanent") => PrivateAddress::Off,
+            Some("random") => PrivateAddress::Rotating,
+            Some("stable") if rotates(stable_id) => PrivateAddress::Rotating,
+            Some("stable" | "stable-ssid") => PrivateAddress::Fixed,
+            Some(_) => PrivateAddress::Other,
+        }
+    }
+
+    /// The connection's settings for it: `assigned-mac-address`, and its `stable-id` (`None`:
+    /// left unset, the daemon's per-connection default). `None` for [`PrivateAddress::Other`],
+    /// which is never set from here.
+    pub fn settings(self) -> Option<(&'static str, Option<&'static str>)> {
+        match self {
+            PrivateAddress::Fixed => Some(("stable", None)),
+            PrivateAddress::Rotating => Some(("stable", Some(ROTATING_STABLE_ID))),
+            PrivateAddress::Off => Some(("permanent", None)),
+            PrivateAddress::Other => None,
+        }
+    }
+
+    /// Its name in the vocabulary.
+    pub fn name(self) -> &'static str {
+        match self {
+            PrivateAddress::Fixed => "fixed",
+            PrivateAddress::Rotating => "rotating",
+            PrivateAddress::Off => "off",
+            PrivateAddress::Other => "other",
+        }
+    }
+}
+
+/// What setting a private address did to the network joined with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rejoin {
+    /// It is not the network joined: the address is used the next time it is.
+    NotJoined,
+    /// Joined again, with its new address.
+    Rejoined,
+    /// The address is set, but joining it again failed.
+    Failed(Failure),
+}
+
+/// What a saved connection is, as resetting the network settings counts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SavedKind {
+    Wifi,
+    /// A VPN plugin's (`vpn`) or WireGuard's.
+    Vpn,
+    Ethernet,
+}
+
+/// A saved connection, by its UUID and its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Saved {
+    pub id: String,
+    pub name: String,
+    pub kind: SavedKind,
+}
+
+/// Why a saved connection is kept by a reset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeptBecause {
+    /// polkit does not let this person change it (an administrator's).
+    NotPermitted,
+    /// Ethernet: the daemon would not configure the port again by itself (docs/adr/0038-networks.mdx).
+    Ethernet,
+    /// The daemon refused to remove it for another reason.
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptConnection {
+    #[serde(flatten)]
+    pub saved: Saved,
+    pub because: KeptBecause,
+}
+
+/// What resetting the network settings removes and keeps: before (what the confirmation lists) and
+/// after (what came of it).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPlan {
+    pub removed: Vec<Saved>,
+    pub kept: Vec<KeptConnection>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]

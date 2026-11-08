@@ -168,6 +168,12 @@ bool ShellState::observe(const OxyOSEvent& event) {
       window.responding = (event.flag & OXYOS_WINDOW_RESPONDING) != 0;
       return true;
     }
+    case OXYOS_EVENT_SAFE_MODE:
+      // The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10):
+      // told once, shown for the whole session.
+      if (safeMode_) return false;
+      safeMode_ = true;
+      return true;
     case OXYOS_EVENT_TRASH_ITEMS:
       if (trashItems_ == static_cast<int64_t>(event.code)) return false;
       trashItems_ = event.code;
@@ -429,7 +435,7 @@ folly::dynamic ShellState::state() const {
       "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi())("controls", controls())(
       "notifications", std::move(notifications))(
       "notificationPolicy", folly::dynamic::object("doNotDisturb", doNotDisturb_)("previews", previews_))(
-      "applicationLists", applicationLists())("trashItems", trashItems_ < 0 ? folly::dynamic(nullptr)
+      "applicationLists", applicationLists())("safeMode", safeMode_)("trashItems", trashItems_ < 0 ? folly::dynamic(nullptr)
                                                                              : folly::dynamic(trashItems_));
 }
 

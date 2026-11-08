@@ -13,8 +13,8 @@
     "url": "oxyos-settings://wifi",
     "titles": { "en": "Wi-Fi", "es": "Wi-Fi" },
     "keywords": {
-      "en": ["wifi", "wi-fi", "wireless", "internet", "network", "router", "hotspot", "ssid", "password", "join", "airport", "wlan", "known networks", "auto-join"],
-      "es": ["wifi", "wi-fi", "inalámbrica", "internet", "red", "router", "punto de acceso", "ssid", "contraseña", "conectarse", "wlan", "redes conocidas", "conexión automática"]
+      "en": ["wifi", "wi-fi", "wireless", "internet", "network", "router", "hotspot", "ssid", "password", "join", "airport", "wlan", "known networks", "auto-join", "private address", "private wi-fi address", "mac address", "forget network", "diagnostics", "wireless diagnostics"],
+      "es": ["wifi", "wi-fi", "inalámbrica", "internet", "red", "router", "punto de acceso", "ssid", "contraseña", "conectarse", "wlan", "redes conocidas", "conexión automática", "dirección privada", "dirección wi-fi privada", "dirección mac", "olvidar red", "diagnóstico", "diagnóstico de wi-fi"]
     }
   },
   {
@@ -31,8 +31,8 @@
     "url": "oxyos-settings://network",
     "titles": { "en": "Network", "es": "Red" },
     "keywords": {
-      "en": ["network", "ethernet", "cable", "wired", "lan", "ip address", "ipv4", "ipv6", "dns", "router", "gateway", "subnet", "mac address", "internet", "connection"],
-      "es": ["red", "ethernet", "cable", "por cable", "lan", "dirección ip", "ipv4", "ipv6", "dns", "router", "puerta de enlace", "subred", "dirección mac", "internet", "conexión"]
+      "en": ["network", "ethernet", "cable", "wired", "lan", "ip address", "ipv4", "ipv6", "dns", "router", "gateway", "subnet", "mac address", "internet", "connection", "reset network settings", "reset"],
+      "es": ["red", "ethernet", "cable", "por cable", "lan", "dirección ip", "ipv4", "ipv6", "dns", "router", "puerta de enlace", "subred", "dirección mac", "internet", "conexión", "restablecer ajustes de red", "restablecer"]
     }
   },
   {
@@ -148,8 +148,8 @@
     "url": "oxyos-settings://trackpad",
     "titles": { "en": "Trackpad", "es": "Trackpad" },
     "keywords": {
-      "en": ["trackpad", "touchpad", "natural scrolling", "scrolling", "gestures", "swipe", "tap to click", "pointer", "fingers"],
-      "es": ["trackpad", "touchpad", "panel táctil", "desplazamiento natural", "desplazamiento", "gestos", "deslizar", "tocar para hacer clic", "puntero", "dedos"]
+      "en": ["trackpad", "touchpad", "natural scrolling", "scrolling", "gestures", "swipe", "tap to click", "pointer", "fingers", "more gestures", "mission control", "app exposé", "app expose", "launchpad", "pinch", "desktops", "three fingers", "four fingers"],
+      "es": ["trackpad", "touchpad", "panel táctil", "desplazamiento natural", "desplazamiento", "gestos", "deslizar", "tocar para hacer clic", "puntero", "dedos", "más gestos", "mission control", "app exposé", "launchpad", "pellizcar", "escritorios", "tres dedos", "cuatro dedos"]
     }
   },
   {
@@ -171,12 +171,30 @@
     }
   },
   {
+    "id": "settings:storage",
+    "url": "oxyos-settings://storage",
+    "titles": { "en": "Storage", "es": "Almacenamiento" },
+    "keywords": {
+      "en": ["storage", "disk", "disk space", "free space", "space", "capacity", "full", "available", "empty trash automatically", "review files", "large files", "unused apps", "manage storage"],
+      "es": ["almacenamiento", "disco", "espacio en disco", "espacio libre", "espacio", "capacidad", "lleno", "disponible", "vaciar la papelera automáticamente", "revisar archivos", "archivos grandes", "apps sin usar", "gestionar almacenamiento"]
+    }
+  },
+  {
     "id": "settings:spotlight",
     "url": "oxyos-settings://spotlight",
     "titles": { "en": "Spotlight", "es": "Spotlight" },
     "keywords": {
       "en": ["spotlight", "search", "find", "index", "search results", "search privacy", "exclude folder", "categories", "indexing"],
       "es": ["spotlight", "buscar", "búsqueda", "encontrar", "índice", "resultados de búsqueda", "privacidad de búsqueda", "excluir carpeta", "categorías", "indexación"]
+    }
+  },
+  {
+    "id": "settings:login-items",
+    "url": "oxyos-settings://login-items",
+    "titles": { "en": "Login Items & Extensions", "es": "Ítems de inicio y extensiones" },
+    "keywords": {
+      "en": ["login items", "open at login", "startup", "startup apps", "launch at login", "background", "background activity", "background items", "run in background", "extensions"],
+      "es": ["ítems de inicio", "abrir al iniciar sesión", "arranque", "apps de inicio", "iniciar con el sistema", "segundo plano", "actividad en segundo plano", "ítems en segundo plano", "ejecutar en segundo plano", "extensiones"]
     }
   },
   {
@@ -193,8 +211,8 @@
     "url": "oxyos-settings://privacy",
     "titles": { "en": "Privacy", "es": "Privacidad" },
     "keywords": {
-      "en": ["privacy", "security", "permissions", "camera", "microphone", "location", "files", "notifications", "background", "login items", "app access", "tracking"],
-      "es": ["privacidad", "seguridad", "permisos", "cámara", "micrófono", "ubicación", "archivos", "notificaciones", "segundo plano", "ítems de inicio", "acceso de apps", "rastreo"]
+      "en": ["privacy", "security", "permissions", "camera", "microphone", "location", "files", "notifications", "app access", "tracking"],
+      "es": ["privacidad", "seguridad", "permisos", "cámara", "micrófono", "ubicación", "archivos", "notificaciones", "acceso de apps", "rastreo"]
     }
   },
   {

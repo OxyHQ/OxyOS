@@ -28,7 +28,9 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod autofill;
+pub mod background;
 pub mod controls;
+pub mod crashes;
 pub mod drag_badge;
 mod gpu_buffers;
 pub mod open_files;
@@ -48,6 +50,7 @@ pub mod login;
 pub mod motion;
 pub mod networks;
 pub mod power;
+pub mod safe_mode;
 pub mod search;
 pub mod settings;
 pub mod sign_out;
@@ -55,6 +58,7 @@ pub mod sound_devices;
 pub mod sounds;
 pub mod splash;
 pub mod stop;
+pub mod storage;
 pub mod swipes;
 pub mod transitions;
 pub mod trash;
@@ -3880,6 +3884,7 @@ impl Compositor {
             // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
             oxyos_input::Action::Pinch {
                 phase,
+                fingers,
                 scale,
                 rotation,
             } => self.scene.pointer_pinch(
@@ -3889,6 +3894,7 @@ impl Compositor {
                     oxyos_input::GesturePhase::End => GesturePhase::End,
                     oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
                 },
+                u8::try_from(fingers).unwrap_or(u8::MAX),
                 (scale.max(0.0) * 65536.0).round() as u32,
                 (rotation * 256.0).round() as i32,
             ),

@@ -17,6 +17,7 @@ mod input_sources;
 mod launch;
 mod lock;
 mod pasteboard;
+mod played_network;
 mod png;
 mod reader;
 mod uinput;
@@ -122,6 +123,9 @@ struct Session {
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
     /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
     launcher: Option<oxyos_apps::Launcher>,
+    /// Applications that quit unexpectedly and resetting one (docs/adr/0061-crashes-and-resetting-
+    /// an-application.mdx), as the session has them: the reports in the run's own state folder.
+    pub crashes: oxyos_compositor::crashes::Crashes,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -136,6 +140,12 @@ struct Session {
     grants: Vec<(String, oxyos_apps::Grants)>,
     /// `--installd SOCKET`: the session's side of installing (ADR 0030).
     installs: Option<oxyos_compositor::installs::Installs>,
+    /// With `--launch --shell`: the applications' login items and background activity, as the
+    /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
+    pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// The processes the session ended for their background activity since a step last took them
+    /// (each its application's id).
+    pub background_ended: Vec<String>,
     /// The descriptor its turn is woken by, among the compositor's wakers, given back at the end.
     installs_waker: Option<std::os::fd::RawFd>,
     /// The Trash follower's waker among the compositor's, given back as the session finishes.
@@ -201,6 +211,10 @@ struct Session {
     pub file_opens: Vec<(PathBuf, String)>,
     /// The user's Trashes, followed as the session follows them (`--trash`, a scenario's own home).
     pub trash: Option<oxyos_compositor::trash::Trash>,
+    /// Settings › Storage as the session serves it (`--storage`, a played disk), and its waker
+    /// among the compositor's, given back as the session finishes.
+    pub storage: Option<oxyos_compositor::storage::Storage>,
+    pub storage_waker: Option<std::os::fd::RawFd>,
     /// The system sounds the session would have played since a step last took them
     /// (docs/adr/0044-system-sounds.mdx).
     pub sounds: oxyos_sound::Recorder,
@@ -296,11 +310,17 @@ impl Session {
             pasteboard: None,
             reader: reader::Reader::default(),
             launcher: None,
+            crashes: oxyos_compositor::crashes::Crashes::new(
+                oxyos_compositor::crashes::Reports::of_user(),
+                oxyos_compositor::crashes::system_description(),
+            ),
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
             grants: Vec::new(),
             installs: None,
+            background: None,
+            background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
             search: None,
@@ -330,6 +350,8 @@ impl Session {
             file_opens: Vec::new(),
             sounds: oxyos_sound::Recorder::default(),
             trash: None,
+            storage: None,
+            storage_waker: None,
             installed_fixture: None,
             displays: None,
             choosers: oxyos_compositor::choosers::Choosers::new(
@@ -412,7 +434,7 @@ impl Session {
         }
         for pid in self.choosers.take_ended() {
             self.compositor.forget_chooser(pid);
-            if let Some(launcher) = self.launcher.as_ref() {
+            if let Some(launcher) = self.launcher.as_mut() {
                 launcher.terminate(pid);
             }
             if let Some(child) = self.chooser_children.iter().find(|c| c.id() == pid) {
@@ -632,6 +654,41 @@ impl Session {
         // the run, before the install service takes what is left.
         let login = self.compositor.login;
         self.signed_out |= oxyos_compositor::sign_out::serve(&mut self.compositor.scene, login);
+        // Resetting an application and the crash notices' answers (docs/adr/0061), before the
+        // install service takes the requests left; what the person reopens is started as the
+        // shell's launches are, and recorded so.
+        if let Some(launcher) = self.launcher.as_mut() {
+            self.crashes.set_locale(&self.settings.locale());
+            let served = self
+                .crashes
+                .serve(&mut self.compositor.scene, launcher, login);
+            // What a reset application donated to the index goes with its data.
+            if let Some(search) = self.search.as_mut() {
+                for id in &served.reset {
+                    search.forget_application(id);
+                }
+            }
+            for id in served.open {
+                match launcher.launch(&id) {
+                    Ok(pid) => {
+                        if let Some(launched) = launcher.application_of(pid) {
+                            let origin = match &launched.origin {
+                                oxyos_apps::Origin::System => "system".to_string(),
+                                oxyos_apps::Origin::Installed { version_code } => {
+                                    format!("installed {version_code}")
+                                }
+                                oxyos_apps::Origin::Development => "development".to_string(),
+                            };
+                            let settings = launched.grants.settings
+                                || self.grant_settings.as_deref() == Some(launched.id.as_str());
+                            self.application_launches
+                                .push((launched.id.clone(), origin, settings));
+                        }
+                    }
+                    Err(error) => eprintln!("[launch] {id} not reopened: {error}"),
+                }
+            }
+        }
         // AutoFill's fields, picks and the shell's presses, before the install service takes the
         // requests left.
         if let Some(autofill) = self.autofill.as_mut() {
@@ -641,10 +698,35 @@ impl Session {
         self.serve_input_sources();
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
-        // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
+        // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx), emptying
+        // itself as the person has it (docs/adr/0062-storage.mdx).
         if let Some(trash) = self.trash.as_mut() {
+            trash.set_empty_automatically(self.settings.preferences().empty_trash_automatically);
             trash.serve(&mut self.compositor.scene);
             self.compositor.play_sounds();
+        }
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the install service takes the
+        // requests left: an item revealed opens the file manager as the shell's URLs do.
+        if let Some(storage) = self.storage.as_mut() {
+            storage.set_locale(&self.settings.locale());
+            for reveal in storage.serve(&mut self.compositor.scene) {
+                let opened = match self
+                    .launcher
+                    .as_mut()
+                    .map(|launcher| launcher.open_url(&reveal.url))
+                {
+                    Some(Ok((id, _))) => {
+                        self.url_opens.push((reveal.url.clone(), id));
+                        true
+                    }
+                    Some(Err(error)) => {
+                        eprintln!("[launch] {}: {error}", reveal.url);
+                        false
+                    }
+                    None => false,
+                };
+                storage.revealed(&mut self.compositor.scene, &reveal, opened);
+            }
         }
         // Input sources and the engine (ADR 0041), before the store takes the requests left.
         if let Some(methods) = self.input_methods.as_mut() {
@@ -745,6 +827,31 @@ impl Session {
         }
     }
 
+    /// The applications' login items and background activity
+    /// (docs/adr/0060-login-items-and-background-activity.mdx), as the session serves them, after
+    /// the install service's answers: a process in the background without the right is ended.
+    pub fn serve_background(&mut self) {
+        let Some(background) = self.background.as_mut() else {
+            return;
+        };
+        let launcher = self.launcher.as_ref();
+        let end = background.serve(
+            &mut self.compositor,
+            &mut self.settings,
+            &|pid| launcher?.application_of(pid).cloned(),
+            self.installs.as_mut(),
+            oxyos_compositor::settings::now(),
+        );
+        if let Some(launcher) = self.launcher.as_mut() {
+            for pid in end {
+                if let Some(launched) = launcher.application_of(pid) {
+                    self.background_ended.push(launched.id.clone());
+                }
+                launcher.terminate(pid);
+            }
+        }
+    }
+
     /// The companion application's client (`--companion`), once it has connected.
     fn companion_client(&self) -> Option<ClientId> {
         let pid = self.companion?;
@@ -808,10 +915,18 @@ impl Session {
             }
             return;
         };
-        for (pid, _) in launcher.reap() {
-            self.choosers.exited(&mut self.compositor.scene, pid);
-            self.compositor.forget_chooser(pid);
+        let exits = launcher.reap();
+        for exit in &exits {
+            eprintln!(
+                "[launch] {} exited ({})",
+                exit.launched.id,
+                oxyos_compositor::crashes::reason(exit.status)
+            );
+            self.choosers.exited(&mut self.compositor.scene, exit.pid);
+            self.compositor.forget_chooser(exit.pid);
         }
+        // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
+        self.crashes.exited(&mut self.compositor.scene, &exits);
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
             if let Err(error) = launcher.launch(&id) {
@@ -864,8 +979,8 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
-        // The URLs the shell opens and the force quits it asks for (docs/adr/0034-the-dock.mdx),
-        // as the session serves them.
+        // The URLs the shell and applications open, and the force quits the shell asks for
+        // (docs/adr/0034-the-dock.mdx), as the session serves them.
         for request in self.compositor.scene.take_url_requests() {
             let opened = request.with_input
                 && match launcher.open_url(&request.url) {
@@ -1043,6 +1158,12 @@ impl Session {
         // The Trash's follower, its watcher's thread waited for and its waker given back.
         self.trash = None;
         if let Some(waker) = self.trash_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // Storage, a measurement under way stopped and waited for, and its waker given back.
+        self.storage = None;
+        if let Some(waker) = self.storage_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }

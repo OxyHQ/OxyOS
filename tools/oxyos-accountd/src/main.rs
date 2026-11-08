@@ -49,6 +49,8 @@
 //! error, the journal's; never a password, a secret, a code or a token.
 
 mod passwords;
+#[cfg(test)]
+mod unit_sandbox;
 
 use oxyos_account::api::{Attestation, HttpApi, PlatformClient};
 use oxyos_account::erase::{Eraser, Systemctl};
@@ -150,6 +152,9 @@ fn log(peer: &Peer, outcome: &Outcome) {
             enrolled.account, enrolled.user, enrolled.uid
         ),
         Outcome::Refused(error) => eprintln!("oxyos-accountd: {who}: setup refused: {error}"),
+        Outcome::Interrupted(error) => {
+            eprintln!("oxyos-accountd: {who}: setup failed, its sign-in kept for a retry: {error}")
+        }
         Outcome::SecondFactorRequired => {
             eprintln!("oxyos-accountd: {who}: setup waits for the authenticator's code")
         }
@@ -262,6 +267,23 @@ impl Drop for Slot {
 
 type Service = Platform<HttpApi, SystemUsers>;
 
+/// `path` as a directory of the service's own, 0700: made if it is not there, refused if it is
+/// anything else (`Registrars` reads nothing from a directory that is not).
+fn own_directory(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => return Err(error),
+        _ => {}
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(std::io::Error::other(
+            "not a directory of the service's own",
+        ));
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
 /// The session socket: each connection classified by the kernel's word on its peer, then served
 /// on a thread of its own.
 fn sessions(listener: Listener, sessions: Arc<Sessions<HttpApi, SystemUsers>>) {
@@ -369,12 +391,28 @@ fn run() -> Result<(), String> {
         options.api,
         options.session_program.display()
     );
+    // The registrars verified this boot, beside the session socket (session::VERIFIED): a session
+    // running when the service starts again is known by them, though an upgrade replaced its
+    // program since.
+    let verified = options
+        .session_socket
+        .parent()
+        .unwrap_or(Path::new("/"))
+        .join("registrars");
+    if let Err(error) = own_directory(&verified) {
+        eprintln!(
+            "oxyos-accountd: {}: {error}: a session running when the service starts again is \
+             not known if an upgrade replaced its program",
+            verified.display()
+        );
+    }
     let session_service = Arc::new(Sessions::new(
         platform.clone(),
         Registrars::new(
             options.session_program.clone(),
             options.login_program.clone(),
-        ),
+        )
+        .remembering(verified),
         Eraser::new(
             Box::new(Systemctl::new()),
             Box::new(passwords::PamPasswords::new()),
