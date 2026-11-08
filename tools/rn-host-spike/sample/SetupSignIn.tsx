@@ -51,7 +51,12 @@ function handingOverStore(onHanded: (handed: Handed) => void) {
     save: async (state: Persisted, context?: SaveContext) => {
       if (!state.deviceId || !state.deviceSecret || !state.userId || !native) return false;
       const held = native.holdCredential(state.deviceId, state.deviceSecret, state.userId);
-      if (held) onHanded({ accountId: state.userId, ...viaOf(context) });
+      if (held) {
+        const handed = { accountId: state.userId, ...viaOf(context) };
+        // How it signed in, for the log; never the password.
+        console.info(`[setup] signed in by ${handed.via}${handed.password ? ', its password typed' : ''}`);
+        onHanded(handed);
+      }
       return held;
     },
     clear: async () => {},

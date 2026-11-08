@@ -224,7 +224,11 @@ function SetupPanel({
     if (!setup) return;
     setProblem(null);
     setBusy(true);
-    setup.enroll(password, chosenPin.current).then((told) => settle(told, at));
+    // A platform that throws instead of answering failed: said, never a setup left waiting.
+    setup
+      .enroll(password, chosenPin.current)
+      .catch((): EnrollAnswer => ({ failed: { reason: "unanswered" } }))
+      .then((told) => settle(told, at));
   };
   const settle = (told: EnrollAnswer, at: "password" | "pin" | "secondFactor") => {
     setBusy(false);
@@ -396,7 +400,10 @@ function SetupPanel({
           busy={busy}
           submit={(code) => {
             setBusy(true);
-            setup.secondFactor(code).then((told) => settle(told, "secondFactor"));
+            setup
+              .secondFactor(code)
+              .catch((): EnrollAnswer => ({ failed: { reason: "unanswered" } }))
+              .then((told) => settle(told, "secondFactor"));
           }}
         />
         {busy ? <SetupMessage text={words.adding} /> : null}
