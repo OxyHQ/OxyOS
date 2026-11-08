@@ -449,6 +449,38 @@
       "expect": {
         "react": {}
       }
+    },
+    {
+      "name": "+ opens the chooser of the registry's applications not opened at login",
+      "do": [
+        "press_named",
+        "Añadir una app que se abra al iniciar sesión"
+      ],
+      "expect": {
+        "texts": [
+          "Elige una app que se abra automáticamente al iniciar sesión."
+        ]
+      }
+    },
+    {
+      "name": "Escape closes it, nothing added; the keyboard back on +",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "Elige una app que se abra automáticamente al iniciar sesión."
+        ],
+        "texts": [
+          "Ningún ítem"
+        ],
+        "preferences_file": {
+          "open_at_login": null
+        }
+      }
     }
   ]
 }
