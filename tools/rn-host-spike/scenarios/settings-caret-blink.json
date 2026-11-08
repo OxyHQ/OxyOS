@@ -114,11 +114,8 @@
     {
       "name": "the switch pressed in Settings' inactive window only activates it, as a Mac's first click on a control: the switch stays off and React hears nothing",
       "do": [
-        "press",
-        [
-          890,
-          291
-        ]
+        "press_named",
+        "Prefer non-blinking cursor"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -164,11 +161,8 @@
     {
       "name": "pressed again in the active window, the switch turns on: the session keeps caret_blink off and tells every application at once, Settings and the other alike",
       "do": [
-        "press",
-        [
-          890,
-          291
-        ]
+        "press_named",
+        "Prefer non-blinking cursor"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -283,11 +277,8 @@
     {
       "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
       "do": [
-        "press",
-        [
-          890,
-          291
-        ]
+        "press_named",
+        "Prefer non-blinking cursor"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -335,11 +326,8 @@
     {
       "name": "pressed again in the active window, the switch off: the session keeps caret_blink on; the other application's caret, its window not the key one, is not drawn and does not blink",
       "do": [
-        "press",
-        [
-          890,
-          291
-        ]
+        "press_named",
+        "Prefer non-blinking cursor"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -452,11 +440,8 @@
     {
       "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
       "do": [
-        "press",
-        [
-          890,
-          291
-        ]
+        "press_named",
+        "Prefer non-blinking cursor"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -502,11 +487,8 @@
     {
       "name": "pressed again in the active window, the switch on again: kept, and told to both",
       "do": [
-        "press",
-        [
-          890,
-          291
-        ]
+        "press_named",
+        "Prefer non-blinking cursor"
       ],
       "allow_unchanged": true,
       "expect": {

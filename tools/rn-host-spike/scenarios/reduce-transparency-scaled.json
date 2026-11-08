@@ -1,0 +1,281 @@
+{
+ "about": "At 1.25, as reduce-transparency.json at 1: Reduce transparency (docs/adr/0019-settings.mdx, step 3 amended 8 November 2026), followed live by the shell and an application with no restart. sample/MaterialProbe.tsx is the application: expo-blur's blur views over a target half black, half white, and the lock screen's clock in its material. Settings runs beside it (`companion`), granted `settings`. Its Accessibility page has Vision and Display as a Mac's. Off, the application's blur views blur their targets (the edge a ramp) and the shell's volume bezel is glass. Turned on, the session keeps it and tells every client. The host's expo-blur draws each blur view as its tint alone (the edge sharp, black and white under the tint), the clock's glyphs are plain white, the bezel is opaque (#1b1f27), and Launchpad's backdrop is an opaque dark grey (#2c2f36) with no wallpaper drawn. Turned off, all of it is glass again. Nothing is delivered to Settings, which is driven by its assistive technology's actions, and the application receives only its own press.",
+ "module": "MaterialProbe",
+ "window": [
+  400,
+  480
+ ],
+ "outputs": "2400x1500@1.25",
+ "shell": "OxyOSShell",
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy",
+   "reduce_transparency": "false"
+  }
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "companion": {
+  "module": "OxyOSSettings",
+  "window": [
+   640,
+   600
+  ],
+  "at": [
+   20,
+   60
+  ],
+  "app": "so.oxy.settings"
+ },
+ "steps": [
+  {
+   "name": "the application's glass: its blur views blur their targets (the edge a ramp), the clock's glyphs the blurred target",
+   "do": [
+    "wait",
+    500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pixels": {
+     "119,62": "!#212121",
+     "131,62": "!#f4f4f4",
+     "25,62": "#000000",
+     "212,62": "#ffffff",
+     "250,506": "!#ffffff",
+     "250,479": "#3050d0"
+    }
+   }
+  },
+  {
+   "name": "Settings (beside it), its sidebar",
+   "do": [
+    "wait_named",
+    [
+     "Accessibility",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Accessibility, as a Mac's: Vision and Display, Reduce transparency off",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Accessibility"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "companion": [
+      {
+       "role": "Switch",
+       "name": "Reduce transparency",
+       "state": []
+      }
+     ]
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "volume up: the shell's bezel, glass over what is behind it",
+   "do": [
+    "key",
+    [
+     115
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "output_pixels": {
+     "1100,1100": "!#1b1f27"
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Reduce transparency turned on in Settings: the session keeps it and tells every application at once",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Reduce transparency"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "preferences": {
+     "reduceTransparency": true
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "the application's blur views their tint alone, nothing blurred (the edge sharp), the clock's glyphs plain white, with no restart",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pixels": {
+     "62,62": "#212121",
+     "119,62": "#212121",
+     "131,62": "#f4f4f4",
+     "188,62": "#f4f4f4",
+     "25,62": "#000000",
+     "212,62": "#ffffff",
+     "250,479": "#3050d0"
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "volume up: the bezel opaque",
+   "do": [
+    "key",
+    [
+     115
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "output_pixels": {
+     "1100,1100": "#1b1f27"
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Super alone: Launchpad",
+   "do": [
+    "key",
+    [
+     125
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "its backdrop opaque, a dark grey, no wallpaper drawn",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "output_pixels": {
+     "12,50": "#2c2f36"
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Escape closes it",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Reduce transparency off again",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Reduce transparency"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "preferences": {
+     "reduceTransparency": false
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "the application blurs again, with no restart",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pixels": {
+     "119,62": "!#212121",
+     "131,62": "!#f4f4f4",
+     "25,62": "#000000",
+     "212,62": "#ffffff",
+     "250,506": "!#ffffff",
+     "250,479": "#3050d0"
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "volume up: the bezel glass again",
+   "do": [
+    "key",
+    [
+     115
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "output_pixels": {
+     "1100,1100": "!#1b1f27"
+    },
+    "delivered": {
+     "companion": {}
+    }
+   }
+  }
+ ]
+}

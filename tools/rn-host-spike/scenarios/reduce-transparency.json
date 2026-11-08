@@ -1,21 +1,18 @@
 {
- "about": "draft",
- "module": "OxyOSSettings",
+ "about": "Reduce transparency (docs/adr/0019-settings.mdx, step 3 amended 8 November 2026), followed live by the shell and an application with no restart. sample/MaterialProbe.tsx is the application: expo-blur's blur views over a target half black, half white, and the lock screen's clock in its material. Settings runs beside it (`companion`), granted `settings`. Its Accessibility page has Vision and Display as a Mac's. Off, the application's blur views blur their targets (the edge a ramp) and the shell's volume bezel is glass. Turned on, the session keeps it and tells every client. The host's expo-blur draws each blur view as its tint alone (the edge sharp, black and white under the tint), the clock's glyphs are plain white, the bezel is opaque (#1b1f27), and Launchpad's backdrop is an opaque dark grey (#2c2f36) with no wallpaper drawn. Turned off, all of it is glass again. Nothing is delivered to Settings, which is driven by its assistive technology's actions, and the application receives only its own press.",
+ "module": "MaterialProbe",
  "window": [
-  900,
-  640
+  400,
+  480
  ],
  "outputs": "1920x1080",
  "shell": "OxyOSShell",
- "app": {
-  "id": "so.oxy.settings",
-  "title": "Settings"
- },
  "settings": {
   "app": "so.oxy.settings",
   "preferences": {
    "appearance": "light",
-   "accent": "oxy"
+   "accent": "oxy",
+   "reduce_transparency": "false"
   }
  },
  "controls": {
@@ -32,19 +29,38 @@
   "bluetooth_connected": 1
  },
  "companion": {
-  "module": "MaterialProbe",
+  "module": "OxyOSSettings",
   "window": [
-   400,
-   480
+   640,
+   600
   ],
   "at": [
-   1460,
-   120
-  ]
+   20,
+   60
+  ],
+  "app": "so.oxy.settings"
  },
  "steps": [
   {
-   "name": "Settings, its sidebar",
+   "name": "the application's glass: its blur views blur their targets (the edge a ramp), the clock's glyphs the blurred target",
+   "do": [
+    "wait",
+    500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pixels": {
+     "95,50": "!#212121",
+     "105,50": "!#f4f4f4",
+     "20,50": "#000000",
+     "170,50": "#ffffff",
+     "200,405": "!#ffffff",
+     "200,383": "#3050d0"
+    }
+   }
+  },
+  {
+   "name": "Settings (beside it), its sidebar",
    "do": [
     "wait_named",
     [
@@ -66,24 +82,22 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "texts": [
-     "Vision",
-     "Display",
-     "Reduce transparency"
-    ],
     "at": {
-     "window": [
+     "companion": [
       {
        "role": "Switch",
        "name": "Reduce transparency",
        "state": []
       }
      ]
+    },
+    "delivered": {
+     "companion": {}
     }
    }
   },
   {
-   "name": "volume up: the shell's bezel, glass over Settings",
+   "name": "volume up: the shell's bezel, glass over what is behind it",
    "do": [
     "key",
     [
@@ -92,16 +106,22 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "output_pixels": {
+     "880,760": "!#1b1f27"
+    },
     "delivered": {
      "companion": {}
     }
    }
   },
   {
-   "name": "Reduce transparency on: the session keeps it and tells every application at once",
+   "name": "Reduce transparency turned on in Settings: the session keeps it and tells every application at once",
    "do": [
-    "press_named",
-    "Reduce transparency"
+    "a11y-action",
+    [
+     "activate",
+     "Reduce transparency"
+    ]
    ],
    "allow_unchanged": true,
    "expect": {
@@ -109,33 +129,27 @@
      "reduceTransparency": true
     },
     "delivered": {
-     "1": {
-      "press": 1,
-      "release": 1
-     },
      "companion": {}
-    },
-    "at": {
-     "window": [
-      {
-       "role": "Switch",
-       "name": "Reduce transparency",
-       "state": [
-        "checked"
-       ]
-      }
-     ]
     }
    }
   },
   {
-   "name": "the other application's blur views their tint alone, nothing blurred, with no restart",
+   "name": "the application's blur views their tint alone, nothing blurred (the edge sharp), the clock's glyphs plain white, with no restart",
    "do": [
     "wait",
     800
    ],
    "allow_unchanged": true,
    "expect": {
+    "pixels": {
+     "50,50": "#212121",
+     "95,50": "#212121",
+     "105,50": "#f4f4f4",
+     "150,50": "#f4f4f4",
+     "20,50": "#000000",
+     "170,50": "#ffffff",
+     "200,383": "#3050d0"
+    },
     "delivered": {
      "companion": {}
     }
@@ -151,13 +165,16 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "output_pixels": {
+     "880,760": "#1b1f27"
+    },
     "delivered": {
      "companion": {}
     }
    }
   },
   {
-   "name": "Super alone: Launchpad, its backdrop opaque, no wallpaper drawn",
+   "name": "Super alone: Launchpad",
    "do": [
     "key",
     [
@@ -166,6 +183,22 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "its backdrop opaque, a dark grey, no wallpaper drawn",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "output_pixels": {
+     "10,40": "#2c2f36"
+    },
     "delivered": {
      "companion": {}
     }
@@ -189,8 +222,11 @@
   {
    "name": "Reduce transparency off again",
    "do": [
-    "press_named",
-    "Reduce transparency"
+    "a11y-action",
+    [
+     "activate",
+     "Reduce transparency"
+    ]
    ],
    "allow_unchanged": true,
    "expect": {
@@ -198,31 +234,26 @@
      "reduceTransparency": false
     },
     "delivered": {
-     "1": {
-      "press": 1,
-      "release": 1
-     },
      "companion": {}
-    },
-    "at": {
-     "window": [
-      {
-       "role": "Switch",
-       "name": "Reduce transparency",
-       "state": []
-      }
-     ]
     }
    }
   },
   {
-   "name": "the other application blurs again",
+   "name": "the application blurs again, with no restart",
    "do": [
     "wait",
     800
    ],
    "allow_unchanged": true,
    "expect": {
+    "pixels": {
+     "95,50": "!#212121",
+     "105,50": "!#f4f4f4",
+     "20,50": "#000000",
+     "170,50": "#ffffff",
+     "200,405": "!#ffffff",
+     "200,383": "#3050d0"
+    },
     "delivered": {
      "companion": {}
     }
@@ -238,6 +269,9 @@
    ],
    "allow_unchanged": true,
    "expect": {
+    "output_pixels": {
+     "880,760": "!#1b1f27"
+    },
     "delivered": {
      "companion": {}
     }
