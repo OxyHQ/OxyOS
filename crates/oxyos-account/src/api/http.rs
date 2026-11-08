@@ -294,6 +294,13 @@ struct PasswordRequest<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct PlatformDeviceRequest<'a> {
+    device: Proof<'a>,
+    platform_client: &'a PlatformClient,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SecondFactorRequest<'a> {
     challenge_id: &'a Secret,
     code: &'a Secret,
@@ -406,6 +413,27 @@ impl OxyApi for HttpApi {
             },
         )?;
         signed_in(parse(&answer)?)
+    }
+
+    fn platform_device_sign_in(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+    ) -> Result<SignedIn, ApiError> {
+        let answer = self.post(
+            "/session/device/platform",
+            &PlatformDeviceRequest {
+                device: device.into(),
+                platform_client: platform,
+            },
+        )?;
+        match parse::<SignInAnswer>(&answer) {
+            Ok(step) => signed_in(step),
+            // One answer for every proof that cannot be redeemed (replayed, stale, another
+            // client's, an account no longer on the device, a wrong secret): never told apart.
+            Err(ApiError::Refused { status: 401, .. }) => Err(ApiError::InvalidDeviceSecret),
+            Err(error) => Err(error),
+        }
     }
 
     fn mint_app_token(

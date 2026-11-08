@@ -18,6 +18,8 @@ import type { MaskedProps } from "../../shell/src/platform";
 import { chosenAccount, opensOnSetup, type Accounts, type LoginAccount } from "./model";
 import {
   afterEnroll,
+  asksPassword,
+  pinOptional,
   usablePin,
   type EnrollAnswer,
   type SetupPlatform,
@@ -29,10 +31,11 @@ import { useLoginMessages } from "./useLoginMessages";
 export type { LoginAccount, Accounts } from "./model";
 
 /** The SDK's own sign-in, as the platform runs it for setup: it calls `onSignedIn` once the
-    credential a sign-in committed was handed over, and the account has a password. */
+    credential a sign-in committed was handed over, with how it signed in and, for a password
+    typed in it, that password (taken as it was typed, never asked again). */
 export type SetupSignInProps = {
   platform: SetupPlatform;
-  onSignedIn: (account: SignedInAccount) => void;
+  onSignedIn: (account: SignedInAccount, password?: string) => void;
   /** The width the SDK's sign-in asks of its card (its split card, with the QR), padding
       included; null for the card's own. */
   onFrameWidth: (maxWidth: number | null) => void;
@@ -204,6 +207,18 @@ function SetupPanel({
   const answered = useRef(0);
   // The PIN chosen, until the account is set up with it (or the setup ends): the platform's then.
   const chosenPin = useRef<string | null>(null);
+  // The password typed in the SDK's sign-in, until the setup sends it (or ends): never asked again.
+  const typedPassword = useRef<string | null>(null);
+  const forget = () => {
+    chosenPin.current = null;
+    typedPassword.current = null;
+  };
+  // The PIN chosen, or left for later: the password typed is sent, or asked once, or the PIN alone.
+  const afterPin = (signedIn: SignedInAccount) => {
+    if (signedIn.via === "password") enroll(typedPassword.current, "pin");
+    else if (asksPassword(signedIn)) setStep({ step: "password", account: signedIn });
+    else enroll(null, "pin");
+  };
   const account = "account" in step ? step.account : null;
   const enroll = (password: string | null, at: "password" | "pin") => {
     if (!setup) return;
@@ -218,7 +233,7 @@ function SetupPanel({
     switch (next.next) {
       case "enrolled":
         setProblem(null);
-        chosenPin.current = null;
+        forget();
         enrolled(next.user, account ? account.name || account.id : "");
         return;
       case "secondFactor":
@@ -228,15 +243,18 @@ function SetupPanel({
         chosenPin.current = null;
         if (account) setStep({ step: "pin", account, problem: "unusable" });
         return;
-      case "noPassword":
-        chosenPin.current = null;
-        setup?.end();
-        if (account) setStep({ step: "noPassword", account });
-        return;
       case "password":
         setProblem(next.problem === "unusable" ? words.unusablePassword : next.problem === "failed" ? words.failed : null);
-        if (account && !account.hasPassword) {
-          // No password to ask again: the PIN's step says it failed.
+        if (account && !asksPassword(account)) {
+          // No password to ask: a typed one refused (or the setup failed) is signed in again; a
+          // PIN alone is chosen again.
+          if (account.via === "password" && next.problem !== "failed") {
+            forget();
+            setup?.end();
+            setStep({ step: "checking" });
+            return;
+          }
+          chosenPin.current = null;
           setStep({ step: "pin", account });
           return;
         }
@@ -248,12 +266,12 @@ function SetupPanel({
         });
         return;
       case "signIn":
-        chosenPin.current = null;
+        forget();
         setup?.end();
         setStep({ step: "checking" });
         return;
       case "offline":
-        chosenPin.current = null;
+        forget();
         setup?.end();
         setStep({ step: "offline" });
     }
@@ -281,9 +299,13 @@ function SetupPanel({
         >
           <SignIn
             platform={step.platform}
-            onSignedIn={(signedIn) => {
-              chosenPin.current = null;
-              setStep({ step: "pin", account: signedIn });
+            onSignedIn={(signedIn, password) => {
+              forget();
+              typedPassword.current = signedIn.via === "password" ? (password ?? null) : null;
+              // A password sign-in that handed over no password is set up as any other.
+              const account =
+                signedIn.via === "password" && !typedPassword.current ? { ...signedIn, via: "other" as const } : signedIn;
+              setStep({ step: "pin", account });
             }}
             onFrameWidth={setFrameWidth}
           />
@@ -300,7 +322,9 @@ function SetupPanel({
           {again ? words.pinAgainTitle : words.pinTitle}
         </Text>
         {again ? null : (
-          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>{words.pinDescription}</Text>
+          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>
+            {pinOptional(step.account) ? words.pinOptionalDescription : words.pinDescription}
+          </Text>
         )}
         <PasswordField
           key={again ? "again" : `first-${step.problem ?? ""}`}
@@ -319,8 +343,7 @@ function SetupPanel({
               return true;
             }
             chosenPin.current = pin;
-            if (step.account.hasPassword) setStep({ step: "password", account: step.account });
-            else enroll(null, "pin");
+            afterPin(step.account);
             return true;
           }}
           answer={undefined}
@@ -328,20 +351,18 @@ function SetupPanel({
         />
         {said ? <SetupMessage text={said} /> : null}
         {busy ? <SetupMessage text={words.adding} /> : null}
-        {step.account.hasPassword && !again ? (
+        {pinOptional(step.account) && !again ? (
           <Link
             testID="login-setup-pin-later"
             label={words.notNow}
             onPress={() => {
               chosenPin.current = null;
-              setStep({ step: "password", account: step.account });
+              afterPin(step.account);
             }}
           />
         ) : null}
       </>
     );
-  } else if (step.step === "noPassword") {
-    content = <SetupMessage text={words.noPassword} />;
   } else if (step.step === "password" && setup) {
     content = (
       <>
@@ -406,7 +427,7 @@ function SetupPanel({
           testID="login-setup-back"
           label={words.back}
           onPress={() => {
-            chosenPin.current = null;
+            forget();
             setup?.end();
             back();
           }}
