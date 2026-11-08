@@ -33,5 +33,8 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/../cargo-target
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # What a deploy installs for the login, accounts and PIN is every such file the tree has.
+      - name: The deploy's system files
+        run: python3 tools/deploy/system-files.py
       - name: Every scenario
         run: sh tools/gate/run-scenarios.sh

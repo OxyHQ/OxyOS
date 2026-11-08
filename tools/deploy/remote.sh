@@ -20,38 +20,29 @@ if [ -d oxyos-try/crates/oxyos-sound ]; then
   missing=$(for p in libpipewire-0.3-dev libclang-dev pkg-config; do dpkg-query -W -f="\${Status}" $p 2>/dev/null | grep -q "ok installed" || echo $p; done)
   [ -z "$missing" ] || sudo -n apt-get install -y -q --no-install-recommends $missing > /dev/null
 fi
-(cd oxyos-try && ~/.cargo/bin/cargo build -q --release --locked -p oxyos-session -p oxyos-reader 2>&1 | tail -3)
-# Signing in with an Oxy account (ADR 0020, 7 November 2026): the session, the login program and
-# oxyos-accountd root-owned at their paths, with their units, PAM, sysusers, tmpfiles and Yama ptrace
-# scope 1 (no application can read the token of another). oxyos-accountd is enabled and restarted;
-# oxyos-login is never started or restarted here (it would end a signed-in session, and which
-# program owns tty1 is for the owner of the machine to choose): its new binary takes effect at its
-# next start. Only in a tree that has it.
-if [ -d oxyos-try/tools/oxyos-accountd ]; then
-  (cd oxyos-try && ~/.cargo/bin/cargo build -q --release --locked -p oxyos-login -p oxyos-accountd 2>&1 | tail -3)
-  T=oxyos-try
-  sudo -n install -D -o root -g root -m 0755 $T/target/release/oxyos-session /usr/bin/oxyos-session
-  sudo -n install -D -o root -g root -m 0755 $T/target/release/oxyos-login /usr/libexec/oxyos/oxyos-login
-  sudo -n install -D -o root -g root -m 0755 $T/target/release/oxyos-accountd /usr/libexec/oxyos-accountd
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-accountd/oxyos-accountd.service /usr/lib/systemd/system/oxyos-accountd.service
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-login/oxyos-login.service /usr/lib/systemd/system/oxyos-login.service
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-session/pam.d/oxyos /etc/pam.d/oxyos
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-login/pam.d/oxyos-login /etc/pam.d/oxyos-login
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-login/pam.d/oxyos-login-greeter /etc/pam.d/oxyos-login-greeter
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-login/oxyos-login.sysusers /usr/lib/sysusers.d/oxyos-login.conf
-  sudo -n install -D -o root -g root -m 0644 $T/tools/oxyos-login/oxyos-login.tmpfiles /usr/lib/tmpfiles.d/oxyos-login.conf
-  sudo -n install -D -o root -g root -m 0644 $T/config/includes.chroot_after_packages/etc/sysctl.d/10-oxyos-ptrace.conf /etc/sysctl.d/10-oxyos-ptrace.conf
-  sudo -n systemd-sysusers oxyos-login.conf
-  sudo -n systemd-tmpfiles --create oxyos-login.conf
-  sudo -n sysctl -q --system
-  sudo -n systemctl daemon-reload
-  sudo -n systemctl enable -q oxyos-accountd
-  sudo -n systemctl restart oxyos-accountd
-  systemctl is-active -q oxyos-accountd || { echo "accounts: oxyos-accountd is not running"; exit 1; }
-  [ "$(cat /proc/sys/kernel/yama/ptrace_scope)" = 1 ] || { echo "accounts: ptrace scope is not 1"; exit 1; }
-  getent passwd oxyos-login > /dev/null || { echo "accounts: no oxyos-login user"; exit 1; }
-  echo "accounts: oxyos-accountd active, ptrace scope 1, login program installed (tty1: $(systemctl is-enabled oxyos-login 2>/dev/null || true))"
-fi
+# The session, the screen reader, and the login, accounts and PIN stack, built here.
+(cd oxyos-try && ~/.cargo/bin/cargo build -q --release --locked -p oxyos-reader $(cat ../build-packages) 2>&1 | tail -3)
+# Signing in with an Oxy account and a PIN (ADR 0020, ADR 0010): every file of tools/deploy/system-files
+# (checked against the tree by the deploy) root-owned at its path, then the users, directories and
+# Yama ptrace scope 1 its files make (no application can read the token of another).
+# oxyos-accountd is enabled and restarted; oxyos-login is never started or restarted here (it would
+# end a signed-in session, and which program owns tty1 is for the owner of the machine to choose):
+# its new binary takes effect at its next start.
+T=oxyos-try
+grep -v '^#' $T/tools/deploy/system-files | while read -r from to mode; do
+  [ -n "$from" ] || continue
+  sudo -n install -D -o root -g root -m "$mode" "$T/$from" "$to"
+done
+for f in $(awk '$2 ~ "^/usr/lib/sysusers.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-sysusers "${f##*/}"; done
+for f in $(awk '$2 ~ "^/usr/lib/tmpfiles.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-tmpfiles --create "${f##*/}"; done
+sudo -n sysctl -q --system
+sudo -n systemctl daemon-reload
+sudo -n systemctl enable -q oxyos-accountd
+sudo -n systemctl restart oxyos-accountd
+systemctl is-active -q oxyos-accountd || { echo "accounts: oxyos-accountd is not running"; exit 1; }
+[ "$(cat /proc/sys/kernel/yama/ptrace_scope)" = 1 ] || { echo "accounts: ptrace scope is not 1"; exit 1; }
+getent passwd oxyos-login > /dev/null || { echo "accounts: no oxyos-login user"; exit 1; }
+echo "accounts: $(grep -vc '^#' $T/tools/deploy/system-files) files installed, oxyos-accountd active, ptrace scope 1 (tty1: $(systemctl is-enabled oxyos-login 2>/dev/null || true))"
 # One GPU (ADR 0031, decision 14), on the machine itself before the session restarts: the
 # compositor and a painter opened as the session and a Bloom host open them, under strace; any
 # DRM node of a GPU that drives no display (a laptop's sleeping discrete GPU, for one), any NVK

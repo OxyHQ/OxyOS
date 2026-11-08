@@ -33,6 +33,8 @@ done
 [ -n "$HOST" ] || [ -n "$STAGE_ONLY" ] || { echo "deploy.sh: --host USER@HOST (or DEPLOY_HOST in tools/dev/local.conf)" >&2; exit 2; }
 clean() { [ -z "$(git -C "$1" status --porcelain --untracked-files=no)" ] || { echo "$1 has uncommitted changes:"; git -C "$1" status --short --untracked-files=no | head; exit 1; }; }
 clean "$TREE"
+# What the test machine installs for the login, accounts and PIN is the tree's (tools/deploy/system-files).
+python3 "$TREE/tools/deploy/system-files.py"
 for d in "$BLOOM_DIR" "$DROPSEA_DIR" "$ATLAS_DIR"; do [ -e "$d" ] && clean "$d"; done
 
 # Each deploy in a directory of its own (the last five kept), so a deploy beside a gate run never
@@ -161,9 +163,10 @@ chmod 755 $D/probar.sh
 
 rm -f $R/try-src.tgz $R/deploy.tgz
 git ls-files -co --exclude-standard | grep -v "node_modules\|shell-preview/dist" | tar czf $R/try-src.tgz -T -
+python3 tools/deploy/system-files.py --packages > $R/build-packages
 (cd $R && tar czf deploy.tgz deploy)
 # --stage-only: build, test and stage everything, and send nothing.
 [ -z "$STAGE_ONLY" ] || { echo "staged: $R/deploy.tgz $R/try-src.tgz (--stage-only: nothing sent)"; exit 0; }
 ssh -o BatchMode=yes "$HOST" 'mkdir -p ~/oxyos-validation'
-scp -q "$R/deploy.tgz" "$R/try-src.tgz" "$HOST:oxyos-validation/"
+scp -q "$R/deploy.tgz" "$R/try-src.tgz" "$R/build-packages" "$HOST:oxyos-validation/"
 ssh -o BatchMode=yes "$HOST" sh -s < "$TREE/tools/deploy/remote.sh"

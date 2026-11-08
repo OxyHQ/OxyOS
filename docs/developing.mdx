@@ -110,13 +110,19 @@ tools/deploy/deploy.sh --host USER@HOST    # or DEPLOY_HOST in tools/dev/local.c
 tools/deploy/deploy.sh --stage-only        # build, test and stage; send nothing
 ```
 
-What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
+`tools/deploy/system-files.py` checks the manifest against the tree (the Scenarios check runs it too):
+each binary, unit, PAM service, sysusers and tmpfiles file of `tools/oxyos-session`, `tools/oxyos-login`
+and `tools/oxyos-accountd` must be in it, and each PAM file where its own header says it is installed,
+so a new one cannot be left out of a deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
 is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
 `astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
 it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there,
 installs the runtime, the system applications, their entries and policy, the input methods, the
 sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
-(the one before kept as `.old`), Inbox and Allo as development packages in `~/oxyos-validation`,
+(the one before kept as `.old`), the login, accounts and PIN stack (every file of
+`tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
+units, PAM services, sysusers, tmpfiles and the ptrace scope), Inbox and Allo as development packages
+in `~/oxyos-validation`,
 checks the one-GPU rule on the machine itself, and restarts the login screen only while nobody is
 signed in (or the development session, `probar.sh` on terminal 8). The test machine needs ssh by key,
 passwordless sudo and rustup's cargo.
