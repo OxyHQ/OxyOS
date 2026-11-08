@@ -7,7 +7,7 @@ use super::{ClientId, Scene};
 use oxyos_protocol::Event;
 
 /// The first protocol version with Safe Mode's event: a client of an older one is never told it.
-pub const SAFE_MODE_VERSION: u16 = 35;
+pub const SAFE_MODE_VERSION: u16 = 36;
 
 impl Scene {
     /// The session started in Safe Mode, for its whole life: every shell and lock screen is told.

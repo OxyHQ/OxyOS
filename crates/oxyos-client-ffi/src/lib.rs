@@ -465,7 +465,7 @@ pub const OXYOS_EVENT_SEARCH_TEXT: u32 = 164;
 /// background items stands, answering oxyos_client_background_item `code` (0: the person changed
 /// it, unasked); detail, its kind (OXYOS_BACKGROUND_ITEM_*); flag, its status (OXYOS_BACKGROUND_*).
 pub const OXYOS_EVENT_BACKGROUND_ITEM_STATE: u32 = 165;
-/// To the shell and the login screen (protocol version 35, docs/adr/0054-recovery-and-erasing.mdx,
+/// To the shell and the login screen (protocol version 36, docs/adr/0054-recovery-and-erasing.mdx,
 /// decision 10): the session started in Safe Mode; told once, as it connects.
 pub const OXYOS_EVENT_SAFE_MODE: u32 = 166;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;

@@ -75,7 +75,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// `BackgroundItemState`, docs/adr/0060-login-items-and-background-activity.mdx), both ways,
 /// asked by an application, a change the person made sent unasked; version 34 adds no message:
 /// an application's `OpenUrl` may name any scheme but `file` (`APPLICATION_OPENS_URLS_VERSION`);
-/// version 35, Safe Mode (`SafeMode`, docs/adr/0054-recovery-and-erasing.mdx, decision 10), told to
+/// version 36, Safe Mode (`SafeMode`, docs/adr/0054-recovery-and-erasing.mdx, decision 10), told to
 /// the shell and the login screen.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
@@ -97,7 +97,7 @@ const EVENTS_ADDED: Added = &[
     (30, 65..=65),
     (31, 164..=164),
     (33, 165..=165),
-    (35, 166..=166),
+    (36, 166..=166),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

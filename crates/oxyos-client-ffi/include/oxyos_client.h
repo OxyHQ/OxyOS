@@ -96,7 +96,7 @@ typedef struct OxyOSClient OxyOSClient;
 /* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
  * protocol version 33). */
 #define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
-/* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 35). */
+/* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 36). */
 #define OXYOS_EVENT_SAFE_MODE 166
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
@@ -556,7 +556,7 @@ typedef struct OxyOSClient OxyOSClient;
  *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
  *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   SAFE_MODE          to the shell and the login screen: the session started in Safe Mode, told
- *                      once as it connects; show it until the session ends (protocol version 35).
+ *                      once as it connects; show it until the session ends (protocol version 36).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).

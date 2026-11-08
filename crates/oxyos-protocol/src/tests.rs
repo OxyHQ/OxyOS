@@ -3155,14 +3155,14 @@ fn background_items_kinds_actions_and_statuses_are_closed_sets() {
 }
 
 #[test]
-fn version_35_safe_mode_is_only_version_35s() {
+fn version_36_safe_mode_is_only_version_36s() {
     let event = Event::SafeMode {};
-    assert_eq!(event_since(&event), 35);
+    assert_eq!(event_since(&event), 36);
     let mut old = Vec::new();
-    assert!(!write_event_for(&mut old, &event, 34).unwrap());
+    assert!(!write_event_for(&mut old, &event, 35).unwrap());
     assert!(old.is_empty());
     let mut new = Vec::new();
-    assert!(write_event_for(&mut new, &event, 35).unwrap());
-    assert!(read_event_for(&mut Cursor::new(new.clone()), 34).is_err());
-    assert_eq!(read_event_for(&mut Cursor::new(new), 35).unwrap(), event);
+    assert!(write_event_for(&mut new, &event, 36).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 35).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 36).unwrap(), event);
 }
