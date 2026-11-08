@@ -788,6 +788,8 @@ fn only_an_administrator_changes_where_and_what_and_settings_are_kept() {
 /// share's user, which only root can): the Debian job of CI, in its container.
 struct Samba {
     child: std::process::Child,
+    /// smbd in the foreground ends when its standard input does: held open while it serves.
+    _input: std::process::ChildStdin,
     port: u16,
     share: PathBuf,
 }
@@ -878,10 +880,12 @@ impl Samba {
                 "--configfile",
             ])
             .arg(&configuration)
+            .stdin(std::process::Stdio::piped())
             .stdout(output.try_clone().unwrap())
             .stderr(output)
             .spawn()
             .unwrap();
+        let input = child.stdin.take().unwrap();
         let deadline = Instant::now() + Duration::from_secs(20);
         while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
             let said = || fs::read_to_string(root.join("smbd.out")).unwrap_or_default();
@@ -895,7 +899,12 @@ impl Samba {
             );
             std::thread::sleep(Duration::from_millis(50));
         }
-        Some(Self { child, port, share })
+        Some(Self {
+            child,
+            _input: input,
+            port,
+            share,
+        })
     }
 
     fn share(&self) -> crate::share::Share {
