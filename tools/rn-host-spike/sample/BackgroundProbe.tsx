@@ -17,7 +17,7 @@ function Button({ label, testID, y, onPress }: { label: string; testID: string; 
       testID={testID}
       accessibilityRole="button"
       onPress={onPress}
-      style={{ position: 'absolute', left: 20, top: y, width: 200, height: 40, backgroundColor: '#2f6fe4', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}
+      style={{ position: 'absolute', left: 20, top: y, width: 230, height: 40, backgroundColor: '#2f6fe4', borderRadius: 8, justifyContent: 'center', alignItems: 'center' }}
     >
       <Text style={{ color: 'white' }}>{label}</Text>
     </Pressable>
@@ -44,14 +44,14 @@ export default function BackgroundProbe() {
   };
   return (
     <View style={{ flex: 1, backgroundColor: 'white' }}>
-      <Button label="Open at Login" testID="login-register" y={20} onPress={act(loginItem.register)} />
-      <Button label="Not at Login" testID="login-unregister" y={70} onPress={act(loginItem.unregister)} />
+      <Button label="Add Login Item" testID="login-register" y={20} onPress={act(loginItem.register)} />
+      <Button label="Remove Login Item" testID="login-unregister" y={70} onPress={act(loginItem.unregister)} />
       <Button label="Run in Background" testID="background-register" y={120} onPress={act(backgroundActivity.register)} />
-      <Button label="Not in Background" testID="background-unregister" y={170} onPress={act(backgroundActivity.unregister)} />
-      <Text style={{ position: 'absolute', left: 240, top: 30 }}>{`Login item: ${login ?? '…'}`}</Text>
-      <Text style={{ position: 'absolute', left: 240, top: 130 }}>{`Background: ${background ?? '…'}`}</Text>
-      <Text style={{ position: 'absolute', left: 240, top: 180 }}>{`Failure: ${failure}`}</Text>
-      <Text style={{ position: 'absolute', left: 240, top: 200 }}>{`State: ${state}`}</Text>
+      <Button label="Stop Running in Background" testID="background-unregister" y={170} onPress={act(backgroundActivity.unregister)} />
+      <Text style={{ position: 'absolute', left: 270, top: 30 }}>{`Login item: ${login ?? '…'}`}</Text>
+      <Text style={{ position: 'absolute', left: 270, top: 130 }}>{`Background: ${background ?? '…'}`}</Text>
+      <Text style={{ position: 'absolute', left: 270, top: 180 }}>{`Failure: ${failure}`}</Text>
+      <Text style={{ position: 'absolute', left: 270, top: 200 }}>{`State: ${state}`}</Text>
     </View>
   );
 }

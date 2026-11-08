@@ -2904,11 +2904,77 @@ fn background_json(session: &mut Session) -> String {
             .collect::<Vec<_>>()
             .join(",")
     };
+    // What each process in the background has used so far: its CPU time and how many times its
+    // threads woke (their context switches), which a step's idle check compares with the last.
+    let used: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| {
+            background
+                .background_processes()
+                .iter()
+                .filter_map(|(id, pid)| {
+                    let (cpu_ms, wakeups) = process_use(*pid)?;
+                    Some(format!(
+                        "{}:{{\"cpu_ms\":{cpu_ms:.1},\"wakeups\":{wakeups}}}",
+                        json_string(id)
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     format!(
-        "{{\"running\":[{}],\"ended\":[{}]}}",
+        "{{\"running\":[{}],\"ended\":[{}],\"used\":{{{}}}}}",
         list(&running),
-        list(&ended)
+        list(&ended),
+        used.join(",")
     )
+}
+
+/// A process's CPU time so far, in ms (its threads' run time, the scheduler's), and how many times
+/// its threads were switched out (woken and run again): read from /proc.
+fn process_use(pid: u32) -> Option<(f64, u64)> {
+    let mut cpu_ns = 0u64;
+    let mut switches = 0u64;
+    for task in std::fs::read_dir(format!("/proc/{pid}/task"))
+        .ok()?
+        .flatten()
+    {
+        if let Ok(stat) = std::fs::read_to_string(task.path().join("schedstat")) {
+            cpu_ns += stat
+                .split_whitespace()
+                .next()
+                .and_then(|ns| ns.parse::<u64>().ok())
+                .unwrap_or(0);
+        }
+        if let Ok(status) = std::fs::read_to_string(task.path().join("status")) {
+            switches += status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum::<u64>();
+        }
+    }
+    Some((cpu_ns as f64 / 1e6, switches))
+}
+
+/// The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+/// oldest first: each its number (one more for every post), application and title.
+fn notifications_json(session: &Session) -> String {
+    let kept: Vec<String> = session
+        .compositor
+        .scene
+        .kept_notifications()
+        .into_iter()
+        .map(|(number, application, title)| {
+            format!(
+                "{{\"number\":{number},\"application\":{},\"title\":{}}}",
+                json_string(&application),
+                json_string(&title)
+            )
+        })
+        .collect();
+    format!("[{}]", kept.join(","))
 }
 
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
@@ -5901,11 +5967,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
         let background = background_json(&mut session);
+        let notifications = notifications_json(&session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

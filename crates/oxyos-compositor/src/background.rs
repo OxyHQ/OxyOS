@@ -144,6 +144,11 @@ impl BackgroundActivity {
         self.in_background.keys().cloned().collect()
     }
 
+    /// Each application's process running in the background now, by id: its pid.
+    pub fn background_processes(&self) -> &BTreeMap<String, u32> {
+        &self.in_background
+    }
+
     /// Whether `launched` may have a kind of item.
     pub fn allowance(&self, launched: Option<&Launched>, kind: BackgroundItemKind) -> Allowance {
         let Some(launched) = launched else {

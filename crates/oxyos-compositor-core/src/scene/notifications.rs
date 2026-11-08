@@ -802,6 +802,23 @@ impl Scene {
         input
     }
 
+    /// The notifications the session keeps now, oldest first: each its number (the session's, one
+    /// more for every post), its application and its title. What the development compositor
+    /// reports of them.
+    pub fn kept_notifications(&self) -> Vec<(u32, String, String)> {
+        self.notifications
+            .kept
+            .iter()
+            .map(|kept| {
+                (
+                    kept.number,
+                    kept.application.clone(),
+                    kept.content.title.clone(),
+                )
+            })
+            .collect()
+    }
+
     /// The applications to start because a notification of theirs was activated while none of
     /// their clients ran, since the last call: the program running the compositor starts each
     /// (its registry's), and the first client its launch record names as it is given the
