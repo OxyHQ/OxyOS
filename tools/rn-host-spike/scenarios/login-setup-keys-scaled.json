@@ -1,5 +1,5 @@
 {
-  "about": "Adding a second Oxy account from the login screen's \"Añadir cuenta\", in Spanish, from the keyboard with the screen reader on (docs/adr/0020-oxy-account-login.mdx, decision 4; docs/adr/0039-keyboard-access.mdx; docs/adr/0014-screen-reader.mdx), against a played Oxy API and accounts' service: the SDK's own sign-in with the code sent by email (the account has a password), then the account's password once more, its field said as it takes the focus; a wrong one said; the right one sets the account up, which is listed beside the other and chosen. At 1.25 (1600 × 1000).",
+  "about": "Adding a second Oxy account from the login screen's \"Añadir cuenta\", in Spanish, from the keyboard with the screen reader on (docs/adr/0020-oxy-account-login.mdx, decision 4; docs/adr/0039-keyboard-access.mdx; docs/adr/0014-screen-reader.mdx), against a played Oxy API and accounts' service: the SDK's own sign-in with the code sent by email (the account has a password), then the account's password once more, its field said as it takes the focus; a wrong one said; the right one sets the account up, which is listed beside the other and chosen. At 1.25 (1600 × 1000). After the code, a PIN for this computer is chosen from the keyboard, typed twice, before the password (docs/adr/0020-oxy-account-login.mdx decision 2's amendment).",
   "locale": "es_ES.UTF-8",
   "shell": "OxyOSLogin",
   "outputs": "1600x1000@1.25",
@@ -168,7 +168,7 @@
       "expect": {}
     },
     {
-      "name": "the account's password once more, its field said",
+      "name": "a PIN for this computer, its field focused",
       "do": [
         "wait",
         2000
@@ -177,8 +177,33 @@
       "expect": {
         "in_shell": {
           "texts": [
+            "Elige un PIN para este ordenador",
+            "Ahora no"
+          ],
+          "focus_input": "login-setup-pin-password"
+        }
+      }
+    },
+    {
+      "name": "the PIN, typed twice from the keyboard: the account's password once more, its field said",
+      "do": [
+        "keyboard",
+        "482916\n482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
             "Introduce la contraseña de Ada Lovelace",
             "OxyOS inicia sesión con la contraseña de tu cuenta de Oxy, incluso sin conexión. Introdúcela una vez más."
+          ],
+          "focus_input": "login-setup-password",
+          "never": [
+            "482916"
           ]
         }
       }
@@ -246,12 +271,14 @@
           "texts": [
             "Bea Ramos",
             "Ada Lovelace",
-            "Añadir cuenta"
+            "Añadir cuenta",
+            "Usar contraseña"
           ],
           "absent": [
             "Añadir una cuenta de Oxy",
             "Introduce la contraseña de Ada Lovelace"
-          ]
+          ],
+          "focus_input": "login-pin-password"
         }
       }
     }
