@@ -1017,6 +1017,91 @@ fn an_erase_condemns_the_system_destroys_the_root_and_makes_it_again_from_the_re
 }
 
 #[test]
+fn a_restore_from_a_backup_fills_the_new_root_before_its_request_is_removed() {
+    let machine = Machine::new();
+    let esp = esp_with(&[&format!("oxyos-{VERSION}+3.conf"), "oxyos-recovery.conf"]);
+    let layout = x86_layout(true);
+    let mut request = EraseRequest::arm(&layout, 1).unwrap();
+    request.restore = Some(request::Restore {
+        source: serde_json::json!({"disk": {"uuid": "1234-ABCD"}}),
+        repository: "0123456789abcdef".into(),
+        snapshot: "0123abcd".into(),
+        computer: "ada-laptop".into(),
+        time: 1_794_000_000,
+    });
+    request::write(esp.path(), &request).unwrap();
+    // Named, never a password, on the EFI system partition.
+    let written = fs::read_to_string(esp.path().join(request::PATH)).unwrap();
+    assert!(written.contains("\"restore\"") && !written.contains("password"));
+    let Found::Request(read) = request::read(esp.path()).unwrap() else {
+        panic!("not read back")
+    };
+    assert_eq!(read, request);
+
+    // A restore that fails leaves the erase to be done again, its backup named.
+    let esp_path = esp.path().to_path_buf();
+    let mut host = machine.host(true);
+    let mut failing = |root: &Path| -> Result<(), crate::host::Failed> {
+        assert!(
+            root.join("etc/kernel/cmdline").is_file(),
+            "the new root is set up"
+        );
+        Err(crate::host::failed("the backup", "not connected"))
+    };
+    assert!(install::erase_and_fill(
+        &mut host,
+        &machine.paths,
+        &machine.image,
+        esp.path(),
+        &layout,
+        &mut request,
+        Some(&mut failing),
+        &mut |_| {}
+    )
+    .is_err());
+    let Found::Request(left) = request::read(&esp_path).unwrap() else {
+        panic!("the request is gone")
+    };
+    assert_eq!(left.state, State::Erasing);
+    assert!(left.restore.is_some());
+    assert!(!Entries::new(&esp_path).system_may_start().unwrap());
+
+    // Again, and it fills the root, mounted, after its initramfs and before the request goes.
+    let machine = Machine::new();
+    let mut host = machine.host(true);
+    let mut filled = None;
+    let mut fill = |root: &Path| -> Result<(), crate::host::Failed> {
+        assert!(matches!(
+            request::read(&esp_path).unwrap(),
+            Found::Request(_)
+        ));
+        fs::create_dir_all(root.join("home/oxy-a")).unwrap();
+        filled = Some(root.to_path_buf());
+        Ok(())
+    };
+    let mut request = left;
+    install::erase_and_fill(
+        &mut host,
+        &machine.paths,
+        &machine.image,
+        esp.path(),
+        &layout,
+        &mut request,
+        Some(&mut fill),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(filled.as_deref(), Some(machine.target().as_path()));
+    assert!(machine.target().join("home/oxy-a").is_dir());
+    assert!(matches!(request::read(esp.path()).unwrap(), Found::None));
+    let initramfs = host.position(&format!(
+        "chroot {} update-initramfs -u -k all",
+        machine.target().display()
+    ));
+    assert!(initramfs < host.position("sync"));
+}
+
+#[test]
 fn a_failed_erase_leaves_the_request_and_the_system_condemned_for_the_next_try() {
     let machine = Machine::new();
     let esp = esp_with(&[&format!("oxyos-{VERSION}+3.conf"), "oxyos-recovery.conf"]);
@@ -1206,6 +1291,7 @@ fn a_converted_machine_is_never_erased_whatever_asks() {
         root: "129a8dff-ec84-4f37-af8a-2a048f2563a4".into(),
         encrypted: false,
         requested_at: 1,
+        restore: None,
     };
     let mut host = Recorder::new();
     let error = install::erase(

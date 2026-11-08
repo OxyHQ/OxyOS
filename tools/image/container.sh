@@ -139,7 +139,8 @@ program_version() {
 programs() {
     out=/work/packages/$ARCHITECTURE
     rust=/work/packages/rust
-    install_tools rustup ca-certificates build-essential pkg-config
+    # libudev's headers: the recovery finds backup disks through udev (ADR 0059).
+    install_tools rustup ca-certificates build-essential pkg-config libudev-dev
     toolchain=$(sed -n 's/^channel = "\(.*\)"$/\1/p' /src/rust-toolchain.toml)
     [ -n "$toolchain" ] || die "no channel in rust-toolchain.toml"
     export RUSTUP_HOME="$rust/rustup" CARGO_HOME="$rust/cargo"
