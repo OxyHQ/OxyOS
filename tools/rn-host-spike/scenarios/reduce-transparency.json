@@ -1,0 +1,247 @@
+{
+ "about": "draft",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "outputs": "1920x1080",
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "companion": {
+  "module": "MaterialProbe",
+  "window": [
+   400,
+   480
+  ],
+  "at": [
+   1460,
+   120
+  ]
+ },
+ "steps": [
+  {
+   "name": "Settings, its sidebar",
+   "do": [
+    "wait_named",
+    [
+     "Accessibility",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Accessibility, as a Mac's: Vision and Display, Reduce transparency off",
+   "do": [
+    "a11y-action",
+    [
+     "activate",
+     "Accessibility"
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Vision",
+     "Display",
+     "Reduce transparency"
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Reduce transparency",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "volume up: the shell's bezel, glass over Settings",
+   "do": [
+    "key",
+    [
+     115
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Reduce transparency on: the session keeps it and tells every application at once",
+   "do": [
+    "press_named",
+    "Reduce transparency"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "preferences": {
+     "reduceTransparency": true
+    },
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     },
+     "companion": {}
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Reduce transparency",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the other application's blur views their tint alone, nothing blurred, with no restart",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "volume up: the bezel opaque",
+   "do": [
+    "key",
+    [
+     115
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Super alone: Launchpad, its backdrop opaque, no wallpaper drawn",
+   "do": [
+    "key",
+    [
+     125
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Escape closes it",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "Reduce transparency off again",
+   "do": [
+    "press_named",
+    "Reduce transparency"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "preferences": {
+     "reduceTransparency": false
+    },
+    "delivered": {
+     "1": {
+      "press": 1,
+      "release": 1
+     },
+     "companion": {}
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Switch",
+       "name": "Reduce transparency",
+       "state": []
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the other application blurs again",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  },
+  {
+   "name": "volume up: the bezel glass again",
+   "do": [
+    "key",
+    [
+     115
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "companion": {}
+    }
+   }
+  }
+ ]
+}
