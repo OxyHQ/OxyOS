@@ -21,3 +21,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# tools/dev/bootstrap: this machine's own values (tools/dev/local.conf.example).
+/tools/dev/local.conf

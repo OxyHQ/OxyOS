@@ -244,6 +244,8 @@ pub struct Platform<A, U> {
     keychains: std::sync::OnceLock<Arc<dyn crate::keychain::Keychains>>,
     /// The machine's erase is armed: nothing more is asked of Oxy but its accounts' sign-outs.
     erasing: AtomicBool,
+    /// The accounts' PINs' checks and their waits (`crate::pin`).
+    pins: crate::pin::PinChecks,
 }
 
 fn now_millis() -> u64 {
@@ -283,6 +285,72 @@ pub fn attestation(desktop_entry_id: &str, system: bool) -> Attestation {
     }
 }
 
+/// An account's local sign-in, as Settings and the lock screen are told it (never a verifier).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalView {
+    pub pin: crate::pin::PinState,
+    /// Whether the password signs in on this computer.
+    pub password: bool,
+}
+
+impl LocalView {
+    fn of(local: &crate::pin::LocalSignIn) -> Self {
+        Self {
+            pin: local.pin_state(),
+            password: local.password,
+        }
+    }
+}
+
+/// How the person proves themselves to change their local sign-in.
+#[derive(Debug)]
+pub enum Proof {
+    Password(Secret),
+    Pin(Secret),
+}
+
+/// A change to an account's local sign-in (Settings').
+#[derive(Debug)]
+pub enum LocalChange {
+    SetPin(Secret),
+    RemovePin,
+    PasswordSignIn(bool),
+}
+
+impl LocalChange {
+    /// What it is, for the service's log (never the PIN).
+    pub fn name(&self) -> &'static str {
+        match self {
+            LocalChange::SetPin(_) => "setPin",
+            LocalChange::RemovePin => "removePin",
+            LocalChange::PasswordSignIn(true) => "passwordOn",
+            LocalChange::PasswordSignIn(false) => "passwordOff",
+        }
+    }
+}
+
+/// Why a change to the local sign-in was refused; nothing changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocalRefusal {
+    WrongPassword,
+    WrongPin,
+    /// Too many wrong attempts: another after this many seconds.
+    Throttled(u64),
+    /// The PIN is locked out: the password, or Oxy online, first.
+    PinLocked,
+    /// Not 4 to 16 digits, or the password itself.
+    UnusablePin,
+    /// The password does not sign in here: it proves nothing, and the PIN cannot go.
+    PasswordSignInOff,
+    /// The password cannot be turned off without a PIN.
+    NoPin,
+    /// Turning the password on asks Oxy, which cannot be reached.
+    Offline,
+    /// The account has an authenticator: turning the password on is setting it up again.
+    SecondFactorRequired,
+    Failed,
+}
+
 impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platform<A, U> {
     pub fn new(setup: Setup<A, U>) -> Self {
         // An erase armed before the service started again still holds: the machine is erased at
@@ -296,6 +364,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             background: Arc::new((Mutex::new(0), Condvar::new())),
             keychains: std::sync::OnceLock::new(),
             erasing: AtomicBool::new(erasing),
+            pins: crate::pin::PinChecks::default(),
         }
     }
 
@@ -545,9 +614,208 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
     }
 
     /// The online check of `user`'s password (ADR 0020 decision 2, step 3), after PAM said
-    /// `local`. A locally accepted password is answered at once and asked of Oxy afterwards,
-    /// unless the account is flagged.
+    /// `local`. A password that stands forgets the account's wrong PINs, and signs a locked-out
+    /// PIN in again. An account whose password does not sign in on this computer (Settings
+    /// turned it off, its PIN its one local credential) is refused here, and Oxy is not asked: a
+    /// password Oxy accepts never turns it on again behind the person's back.
     pub fn check(self: &Arc<Self>, user: &str, password: Secret, local: Local) -> Checked {
+        let store = self.setup.store();
+        if let Ok(Some(enrollment)) = store.get_user(user) {
+            // A local sign-in that cannot be read is no reason to let a password in.
+            if !store
+                .local(&enrollment.user)
+                .is_ok_and(|local| local.password)
+            {
+                return Checked::REJECTED;
+            }
+            let checked = self.check_password(user, password, local);
+            if checked.result == Verdict::Accepted {
+                let _machine = self.setup.lock_machine();
+                if let Err(error) = self.pins.forget_failures(store, &enrollment.user) {
+                    eprintln!("oxyos-accountd: {user}'s wrong PINs cannot be forgotten: {error}");
+                }
+            }
+            return checked;
+        }
+        self.check_password(user, password, local)
+    }
+
+    /// `user`'s PIN (`crate::pin`): checked here, never online, its wrong attempts counted.
+    /// Anything but an enrolled account's user has no PIN; a file that cannot be read checks
+    /// nothing.
+    #[cfg(feature = "local")]
+    pub fn check_pin(&self, user: &str, pin: &Secret) -> crate::pin::PinCheck {
+        let store = self.setup.store();
+        let _machine = self.setup.lock_machine();
+        let enrollment = match store.get_user(user) {
+            Ok(Some(enrollment)) => enrollment,
+            Ok(None) => return crate::pin::PinCheck::NoPin,
+            Err(error) => {
+                eprintln!("oxyos-accountd: {user}'s account cannot be read: {error}");
+                return crate::pin::PinCheck::NoPin;
+            }
+        };
+        if enrollment.state() == State::SignInAgain {
+            return crate::pin::PinCheck::NoPin;
+        }
+        match self
+            .pins
+            .check(store, &enrollment.user, pin, std::time::Instant::now())
+        {
+            Ok(checked) => checked,
+            Err(error) => {
+                eprintln!("oxyos-accountd: {user}'s PIN cannot be checked: {error}");
+                crate::pin::PinCheck::NoPin
+            }
+        }
+    }
+
+    /// The PIN checks.
+    pub fn pins(&self) -> &crate::pin::PinChecks {
+        &self.pins
+    }
+
+    /// `uid`'s account's local sign-in, as Settings and the lock screen see it.
+    pub fn local_sign_in(&self, uid: u32) -> std::io::Result<Option<LocalView>> {
+        let Some(enrollment) = self.enrollment_of(uid)? else {
+            return Ok(None);
+        };
+        let local = self.setup.store().local(&enrollment.user)?;
+        Ok(Some(LocalView::of(&local)))
+    }
+
+    /// Settings' change to `uid`'s account's local sign-in, the person proved by `proof`
+    /// (`crate::pin`):
+    ///
+    /// - **a PIN set or changed**: 4 to 16 digits, never the password the person just proved;
+    /// - **the PIN removed**, only while the password signs in (one local credential stays);
+    /// - **the password turned off**, only while a PIN exists: the user's verifier is locked, and
+    ///   the PIN is the account's one local credential;
+    /// - **the password turned on**, proved by the password itself, checked with Oxy online (the
+    ///   machine has no verifier to check it with): it becomes the verifier again.
+    ///
+    /// A password proof is checked by PAM against the verifier (`passwords`, throttled), a PIN
+    /// proof as a PIN is, each wrong one counted. Nothing changes on a refusal.
+    #[cfg(feature = "local")]
+    pub fn change_local(
+        self: &Arc<Self>,
+        uid: u32,
+        proof: Proof,
+        change: LocalChange,
+        passwords: &dyn crate::erase::Passwords,
+    ) -> Result<LocalView, LocalRefusal> {
+        use crate::erase::PasswordCheck;
+        use crate::pin::{hash_pin, usable_pin, PinCheck, PinRecord};
+        let enrollment = self
+            .enrollment_of(uid)
+            .map_err(|_| LocalRefusal::Failed)?
+            .ok_or(LocalRefusal::Failed)?;
+        let store = self.setup.store();
+        let user = enrollment.user.clone();
+        let local = store.local(&user).map_err(|_| LocalRefusal::Failed)?;
+        if let LocalChange::SetPin(pin) = &change {
+            if !usable_pin(pin) {
+                return Err(LocalRefusal::UnusablePin);
+            }
+            if let Proof::Password(password) = &proof {
+                if password.expose() == pin.expose() {
+                    return Err(LocalRefusal::UnusablePin);
+                }
+            }
+        }
+        // The person, proved.
+        match (&proof, &change) {
+            (Proof::Password(password), LocalChange::PasswordSignIn(true)) => {
+                if local.password {
+                    return Ok(LocalView::of(&local));
+                }
+                match self
+                    .sign_in(&enrollment, password, true)
+                    .logged(user.as_str())
+                {
+                    Online::Accepted => {}
+                    Online::WrongPassword => return Err(LocalRefusal::WrongPassword),
+                    Online::Offline => return Err(LocalRefusal::Offline),
+                    Online::SecondFactorRequired | Online::PasswordRight => {
+                        return Err(LocalRefusal::SecondFactorRequired)
+                    }
+                    Online::Revoked | Online::Failed(_) => return Err(LocalRefusal::Failed),
+                }
+            }
+            (Proof::Pin(_), LocalChange::PasswordSignIn(true)) => {
+                return Err(LocalRefusal::WrongPassword)
+            }
+            (Proof::Password(password), _) => {
+                if !local.password {
+                    return Err(LocalRefusal::PasswordSignInOff);
+                }
+                match passwords.check(&user, Secret::new(password.expose())) {
+                    PasswordCheck::Accepted => {}
+                    PasswordCheck::Rejected => return Err(LocalRefusal::WrongPassword),
+                    PasswordCheck::Throttled(wait) => {
+                        return Err(LocalRefusal::Throttled(wait.as_secs().max(1)))
+                    }
+                    PasswordCheck::Failed(_) => return Err(LocalRefusal::Failed),
+                }
+            }
+            (Proof::Pin(pin), _) => match self.check_pin(user.as_str(), pin) {
+                PinCheck::Accepted => {}
+                PinCheck::Rejected { locked: true, .. } | PinCheck::Locked => {
+                    return Err(LocalRefusal::PinLocked)
+                }
+                PinCheck::Rejected { .. } | PinCheck::NoPin => return Err(LocalRefusal::WrongPin),
+                PinCheck::Throttled(wait) => {
+                    return Err(LocalRefusal::Throttled(wait.as_secs().max(1)))
+                }
+            },
+        }
+        let verifier = match &change {
+            LocalChange::SetPin(pin) => Some(hash_pin(pin).map_err(|_| LocalRefusal::Failed)?),
+            _ => None,
+        };
+        let _machine = self.setup.lock_machine();
+        let before = store.local(&user).map_err(|_| LocalRefusal::Failed)?;
+        let mut after = before.clone();
+        // A password proved signs a locked-out PIN in again.
+        if let (Proof::Password(_), Some(record)) = (&proof, after.pin.as_mut()) {
+            record.failures = 0;
+        }
+        match change {
+            LocalChange::SetPin(_) => {
+                after.pin = verifier.map(|verifier| PinRecord {
+                    verifier,
+                    failures: 0,
+                });
+            }
+            LocalChange::RemovePin => {
+                if !after.password {
+                    return Err(LocalRefusal::PasswordSignInOff);
+                }
+                after.pin = None;
+            }
+            LocalChange::PasswordSignIn(false) => {
+                if after.pin.is_none() {
+                    return Err(LocalRefusal::NoPin);
+                }
+                after.password = false;
+            }
+            LocalChange::PasswordSignIn(true) => after.password = true,
+        }
+        store
+            .put_local(&user, &after)
+            .map_err(|_| LocalRefusal::Failed)?;
+        if before.password && !after.password {
+            // The verifier no longer opens the account; if it cannot be locked, nothing changed.
+            if let Err(error) = self.setup.users().lock(&user) {
+                eprintln!("oxyos-accountd: {user}'s password cannot be turned off: {error}");
+                let _ = store.put_local(&user, &before);
+                return Err(LocalRefusal::Failed);
+            }
+        }
+        Ok(LocalView::of(&after))
+    }
+
+    fn check_password(self: &Arc<Self>, user: &str, password: Secret, local: Local) -> Checked {
         let enrollment = match self.setup.store().get_user(user) {
             Ok(Some(enrollment)) => enrollment,
             Ok(None) => return Checked::REJECTED,
