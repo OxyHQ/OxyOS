@@ -250,6 +250,10 @@ What only the session's shell does: the system's sheets, AutoFill's list, the em
 | Member | Signature | What it does |
 | --- | --- | --- |
 | `shell.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
+| `shell.isShell` | `boolean` | Whether this host is the session's shell (only it has the state and the intents). |
+| `shell.state` | `Followed<Json>` | The compositor's windows, workspaces, outputs, controls, notifications and lock as the shell knows them, followed (shell-state.js gives its parts to the shell's views). |
+| `shell.desktopKeyboard` | `Followed<boolean>` | Whether the shell's desktop has the keyboard, followed. |
+| `shell.on` | `(event: ShellEvent, listener: (told: any) => void): () => void` | Tells `listener` each `event` the compositor tells the shell once (a shortcut, a bezel, a capture's step, a screenshot, the lock's answer, a launch's outcome, ...); the function returned stops. |
 | `shell.sheets` | `Followed<readonly SystemSheet[]>` | The system's sheets waiting for the person, in order. |
 | `shell.answerSheet` | `(sheet: number, accepted: boolean): void` | The person's answer to a sheet: accepted or not. |
 | `shell.answerPassword` | `(sheet: number, password: string): void` | A Wi-Fi password sheet's answer: the password the person typed, to the session alone. |
@@ -257,6 +261,41 @@ What only the session's shell does: the system's sheets, AutoFill's list, the em
 | `shell.autofill` | `Followed<Json \| null>` | AutoFill's list the session tells this shell to draw at a field's caret, null for none. The application whose field it is never sees it. |
 | `shell.chooseAutofill` | `(index: number, options?: CallOptions): Promise<void>` | Picks the AutoFill item `index`, citing the press that chose it. |
 | `shell.showEmojiPicker` | `(options?: CallOptions): Promise<void>` | Shows the emoji picker, citing the press or key that asked. |
+| `shell.intents.focusWindow` | `(window: number): void` | Focuses the window `window`. |
+| `shell.intents.closeWindow` | `(window: number): void` | Closes the window `window`. |
+| `shell.intents.minimizeWindow` | `(window: number): void` | Minimizes the window `window`. |
+| `shell.intents.hideApplication` | `(window: number): void` | Hides the application of the window `window` (ADR 0024). |
+| `shell.intents.quitApplication` | `(window: number): void` | Quits the application of the window `window`. |
+| `shell.intents.forceQuitApplication` | `(window: number): boolean` | Has the session end the application of the window `window` (ADR 0034). |
+| `shell.intents.moveWindowToWorkspace` | `(window: number, workspace: number): void` | Moves the window `window` to the workspace `workspace`. |
+| `shell.intents.activateWorkspace` | `(workspace: number): void` | Shows the workspace `workspace`. |
+| `shell.intents.addWorkspace` | `(): void` | Adds a workspace. |
+| `shell.intents.removeWorkspace` | `(workspace: number): void` | Removes the workspace `workspace`. |
+| `shell.intents.setApplicationList` | `(list: "dock" \| "openAtLogin", ids: readonly string[]): boolean` | Replaces the person's dock or Open at Login list (ADR 0034). |
+| `shell.intents.openUrl` | `(url: string): number` | Opens a URL in the application that opens its scheme, citing the latest input: its serial, 0 if not sent; `on('launch')` says whether it was opened. |
+| `shell.intents.emptyTrash` | `(): boolean` | Asks the session to empty the Trash, which asks the person first (ADR 0034). |
+| `shell.intents.trashFiles` | `(uris: readonly string[]): boolean` | Has the session put the files in the Trash, citing the drop on the dock's Trash (ADR 0035). |
+| `shell.intents.openFiles` | `(application: string, uris: readonly string[]): boolean` | Has the session open the files with `application`, citing the drop on its icon (ADR 0034). |
+| `shell.intents.focusDesktop` | `(): boolean` | Asks for the keyboard for the shell's desktop, citing the press on it (ADR 0047). |
+| `shell.intents.lockSession` | `(): void` | Locks the session (ADR 0010). |
+| `shell.intents.launch` | `(id: string): number` | Starts an application of the registry (ADR 0013): its serial, 0 if not sent; `on('launch')` says whether it was started. |
+| `shell.intents.authenticate` | `(secret: string, account: string, options?: { passcode?: boolean; }): boolean` | Sends the password (or, with `passcode`, the account's PIN for this computer) typed in the lock or login screen, for `account` ("": the session's own user), ADR 0020. |
+| `shell.intents.accounts` | `(): unknown` | The accounts enrolled on this computer (ADR 0020), null when they cannot be read. |
+| `shell.intents.activateMenuItem` | `(window: number, serial: number, index: number): void` | Chooses the entry `index` of the commit `serial` of window `window`'s menus (ADR 0021). |
+| `shell.intents.setControlLevel` | `(control: string, level: number): void` | Sets a control's level, 0 to 1, from the Control Center (ADR 0025): the display's and the keyboard's brightness, and the sound's volume until it moves to `audio` (decision 7). |
+| `shell.intents.setControlMuted` | `(control: string, muted: boolean): void` | Mutes or unmutes a control from the Control Center: the sound's, until it moves to `audio` (decision 7). |
+| `shell.intents.setWifiEnabled` | `(enabled: boolean): void` | Turns Wi-Fi on or off from the Control Center, until it moves to `network.setWifi` (decision 7). |
+| `shell.intents.setAppearance` | `(dark: boolean): void` | Sets the person's appearance, light or dark. |
+| `shell.intents.refreshControls` | `(): void` | Has the session look at the machine's controls again now. |
+| `shell.intents.activateNotification` | `(notification: number, action: number, reply: string): void` | Opens a notification (`action` 0) or runs its action, with the reply typed (ADR 0026). |
+| `shell.intents.removeNotification` | `(notification: number): void` | Removes a notification (0: all). |
+| `shell.intents.setDoNotDisturb` | `(enabled: boolean): void` | Turns Do Not Disturb on or off from the Control Center. |
+| `shell.intents.announce` | `(text: string, polite: boolean): void` | Says `text` to assistive technologies, politely or at once. |
+| `shell.intents.capture` | `(serial: number, kind: "screens" \| "area" \| "window", output: number, rect: { x: number; y: number; width: number; height: number; } \| null, window: number, destination: "desktop" \| "documents"): boolean` | Captures what the person chose in the screenshot interface `serial` (ADR 0024, decision 10). |
+| `shell.intents.endCapture` | `(serial: number): boolean` | Ends the screenshot interface `serial` without a capture. |
+| `shell.intents.openScreenshot` | `(id: number): boolean` | Opens a saved screenshot, citing the press on its thumbnail. |
+| `shell.intents.chooseInputCandidate` | `(index: number): boolean` | Chooses a candidate of the input method's page (ADR 0041). |
+| `shell.intents.turnInputCandidatesPage` | `(forward: boolean): boolean` | Turns the input method's page of candidates forward or back. |
 
 ## `sounds`
 

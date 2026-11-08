@@ -55,3 +55,43 @@ test("AutoFill's pick and the emoji picker resolve once the session answered; a 
   await assert.rejects(emoji, (error) => isPlatformError(error, 'needsInput') && error.domain === 'shell');
   assert.deepEqual(sent, [{ chooseAutofill: { index: 2 } }, { showEmoji: {} }]);
 });
+
+test("the shell's state is followed, its events told and its intents sent, in the shell alone", () => {
+  const listeners = new Map<string, (event: any) => void>();
+  const events: Events = {
+    addListener(name, handler) {
+      listeners.set(name, handler);
+      return { remove: () => listeners.delete(name) };
+    },
+  };
+  const session = createSession({ request: () => 1 }, events);
+  const focused: unknown[] = [];
+  const shell = createShell(session, null, events, {
+    getState: () => ({ windows: [] }),
+    focusWindow: (window: number) => focused.push(window),
+  });
+  assert.equal(shell.isShell, true);
+  assert.deepEqual(shell.state.current(), { windows: [] });
+  listeners.get('OxyOSShellChanged')?.({ windows: [{ id: 3 }] });
+  assert.deepEqual(shell.state.current(), { windows: [{ id: 3 }] });
+  const bezels: unknown[] = [];
+  const stop = shell.on('bezel', (told) => bezels.push(told));
+  listeners.get('OxyOSShellBezel')?.({ control: 'output' });
+  stop();
+  assert.deepEqual(bezels, [{ control: 'output' }]);
+  shell.intents.focusWindow(3);
+  assert.deepEqual(focused, [3]);
+  listeners.get('OxyOSShellDesktopKeyboard')?.({ focused: true });
+  assert.equal(shell.desktopKeyboard.current(), true);
+
+  // Any other host: its OxyOSShell throws; nothing is followed or sent.
+  const elsewhere = createShell(session, null, events, {
+    getState: () => {
+      throw new Error("OxyOSShell: only the session's shell has it");
+    },
+    focusWindow: () => assert.fail('sent'),
+  });
+  assert.equal(elsewhere.isShell, false);
+  assert.equal(elsewhere.state.current(), null);
+  assert.equal(elsewhere.intents.focusWindow(3), undefined);
+});

@@ -77,7 +77,7 @@
  * `forceQuitApplication(window)` has the session end the application of a window;
  * `setApplicationList('dock' | 'openAtLogin', ids)` replaces one of the lists; `openUrl(url)` opens
  * a URL in the application that opens its scheme, citing the latest input (its serial; 0 not sent;
- * `OxyOSShellLaunch` answers); `emptyTrash()` asks the session to empty the Trash, which asks the
+ * `shell.on('launch')` answers); `emptyTrash()` asks the session to empty the Trash, which asks the
  * person first; `trashFiles(uris)` has it put the files (`file://` URIs) in the Trash, citing the
  * latest input: the drop on the dock's Trash (docs/adr/0035-drag-and-drop.mdx); `openFiles(application,
  * uris)` has it open the files with that application, citing the latest input: the drop on its icon
@@ -96,9 +96,12 @@
  * turns to the page after or before (a chevron).
  */
 import * as React from 'react';
-import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
+import { shell as platformShell } from '@oxyos/platform';
 
-const native = TurboModuleRegistry.get('OxyOSShell');
+// The platform's `shell` (`@oxyos/platform`): its state, what the compositor tells it once and its
+// intents. This module gives them to the shell's views, each part apart so that only what reads it
+// renders when it changes.
+const { intents } = platformShell;
 
 /**
  * `next` with every part equal to `previous`'s (deeply, as JSON) being `previous`'s own: the state
@@ -203,18 +206,8 @@ export function useWindowSizes() {
 // Whether the shell's desktop, its background, has the keyboard (docs/adr/0047-finder-drags-and-the-
 // desktop.mdx), apart from the state: only the desktop reads it, so its gaining or losing the
 // keyboard renders the desktop's selection and nothing else of the shell.
-let desktopKeyboard = false;
-const desktopListeners = new Set();
-DeviceEventEmitter.addListener('OxyOSShellDesktopKeyboard', ({ focused }) => {
-  if (!!focused === desktopKeyboard) return;
-  desktopKeyboard = !!focused;
-  for (const listener of desktopListeners) listener();
-});
-const subscribeDesktop = (listener) => {
-  desktopListeners.add(listener);
-  return () => desktopListeners.delete(listener);
-};
-const readDesktop = () => desktopKeyboard;
+const subscribeDesktop = (listener) => platformShell.desktopKeyboard.subscribe(() => listener());
+const readDesktop = () => platformShell.desktopKeyboard.current() ?? false;
 
 /** Whether the shell's desktop has the keyboard now. */
 export function useDesktopKeyboard() {
@@ -223,52 +216,52 @@ export function useDesktopKeyboard() {
 
 /** Asks the keyboard for the shell's desktop, citing the latest input (the press on it). */
 export function focusDesktop() {
-  return native?.focusDesktop?.() ?? false;
+  return intents.focusDesktop() ?? false;
 }
 
 // The shell's actions on the compositor: intents, the same functions in every render, so that what
 // is given them is never new because of them.
 const actions = {
-  focusWindow: (id) => native?.focusWindow(id),
-  closeWindow: (id) => native?.closeWindow(id),
-  minimizeWindow: (id) => native?.minimizeWindow(id),
-  hideApplication: (id) => native?.hideApplication(id),
-  quitApplication: (id) => native?.quitApplication(id),
-  forceQuitApplication: (id) => native?.forceQuitApplication(id) ?? false,
-  setApplicationList: (list, ids) => native?.setApplicationList(list, [...ids]) ?? false,
-  openUrl: (url) => native?.openUrl(url) ?? 0,
-  emptyTrash: () => native?.emptyTrash() ?? false,
-  trashFiles: (uris) => native?.trashFiles?.(uris) ?? false,
-  openFiles: (application, uris) => native?.openFiles?.(application, [...uris]) ?? false,
+  focusWindow: (id) => intents.focusWindow(id),
+  closeWindow: (id) => intents.closeWindow(id),
+  minimizeWindow: (id) => intents.minimizeWindow(id),
+  hideApplication: (id) => intents.hideApplication(id),
+  quitApplication: (id) => intents.quitApplication(id),
+  forceQuitApplication: (id) => intents.forceQuitApplication(id) ?? false,
+  setApplicationList: (list, ids) => intents.setApplicationList(list, [...ids]) ?? false,
+  openUrl: (url) => intents.openUrl(url) ?? 0,
+  emptyTrash: () => intents.emptyTrash() ?? false,
+  trashFiles: (uris) => intents.trashFiles(uris) ?? false,
+  openFiles: (application, uris) => intents.openFiles(application, [...uris]) ?? false,
   focusDesktop,
-  moveWindowToWorkspace: (id, workspace) => native?.moveWindowToWorkspace(id, workspace),
-  activateWorkspace: (workspace) => native?.activateWorkspace(workspace),
-  addWorkspace: () => native?.addWorkspace(),
-  removeWorkspace: (workspace) => native?.removeWorkspace(workspace),
-  lockSession: () => native?.lockSession(),
+  moveWindowToWorkspace: (id, workspace) => intents.moveWindowToWorkspace(id, workspace),
+  activateWorkspace: (workspace) => intents.activateWorkspace(workspace),
+  addWorkspace: () => intents.addWorkspace(),
+  removeWorkspace: (workspace) => intents.removeWorkspace(workspace),
+  lockSession: () => intents.lockSession(),
   // Asks the session for an application of its registry (ADR 0013): the request's serial (0:
-  // not sent); `OxyOSShellLaunch` says whether it was started.
-  launch: (id) => native?.launch(id) ?? 0,
-  authenticate: (password, account) => native?.authenticate(password, account) ?? false,
-  authenticatePin: (pin, account) => native?.authenticate(pin, account ?? '', { passcode: true }) ?? false,
-  accounts: () => native?.accounts() ?? null,
-  activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
-  setControlLevel: (control, level) => native?.setControlLevel(control, level),
-  setControlMuted: (control, muted) => native?.setControlMuted(control, muted),
-  setWifiEnabled: (enabled) => native?.setWifiEnabled(enabled),
-  setAppearance: (dark) => native?.setAppearance(dark),
-  refreshControls: () => native?.refreshControls(),
-  activateNotification: (id, action, reply) => native?.activateNotification(id, action, reply ?? ''),
-  removeNotification: (id) => native?.removeNotification(id),
-  setDoNotDisturb: (enabled) => native?.setDoNotDisturb(enabled),
-  announce: (text, polite) => native?.announce(text, polite),
-  openScreenshot: (id) => native?.openScreenshot(id) ?? false,
-  chooseInputCandidate: (index) => native?.chooseInputCandidate?.(index) ?? false,
-  turnInputCandidatesPage: (forward) => native?.turnInputCandidatesPage?.(forward) ?? false,
+  // not sent); `shell.on('launch')` says whether it was started.
+  launch: (id) => intents.launch(id) ?? 0,
+  authenticate: (password, account) => intents.authenticate(password, account) ?? false,
+  authenticatePin: (pin, account) => intents.authenticate(pin, account ?? '', { passcode: true }) ?? false,
+  accounts: () => intents.accounts() ?? null,
+  activateMenuItem: (window, serial, index) => intents.activateMenuItem(window, serial, index),
+  setControlLevel: (control, level) => intents.setControlLevel(control, level),
+  setControlMuted: (control, muted) => intents.setControlMuted(control, muted),
+  setWifiEnabled: (enabled) => intents.setWifiEnabled(enabled),
+  setAppearance: (dark) => intents.setAppearance(dark),
+  refreshControls: () => intents.refreshControls(),
+  activateNotification: (id, action, reply) => intents.activateNotification(id, action, reply ?? ''),
+  removeNotification: (id) => intents.removeNotification(id),
+  setDoNotDisturb: (enabled) => intents.setDoNotDisturb(enabled),
+  announce: (text, polite) => intents.announce(text, polite),
+  openScreenshot: (id) => intents.openScreenshot(id) ?? false,
+  chooseInputCandidate: (index) => intents.chooseInputCandidate(index) ?? false,
+  turnInputCandidatesPage: (forward) => intents.turnInputCandidatesPage(forward) ?? false,
 };
 
 export function useOxyOSShell() {
-  const [state, setState] = React.useState(() => withoutSizes(native?.getState() ?? null));
+  const [state, setState] = React.useState(() => withoutSizes(platformShell.state.current()));
   const [authentication, setAuthentication] = React.useState(null);
   const [shortcuts, setShortcuts] = React.useState([]);
   const [bezels, setBezels] = React.useState([]);
@@ -277,64 +270,57 @@ export function useOxyOSShell() {
   const [screenshots, setScreenshots] = React.useState([]);
   const [candidates, setCandidates] = React.useState(null);
   React.useEffect(() => {
-    if (!native) return undefined;
+    if (!platformShell.isShell) return undefined;
     const told = (next) => {
       const state = withoutSizes(next);
       setState((previous) => sharedWith(previous, state));
     };
-    const subscription = DeviceEventEmitter.addListener('OxyOSShellChanged', told);
-    // Each answer is new, even one like the last (a second wrong password shakes again).
-    const answers = DeviceEventEmitter.addListener('OxyOSShellAuthentication', ({ outcome, wait }) =>
-      setAuthentication((last) => ({ id: (last?.id ?? 0) + 1, outcome, wait })),
-    );
-    // Each shortcut is new, even one like the last (Tab pressed again moves on).
-    // A swipe's shortcut opens or closes what it shows (`intent`, docs/adr/0046-interactive-gestures.mdx);
-    // a key's toggles it.
-    const shortcut = DeviceEventEmitter.addListener('OxyOSShellShortcut', ({ action, output, intent }) =>
-      setShortcuts((last) => [
-        ...last.slice(-15),
-        { id: (last[last.length - 1]?.id ?? 0) + 1, action, output, intent: intent ?? 'toggle' },
-      ]),
-    );
-    // Each bezel is new, even one like the last (a key pressed at the end of its range shows it).
-    const bezel = DeviceEventEmitter.addListener('OxyOSShellBezel', ({ control }) =>
-      setBezels((last) => [...last.slice(-15), { id: (last[last.length - 1]?.id ?? 0) + 1, control }]),
-    );
-    // The screenshot interface: opened, switched, confirmed, ended; one interface per serial.
-    const captured = DeviceEventEmitter.addListener('OxyOSShellCapture', ({ mode, serial, output }) => {
-      if (mode === 'ended') {
-        setCapture(null);
-        setCaptureTarget(null);
-        return;
-      }
-      setCapture((last) => {
-        const same = last && last.serial === serial;
-        if (mode === 'confirm') return same ? { ...last, confirm: last.confirm + 1 } : last;
-        return { serial, mode, output, confirm: same ? last.confirm : 0 };
-      });
-    });
-    // The window under the pointer, kept while it is the same one at the same place.
-    const targeted = DeviceEventEmitter.addListener('OxyOSShellCaptureTarget', (target) =>
-      setCaptureTarget((last) => sharedWith(last, target.window ? target : null)),
-    );
-    const saved = DeviceEventEmitter.addListener('OxyOSShellScreenshot', (screenshot) =>
-      setScreenshots((last) => [...last.slice(-15), screenshot]),
-    );
-    // The page of candidates to show; an empty one hides the window. One like the last is the same.
-    const listed = DeviceEventEmitter.addListener('OxyOSShellCandidates', (list) =>
-      setCandidates((last) => sharedWith(last, list.candidates.length ? list : null)),
-    );
+    const stops = [
+      platformShell.state.subscribe(told),
+      // Each answer is new, even one like the last (a second wrong password shakes again).
+      platformShell.on('authentication', ({ outcome, wait }) =>
+        setAuthentication((last) => ({ id: (last?.id ?? 0) + 1, outcome, wait })),
+      ),
+      // Each shortcut is new, even one like the last (Tab pressed again moves on). A swipe's
+      // shortcut opens or closes what it shows (`intent`, docs/adr/0046-interactive-gestures.mdx);
+      // a key's toggles it.
+      platformShell.on('shortcut', ({ action, output, intent }) =>
+        setShortcuts((last) => [
+          ...last.slice(-15),
+          { id: (last[last.length - 1]?.id ?? 0) + 1, action, output, intent: intent ?? 'toggle' },
+        ]),
+      ),
+      // Each bezel is new, even one like the last (a key pressed at the end of its range shows it).
+      platformShell.on('bezel', ({ control }) =>
+        setBezels((last) => [...last.slice(-15), { id: (last[last.length - 1]?.id ?? 0) + 1, control }]),
+      ),
+      // The screenshot interface: opened, switched, confirmed, ended; one interface per serial.
+      platformShell.on('capture', ({ mode, serial, output }) => {
+        if (mode === 'ended') {
+          setCapture(null);
+          setCaptureTarget(null);
+          return;
+        }
+        setCapture((last) => {
+          const same = last && last.serial === serial;
+          if (mode === 'confirm') return same ? { ...last, confirm: last.confirm + 1 } : last;
+          return { serial, mode, output, confirm: same ? last.confirm : 0 };
+        });
+      }),
+      // The window under the pointer, kept while it is the same one at the same place.
+      platformShell.on('captureTarget', (target) =>
+        setCaptureTarget((last) => sharedWith(last, target.window ? target : null)),
+      ),
+      platformShell.on('screenshot', (screenshot) => setScreenshots((last) => [...last.slice(-15), screenshot])),
+      // The page of candidates to show; an empty one hides the window. One like the last is the same.
+      platformShell.on('candidates', (list) =>
+        setCandidates((last) => sharedWith(last, list.candidates.length ? list : null)),
+      ),
+    ];
     // A change between the first read and the subscription is not lost.
-    told(native.getState());
+    told(platformShell.state.current());
     return () => {
-      subscription.remove();
-      answers.remove();
-      shortcut.remove();
-      bezel.remove();
-      captured.remove();
-      targeted.remove();
-      saved.remove();
-      listed.remove();
+      for (const stop of stops) stop();
     };
   }, []);
   // Capturing cites the interface open now: read when asked, so the function stays the same.
@@ -344,9 +330,9 @@ export function useOxyOSShell() {
     () => ({
       captureScreen: (kind, output, rect, window, destination) => {
         const now = open.current;
-        return now ? (native?.capture(now.serial, kind, output, rect ?? null, window ?? 0, destination) ?? false) : false;
+        return now ? (intents.capture(now.serial, kind, output, rect ?? null, window ?? 0, destination) ?? false) : false;
       },
-      endCapture: () => (open.current ? (native?.endCapture(open.current.serial) ?? false) : false),
+      endCapture: () => (open.current ? (intents.endCapture(open.current.serial) ?? false) : false),
     }),
     [],
   );

@@ -24,7 +24,7 @@ import { createNotifications } from './notifications.ts';
 import { createPasteboard } from './pasteboard.ts';
 import { createSearch, type SearchModule } from './search.ts';
 import { createSession, type SystemModule } from './session.ts';
-import { createShell } from './shell.ts';
+import { createShell, type ShellModule } from './shell.ts';
 import {
   createWindows,
   type EditingModule,
@@ -52,7 +52,7 @@ export type {
   TaggedItem,
   TrashedItem,
 } from './files.ts';
-export type { SystemSheet } from './shell.ts';
+export type { ShellEvent, ShellIntents, SystemSheet } from './shell.ts';
 export type { KeyEvent, MenuEntry } from './windows.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
 export {
@@ -124,6 +124,7 @@ export const shell = createShell(
   session,
   system?.answerSheet ? (sheet, accepted) => system.answerSheet?.(sheet, accepted) : null,
   DeviceEventEmitter,
+  TurboModuleRegistry.get('OxyOSShell') as ShellModule | null,
 );
 
 /** The application's own window: its state and operations, its menus, its keys and its first
