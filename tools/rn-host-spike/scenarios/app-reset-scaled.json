@@ -46,7 +46,23 @@
           "texts": [
             "Crash Probe se cerró inesperadamente"
           ]
-        }
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "focus.out": 1
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Crash Probe. Crash Probe se cerró inesperadamente",
+            "live": false
+          }
+        ]
       }
     },
     {
@@ -64,6 +80,43 @@
         "in_shell": {
           "texts": [
             "Crash Probe sigue cerrándose inesperadamente"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 2,
+            "focus.out": 3
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              800
+            ]
           ]
         }
       }
@@ -90,6 +143,42 @@
         "home": {
           ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\"",
           ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": true
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              800
+            ]
+          ]
         }
       },
       "until_named": [
@@ -112,6 +201,34 @@
         },
         "home": {
           ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\""
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ]
+          ]
         }
       }
     },
@@ -132,6 +249,44 @@
             "Crash Probe sigue cerrándose inesperadamente",
             "Se ha cerrado 3 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar."
           ]
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "focus.out": 2,
+            "leave": 1
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              800
+            ]
+          ]
         }
       }
     },
@@ -146,6 +301,42 @@
         "in_shell": {
           "texts": [
             "¿Restablecer “Crash Probe”?"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 1,
+            "leave": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              800
+            ]
           ]
         }
       },
@@ -183,6 +374,40 @@
           ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": false,
           ".local/share/oxyos/apps/so.oxy.other/kept.json": "{\"mine\": true}",
           ".local/share/oxyos/apps/.erasing": false
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1,
+            "focus.out": 1,
+            "leave": 1
+          },
+          "launched": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              800
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              744,
+              1280,
+              56
+            ]
+          ]
         }
       }
     }

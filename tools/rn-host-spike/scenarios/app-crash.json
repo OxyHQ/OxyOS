@@ -60,6 +60,22 @@
               "Its storage cannot be read"
             ]
           }
+        ],
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "focus.out": 1
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Crash Probe. Crash Probe se cerró inesperadamente",
+            "live": false
+          }
         ]
       }
     },
@@ -109,7 +125,44 @@
               "Repeated:     2 times in the last 10 minutes"
             ]
           }
-        ]
+        ],
+        "delivered": {
+          "1": {
+            "focus.in": 2,
+            "focus.out": 3
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        }
       }
     },
     {
@@ -131,6 +184,35 @@
           ],
           "absent": [
             "Crash Probe sigue cerrándose inesperadamente"
+          ]
+        },
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
           ]
         }
       }
@@ -155,6 +237,35 @@
           "text/plain;charset=utf-8": {
             "contains": "Crash Probe quit unexpectedly."
           }
+        },
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
         }
       }
     },
@@ -174,6 +285,35 @@
           ],
           "absent": [
             "Lo que informó Crash Probe"
+          ]
+        },
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
           ]
         }
       }
@@ -195,6 +335,46 @@
             "Crash Probe sigue cerrándose inesperadamente",
             "Se ha cerrado 3 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar."
           ]
+        },
+        "delivered": {
+          "1": {
+            "enter": 2,
+            "focus.in": 2,
+            "focus.out": 2,
+            "leave": 2
+          },
+          "launched": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
         }
       }
     },
@@ -210,6 +390,34 @@
           "absent": [
             "Crash Probe sigue cerrándose inesperadamente",
             "Crash Probe se cerró inesperadamente"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
           ]
         }
       }
