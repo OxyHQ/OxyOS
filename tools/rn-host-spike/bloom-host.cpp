@@ -57,7 +57,6 @@
 #include <react/nativemodule/defaults/DefaultTurboModules.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
-#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/components/root/RootComponentDescriptor.h>
 #include <react/renderer/components/view/BaseViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
@@ -702,6 +701,9 @@ int main(int argc, char** argv) {
   auto context = std::make_shared<ContextContainer>();
   context->insert(ImageManagerKey, std::make_shared<ImageManager>(context));
   context->insert(RuntimeSchedulerKey, std::weak_ptr<RuntimeScheduler>(instance->getRuntimeScheduler()));
+  // The window's size, which a modal starts at (modal.h); set as the surface is laid out.
+  auto modalScreen = std::make_shared<oxyos::ModalScreen>();
+  context->insert(oxyos::kModalScreenKey, modalScreen);
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
   toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
@@ -723,7 +725,8 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSDropTargetViewComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
+  // React Native's Modal, laid out at the window's size from its first rendering (modal.h).
+  providers->add(concreteComponentDescriptorProvider<oxyos::ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoImageComponentDescriptor>());
@@ -927,6 +930,7 @@ int main(int argc, char** argv) {
   scheduler->registerSurface(surface);
   auto layOut = [&] {
     Size size{display.width, display.height};
+    modalScreen->size = size;
     surface.constraintLayout(LayoutConstraints{.minimumSize = size, .maximumSize = size},
                              LayoutContext{.pointScaleFactor = display.scale});
   };
