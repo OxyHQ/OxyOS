@@ -398,7 +398,10 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
     babelTransformerPath: path.join(__dirname, 'oxyos', 'babel-transformer.js'),
     // expo-router's `_ctx`: a require.context of the application's router root.
     unstable_allowRequireContext: Boolean(APP),
-    ...(FRAMEWORK_BUILD && { assetPlugins: [path.join(OVERRIDES, 'framework-asset-plugin.js')] }),
+    // Assets from outside this repository named by where they are in their own checkout
+    // (oxyos/asset-location-plugin.js); the framework's also marked as its own.
+    assetPlugins: [path.join(OVERRIDES, 'asset-location-plugin.js'),
+      ...(FRAMEWORK_BUILD ? [path.join(OVERRIDES, 'framework-asset-plugin.js')] : [])],
   },
   projectRoot: __dirname,
   // As @oxy.so/app-preset configures it: 1rem = 16px, variables resolved at runtime.
