@@ -9,6 +9,9 @@ job is one of these, each force-cancelled:
   - in progress longer than the job's timeout-minutes and a quarter of an hour;
   - its running step started more than STALLED minutes ago (the gate's longest step takes 25 to 40);
   - an older job on a runner that has started a newer one (a runner runs one job at a time).
+It also cancels the merge queue's runs that no entry of the queue is waiting for any more (a group
+superseded when the queue changed: an entry removed, another put ahead), which would otherwise hold
+runners for nothing; GitHub leaves them running.
 
 Run by .github/workflows/gate-watchdog.yml on a GitHub-hosted runner with that run's GITHUB_TOKEN
 (actions: write, this repository alone); nothing of it is on the gate's machine.
@@ -20,6 +23,7 @@ import os
 import pathlib
 import re
 import sys
+import urllib.error
 import urllib.request
 
 WORKFLOW = "Scenarios"
@@ -38,9 +42,34 @@ def api(path, method="GET"):
         f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/{path}", method=method,
         headers={"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
                  "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = response.read()
-        return json.loads(body) if body else None
+    # Three tries: a dropped connection is no reason to leave a stuck job for another ten minutes.
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                body = response.read()
+                return json.loads(body) if body else None
+        except urllib.error.HTTPError:
+            raise
+        except OSError:
+            if attempt == 2:
+                raise
+
+
+def queue_commits():
+    """The commits the merge queue's entries are being tested on, or None if it cannot be read."""
+    owner, name = os.environ["GITHUB_REPOSITORY"].split("/")
+    query = ('{repository(owner:"%s",name:"%s"){mergeQueue(branch:"main"){entries(first:100)'
+             '{nodes{headCommit{oid}}}}}}' % (owner, name))
+    request = urllib.request.Request(
+        "https://api.github.com/graphql", data=json.dumps({"query": query}).encode(), method="POST",
+        headers={"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            queue = json.loads(response.read())["data"]["repository"]["mergeQueue"]
+    except (OSError, KeyError, TypeError, ValueError):
+        return None
+    return {node["headCommit"]["oid"] for node in (queue or {"entries": {"nodes": []}})["entries"]["nodes"]
+            if node.get("headCommit")}
 
 
 def when(text):
@@ -85,7 +114,21 @@ def main():
         if not dry:
             api(f"actions/runs/{run['id']}/force-cancel", method="POST")
         ended += 1
-    print(f"watchdog: {len(jobs)} Scenarios jobs in progress, {ended} ended")
+    # The merge queue's runs no entry waits for: cancelled (their jobs did nothing wrong).
+    waited = queue_commits()
+    superseded = 0
+    if waited is not None:
+        for status in ("in_progress", "queued"):
+            for run in api(f"actions/runs?status={status}&event=merge_group&per_page=100")["workflow_runs"]:
+                if run["name"] != WORKFLOW or run["head_sha"] in waited:
+                    continue
+                print(f"run {run['id']} ({run['head_branch']}): no merge queue entry waits for it: "
+                      f"{'would cancel' if dry else 'cancelled'}")
+                if not dry:
+                    api(f"actions/runs/{run['id']}/cancel", method="POST")
+                superseded += 1
+    print(f"watchdog: {len(jobs)} Scenarios jobs in progress, {ended} ended, {superseded} superseded "
+          f"merge queue runs cancelled")
 
 
 main()

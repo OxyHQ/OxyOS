@@ -168,7 +168,9 @@ On 8 November 2026 four such jobs held the queue for hours.
   gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
   one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
   started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
-  runner that has started a newer one. `--dry-run` says what it would end.
+  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+  for any more (a group superseded when the queue changed: an entry removed or another put ahead),
+  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
 
 ### Images on the gate's machine
 
