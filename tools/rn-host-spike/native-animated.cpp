@@ -17,11 +17,6 @@ namespace oxyos {
 
 namespace {
 
-double nowMs() {
-  using namespace std::chrono;
-  return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
-}
-
 // React Native's module, unchanged but for the one method its C++ implementation leaves empty
 // (`updateAnimatedNodeConfig`, a platform colour's AnimatedColor given a new value): reported, as
 // the host reports every call it has no counterpart for, instead of doing nothing silently.

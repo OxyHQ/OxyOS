@@ -1,4 +1,5 @@
 #include "window.h"
+#include "trace.h"
 
 #include "frame-diagnostics.h"
 #include "report.h"
@@ -21,11 +22,6 @@ namespace {
 
 [[noreturn]] void failed(const std::string& what) {
   throw std::runtime_error(what + ": " + oxyos_last_error());
-}
-
-bool tracing() {
-  static const bool trace = std::getenv("OXYOS_HOST_TRACE") != nullptr;
-  return trace;
 }
 
 }  // namespace

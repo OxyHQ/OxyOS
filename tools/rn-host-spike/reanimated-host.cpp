@@ -1,4 +1,5 @@
 #include "reanimated-host.h"
+#include "trace.h"
 
 #include "host-modules.h"
 #include "worklets-host.h"
@@ -22,11 +23,6 @@ using namespace facebook;
 namespace oxyos {
 
 namespace {
-
-double nowMs() {
-  using namespace std::chrono;
-  return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
-}
 
 void unsupported(const char* what) {
   static std::set<std::string> reported;
@@ -92,7 +88,7 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
     std::weak_ptr<reanimated::ReanimatedModuleProxy> weak = proxy_;
     scheduler->addEventListener(std::make_shared<react::EventListener>([weak](const react::RawEvent& event) {
       auto proxy = weak.lock();
-      if (proxy && std::getenv("OXYOS_HOST_TRACE") && event.eventTarget) {
+      if (proxy && tracing() && event.eventTarget) {
         std::string type = event.type.rfind("top", 0) == 0 ? "on" + event.type.substr(3) : event.type;
         std::cerr << "[reanimated] event " << event.type << " tag " << event.eventTarget->getTag() << " handled "
                   << proxy->isAnyHandlerWaitingForEvent(type, event.eventTarget->getTag()) << "\n";

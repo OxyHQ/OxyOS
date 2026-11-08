@@ -1,4 +1,5 @@
 #include "input.h"
+#include "trace.h"
 
 #include "android-view-props.h"
 #include "overscroll.h"
@@ -776,7 +777,7 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
   if (std::abs(vx) >= kMinimumFlingVelocity) glide.x = SplineFling(vx, friction);
   if (std::abs(vy) >= kMinimumFlingVelocity) glide.y = SplineFling(vy, friction);
   glide_ = glide;
-  if (std::getenv("OXYOS_HOST_TRACE")) {
+  if (tracing()) {
     std::cerr << "[input] fling " << view << " at " << vx << "," << vy << " dp/s: " << glide.y.distance() << " in "
               << glide.y.durationMs() << " ms\n";
   }
@@ -1089,7 +1090,7 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface, boo
   }
   Report::get().deliver("scroll", surface, view,
                         folly::dynamic::object("x", next.x)("y", next.y)("timestamp", dispatched));
-  if (std::getenv("OXYOS_HOST_TRACE")) {
+  if (tracing()) {
     std::cerr << "[input] scroll view " << tag << " to " << next.x << "," << next.y << " of " << content.width << "x"
               << content.height << "\n";
   }
@@ -1165,7 +1166,7 @@ void PointerInput::dispatchTouches(Phase phase, const std::vector<Finger>& finge
                           folly::dynamic::object("x", page.x)("y", page.y)("within", within)(
                               "touches", static_cast<int>(event.touches.size())));
   }
-  if (std::getenv("OXYOS_HOST_TRACE")) {
+  if (tracing()) {
     static const char* names[] = {"start", "move", "end", "cancel"};
     std::cerr << "[input] touch " << names[static_cast<int>(phase)] << " target " << target_ << " at "
               << actor.x << "," << actor.y << " (" << event.touches.size() << " down)\n";

@@ -2,6 +2,7 @@
 // Loads a Metro bundle built for the `oxyos` platform, starts a surface and records Fabric's
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
 #include "accessibility.h"
+#include "trace.h"
 #include "android-components.h"
 #include "application.h"
 #include "damage.h"
@@ -439,7 +440,7 @@ RuntimeFacts runtimeFacts() {
 }
 
 void stage(const char* name) {
-  if (std::getenv("OXYOS_HOST_TRACE")) std::cerr << "[host] " << name << "\n";
+  if (oxyos::tracing()) std::cerr << "[host] " << name << "\n";
   oxyos::Report::get().stage(name);
 }
 

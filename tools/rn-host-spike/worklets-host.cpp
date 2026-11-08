@@ -34,11 +34,6 @@ namespace oxyos {
 
 namespace {
 
-double nowMs() {
-  using namespace std::chrono;
-  return duration<double, std::milli>(steady_clock::now().time_since_epoch()).count();
-}
-
 // The host's single thread is both the JS and the UI thread.
 class LoopUIScheduler : public worklets::UIScheduler {
  public:

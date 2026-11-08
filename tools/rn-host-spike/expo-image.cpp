@@ -1,4 +1,5 @@
 #include "expo-image.h"
+#include "text-util.h"
 
 #include <react/renderer/core/propsConversions.h>
 
@@ -40,25 +41,6 @@ namespace {
 
 double number(const folly::dynamic& value, double otherwise) {
   return value.isNumber() ? value.asDouble() : otherwise;
-}
-
-std::string lower(std::string text) {
-  for (auto& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return text;
-}
-
-std::string percentDecoded(const std::string& text) {
-  std::string out;
-  for (size_t i = 0; i < text.size(); ++i) {
-    if (text[i] == '%' && i + 2 < text.size() && std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
-        std::isxdigit(static_cast<unsigned char>(text[i + 2]))) {
-      out += static_cast<char>(std::stoi(text.substr(i + 1, 2), nullptr, 16));
-      i += 2;
-    } else {
-      out += text[i];
-    }
-  }
-  return out;
 }
 
 // One axis of ContentPosition from its start and end edges' values (left before right, as
@@ -157,7 +139,7 @@ ExpoImageSourceKind expoImageSourceKind(const std::string& uri) {
   if (uri[0] == '/') return ExpoImageSourceKind::File;
   auto colon = uri.find(':');
   if (colon == std::string::npos) return ExpoImageSourceKind::Unsupported;
-  std::string scheme = lower(uri.substr(0, colon));
+  std::string scheme = lowercase(uri.substr(0, colon));
   if (scheme == "http" || scheme == "https") return ExpoImageSourceKind::Remote;
   if (scheme == "file") return ExpoImageSourceKind::File;
   if (scheme == "data") return ExpoImageSourceKind::Data;
@@ -171,7 +153,7 @@ std::string expoImageHash(const std::string& uri) {
   std::string path = colon == std::string::npos ? uri : uri.substr(colon + 1);
   while (!path.empty() && path.front() == '/') path.erase(path.begin());
   std::string hash = percentDecoded(path);
-  if (lower(uri.substr(0, colon)) == "thumbhash") std::replace(hash.begin(), hash.end(), '\\', '/');
+  if (lowercase(uri.substr(0, colon)) == "thumbhash") std::replace(hash.begin(), hash.end(), '\\', '/');
   return hash;
 }
 

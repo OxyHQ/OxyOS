@@ -1,4 +1,5 @@
 #include "images.h"
+#include "text-util.h"
 
 #include "report.h"
 #include "system.h"
@@ -27,20 +28,6 @@ using namespace facebook::react;
 namespace oxyos {
 
 namespace {
-
-std::string percentDecoded(const std::string& text) {
-  std::string out;
-  for (size_t i = 0; i < text.size(); ++i) {
-    if (text[i] == '%' && i + 2 < text.size() && std::isxdigit(static_cast<unsigned char>(text[i + 1])) &&
-        std::isxdigit(static_cast<unsigned char>(text[i + 2]))) {
-      out += static_cast<char>(std::stoi(text.substr(i + 1, 2), nullptr, 16));
-      i += 2;
-    } else {
-      out += text[i];
-    }
-  }
-  return out;
-}
 
 // The source to show for a box of `width` × `height` pixels: the smallest that covers it, or the
 // largest, as React Native's multiple sources are chosen.
