@@ -352,5 +352,13 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword, answerCode };
+  // An application that quit (docs/adr/0061-crashes-and-resetting-an-application.mdx): its
+  // notice's Reset… answers the notice no and asks the session to reset it, citing the press; the
+  // session asks the person in a sheet of its own, and opens it again once it is reset.
+  const resetApplication = React.useCallback((sheet, id) => {
+    native?.answerSheet(sheet, false);
+    native?.request(JSON.stringify({ resetApplication: { id, reopen: true } }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword, answerCode, resetApplication };
 }

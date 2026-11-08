@@ -72,6 +72,22 @@ struct Kept {
     posted: Duration,
     /// The shells were told only its application (posted while locked, without previews).
     withheld: bool,
+    /// The session's own, about the application (docs/adr/0061-crashes-and-resetting-an-
+    /// application.mdx: it quit unexpectedly): activated, the program running the compositor is
+    /// told ([`Scene::take_session_activations`]), never the application, and the application
+    /// cannot withdraw it.
+    session: bool,
+}
+
+/// One of the session's own notifications activated by the person ([`Scene::post_session_notification`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionActivation {
+    /// The application it is about.
+    pub application: String,
+    /// The identifier the session posted it with.
+    pub identifier: String,
+    /// The action chosen (its id), or none for the notification itself, pressed.
+    pub action: Option<String>,
 }
 
 /// A response for an application none of whose clients runs yet: given to the first that
@@ -105,6 +121,8 @@ pub(super) struct Notifications {
     pending: BTreeMap<String, Vec<Response>>,
     /// Applications to start for a response, for the program running the compositor.
     launches: Vec<String>,
+    /// The session's own notifications activated, for the program running the compositor.
+    activated: Vec<SessionActivation>,
 }
 
 /// The most bytes of a field's text.
@@ -337,7 +355,7 @@ impl Scene {
         for (index, action) in content.actions.iter_mut().enumerate() {
             action.background = background & (1 << index) != 0;
         }
-        match self.keep_notification(application, content, banner) {
+        match self.keep_notification(application, content, banner, false) {
             Ok(number) => answer(self, number, NotificationOutcome::Posted),
             Err(outcome) => answer(self, 0, outcome),
         }
@@ -362,7 +380,81 @@ impl Scene {
             sound,
             ..Content::default()
         };
-        self.keep_notification(application.to_owned(), content, true)
+        self.keep_notification(application.to_owned(), content, true, false)
+    }
+
+    /// The session's own notification about `application` (docs/adr/0061-crashes-and-resetting-an-
+    /// application.mdx, decision 3: it quit unexpectedly), shown as the application's (its icon and
+    /// name) with `actions` (id, label), as a banner and with no sound, the same `identifier`
+    /// replacing the one before. The person's press is the program's
+    /// ([`Scene::take_session_activations`]): the application is told nothing of it, and cannot
+    /// withdraw it. Its number, or why it was not kept.
+    pub fn post_session_notification(
+        &mut self,
+        application: &str,
+        identifier: &str,
+        title: &str,
+        body: &str,
+        actions: &[(&str, &str)],
+    ) -> Result<u32, NotificationOutcome> {
+        let content = Content {
+            identifier: identifier.to_owned(),
+            title: title.to_owned(),
+            body: body.to_owned(),
+            actions: actions
+                .iter()
+                .take(MAX_NOTIFICATION_ACTIONS)
+                .map(|(id, label)| Action {
+                    id: (*id).to_owned(),
+                    label: (*label).to_owned(),
+                    reply: None,
+                    background: false,
+                })
+                .collect(),
+            ..Content::default()
+        };
+        self.keep_notification(application.to_owned(), content, true, true)
+    }
+
+    /// The session's own notifications the person activated since the last call, each once.
+    pub fn take_session_activations(&mut self) -> Vec<SessionActivation> {
+        std::mem::take(&mut self.notifications.activated)
+    }
+
+    /// Withdraws the session's own notification about `application` posted with `identifier`, if
+    /// it is still kept: the shells are told.
+    pub fn withdraw_session_notification(&mut self, application: &str, identifier: &str) {
+        let numbers: Vec<u32> = self
+            .notifications
+            .kept
+            .iter()
+            .filter(|kept| {
+                kept.session
+                    && kept.application == application
+                    && kept.content.identifier == identifier
+            })
+            .map(|kept| kept.number)
+            .collect();
+        for number in numbers {
+            self.remove_notification(number);
+        }
+    }
+
+    /// Withdraws every notification of `application`'s own, as if it withdrew them all: it was reset
+    /// (docs/adr/0061-crashes-and-resetting-an-application.mdx), and what they were about is gone
+    /// with its data. The session's own about it stay.
+    pub fn withdraw_application_notifications(&mut self, application: &str) {
+        let numbers: Vec<u32> = self
+            .notifications
+            .kept
+            .iter()
+            .filter(|kept| !kept.session && kept.application == application)
+            .map(|kept| kept.number)
+            .collect();
+        for number in numbers {
+            self.remove_notification(number);
+        }
+        self.notifications.pending.remove(application);
     }
 
     /// Keeps a notification of `application` and tells the shells; throttled past its burst.
@@ -371,6 +463,7 @@ impl Scene {
         application: String,
         content: Content,
         banner: bool,
+        session: bool,
     ) -> Result<u32, NotificationOutcome> {
         let now = self.clock;
         let recent = self
@@ -441,6 +534,7 @@ impl Scene {
             content,
             posted: now,
             withheld,
+            session,
         });
         if sound {
             self.request_notification_sound();
@@ -637,7 +731,9 @@ impl Scene {
             .iter()
             .filter(|kept| {
                 (notification == 0 || kept.number == notification)
-                    && (shell || application.as_deref() == Some(kept.application.as_str()))
+                    && (shell
+                        || (!kept.session
+                            && application.as_deref() == Some(kept.application.as_str())))
             })
             .map(|kept| kept.number)
             .collect();
@@ -676,6 +772,15 @@ impl Scene {
         };
         let background = chosen.as_ref().is_some_and(|chosen| chosen.background);
         let kept = self.remove_notification(number).expect("kept");
+        // The session's own: the program acts on it, and the application is told nothing.
+        if kept.session {
+            self.notifications.activated.push(SessionActivation {
+                application: kept.application,
+                identifier: kept.content.identifier,
+                action: chosen.map(|chosen| chosen.id),
+            });
+            return;
+        }
         let response = Response {
             number,
             content: kept.content,
