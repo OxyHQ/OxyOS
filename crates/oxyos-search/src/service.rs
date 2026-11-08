@@ -10,6 +10,7 @@
 //! → {"applications": [{"id", "name", "keywords": [..], "icon": PATH|null, "package": DIR|null}]}
 //! → {"ask": {"client", "serial", "asker": {"id": ID|null, "launched", "shell", "settings"}, "text"}}
 //! → {"gone": {"client"}}
+//! → {"forget": {"application"}}       (it was reset, docs/adr/0061: what it donated goes)
 //! ← {"answer": {"client", "serial", "text"}}          serial 0: told unasked ({"changed": {}})
 //! ```
 //!
@@ -555,6 +556,19 @@ impl Service {
             "gone" => {
                 if let Some(client) = body["client"].as_u64() {
                     self.watchers.remove(&(client as u32));
+                }
+            }
+            // An application reset (docs/adr/0061-crashes-and-resetting-an-application.mdx,
+            // decision 5): what it donated is its own data, and goes with it.
+            "forget" => {
+                if let Some(application) = body["application"].as_str().filter(|id| !id.is_empty())
+                {
+                    self.replace(
+                        Source::Donated,
+                        Some(application.to_string()),
+                        Vec::new(),
+                        None,
+                    );
                 }
             }
             "ask" => {

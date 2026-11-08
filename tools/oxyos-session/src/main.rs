@@ -795,7 +795,14 @@ fn main() -> Result<()> {
         // Resetting an application and the crash notices' answers (docs/adr/0061), before the
         // store, which takes the requests left: what the person reopens is started as any launch.
         crashes.set_locale(&settings.locale());
-        for id in crashes.serve(&mut compositor.scene, &mut launcher, greeter) {
+        let served = crashes.serve(&mut compositor.scene, &mut launcher, greeter);
+        // What a reset application donated to the index goes with its data (decision 5).
+        if let Some(search) = search.as_mut() {
+            for id in &served.reset {
+                search.forget_application(id);
+            }
+        }
+        for id in served.open {
             match launcher.launch(&id) {
                 Ok(pid) => {
                     eprintln!("[session] reopened {id} ({pid})");

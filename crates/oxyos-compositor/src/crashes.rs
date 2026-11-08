@@ -354,6 +354,16 @@ fn ours(text: &str) -> bool {
         .is_ok_and(|asked| asked.len() == 1 && asked.contains_key("resetApplication"))
 }
 
+/// What a turn of [`Crashes::serve`] leaves the program to do.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Served {
+    /// The applications to open now (Reopen, a reset with `reopen`), started as any launch is.
+    pub open: Vec<String>,
+    /// The applications reset: what the program's other parts keep of theirs goes too (the search
+    /// index's donated items, `Search::forget_application`).
+    pub reset: Vec<String>,
+}
+
 /// An application's latest unexpected quit, for its notice and its Report….
 #[derive(Clone, Debug)]
 struct Latest {
@@ -569,14 +579,9 @@ impl Crashes {
     }
 
     /// A turn: the requests to reset, the sheets' answers, the notifications pressed, the resets
-    /// under way. The applications to open now (Reopen, a reset with `reopen`), which the program
-    /// starts as it starts any. `greeter`: the login screen's, which resets nothing.
-    pub fn serve(
-        &mut self,
-        scene: &mut Scene,
-        launcher: &mut Launcher,
-        greeter: bool,
-    ) -> Vec<String> {
+    /// under way; what the program is left to do ([`Served`]). `greeter`: the login screen's,
+    /// which resets nothing.
+    pub fn serve(&mut self, scene: &mut Scene, launcher: &mut Launcher, greeter: bool) -> Served {
         self.serve_at(scene, launcher, greeter, Instant::now())
     }
 
@@ -587,8 +592,8 @@ impl Crashes {
         launcher: &mut Launcher,
         greeter: bool,
         now: Instant,
-    ) -> Vec<String> {
-        let mut open = Vec::new();
+    ) -> Served {
+        let mut served = Served::default();
         for request in scene.take_system_requests_where(|request| ours(&request.text)) {
             self.handle(scene, launcher, greeter, request);
         }
@@ -598,7 +603,7 @@ impl Crashes {
             if let Some(accepted) = scene.take_sheet_answer(number) {
                 let id = self.notices.remove(&number).expect("shown");
                 if accepted {
-                    open.push(id);
+                    served.open.push(id);
                 }
             }
         }
@@ -649,7 +654,7 @@ impl Crashes {
                 continue;
             }
             match action.as_deref() {
-                None | Some("reopen") => open.push(application),
+                None | Some("reopen") => served.open.push(application),
                 Some("report") => {
                     if !self.notices.values().any(|shown| *shown == application) {
                         self.show_notice(scene, &application, true);
@@ -677,11 +682,14 @@ impl Crashes {
                 continue;
             }
             let quitting = self.quitting.remove(index);
-            if let Some(id) = self.reset(scene, launcher, quitting.asked) {
-                open.push(id);
+            if let Some(reset) = self.reset(scene, launcher, quitting.asked) {
+                if reset.reopen {
+                    served.open.push(reset.id.clone());
+                }
+                served.reset.push(reset.id);
             }
         }
-        open
+        served
     }
 
     /// A request to reset (`{"resetApplication": {"id", "reopen"?}}`): checked, then asked of the
@@ -753,14 +761,8 @@ impl Crashes {
         })
     }
 
-    /// Erases `asked`'s own data, now that nothing of it runs; the application to open again, if
-    /// asked to.
-    fn reset(
-        &mut self,
-        scene: &mut Scene,
-        launcher: &mut Launcher,
-        asked: Asked,
-    ) -> Option<String> {
+    /// Erases `asked`'s own data, now that nothing of it runs; what was asked, once it is reset.
+    fn reset(&mut self, scene: &mut Scene, launcher: &mut Launcher, asked: Asked) -> Option<Asked> {
         let erased = (self.own_data)(&asked.id)
             .ok_or_else(|| io::Error::other("it has no data directory"))
             .and_then(|own| own.set_aside());
@@ -782,7 +784,7 @@ impl Crashes {
                     asked.asker,
                     &json!({ "reset": { "id": asked.id } }).to_string(),
                 );
-                asked.reopen.then_some(asked.id)
+                Some(asked)
             }
             Err(error) => {
                 eprintln!("[crashes] {} was not reset: {error}", asked.id);

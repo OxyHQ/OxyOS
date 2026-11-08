@@ -108,6 +108,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- crash_reports: the reports the session wrote of applications that quit unexpectedly
+  (docs/adr/0061-crashes-and-resetting-an-application.mdx), in the run's home
+  (`.local/state/oxyos/crash-reports`) once the step settled, exactly and oldest first: each
+  {"application": its id, "contains": [TEXT]} (each text in the report);
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
@@ -2071,6 +2075,27 @@ def check_home(state, wanted, fail):
             fail(f"{relative} does not hold {want!r}")
 
 
+CRASH_REPORTS = ".local/state/oxyos/crash-reports/"
+
+
+def check_crash_reports(state, wanted, fail):
+    """A step's `crash_reports` (docs/adr/0061): the reports in the home, exactly, oldest first
+    (`<id>_<YYYY-MM-DD-HHMMSS>[-N].crash`, by when, then by name), each of the application wanted
+    and holding each text wanted."""
+    names = [path[len(CRASH_REPORTS):] for path in state
+             if path.startswith(CRASH_REPORTS) and path.endswith(".crash") and "/" not in path[len(CRASH_REPORTS):]]
+    names.sort(key=lambda name: (name[:-len(".crash")].rsplit("_", 1)[1], name))
+    got = [name[:-len(".crash")].rsplit("_", 1)[0] for name in names]
+    if got != [want["application"] for want in wanted]:
+        fail(f"the crash reports are of {got}, expected {[want['application'] for want in wanted]}")
+        return
+    for name, want in zip(names, wanted):
+        text = state[CRASH_REPORTS + name]
+        for needed in want.get("contains", []):
+            if not isinstance(text, str) or needed not in text:
+                fail(f"the crash report {name} does not say {needed!r}: {text!r:.400}")
+
+
 def latest_frames(report, until, closed_before):
     """Each surface's latest frame presented by `until`, leaving out closed popups."""
     frames = {}
@@ -3112,6 +3137,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
+    if "crash_reports" in expect:
+        check_crash_reports(home_root.at(end) if home_root else HomeState(), expect["crash_reports"], fail)
     if "react_hover" in expect:
         got = {}
         for line in report:
@@ -5137,10 +5164,12 @@ def main():
             [path for path in env.get("VK_ADD_DRIVER_FILES", "").split(os.pathsep) if path]
             + vulkan_driver_folders(env))
     # What applications keep (their data and cache directories, application.h) is the run's own,
-    # never the user's; a scenario's `app_data` is there before the application starts.
-    for kept in ("xdg-data", "xdg-cache"):
+    # never the user's; a scenario's `app_data` is there before the application starts. So is the
+    # session's state (the crash reports it writes, docs/adr/0061).
+    for kept in ("xdg-data", "xdg-cache", "xdg-state"):
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
+    env["XDG_STATE_HOME"] = str(out / "xdg-state")
     env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache else out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
@@ -5215,6 +5244,7 @@ def main():
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
+        env["XDG_STATE_HOME"] = str(home_root / ".local/state")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.

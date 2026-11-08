@@ -644,10 +644,16 @@ impl Session {
         // shell's launches are, and recorded so.
         if let Some(launcher) = self.launcher.as_mut() {
             self.crashes.set_locale(&self.settings.locale());
-            for id in self
+            let served = self
                 .crashes
-                .serve(&mut self.compositor.scene, launcher, login)
-            {
+                .serve(&mut self.compositor.scene, launcher, login);
+            // What a reset application donated to the index goes with its data.
+            if let Some(search) = self.search.as_mut() {
+                for id in &served.reset {
+                    search.forget_application(id);
+                }
+            }
+            for id in served.open {
                 match launcher.launch(&id) {
                     Ok(pid) => {
                         if let Some(launched) = launcher.application_of(pid) {

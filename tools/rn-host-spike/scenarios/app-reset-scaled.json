@@ -1,0 +1,207 @@
+{
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "installed": [
+    {
+      "package": "so.oxy.crashprobe",
+      "entry": [
+        "X-OxyOS-Pinned=4"
+      ]
+    }
+  ],
+  "home": {
+    "items": {
+      "notes.txt": "keep me",
+      ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\"",
+      ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": {
+        "bytes": 64
+      },
+      ".local/share/oxyos/apps/so.oxy.other/kept.json": "{\"mine\": true}"
+    }
+  },
+  "about": "app-reset at 1.25, on the ThinkPad's display (1600x1000): the same steps, the same answers. Resetting an application (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 5): Crash Probe, installed, quits at every launch because its storage file in the run's home is corrupt. Opened from the dock and reopened from its notification, it quits twice: the sheet. Its Reset… asks the session, which asks the person in its own sheet what is erased and what is kept; Cancel erases nothing. Opened again from the dock it quits again: the sheet; Reset… and Reset: the session erases its data and cache directories, and nothing else of the home (a note, another application's data), and opens it again, as new: it reads nothing, counts its first launch and says it is ready. With the session erasing before it asks, or erasing more than the application's own, the run fails.",
+  "steps": [
+    {
+      "name": "Crash Probe in the dock: it quits; its notification",
+      "do": [
+        "press_named",
+        "Crash Probe"
+      ],
+      "until_named": [
+        "Volver a abrir",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe se cerró inesperadamente"
+          ]
+        }
+      }
+    },
+    {
+      "name": "its Reopen: it quits again: the sheet",
+      "do": [
+        "press_named",
+        "Volver a abrir"
+      ],
+      "until_named": [
+        "Crash Probe sigue cerrándose inesperadamente",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe sigue cerrándose inesperadamente"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reset…: the session's own sheet says what is erased and what is kept; nothing is erased yet",
+      "do": [
+        "press_named",
+        "Restablecer…"
+      ],
+      "until_sheet": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "¿Restablecer “Crash Probe”?",
+            "Se borrarán los datos y los ajustes de Crash Probe en este ordenador, y se abrirá como nueva. Tus documentos y archivos, y tus contraseñas, se conservan.",
+            "Cancelar",
+            "Restablecer"
+          ],
+          "absent": [
+            "Crash Probe sigue cerrándose inesperadamente"
+          ]
+        },
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\"",
+          ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": true
+        }
+      }
+    },
+    {
+      "name": "Cancel: nothing is erased, nothing opened",
+      "do": [
+        "press_named",
+        "Cancelar"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "absent": [
+            "¿Restablecer “Crash Probe”?"
+          ]
+        },
+        "home": {
+          ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\""
+        }
+      }
+    },
+    {
+      "name": "the dock again: it quits a third time: the sheet",
+      "do": [
+        "press_named",
+        "Crash Probe"
+      ],
+      "until_named": [
+        "Crash Probe sigue cerrándose inesperadamente",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe sigue cerrándose inesperadamente",
+            "Se ha cerrado 3 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar."
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reset…: the session's sheet",
+      "do": [
+        "press_named",
+        "Restablecer…"
+      ],
+      "until_sheet": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "¿Restablecer “Crash Probe”?"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reset: its own data and cache erased, the rest of the home kept; it opens again, as new, and is ready",
+      "do": [
+        "press_named",
+        "Restablecer"
+      ],
+      "until_named": [
+        "Ready, launch 1",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "absent": [
+            "¿Restablecer “Crash Probe”?",
+            "Crash Probe sigue cerrándose inesperadamente",
+            "Crash Probe se cerró inesperadamente"
+          ]
+        },
+        "in_launched": {
+          "texts": [
+            "Ready, launch 1"
+          ]
+        },
+        "home": {
+          "notes.txt": "keep me",
+          ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": false,
+          ".local/share/oxyos/apps/so.oxy.other/kept.json": "{\"mine\": true}",
+          ".local/share/oxyos/apps/.erasing": false
+        }
+      }
+    }
+  ],
+  "applications_launched": [
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    },
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    },
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    },
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "outputs": "1600x1000@1.25"
+}

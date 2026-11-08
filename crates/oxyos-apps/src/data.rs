@@ -82,12 +82,17 @@ impl OwnData {
 pub struct SetAside(pub Vec<PathBuf>);
 
 impl SetAside {
-    /// Deletes what was set aside, links removed as links, never followed.
+    /// Deletes what was set aside, links removed as links, never followed; and each `.erasing`
+    /// once nothing else is in it.
     pub fn delete(self) -> io::Result<()> {
         let mut result = Ok(());
         for path in self.0 {
             if let Err(error) = remove(&path) {
                 result = Err(error);
+            }
+            // Another erasure's may still be in it: then it stays, for that one to remove.
+            if let Some(erasing) = path.parent() {
+                let _ = std::fs::remove_dir(erasing);
             }
         }
         result

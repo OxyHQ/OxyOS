@@ -1960,12 +1960,10 @@ fn erasing_sets_an_applications_own_directories_aside_and_nothing_else() {
         std::fs::read_to_string(documents.join("letter.txt")).unwrap(),
         "mine"
     );
-    assert_eq!(
-        std::fs::read_dir(dir.0.join("data/oxyos/apps/.erasing"))
-            .unwrap()
-            .count(),
-        0
-    );
+    // Nothing is left aside, nor the folders it was set aside in.
+    for base in ["data", "cache"] {
+        assert!(!dir.0.join(base).join("oxyos/apps/.erasing").exists());
+    }
     // Nothing to erase is no error, and sets nothing aside.
     assert_eq!(own.set_aside().unwrap(), data::SetAside::default());
 }

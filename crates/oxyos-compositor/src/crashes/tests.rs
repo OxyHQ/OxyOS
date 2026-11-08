@@ -617,7 +617,7 @@ fn reopen_is_the_sheets_answer_and_the_notifications_press() {
     session.activate(number, 2);
     let opened = crashes.serve_at(&mut session.scene, &mut launcher, false, start);
     session.pump();
-    assert!(opened.is_empty());
+    assert_eq!(opened, Served::default());
     let sheets = session.sheets();
     assert_eq!(sheets.len(), 1);
     assert_eq!(sheets[0].1["show"], "report");
@@ -628,9 +628,10 @@ fn reopen_is_the_sheets_answer_and_the_notifications_press() {
         .any(|(to, e)| *to == APP && matches!(e, Event::NotificationResponse { .. })));
     // Ignored: nothing is opened.
     session.answer(sheets[0].0, false);
-    assert!(crashes
-        .serve_at(&mut session.scene, &mut launcher, false, start)
-        .is_empty());
+    assert_eq!(
+        crashes.serve_at(&mut session.scene, &mut launcher, false, start),
+        Served::default()
+    );
     // Quit again, the sheet; Reopen opens it, once.
     session.told.clear();
     crashes.exited_at(
@@ -650,17 +651,21 @@ fn reopen_is_the_sheets_answer_and_the_notifications_press() {
             serial: 0,
         },
     );
-    assert!(crashes
-        .serve_at(&mut session.scene, &mut launcher, false, start)
-        .is_empty());
-    session.answer(sheet, true);
     assert_eq!(
         crashes.serve_at(&mut session.scene, &mut launcher, false, start),
+        Served::default()
+    );
+    session.answer(sheet, true);
+    assert_eq!(
+        crashes
+            .serve_at(&mut session.scene, &mut launcher, false, start)
+            .open,
         [MENTION]
     );
-    assert!(crashes
-        .serve_at(&mut session.scene, &mut launcher, false, start)
-        .is_empty());
+    assert_eq!(
+        crashes.serve_at(&mut session.scene, &mut launcher, false, start),
+        Served::default()
+    );
     // A quit long after is one again: a notification, whose press reopens it.
     session.told.clear();
     crashes.exited_at(
@@ -674,7 +679,9 @@ fn reopen_is_the_sheets_answer_and_the_notifications_press() {
     let number = session.notifications()[0].0;
     session.activate(number, 0);
     assert_eq!(
-        crashes.serve_at(&mut session.scene, &mut launcher, false, start),
+        crashes
+            .serve_at(&mut session.scene, &mut launcher, false, start)
+            .open,
         [MENTION]
     );
 }
@@ -817,9 +824,10 @@ fn a_reset_quits_the_application_then_erases_its_own_data_alone() {
     let sheet = session.sheets()[0].0;
     session.answer(sheet, true);
     let start = Instant::now();
-    assert!(crashes
-        .serve_at(&mut session.scene, &mut launcher, false, start)
-        .is_empty());
+    assert_eq!(
+        crashes.serve_at(&mut session.scene, &mut launcher, false, start),
+        Served::default()
+    );
     assert!(launcher.launch(MENTION).is_err(), "held while it is reset");
     assert!(mention.data.exists(), "not while it runs");
     assert_eq!(crashes.deadline(), Some(start + QUIT_GRACE));
@@ -843,7 +851,13 @@ fn a_reset_quits_the_application_then_erases_its_own_data_alone() {
     crashes.exited_at(&mut session.scene, &ended, Instant::now(), utc(10));
     let opened = crashes.serve_at(&mut session.scene, &mut launcher, false, Instant::now());
     session.pump();
-    assert_eq!(opened, [MENTION]);
+    assert_eq!(
+        opened,
+        Served {
+            open: vec![MENTION.into()],
+            reset: vec![MENTION.into()],
+        }
+    );
     assert!(!mention.data.exists() && !mention.cache.exists());
     assert!(allo.data.join("async-storage.json").exists());
     assert_eq!(
@@ -853,12 +867,7 @@ fn a_reset_quits_the_application_then_erases_its_own_data_alone() {
     assert!(session.told.iter().any(|(to, e)| *to == SHELL
         && matches!(e, Event::NotificationRemoved { notification } if *notification == posted)));
     crashes.finish_deleting();
-    assert_eq!(
-        std::fs::read_dir(scratch.0.join("data/oxyos/apps/.erasing"))
-            .unwrap()
-            .count(),
-        0
-    );
+    assert!(!scratch.0.join("data/oxyos/apps/.erasing").exists());
     // It starts again, and starts over: its next quit is a first one.
     let pid = launcher.launch(MENTION).unwrap();
     assert!(launcher.kill(pid));

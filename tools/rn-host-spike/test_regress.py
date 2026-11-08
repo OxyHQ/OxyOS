@@ -153,5 +153,39 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
 
 
+
+class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
+    """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""
+
+    STATE = {
+        ".local/state/oxyos/crash-reports": None,
+        ".local/state/oxyos/crash-reports/so.oxy.crash_probe_2026-11-08-101200-2.crash": "second at 10:12\nboom",
+        ".local/state/oxyos/crash-reports/so.oxy.crash_probe_2026-11-08-101200.crash": "first at 10:12",
+        ".local/state/oxyos/crash-reports/so.oxy.allo_2026-11-08-091000.crash": "Allo, at nine",
+        ".local/state/oxyos/elsewhere.crash": "not a report",
+    }
+
+    def check(self, wanted):
+        failures = []
+        regress.check_crash_reports(self.STATE, wanted, failures.append)
+        return failures
+
+    def test_each_application_in_order_with_what_it_says(self):
+        self.assertEqual(self.check([
+            {"application": "so.oxy.allo"},
+            {"application": "so.oxy.crash_probe", "contains": ["first"]},
+            {"application": "so.oxy.crash_probe", "contains": ["second", "boom"]},
+        ]), [])
+
+    def test_another_order_count_or_text_fails(self):
+        self.assertTrue(self.check([{"application": "so.oxy.allo"}]))
+        self.assertTrue(self.check([
+            {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.allo"},
+        ]))
+        self.assertTrue(self.check([
+            {"application": "so.oxy.allo", "contains": ["Mention"]},
+            {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"},
+        ]))
+
 if __name__ == "__main__":
     unittest.main()
