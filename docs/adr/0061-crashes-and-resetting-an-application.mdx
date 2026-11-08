@@ -56,7 +56,7 @@ Android shows nothing for a first crash since Android 9, and *“Mention” keep
 
 1. **The session learns how a launch ended.** `Launcher::reap` gives each `Exited` (its status, how long it ran, whether the session asked it to end, its report); `quit`, `kill`, `runs`, `hold`, `release`; `ReportFile` and `OXYOS_CRASH_REPORT`; the Bloom host's report and its ending on a fatal JavaScript error (`crash-report.h`).
 
-   *Done.* `oxyos-apps`'s `Exited`, `ReportFile`, `REPORT_BYTES` and `Launcher::with_crash_reports`; `tools/rn-host-spike/crash-report.{h,cpp}` (`openCrashReport`, `crashReportFd`, `endForFatalJavaScriptError`), the fatal signal's handler writing into the report too, and both of React Native's error paths (`ReactInstance`'s `JsErrorHandler` callback, `ExceptionsManager`) ending on a fatal error.
+   *Done.* `oxyos-apps`'s `Exited`, `ReportFile`, `REPORT_BYTES` and `Launcher::with_crash_reports`; `tools/rn-host-spike/crash-report.{h,cpp}` (`openCrashReport`, `crashReportFd`, `endForFatalJavaScriptError`), the fatal signal's handler writing into the report too, and both of React Native's error paths (`ReactInstance`'s `JsErrorHandler` callback, `ExceptionsManager`) ending on a fatal error, and only on one (`isFatal`: an exception nothing caught; `console.error`, soft reports and rejected promises go on being said only). Two fatal errors the old host hid came to light with it and were fixed where they arose: a window's request to a compositor that had gone (the session ending: its menus set as it closed, `EPIPE`) was thrown into JavaScript, and is now nothing, as the host ends once it reads the hangup (`Window::refused`); and `sample/AndroidProbe.tsx` reads native modules OxyOS does not have, whose loading React Native's require reports as fatal, so it takes those reports itself while each probe runs, as an application with its own error handler does.
 
 2. **Reports, the notification and the sheet.** `oxyos_compositor::crashes`: `Counter`, `report_text`, `Reports` (written, bounded, listed), `Crashes::exited`; the scene's session notifications (`post_session_notification`, `take_session_activations`, `withdraw_session_notification`, `withdraw_application_notifications`); the shell's `crash` sheet with its report view; `oxyos-session` and the development compositor serving it.
 
@@ -72,7 +72,7 @@ Android shows nothing for a first crash since Android 9, and *“Mention” keep
 
 5. **Settings' Reset.** In Settings › General › Storage's list of applications (ADR 0062), each row's detail offers *Reset…*, which asks the session (`resetApplication`) with Settings' grant, citing the press; the session's sheet confirms it. Its sizes are `OwnData`'s, one definition.
 
-   *Done.* The application's sheet offers *Reset…* (never on Settings' own, which the session would refuse), `StorageActions.reset` over `system.js`'s `storage.reset`, its answer read by `resetOutcomeOf`; once reset, *“Allo” reset* is said and the page measures again, and a failure is said in the page's alert.
+   *Done.* The application's sheet offers *Reset…* (never on Settings' own, which the session would refuse), `StorageActions.reset` over `system.js`'s `storage.reset`, its answer read by `resetOutcomeOf`; once reset, its sheet closes, *“Allo” reset* is said and the page measures it again, and a failure is said in the page's alert.
 
 ## Tests
 

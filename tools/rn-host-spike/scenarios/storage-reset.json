@@ -101,6 +101,7 @@
         "keyboard_focus": null,
         "delivered": {
           "1": {
+            "enter": 1,
             "scroll": 1
           }
         }
@@ -165,7 +166,7 @@
       }
     },
     {
-      "name": "Reset: Allo's own data and cache erased and nothing else; Settings measures again, Allo's data now nothing",
+      "name": "Reset: Allo's own data and cache erased and nothing else; its sheet closes, and Settings measures again, Allo's data now nothing",
       "do": [
         "press_named",
         "Reset"
@@ -193,7 +194,10 @@
             "enter": 1,
             "focus.in": 1
           }
-        }
+        },
+        "absent": [
+          "Documents & Data"
+        ]
       }
     }
   ]

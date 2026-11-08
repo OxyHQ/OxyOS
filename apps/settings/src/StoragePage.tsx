@@ -154,12 +154,13 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
   const app = measured.apps.find((one) => one.id === shownApp) ?? null;
   const emptyAutomatically = snapshot.preferences.emptyTrashAutomatically;
 
-  // Reset… (docs/adr/0061): the session asks the person in the system's sheet; once done, its own
-  // data is measured again.
+  // Reset… (docs/adr/0061): the session asks the person in the system's sheet; once done, its sheet
+  // closes, as after a removal, and the list shows it measured again.
   const reset = async (target: StorageApp) => {
     if (!storage.reset) return;
     const outcome = await storage.reset(target.id);
     if (outcome === "reset") {
+      setShownApp(null);
       AccessibilityInfo.announceForAccessibility(words.resetDone(target.name));
       // Its own data is no file the index holds: only the session's figures change.
       void measure();
