@@ -620,7 +620,20 @@ const en = {
     indexing: (count: number) =>
       plural("en", count, { one: () => "Indexing… 1 item so far", other: (n) => `Indexing… ${n} items so far` }),
     indexed: (count: number) => plural("en", count, { one: () => "1 item indexed", other: (n) => `${n} items indexed` }),
+    rebuilding: (count: number) =>
+      plural("en", count, {
+        one: () => "Rebuilding the index… 1 item so far",
+        other: (n) => `Rebuilding the index… ${n} items so far`,
+      }),
     partial: "Some folders couldn't be indexed.",
+    rebuild: "Rebuild Index…",
+    rebuildTitle: "Rebuild the Spotlight index?",
+    rebuildDescription:
+      "Spotlight reads your files again from the start. Until the new index is ready, searches use the current one. This can take a while.",
+    rebuildConfirm: "Rebuild",
+    cancel: "Cancel",
+    /** Said once the service took the request. */
+    rebuildStarted: "Rebuilding the Spotlight index",
     unavailable: "Spotlight isn't available here.",
     failed: "The search service didn't answer.",
   },
@@ -1256,7 +1269,19 @@ const es: Messages = {
     indexing: (count: number) =>
       plural("es", count, { one: () => "Indexando… 1 ítem hasta ahora", other: (n) => `Indexando… ${n} ítems hasta ahora` }),
     indexed: (count: number) => plural("es", count, { one: () => "1 ítem indexado", other: (n) => `${n} ítems indexados` }),
+    rebuilding: (count: number) =>
+      plural("es", count, {
+        one: () => "Reconstruyendo el índice… 1 ítem hasta ahora",
+        other: (n) => `Reconstruyendo el índice… ${n} ítems hasta ahora`,
+      }),
     partial: "Algunas carpetas no se han podido indexar.",
+    rebuild: "Reconstruir índice…",
+    rebuildTitle: "¿Reconstruir el índice de Spotlight?",
+    rebuildDescription:
+      "Spotlight vuelve a leer tus archivos desde el principio. Hasta que el nuevo índice esté listo, las búsquedas usan el actual. Puede tardar un rato.",
+    rebuildConfirm: "Reconstruir",
+    cancel: "Cancelar",
+    rebuildStarted: "Reconstruyendo el índice de Spotlight",
     unavailable: "Spotlight no está disponible aquí.",
     failed: "El servicio de búsqueda no ha respondido.",
   },
