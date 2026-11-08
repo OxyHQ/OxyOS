@@ -21,6 +21,9 @@ export type NotificationPreviews = "always" | "unlocked";
 export type LanguagePreference = "" | "en" | "es";
 /** Twelve or 24 hours: the region's (`auto`), or the person's choice. */
 export type HourCycle = "auto" | "h12" | "h23";
+/** How many fingers swipe for one of Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx),
+    or none: as a Mac's trackpad offers them, three or four fingers, or off. */
+export type SwipeFingers = "three" | "four" | "off";
 
 /** The user's preferences, as `crates/oxyos-preferences` keeps them. */
 export type Preferences = {
@@ -38,6 +41,17 @@ export type Preferences = {
   trackpadNaturalScrolling: boolean;
   /** Natural scrolling on a mouse's wheel and every other pointing device: off, as every mouse has. */
   mouseNaturalScrolling: boolean;
+  /** Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx), as a Mac's Trackpad settings
+      offers them, each three fingers by default. Mission Control: a swipe up. The session links it
+      to App Exposé as a Mac does: choosing three or four fingers for one chooses the same for the
+      other unless the other is off, and the next snapshot says both. */
+  missionControlSwipe: SwipeFingers;
+  /** App Exposé: a swipe down (docs/adr/0045-app-expose.mdx). */
+  appExposeSwipe: SwipeFingers;
+  /** A swipe left or right between desktops (ADR 0046, decision 4). */
+  desktopsSwipe: SwipeFingers;
+  /** Launchpad: a pinch with the thumb and three fingers. On, as a Mac's. */
+  launchpadPinch: boolean;
   /** The wallpaper where Settings' window is, as the session tells it (docs/adr/0048-wallpapers.mdx,
       decision 4): a choice's text (`src/wallpaper.ts`), empty for the catalog's default. */
   wallpaper: string;
@@ -184,6 +198,10 @@ export const PREFERENCE_KEYS = {
   uiSounds: "ui_sounds",
   trackpadNaturalScrolling: "trackpad_natural_scrolling",
   mouseNaturalScrolling: "mouse_natural_scrolling",
+  missionControlSwipe: "mission_control_swipe",
+  appExposeSwipe: "app_expose_swipe",
+  desktopsSwipe: "desktops_swipe",
+  launchpadPinch: "launchpad_pinch",
   wallpaper: "wallpaper",
   wallpaperAllDesktops: "wallpaper_all_desktops",
   lockAfter: "lock_after",
@@ -466,6 +484,31 @@ export const ENERGY_DEFAULTS = {
   | "sleepAdapter"
   | "dimOnBattery"
 >;
+
+/** The choices a swipe of Trackpad's More Gestures offers, in a Mac's order: three fingers, four,
+    off. */
+export const SWIPE_FINGERS = ["three", "four", "off"] as const satisfies readonly SwipeFingers[];
+
+/** A swipe's menu: each choice in that order, named in a Mac's words for that swipe ("Swipe up
+    with three fingers"). */
+export function swipeItems(words: Record<SwipeFingers, string>): { value: SwipeFingers; label: string }[] {
+  return SWIPE_FINGERS.map((fingers) => ({ value: fingers, label: words[fingers] }));
+}
+
+/** A swipe's fingers as the session's file keeps them: three unless it says four or off, as the
+    session reads it (crates/oxyos-preferences). */
+export function swipeFingersOf(text: string | undefined): SwipeFingers {
+  return text === "four" || text === "off" ? text : "three";
+}
+
+/** Trackpad's More Gestures as the session's defaults have them (crates/oxyos-preferences), a Mac's:
+    three fingers for Mission Control, App Exposé and the desktops, and Launchpad's pinch on. */
+export const GESTURE_DEFAULTS = {
+  missionControlSwipe: "three",
+  appExposeSwipe: "three",
+  desktopsSwipe: "three",
+  launchpadPinch: true,
+} as const satisfies Pick<Preferences, "missionControlSwipe" | "appExposeSwipe" | "desktopsSwipe" | "launchpadPinch">;
 
 /** The choices of how long before the session locks, in minutes (0: never). */
 export const LOCK_AFTER_CHOICES = [1, 2, 5, 10, 15, 30, 60, 0] as const;

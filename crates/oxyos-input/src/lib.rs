@@ -79,10 +79,12 @@ pub enum Action {
     /// Caps Lock came on (`true`) or went off, after the key that did it.
     CapsLock(bool),
     /// A touchpad pinch (two or more fingers spreading, closing or turning; libinput tells it from
-    /// a two-finger scroll): `scale` is the fingers' spread over their spread when it began, and
-    /// `rotation` how far they have turned since, in degrees, clockwise.
+    /// a two-finger scroll, and three or more from a swipe): `fingers` is how many pinch, `scale`
+    /// the fingers' spread over their spread when it began, and `rotation` how far they have
+    /// turned since, in degrees, clockwise.
     Pinch {
         phase: GesturePhase,
+        fingers: u32,
         scale: f64,
         rotation: f64,
     },
@@ -889,7 +891,8 @@ impl Input {
                         }
                         _ => (GesturePhase::End, 0.0),
                     };
-                    actions.push(self.pinch(phase, pinch.scale(), angle));
+                    let fingers = pinch.finger_count() as u32;
+                    actions.push(self.pinch(phase, fingers, pinch.scale(), angle));
                 }
                 input::Event::Gesture(GestureEvent::Swipe(swipe)) => {
                     let fingers = swipe.finger_count() as u32;
@@ -942,13 +945,14 @@ impl Input {
     }
 
     /// A pinch step: its rotation is the sum of the turns libinput reported since it began.
-    fn pinch(&mut self, phase: GesturePhase, scale: f64, angle_delta: f64) -> Action {
+    fn pinch(&mut self, phase: GesturePhase, fingers: u32, scale: f64, angle_delta: f64) -> Action {
         if phase == GesturePhase::Begin {
             self.pinch_rotation = 0.0;
         }
         self.pinch_rotation += angle_delta;
         Action::Pinch {
             phase,
+            fingers,
             scale,
             rotation: self.pinch_rotation,
         }

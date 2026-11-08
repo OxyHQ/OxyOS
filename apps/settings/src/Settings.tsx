@@ -78,6 +78,7 @@ import {
   refreshRates,
   resolutions,
   sideOfKey,
+  swipeItems,
   type Appearance,
   type Display,
   type HourCycle,
@@ -89,7 +90,10 @@ import {
   type SettingsActions,
   type SettingsSnapshot,
   type Side,
+  type SwipeFingers,
 } from "./model";
+import { fingerCount, type Gesture } from "./gestures";
+import { GestureIllustration } from "./GestureIllustration";
 import {
   currentNetwork,
   detailRows,
@@ -181,12 +185,14 @@ type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings
 function ToggleItem({
   title,
   description,
+  icon,
   value,
   onChange,
   testID,
 }: {
   title: string;
   description?: string;
+  icon?: React.ReactNode;
   value: boolean;
   onChange: (on: boolean) => void;
   testID: string;
@@ -195,6 +201,7 @@ function ToggleItem({
     <GroupedSectionItem
       title={title}
       description={description}
+      icon={icon}
       testID={testID}
       rightElement={<Switch checked={value} onCheckedChange={onChange} accessibilityLabel={title} testID={`${testID}-switch`} />}
     />
@@ -2474,8 +2481,103 @@ function CurrentOxyAccountPage(props: PageProps) {
 function MousePage(props: PageProps) {
   return <ScrollingPage {...props} preference="mouseNaturalScrolling" />;
 }
+/** Trackpad's page: its natural scrolling, then More Gestures below it, as a Mac's Trackpad settings
+    has its More Gestures tab. Natural scrolling stays where it was. */
 function TrackpadPage(props: PageProps) {
-  return <ScrollingPage {...props} preference="trackpadNaturalScrolling" />;
+  return (
+    <View style={PAGE}>
+      <ScrollingPage {...props} preference="trackpadNaturalScrolling" />
+      <MoreGestures {...props} />
+    </View>
+  );
+}
+
+/** The swipes of More Gestures, each its preference and its control's id, in a Mac's order. */
+const SWIPES = [
+  { gesture: "desktops", preference: "desktopsSwipe", testID: "gesture-desktops" },
+  { gesture: "missionControl", preference: "missionControlSwipe", testID: "gesture-mission-control" },
+  { gesture: "appExpose", preference: "appExposeSwipe", testID: "gesture-app-expose" },
+] as const satisfies readonly {
+  gesture: Exclude<Gesture, "launchpad">;
+  preference: "desktopsSwipe" | "missionControlSwipe" | "appExposeSwipe";
+  testID: string;
+}[];
+
+/**
+ * Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx), as a Mac's: swiping between
+ * desktops, Mission Control and App Exposé, each three fingers, four or off, and Launchpad's pinch.
+ * Each row's picture plays its gesture as its choice changes and as the pointer comes over it. A
+ * change sends its own key alone: the session links Mission Control's and App Exposé's fingers as a
+ * Mac does, and the next snapshot says both. What OxyOS cannot do is not offered: swiping between
+ * pages (no application honours a page back and forward), Notification Center's swipe from the edge
+ * (libinput tells no finger's place) and Show Desktop (OxyOS has none).
+ */
+function MoreGestures({ snapshot, actions, strings }: PageProps) {
+  const words = strings.gestures;
+  const { preferences } = snapshot;
+  return (
+    <GroupedSection title={words.title}>
+      {SWIPES.map(({ gesture, preference, testID }) => (
+        <GestureRow key={gesture}>
+          {(hovers) => (
+            <GroupedSectionItem
+              title={words[gesture]}
+              // Its menu says the whole gesture, as a Mac's popup does: a long title wraps rather
+              // than being cut short ("Pasar de un escritorio a otro").
+              titleNumberOfLines={2}
+              testID={`${testID}-row`}
+              icon={
+                <GestureIllustration
+                  gesture={gesture}
+                  fingers={fingerCount(preferences[preference])}
+                  off={preferences[preference] === "off"}
+                  choice={preferences[preference]}
+                  hovers={hovers}
+                  reduceMotion={preferences.reduceMotion}
+                />
+              }
+              rightElement={
+                <SettingsSelect<SwipeFingers>
+                  label={words[gesture]}
+                  value={preferences[preference]}
+                  items={swipeItems(words.choices[gesture])}
+                  onChange={(value) => actions.setPreference(preference, value)}
+                  testID={testID}
+                />
+              }
+            />
+          )}
+        </GestureRow>
+      ))}
+      <GestureRow>
+        {(hovers) => (
+          <ToggleItem
+            title={words.launchpad}
+            description={words.launchpadDescription}
+            icon={
+              <GestureIllustration
+                gesture="launchpad"
+                fingers={4}
+                off={!preferences.launchpadPinch}
+                choice={String(preferences.launchpadPinch)}
+                hovers={hovers}
+                reduceMotion={preferences.reduceMotion}
+              />
+            }
+            value={preferences.launchpadPinch}
+            onChange={(on) => actions.setPreference("launchpadPinch", on)}
+            testID="trackpad-launchpad"
+          />
+        )}
+      </GestureRow>
+    </GroupedSection>
+  );
+}
+
+/** A row of More Gestures that counts the pointer coming over it, for its picture to play. */
+function GestureRow({ children }: { children: (hovers: number) => React.ReactNode }) {
+  const [hovers, setHovers] = React.useState(0);
+  return <View onPointerEnter={() => setHovers((count) => count + 1)}>{children(hovers)}</View>;
 }
 
 /**

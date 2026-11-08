@@ -135,10 +135,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_INTENT_TOGGLE 0
 #define OXYOS_SHORTCUT_INTENT_OPEN 1
 #define OXYOS_SHORTCUT_INTENT_CLOSE 2
-/* Which view a touchpad's vertical swipe drives a shell surface is (oxyos_client_set_gesture_overlay). */
+/* Which view a touchpad's gesture drives a shell surface is (oxyos_client_set_gesture_overlay):
+ * Mission Control's and App Exposé's (swiped up and down), Launchpad's (pinched, version 33). */
 #define OXYOS_GESTURE_OVERLAY_NONE 0
 #define OXYOS_GESTURE_OVERLAY_MISSION_CONTROL 1
 #define OXYOS_GESTURE_OVERLAY_APP_EXPOSE 2
+#define OXYOS_GESTURE_OVERLAY_LAUNCHPAD 3
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
@@ -818,10 +820,11 @@ int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, boo
  * shown, flying from where they are as it arrives and back as it goes; or copies again. Said
  * before its first frame. -1 to a compositor of version 23 or older. */
 int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);
-/* Which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
- * (OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, backdrop and overlay alike, or
- * none (docs/adr/0046-interactive-gestures.mdx): the swipe drives it as far as the fingers go. Said
- * before its first frame. -1 for another value, or to a compositor of version 24 or older. */
+/* Which view a touchpad's gesture drives one of the shell's own shell surfaces is
+ * (OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, backdrop and overlay
+ * alike, or none (docs/adr/0046-interactive-gestures.mdx): the gesture drives it as far as the
+ * fingers go. Said before its first frame. -1 for another value, or to a compositor of version 24
+ * or older (32 or older for Launchpad's). */
 int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
@@ -2145,7 +2148,7 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
  * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
  * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}} ("passwordRequired": an account without a password cannot be set up yet;
+ * "retryAfterSeconds"}} ("pinRequired": a setup without a password, by the QR, needs a PIN;
  * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
