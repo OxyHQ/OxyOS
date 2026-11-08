@@ -2092,6 +2092,16 @@ int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
  * nothing changed. */
 int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
                                            const char* current_pin, char* out, size_t capacity);
+/* A passkey ceremony for the calling application (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 7): `ceremony` "create" with WebAuthn's PublicKeyCredentialCreationOptionsJSON, or "get"
+ * with PublicKeyCredentialRequestOptionsJSON (binary as base64url; `rp.id` / `rpId` required). The
+ * client data is made here (origin https://<rpId>); the person verifies in the system's sheet.
+ * Blocks while they answer (up to six and a half minutes): never on the interface's thread. JSON
+ * {"credential": RegistrationResponseJSON | AuthenticationResponseJSON} or {"error": {"name"
+ * (WebAuthn's DOMException name: "NotAllowedError", "InvalidStateError", "NotSupportedError",
+ * "TypeError", "UnknownError"), "reason"}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when
+ * the service could not be asked. */
+int64_t oxyos_account_session_passkey(const char* ceremony, const char* options, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */

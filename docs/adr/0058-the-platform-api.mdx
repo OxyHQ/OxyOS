@@ -47,7 +47,7 @@ macOS gives an application one set of frameworks, each owning one domain (Founda
    | `bluetooth` | Adapters and devices | IOBluetooth | `bluetooth` grant or `shell` | `system.js`'s `bluetooth` |
    | `audio` | Output and input devices, volumes, the input level | Core Audio | `settings` grant or `shell` | `system.js`'s `sound`, `OxyOSShell.setControlLevel` |
    | `power` | The battery, Low Power Mode, history, energy | IOKit power sources | `settings` grant or `shell` | `system.js`'s `power` |
-   | `keychain` | Credentials, AutoFill, passkeys | Security, AuthenticationServices | Every application, for what is associated with it (ADR 0050) | none yet |
+   | `keychain` | Credentials, AutoFill, passkeys | Security, AuthenticationServices | Every application, for what is associated with it (ADR 0050) | `OxyOSAccountSession.passkey` (passkeys: `keychain.createPasskey`, `keychain.getPasskey`) |
    | `account` | The Oxy session: who, a token, locking | (an Apple Account) | Every application the session launched | `OxyOSAccountSession`, `session-host.js` |
    | `windows` | The window's state and operations, the menu bar, popups | AppKit's `NSWindow`, `NSMenu` | Every application, its own windows | `OxyOSWindow`, `OxyOSMenuBar`, `OxyOSPopupView` |
    | `appearance` | Light or dark, the accent, reduced motion and transparency, the locale | `NSAppearance`, `Locale` | Every application | `Appearance`, `OxyOSPreferences`, `OxyOSLocale`, `I18nManager`, `ExpoLocalization` |

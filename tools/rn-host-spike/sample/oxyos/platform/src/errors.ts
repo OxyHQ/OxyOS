@@ -23,6 +23,7 @@ export type PlatformDomain =
   | 'application'
   | 'audio'
   | 'bluetooth'
+  | 'keychain'
   | 'network'
   | 'power'
   | 'settings'

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstring>
+#include <fcntl.h>
 #include <memory>
 #include <iostream>
 #include <poll.h>
@@ -38,7 +39,14 @@ AccountSession::Answer answered(int64_t length, std::string& buffer) {
 
 }  // namespace
 
-AccountSession::AccountSession() : wake_(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {
+AccountSession::PasskeyOutbox::~PasskeyOutbox() {
+  if (wake >= 0) close(wake);
+}
+
+AccountSession::AccountSession()
+    : wake_(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)), passkeys_(std::make_shared<PasskeyOutbox>()) {
+  // The passkeys' threads wake the host through the same eventfd, held open by their outbox.
+  if (wake_ >= 0) passkeys_->wake = fcntl(wake_, F_DUPFD_CLOEXEC, 0);
   worker_ = std::thread([this] { work(); });
 }
 
@@ -139,6 +147,24 @@ void AccountSession::eraseAll(std::string password, Done done) {
         return answer;
       },
       std::move(done));
+}
+
+void AccountSession::passkey(std::string ceremony, std::string options, Done done) {
+  uint64_t ticket = ++passkeyTickets_;
+  passkeyDone_.emplace(ticket, std::move(done));
+  std::thread([outbox = passkeys_, ticket, ceremony = std::move(ceremony), options = std::move(options)] {
+    std::string buffer(kMessage, '\0');
+    Answer answer = answered(
+        oxyos_account_session_passkey(ceremony.c_str(), options.c_str(), buffer.data(), buffer.size()), buffer);
+    {
+      std::lock_guard lock(outbox->mutex);
+      outbox->answers.emplace_back(ticket, std::move(answer));
+    }
+    uint64_t one = 1;
+    if (outbox->wake >= 0 && write(outbox->wake, &one, sizeof one) < 0) {
+      std::cerr << "[host] a passkey's answer could not wake the host\n";
+    }
+  }).detach();
 }
 
 void AccountSession::holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId) {
@@ -265,6 +291,18 @@ bool AccountSession::deliver() {
   {
     std::lock_guard lock(mutex_);
     answers.swap(answers_);
+  }
+  std::deque<std::pair<uint64_t, Answer>> passkeys;
+  {
+    std::lock_guard lock(passkeys_->mutex);
+    passkeys.swap(passkeys_->answers);
+  }
+  for (auto& [ticket, answer] : passkeys) {
+    auto found = passkeyDone_.find(ticket);
+    if (found == passkeyDone_.end()) continue;
+    Done done = std::move(found->second);
+    passkeyDone_.erase(found);
+    answers.emplace_back(std::move(answer), std::move(done));
   }
   if (!answers.empty()) {
     uint64_t count;
