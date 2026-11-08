@@ -204,6 +204,15 @@ fn session_log(uid: u32, event: &Event) {
         Event::EraseRefused(reason) => {
             eprintln!("oxyos-accountd: uid {uid}'s Settings: the erase refused: {reason:?}")
         }
+        Event::Saved { id } => {
+            eprintln!("oxyos-accountd: uid {uid}'s {id}: a login saved, as the person said")
+        }
+        Event::NotSaved { id } => {
+            eprintln!("oxyos-accountd: uid {uid}'s {id}: not saved, as the person said")
+        }
+        Event::SaveRefused { id, reason } => {
+            eprintln!("oxyos-accountd: uid {uid}'s {id}: not saved: {reason:?}")
+        }
         Event::Refused(_) => {
             eprintln!("oxyos-accountd: uid {uid} on the session socket: not permitted")
         }

@@ -48,7 +48,7 @@ macOS gives an application one set of frameworks, each owning one domain (Founda
    | `audio` | Output and input devices, volumes, the input level | Core Audio | `settings` grant or `shell` | `system.js`'s `sound`, `OxyOSShell.setControlLevel` |
    | `power` | The battery, Low Power Mode, history, energy | IOKit power sources | `settings` grant or `shell` | `system.js`'s `power` |
    | `activity` | The machine's use and every process's, followed while shown; quitting the person's processes; inspecting one ([ADR 0063](./0063-activity-monitor)) | (Activity Monitor's private `libproc`, `host_statistics`) | `activity` grant (Activity Monitor) | `activity` (ADR 0060) |
-   | `keychain` | Credentials, AutoFill, passkeys | Security, AuthenticationServices | Every application, for what is associated with it (ADR 0050) | none yet |
+   | `keychain` | Credentials, AutoFill, passkeys | Security, AuthenticationServices | Every application, for what is associated with it (ADR 0050) | `savePassword` (ADR 0050, step 3) over `OxyOSKeychain` |
    | `account` | The Oxy session: who, a token, locking | (an Apple Account) | Every application the session launched | `OxyOSAccountSession`, `session-host.js` |
    | `windows` | The window's state and operations, the menu bar, popups | AppKit's `NSWindow`, `NSMenu` | Every application, its own windows | `OxyOSWindow`, `OxyOSMenuBar`, `OxyOSPopupView` |
    | `appearance` | Light or dark, the accent, reduced motion and transparency, the locale | `NSAppearance`, `Locale` | Every application | `Appearance`, `OxyOSPreferences`, `OxyOSLocale`, `I18nManager`, `ExpoLocalization` |

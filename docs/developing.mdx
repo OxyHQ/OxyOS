@@ -77,7 +77,7 @@ python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/sample.json
 tools/gate/run-scenarios.sh [--out DIR]
 ```
 
-It runs `tools/dev/bootstrap`, builds this tree's runtime (the Bloom host with this tree's C ABI, in a
+It runs `tools/dev/bootstrap`, builds (at the least priority, below any gate's scenarios) this tree's runtime (the Bloom host with this tree's C ABI, in a
 build directory kept per checkout, installed as runtime 1, its framework) and every package against
 it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the tree:
 
@@ -153,9 +153,12 @@ again changes nothing that is already so:
   `tools/dev/bootstrap` makes for each runner;
 - `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
   machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
-  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, sharing it evenly, each at most
-  16 GB. (No dash in the parent's name: systemd nests a slice under the part of its name before
-  one.);
+  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, each at most 16 GB. Their CPU
+  they share task by task (no CPU controller below `oxyosgate.slice`), so every gate's builds run at
+  the least priority (`nice 19`, `tools/gate/run-scenarios.sh`), below every gate's scenarios: a
+  build at full priority took the CPU of another gate's running scenarios, which failed late and
+  passed alone. (No dash in the parent's name: systemd nests a slice under the part of its name
+  before one.);
 - several runners (`machine.sh runner N`), whose runs share nothing they change: each works in
   `/var/lib/oxyos-gate/runner-N`, with a cache of its own (`~/.cache/oxyos-runner-N`) and a `/tmp` of
   its own;

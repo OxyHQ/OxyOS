@@ -7,6 +7,7 @@ import { createApplication } from '../src/application.ts';
 import { codeOf, errorOf, isPlatformError, PlatformError } from '../src/errors.ts';
 import { followed } from '../src/followed.ts';
 import { createFrameworks } from '../src/frameworks.ts';
+import { createKeychain } from '../src/keychain.ts';
 import { createSession, type Events } from '../src/session.ts';
 
 /** A played OxyOSSystem: the requests sent, and a way to answer one or tell state unasked. */
@@ -213,6 +214,78 @@ test("Activity Monitor's samples are followed while something shows them, of the
   answer(sent.at(-1)!.serial, { refused: { reason: 'needsInput' } });
   await assert.rejects(quitting, (error: unknown) => isPlatformError(error, 'needsInput'));
   assert.deepEqual(sent.at(-1)?.body, { activityQuit: { pid: 7, started: 123, force: false } });
+});
+
+/** A played OxyOSKeychain: what it was asked, and its answer to each, in turn. */
+function playedKeychain(answers: unknown[], available = true) {
+  const asked: unknown[][] = [];
+  const module = {
+    getConstants: () => ({ available }),
+    savePassword(...args: unknown[]) {
+      asked.push(args);
+      return Promise.resolve(answers.shift());
+    },
+  };
+  return { keychain: createKeychain({ keychain: module }), asked };
+}
+
+test("asking to save a password: the person's decision, or the error it is", async () => {
+  const { keychain, asked } = playedKeychain([
+    { saved: {} },
+    { notSaved: {} },
+    { refused: { reason: 'locked' } },
+    { refused: { reason: 'notMember' } },
+    { refused: { reason: 'tooMany' } },
+    { refused: { reason: 'invalidRequest' } },
+    { failed: { reason: 'offline' } },
+    { surprise: {} },
+  ]);
+  const credential = { username: 'bea@example.com', password: 'made-up', domain: 'example.com' };
+  assert.equal(await keychain.savePassword(credential), 'saved');
+  assert.deepEqual(asked[0], ['bea@example.com', 'made-up', 'example.com']);
+  assert.equal(await keychain.savePassword({ username: 'bea', password: 'made-up' }), 'notSaved');
+  assert.deepEqual(asked[1], ['bea', 'made-up', null]);
+  const rejected = async (code: string, reason?: string) => {
+    const error = await keychain.savePassword(credential).catch((error: unknown) => error);
+    assert.ok(error instanceof PlatformError);
+    assert.equal(error.domain, 'keychain');
+    assert.equal(error.code, code);
+    if (reason) assert.equal(error.reason, reason);
+    assert.ok(!String(error.message).includes('made-up'));
+  };
+  await rejected('locked');
+  await rejected('unavailable', 'notMember');
+  await rejected('busy', 'tooMany');
+  await rejected('invalid');
+  await rejected('failed', 'offline');
+  await rejected('failed', 'noAnswer');
+});
+
+test('asking to save is unavailable without the module and cancellable', async () => {
+  const none = createKeychain({ keychain: null });
+  assert.equal(createKeychain().available, false);
+  assert.equal(none.available, false);
+  await assert.rejects(none.savePassword({ username: 'a', password: 'b' }), (error: unknown) =>
+    isPlatformError(error, 'unavailable'),
+  );
+  const { keychain } = playedKeychain([], false);
+  await assert.rejects(keychain.savePassword({ username: 'a', password: 'b' }), (error: unknown) =>
+    isPlatformError(error, 'unavailable'),
+  );
+  // Aborted while the person is asked: rejected at once, the answer dropped.
+  let answer: (value: unknown) => void = () => {};
+  const waiting = createKeychain({
+    keychain: {
+      getConstants: () => ({ available: true }),
+      savePassword: () => new Promise((resolve) => (answer = resolve)),
+    },
+  });
+  const controller = new AbortController();
+  const asked = waiting.savePassword({ username: 'a', password: 'b' }, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(asked, (error: unknown) => isPlatformError(error, 'cancelled'));
+  answer({ saved: {} });
+  await settle();
 });
 
 /** A played OxyOSApplication: the asks sent, and a way to answer one or tell a change unasked. */
