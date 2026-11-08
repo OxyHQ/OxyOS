@@ -2134,6 +2134,16 @@ int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
  * nothing changed. */
 int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
                                            const char* current_pin, char* out, size_t capacity);
+/* Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-
+ * passkeys.mdx, decision 5): `username`, `password` (secret: copied into a buffer this library
+ * overwrites; overwrite your own) and the website it is for (`domain`, a host name, or NULL). The
+ * service asks the person in the session's sheet and saves it only on their yes. Blocks until they
+ * answer (at most two minutes): never on the interface's thread. The answer, JSON: {"saved": {}},
+ * {"notSaved": {}}, or {"refused": {"reason" ("locked", "notMember", "tooMany", "unavailable",
+ * "invalidRequest", "notPermitted", "offline", ...)}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes.
+ * OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_save_password(const char* username, const char* password,
+                                            const char* domain, char* out, size_t capacity);
 /* A passkey ceremony for the calling application (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
  * decision 7): `ceremony` "create" with WebAuthn's PublicKeyCredentialCreationOptionsJSON, or "get"
  * with PublicKeyCredentialRequestOptionsJSON (binary as base64url; `rp.id` / `rpId` required). The

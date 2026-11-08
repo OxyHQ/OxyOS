@@ -94,6 +94,27 @@ test("a permission asks in the registry's name for the app", () => {
   assert.equal(view.refuse, "No permitir");
 });
 
+test("an app asking to save a password: its registry name, the username, never the password", () => {
+  const sheet = readSheet(
+    '{"kind":"save-password","id":"so.oxy.mail","username":"bea@example.com","domain":"example.com"}',
+  );
+  assert.ok(sheet);
+  const es = sheetView(sheet, ES, { "so.oxy.mail": "Correo" });
+  assert.equal(es.title, "¿Guardar la contraseña para Correo?");
+  assert.equal(es.body, "bea@example.com · example.com");
+  assert.equal(es.accept, "Guardar");
+  assert.equal(es.refuse, "Ahora no");
+  assert.equal(es.destructive, false);
+  assert.equal(es.lines.length, 1);
+  const en = sheetView({ kind: "save-password", id: "so.oxy.mail", username: "bea" }, EN);
+  // Without the registry's name, its id: never a name the application gives itself.
+  assert.equal(en.title, "Save password for so.oxy.mail?");
+  assert.equal(en.body, "bea");
+  assert.equal(en.accept, "Save");
+  assert.equal(en.refuse, "Not Now");
+  assert.match(en.lines[0].label, /keychain/);
+});
+
 test("sheets queue in order, once each, and go", () => {
   let queue = sheetArrived([], 1, '{"kind":"uninstall","id":"a","name":"A","version":"1"}');
   queue = sheetArrived(queue, 2, '{"kind":"permission","id":"b","capability":"camera"}');

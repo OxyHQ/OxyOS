@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { isPlatformError, PlatformError } from '../src/errors.ts';
+import { createKeychain } from '../src/keychain.ts';
 import { createPasskeys, credentialOf, type CreationOptionsJSON, type PasskeyModule } from '../src/passkeys.ts';
 
 const creation: CreationOptionsJSON = {
@@ -29,15 +30,15 @@ function played(answer: unknown, available = true) {
 test('a creation hands WebAuthn options to the host and answers its credential', async () => {
   const credential = { id: 'Q1JFRA', rawId: 'Q1JFRA', type: 'public-key', response: {} };
   const { passkeys, asked } = played({ credential });
-  assert.equal(passkeys.passkeysAvailable, true);
-  assert.deepEqual(await passkeys.createPasskey(creation), credential);
+  assert.equal(passkeys.available, true);
+  assert.deepEqual(await passkeys.create(creation), credential);
   assert.deepEqual(asked, [{ ceremony: 'create', options: creation }]);
 });
 
 test('a sign-in asks get', async () => {
   const credential = { id: 'Q1JFRA', response: { signature: 'U0lH' } };
   const { passkeys, asked } = played({ credential });
-  assert.deepEqual(await passkeys.getPasskey({ challenge: 'Z2V0', rpId: 'github.com' }), credential);
+  assert.deepEqual(await passkeys.get({ challenge: 'Z2V0', rpId: 'github.com' }), credential);
   assert.equal(asked[0].ceremony, 'get');
 });
 
@@ -61,19 +62,33 @@ test("WebAuthn's errors are PlatformErrors of the keychain, the DOMException's n
 });
 
 test('unavailable outside an application the session launched; a signal cancels', async () => {
-  await assert.rejects(played({}, false).passkeys.createPasskey(creation), (e: unknown) => isPlatformError(e, 'unavailable'));
-  await assert.rejects(createPasskeys(null).getPasskey({ challenge: 'Z2V0', rpId: 'a.example' }), (e: unknown) =>
+  await assert.rejects(played({}, false).passkeys.create(creation), (e: unknown) => isPlatformError(e, 'unavailable'));
+  await assert.rejects(createPasskeys(null).get({ challenge: 'Z2V0', rpId: 'a.example' }), (e: unknown) =>
     isPlatformError(e, 'unavailable'),
   );
   const aborted = new AbortController();
   aborted.abort();
-  await assert.rejects(played({}).passkeys.createPasskey(creation, { signal: aborted.signal }), (e: unknown) =>
+  await assert.rejects(played({}).passkeys.create(creation, { signal: aborted.signal }), (e: unknown) =>
     isPlatformError(e, 'cancelled'),
   );
   const { passkeys, settle } = played('later');
   const controller = new AbortController();
-  const waiting = passkeys.getPasskey({ challenge: 'Z2V0', rpId: 'github.com' }, { signal: controller.signal });
+  const waiting = passkeys.get({ challenge: 'Z2V0', rpId: 'github.com' }, { signal: controller.signal });
   controller.abort();
   await assert.rejects(waiting, (e: unknown) => isPlatformError(e, 'cancelled'));
   settle({ credential: {} });
+});
+
+test("the keychain framework holds passkeys beside saving, each from its own host module", async () => {
+  const credential = { id: 'Q1JFRA' };
+  const keychain = createKeychain({
+    passkeys: { getConstants: () => ({ available: true }), passkey: async () => ({ credential }) },
+  });
+  assert.equal(keychain.available, false, 'no OxyOSKeychain: saving unavailable');
+  assert.equal(keychain.passkeys.available, true);
+  assert.deepEqual(await keychain.passkeys.create(creation), credential);
+  assert.equal(createKeychain().passkeys.available, false);
+  await assert.rejects(createKeychain().passkeys.get({ challenge: 'Z2V0', rpId: 'github.com' }), (e: unknown) =>
+    isPlatformError(e, 'unavailable'),
+  );
 });

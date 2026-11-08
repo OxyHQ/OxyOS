@@ -1,5 +1,5 @@
-// Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7; docs/adr/0058-the-platform-api.mdx,
-// decision 1's `keychain`): OxyOS as a platform authenticator, in WebAuthn's own JSON shapes, as
+// Passkeys, the `keychain` framework's `passkeys` (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+// decision 7; docs/adr/0058-the-platform-api.mdx, decision 1's `keychain`): OxyOS as a platform authenticator, in WebAuthn's own JSON shapes, as
 // `navigator.credentials.create()` and `.get()` take and answer them with `PublicKeyCredential`'s
 // `parseCreationOptionsFromJSON()` and `toJSON()` (WebAuthn Level 3, §5.1.8–§5.1.10; binary as
 // base64url without padding). An application uses only relying parties associated with it (its
@@ -103,6 +103,7 @@ export function credentialOf(answer: unknown): unknown {
 export function createPasskeys(module: PasskeyModule | null) {
   const available = module?.getConstants().available ?? false;
 
+  // Its own abort until the shared `hostCall` (platform/src/host.ts) is on main.
   async function ceremony(kind: 'create' | 'get', options: object, call: CallOptions): Promise<unknown> {
     const { signal } = call;
     if (signal?.aborted) throw new PlatformError('keychain', 'cancelled');
@@ -142,23 +143,23 @@ export function createPasskeys(module: PasskeyModule | null) {
    *
    * @since 1 (OxyOS's `api` that ships it)
    * @example
-   * const credential = await keychain.createPasskey(await (await fetch('/webauthn/register')).json());
+   * const credential = await keychain.passkeys.create(await (await fetch('/webauthn/register')).json());
    */
-  const createPasskey = (options: CreationOptionsJSON, call: CallOptions = {}) =>
+  const create = (options: CreationOptionsJSON, call: CallOptions = {}) =>
     ceremony('create', options, call) as Promise<RegistrationResponseJSON>;
 
   /**
    * Signs in with a passkey for `options.rpId`, as `navigator.credentials.get({publicKey})`: the
    * system asks the person in a sheet ("Use your passkey for example.com?"), with a chooser when
-   * several match, and their Oxy account's password. Rejects as `createPasskey` does (`exists`
+   * several match, and their Oxy account's password. Rejects as `create` does (`exists`
    * aside); no passkey there is `notPermitted` too.
    *
    * @since 1
    */
-  const getPasskey = (options: RequestOptionsJSON, call: CallOptions = {}) =>
+  const get = (options: RequestOptionsJSON, call: CallOptions = {}) =>
     ceremony('get', options, call) as Promise<AuthenticationResponseJSON>;
 
-  return { passkeysAvailable: available, createPasskey, getPasskey };
+  return { available, create, get };
 }
 
 export type Passkeys = ReturnType<typeof createPasskeys>;

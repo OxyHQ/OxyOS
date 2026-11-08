@@ -9,6 +9,9 @@
 //   administrator's password, forgotten here once sent.
 // - **The login screen's setup** (decision 4): the platform the SDK's sign-in runs with, and the
 //   `enroll` conversation, a second factor answered on the same connection.
+// - **The keychain's "ask to save"** (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5):
+//   an application asks to save a login it has just used; the service asks the person in the
+//   session's sheet and saves it only on their yes.
 // - **Passkeys** (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): an application's
 //   WebAuthn ceremonies, in WebAuthn's JSON shapes, which wait for the person on the system's
 //   sheet: each on a thread of its own, so a token is never kept waiting behind one, and the host
@@ -78,6 +81,8 @@ class AccountSession {
   // "passwordOff"), proved by the password or the current PIN (an empty one is none).
   void localSignIn(Done done);
   void changeLocal(std::string change, std::string pin, std::string password, std::string currentPin, Done done);
+  // The password is forgotten here once sent; `domain` may be empty (none).
+  void savePassword(std::string username, std::string password, std::string domain, Done done);
   // A passkey ceremony ("create" or "get") with WebAuthn's options JSON: {"credential"} or
   // {"error": {"name", "reason"}}.
   void passkey(std::string ceremony, std::string options, Done done);

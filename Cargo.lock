@@ -3070,6 +3070,7 @@ dependencies = [
  "async-channel",
  "async-io",
  "evdev",
+ "oxyos-account",
  "oxyos-apps",
  "oxyos-audio",
  "oxyos-auth",
