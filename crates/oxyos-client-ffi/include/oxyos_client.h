@@ -2144,6 +2144,16 @@ int64_t oxyos_account_session_change_local(const char* change, const char* pin, 
  * (an item, a recovery key, a code): overwrite `out` once handed on. Give OXYOS_ACCOUNT_MESSAGE_MAX
  * bytes. OXYOS_ERROR when it is not a request of Settings' or the service could not be asked. */
 int64_t oxyos_account_session_keychain(const char* request, char* out, size_t capacity);
+/* Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-
+ * passkeys.mdx, decision 5): `username`, `password` (secret: copied into a buffer this library
+ * overwrites; overwrite your own) and the website it is for (`domain`, a host name, or NULL). The
+ * service asks the person in the session's sheet and saves it only on their yes. Blocks until they
+ * answer (at most two minutes): never on the interface's thread. The answer, JSON: {"saved": {}},
+ * {"notSaved": {}}, or {"refused": {"reason" ("locked", "notMember", "tooMany", "unavailable",
+ * "invalidRequest", "notPermitted", "offline", ...)}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes.
+ * OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_save_password(const char* username, const char* password,
+                                            const char* domain, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */

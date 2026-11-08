@@ -9,6 +9,9 @@
 //   administrator's password, forgotten here once sent.
 // - **The login screen's setup** (decision 4): the platform the SDK's sign-in runs with, and the
 //   `enroll` conversation, a second factor answered on the same connection.
+// - **The keychain's "ask to save"** (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5):
+//   an application asks to save a login it has just used; the service asks the person in the
+//   session's sheet and saves it only on their yes.
 //
 // Secrets (a token, a password, a device secret, a code) pass through here only on their way:
 // every buffer that held one is overwritten once it is handed on, and nothing of them is logged.
@@ -77,6 +80,8 @@ class AccountSession {
   // decision 8): it may hold a password or an item, and the answer an item, a recovery key or a
   // code, so both are forgotten once handed on.
   void keychain(std::string request, Done done);
+  // The password is forgotten here once sent; `domain` may be empty (none).
+  void savePassword(std::string username, std::string password, std::string domain, Done done);
   // The login screen's setup. The device credential the SDK's sign-in handed over is held here,
   // not in JavaScript, until the person gives the account's password once more and chooses a PIN
   // for this computer (a credential held before replaces it); `enroll` sends them (an empty
