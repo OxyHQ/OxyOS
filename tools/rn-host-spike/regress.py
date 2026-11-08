@@ -5600,6 +5600,17 @@ def main():
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
+    else:
+        # Without one, a home of the run's own all the same, empty: never the developer's. A home
+        # with Desktop, Documents and Downloads in it (a machine that had a desktop) made the
+        # dock's zoom (dock-edges, window-zoom-scaled) leave the work area uncovered, and passed
+        # for a user whose home had none. The machine's GPU cache and drivers are named above.
+        # Not "home": that is a scenario's own, whose existence the checks read as such.
+        empty = (out / "empty-home").resolve()
+        shutil.rmtree(empty, ignore_errors=True)
+        (empty / ".config").mkdir(parents=True)
+        env["HOME"] = str(empty)
+        env["XDG_CONFIG_HOME"] = str(empty / ".config")
     stop_backups = None
     env.pop("OXYOS_BACKUPD_SOCKET", None)
     if "backups" in scenario:
