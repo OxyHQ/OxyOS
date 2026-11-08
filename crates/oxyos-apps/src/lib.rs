@@ -42,6 +42,9 @@ pub struct Grants {
     /// `bluetooth`: it sees Bluetooth, discovers, pairs, connects, forgets and renames devices
     /// (Settings; docs/adr/0055-bluetooth.mdx).
     pub bluetooth: bool,
+    /// `activity`: it follows the machine's use and every process's, inspects them and quits the
+    /// person's own (Activity Monitor; docs/adr/0060-activity-monitor.mdx).
+    pub activity: bool,
 }
 
 impl Grants {
@@ -57,6 +60,7 @@ impl Grants {
                 "privacy" => &mut grants.privacy,
                 "network" => &mut grants.network,
                 "bluetooth" => &mut grants.bluetooth,
+                "activity" => &mut grants.activity,
                 other => return Err(Error(format!("{other:?} is not a system grant"))),
             };
             if *grant {
@@ -79,6 +83,7 @@ impl Grants {
             ("privacy", self.privacy),
             ("network", self.network),
             ("bluetooth", self.bluetooth),
+            ("activity", self.activity),
         ]
         .into_iter()
         .filter(|(_, granted)| *granted)
@@ -96,6 +101,7 @@ impl Grants {
             privacy: self.privacy || other.privacy,
             network: self.network || other.network,
             bluetooth: self.bluetooth || other.bluetooth,
+            activity: self.activity || other.activity,
         }
     }
 }

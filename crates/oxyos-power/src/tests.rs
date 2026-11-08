@@ -305,6 +305,73 @@ fn an_application_uses_significant_energy_at_a_fifth_of_a_core_over_a_minute() {
     assert!(!allo.running && !allo.significant && allo.cpu == 60.5);
 }
 
+#[test]
+fn a_drm_clients_memory_is_its_regions_total_once_per_client() {
+    let proc = scratch("proc-drm-memory");
+    process(&proc, 77, (1, 1, 0, 0), 10, &[]);
+    let directory = proc.join("77");
+    // One client open twice (counted once) holding 12 MiB in system memory and 4096 KiB in the
+    // device's; a driver from before the totals says only `drm-memory-*`.
+    for (fd, client, text) in [
+        (
+            5,
+            21,
+            "drm-total-system0:\t12 MiB\ndrm-total-local0:\t4096 KiB\ndrm-shared-system0:\t2 MiB\n",
+        ),
+        (
+            6,
+            21,
+            "drm-total-system0:\t12 MiB\ndrm-total-local0:\t4096 KiB\n",
+        ),
+        (9, 22, "drm-memory-vram:\t1024 KiB\n"),
+    ] {
+        std::os::unix::fs::symlink(
+            "/dev/dri/renderD128",
+            directory.join("fd").join(fd.to_string()),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.join("fdinfo").join(fd.to_string()),
+            format!("drm-pdev:\t0000:00:02.0\ndrm-client-id:\t{client}\ndrm-engine-render:\t5 ns\n{text}"),
+        )
+        .unwrap();
+    }
+    let reader = Proc {
+        root: &proc,
+        ticks: 100,
+    };
+    let drm = reader.drm(77, &mut Default::default());
+    assert_eq!(drm.busy_ns, 10);
+    assert_eq!(drm.memory, (12 << 20) + (4096 << 10) + (1024 << 10));
+}
+
+#[test]
+fn an_applications_average_covers_twelve_hours_or_since_it_began() {
+    let running = vec![Running {
+        pid: 10,
+        id: "so.oxy.inbox".into(),
+        name: "Inbox".into(),
+    }];
+    let hour = Duration::from_secs(3600);
+    let mut meter = Meter::default();
+    // Started an hour before its first sample, having used 36 s by then: a hundredth of a core.
+    meter.sample(hour * 2, &running, &[read(10, 36.0, 0.0, 3600)]);
+    let average = |meter: &Meter, at| meter.report(at)[0].average;
+    assert!((average(&meter, hour * 2) - 0.01).abs() < 1e-9);
+    // Sampled every hour for a day, using 360 s an hour (a tenth of a core) from the fourth on.
+    let mut used = 36.0;
+    for n in 3..=26 {
+        used += if n >= 4 { 360.0 } else { 0.0 };
+        meter.sample(
+            hour * n,
+            &running,
+            &[read(10, used, 0.0, 3600 * (n as u64 - 1))],
+        );
+    }
+    // The last twelve hours: a tenth of a core, whatever came before.
+    assert!((average(&meter, hour * 26) - 0.1).abs() < 1e-9);
+}
+
 // ---- Low Power Mode's signal ----
 
 #[test]

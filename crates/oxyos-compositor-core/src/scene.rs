@@ -87,6 +87,9 @@ pub struct Grants {
     /// first), disconnects, forgets and renames devices (`SystemRequest`), as the shell does by its
     /// own grant (all but discovering, forgetting and renaming).
     pub bluetooth: bool,
+    /// Activity Monitor (docs/adr/0060-activity-monitor.mdx): follows the machine's use and every
+    /// process's, inspects them and quits the person's own (`SystemRequest`).
+    pub activity: bool,
 }
 
 impl Grants {
@@ -100,6 +103,7 @@ impl Grants {
             || self.privacy
             || self.network
             || self.bluetooth
+            || self.activity
             || self.shell
             || self.settings
     }
@@ -1131,6 +1135,7 @@ impl Scene {
             privacy: granted.privacy && !held.privacy,
             network: granted.network && !held.network,
             bluetooth: granted.bluetooth && !held.bluetooth,
+            activity: granted.activity && !held.activity,
         };
         self.check_grants(new)?;
         let grants = self.clients.get_mut(&client).expect("connected");
@@ -1146,6 +1151,7 @@ impl Scene {
         grants.privacy |= new.privacy;
         grants.network |= new.network;
         grants.bluetooth |= new.bluetooth;
+        grants.activity |= new.activity;
         if new.accessibility {
             // Whether the session is locked, before the trees it may read (the lock screen's
             // alone while it is): told as it is, never said as a change.
@@ -5040,6 +5046,16 @@ impl Scene {
     /// keyboard's input reaches the focused surface only while it is (`surface_key`).
     pub fn shown(&self, key: SurfaceKey) -> bool {
         self.visible(key)
+    }
+
+    /// Whether a window of `client`'s is on the screen: a toplevel shown (mapped, neither
+    /// minimized nor hidden, on the workspace shown) while the session is unlocked. What samples
+    /// for a window only while it can be seen asks this (docs/adr/0060-activity-monitor.mdx).
+    pub fn client_shown(&self, client: ClientId) -> bool {
+        !self.locked
+            && self.nodes.iter().any(|(key, node)| {
+                key.client == client && node.role == Role::Toplevel && self.visible(*key)
+            })
     }
 
     pub fn grab_chain(&self) -> &[SurfaceKey] {

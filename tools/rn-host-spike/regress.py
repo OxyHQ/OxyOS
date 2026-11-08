@@ -139,6 +139,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   energy.mdx), what they hold once the step settled ("on_ac", "battery" with its "percent",
   "state" and "charge_limit", "sysfs" with the battery's "start" and "end" thresholds as UPower
   wrote them, "active_profile", "holds", "suspends", "calls"), each key given matching;
+- activity: what the session's Activity Monitor part did in the step (docs/adr/0060-activity-
+  monitor.mdx), each key given a count or [least, most]: "samples" it took, "sent" to followers,
+  "wakeups" of its thread and "host_wakeups" of the application's threads (each a time a thread
+  was switched out), "cpu_ms" its thread ran and "host_cpu_ms" the application's threads did, all
+  counted from the step before's settling to this one's; and "followed"
+  (whether a client follows), as it is once the step settled. A hidden window's step holds them
+  to none;
+- processes: with the scenario's `processes` (below), by name: the "signals" each received in the
+  step (from the step before's settling to this one's), exactly and in order ("TERM", "INT"...),
+  and whether it was still "running" once the step settled (SIGKILL is seen as not running);
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -407,6 +417,11 @@ the companion's, the shell's, and the windows of the applications the session la
 and size, and a frame for their latest configure, as a zoom from their title bar gives them), not
 each of their frames, which may animate for as long as they like (a storefront's skeleton while it
 loads).
+
+A scenario's `processes` ([{"name", "busy"}]) are processes the run starts before the session
+and ends after it (`activity-process.py`, never by name): each named so (its `comm`), busy for that
+share of the time (0, or none, asleep), recording every signal it receives, so Activity Monitor's
+scenarios list processes they know and quit them (docs/adr/0060-activity-monitor.mdx).
 
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
@@ -3136,6 +3151,105 @@ def check_input_delivery(summary, reports, failures):
     failures.extend(failed)
 
 
+class ProcessRecorder:
+    """The scenario's `processes`, started before the session and ended after it by their own
+    handles (never by name): each one's signals as it recorded them, and when it ended, seen by a
+    thread looking every 10 ms, on the monotonic clock the steps use."""
+
+    def __init__(self, directory, wanted):
+        self.processes = {}
+        self.ended = {}
+        if not wanted:
+            self.thread = None
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        script = pathlib.Path(__file__).resolve().with_name("activity-process.py")
+        for process in wanted:
+            record = directory / f"{process['name']}.signals"
+            record.unlink(missing_ok=True)
+            child = subprocess.Popen([sys.executable, "-I", str(script), process["name"],
+                                      str(process.get("busy", 0)), str(record)])
+            self.processes[process["name"]] = (child, record)
+        # Each has named itself before the session starts.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not all(
+                record.exists() and "started" in record.read_text() for _, record in self.processes.values()):
+            time.sleep(0.01)
+        self.running = True
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+        self.thread.start()
+
+    def watch(self):
+        while self.running:
+            for name, (child, _) in self.processes.items():
+                if name not in self.ended and child.poll() is not None:
+                    self.ended[name] = time.monotonic_ns()
+            time.sleep(0.01)
+
+    def stop(self):
+        if self.thread is None:
+            return
+        self.running = False
+        self.thread.join()
+        for name, (child, _) in self.processes.items():
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+
+    def signals(self, name, after, until):
+        """The signals `name` received after `after` and by `until`, in order."""
+        _, record = self.processes[name]
+        received = []
+        for line in record.read_text().splitlines() if record.exists() else []:
+            when, what = line.split(" ", 1)
+            if what.startswith("started"):
+                continue
+            if after < int(when) <= until:
+                received.append(what)
+        return received
+
+    def running_at(self, name, t):
+        return name not in self.ended or self.ended[name] > t
+
+
+def check_activity(index, step, result, results, processes, failures):
+    """A step's `activity` and `processes` (docs/adr/0060-activity-monitor.mdx)."""
+    expect = step.get("expect", {})
+    name = f"step {index + 1} ({step.get('name', step['do'][0])})"
+    before = results[index - 1] if index > 0 else None
+    if "activity" in expect:
+        held = result.get("activity")
+        if held is None:
+            failures.append(f"{name}: no Activity Monitor part")
+        else:
+            was = (before or {}).get("activity") or {}
+            for key, wanted in expect["activity"].items():
+                if key == "followed":
+                    if held.get(key) != wanted:
+                        failures.append(f"{name}: activity {key} {held.get(key)}, expected {wanted}")
+                    continue
+                if held.get(key) is None:
+                    failures.append(f"{name}: activity {key} not counted")
+                    continue
+                count = held[key] - (was.get(key) or 0)
+                least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
+                if not least <= count <= most:
+                    failures.append(f"{name}: activity {key} {count} in the step, expected {wanted}")
+    if "processes" in expect:
+        after = (before or {}).get("t_settled", 0)
+        until = result.get("t_settled")
+        for process, wanted in expect["processes"].items():
+            if process not in processes.processes:
+                failures.append(f"{name}: no process {process} (the scenario's `processes`)")
+                continue
+            if "signals" in wanted:
+                received = processes.signals(process, after, until)
+                if received != wanted["signals"]:
+                    failures.append(f"{name}: {process} received {received}, expected {wanted['signals']}")
+            if "running" in wanted and processes.running_at(process, until) != wanted["running"]:
+                failures.append(f"{name}: {process} running {not wanted['running']}, expected {wanted['running']}")
+
+
 def check_views(index, step, result, results, failures):
     """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
     as the director reported them once the step settled: `window_views` ("windows", exactly those
@@ -5473,9 +5587,11 @@ def main():
         report_path.unlink(missing_ok=True)
         change_home_later(home_root, scenario["home"], report_path)
         recorder = HomeRecorder(home_root, wants_xattrs(scenario))
+    processes = ProcessRecorder(out / "processes", scenario.get("processes", []))
     try:
         run = subprocess.run(command, env=env, capture_output=True, text=True)
     finally:
+        processes.stop()
         if stop_network is not None:
             stop_network()
         if stop_bluetooth is not None:
@@ -5525,6 +5641,7 @@ def main():
                            out / f"launch-{index + 2}.png", shell_report, spoken,
                            out / "preferences", refresh_hz, recorder)
         check_views(index, step, result, summary["steps"], failures)
+        check_activity(index, step, result, summary["steps"], processes, failures)
     # The person's input reached whom it should, once (every scenario, every step).
     check_input_delivery(summary, host_reports(out), failures)
     # Each host's frame diagnostics against its report, and the log they wrote to.

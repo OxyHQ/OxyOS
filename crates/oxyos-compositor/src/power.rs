@@ -550,6 +550,19 @@ impl Power {
         self.tell(&mut compositor.scene);
     }
 
+    /// Activity Monitor's Energy (docs/adr/0060-activity-monitor.mdx): the applications' use as
+    /// its sampler read it, sampled into this meter so the two count one way, and each one's
+    /// report, with its twelve-hour average.
+    pub fn sample_energy(
+        &mut self,
+        running: &[Running],
+        reads: &[energy::Read],
+    ) -> Vec<energy::Energy> {
+        let at = self.now();
+        self.meter.sample(at, running, reads);
+        self.meter.report(at)
+    }
+
     /// The session ends: recorded, and power-saver released (the thread releases it as it ends).
     pub fn end(&mut self) {
         self.history.record(wall_now(), Event::Session(false));

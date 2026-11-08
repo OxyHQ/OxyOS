@@ -5139,6 +5139,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.compositor.wakers.push(waker);
         session.power = Some(power);
     }
+    if launch.login.is_none() {
+        // Activity Monitor's part (docs/adr/0060-activity-monitor.mdx), as a session has it: over
+        // this machine's /proc, sampling only while a follower's window is shown.
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        let waker = activity.wake_fd()?;
+        session.activity_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.activity = Some(activity);
+    }
     if launch.input_method {
         let mut ime = crate::ime::Ime::connect(&mut session.compositor)?;
         ime.candidates = launch.im_candidates;
@@ -5879,7 +5888,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"activity\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5913,6 +5922,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .map_or("null".to_string(), |played| played.machine().to_string()),
             session.bluetooth_state(),
             session.power_state(),
+            session.activity_state(),
             session.compositor.displays_off(),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(

@@ -16,6 +16,8 @@ import { bluetoothSummary, type BluetoothState } from "../../../apps/shell/src/b
 import type { SheetText } from "../../../apps/shell/src/sheet";
 import { shellMessages } from "../../../apps/shell/src/messages";
 import { inPlace, type ShellPlatform } from "../../../apps/shell/src/platform";
+import { ActivityMonitor } from "../../../apps/activity-monitor/src/ActivityMonitor";
+import { previewActivity } from "./activity-fixture";
 
 /**
  * The preview's locale (docs/adr/0040-language-and-region.mdx): the browser's, or the one `?lang=`
@@ -299,4 +301,19 @@ function Preview() {
     </GestureHandlerRootView>
   );
 }
-createRoot(document.getElementById("root")!).render(<Preview />);
+/** Activity Monitor alone (`?app=activity-monitor`), over a played machine (activity-fixture.ts). */
+function ActivityPreview() {
+  const source = React.useMemo(previewActivity, []);
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <BloomProvider mode={appearance} colorPreset="graphite" haptics={false} locale={locale}>
+          <ActivityMonitor source={source} locale={locale} />
+        </BloomProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+const app = new URLSearchParams(window.location.search).get("app");
+createRoot(document.getElementById("root")!).render(app === "activity-monitor" ? <ActivityPreview /> : <Preview />);

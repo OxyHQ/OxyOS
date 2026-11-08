@@ -41,6 +41,10 @@ export interface SessionState {
   /** The chosen input's level (0 to 1): metered from the first follower until the last stops, so
       nothing listens to the input while nothing shows its level (ADR 0056, decision 7). */
   inputLevel: Told<number>;
+  /** Activity Monitor's samples (the `activity` grant, docs/adr/0060-activity-monitor.mdx), of the
+      view `activityView` chose: followed from the first follower until the last stops, and sampled
+      by the session only while the follower's window is shown. */
+  activity: Told<Json>;
 }
 
 export interface Session {
@@ -49,6 +53,9 @@ export interface Session {
   /** One request; its final answer, `{refused}` and `{failed}` among them (never a rejection). */
   request(body: Json, options?: RequestOptions): Promise<unknown>;
   state: SessionState;
+  /** The view Activity Monitor's samples are of (`cpu`, `memory`, `energy`, `disk`, `network`):
+      kept until following begins, and told the session at once while it is followed. */
+  activityView(view: string): void;
 }
 
 /**
@@ -64,13 +71,18 @@ const ASKED_BY = {
   sound: { sound: {} },
   power: { power: {} },
 } as const;
-const FOLLOWED_KEYS = ['updateState', ...Object.keys(ASKED_BY)] as ('updateState' | keyof typeof ASKED_BY)[];
+const FOLLOWED_KEYS = ['updateState', 'activity', ...Object.keys(ASKED_BY)] as (
+  | 'updateState'
+  | 'activity'
+  | keyof typeof ASKED_BY
+)[];
 
 export function createSession(native: SystemModule | null | undefined, events: Events): Session {
   const waiting = new Map<number, { resolve: (answer: unknown) => void; onProgress?: (progress: unknown) => void }>();
   // Hoisted: the followed states ask through it as they are first followed.
   let request: (body: Json, options?: RequestOptions) => Promise<unknown>;
   const asked = (key: keyof typeof ASKED_BY) => followed<Json>({ start: () => void request(ASKED_BY[key]) });
+  let activity = { view: 'cpu', followed: false };
   const state: SessionState = {
     updateState: followed(),
     network: asked('network'),
@@ -83,6 +95,16 @@ export function createSession(native: SystemModule | null | undefined, events: E
       start: () => void request({ soundMeter: { on: true } }),
       stop: () => void request({ soundMeter: { on: false } }),
     }),
+    activity: followed({
+      start() {
+        activity = { ...activity, followed: true };
+        void request({ activityFollow: { view: activity.view } });
+      },
+      stop() {
+        activity = { ...activity, followed: false };
+        void request({ activityFollow: { view: null } });
+      },
+    }),
   };
 
   const tellAll = (answer: unknown) => {
@@ -94,7 +116,18 @@ export function createSession(native: SystemModule | null | undefined, events: E
   };
 
   if (native) {
-    events.addListener('OxyOSSystemAnswer', ({ serial, answer }: { serial: number; answer: unknown }) => {
+    events.addListener('OxyOSSystemAnswer', (event: { serial: number; answer?: unknown; text?: string }) => {
+      const { serial } = event;
+      // A long answer (SystemData, docs/adr/0060-activity-monitor.mdx) comes as the session's
+      // text, which JSON.parse reads far faster than the host could build its values.
+      let answer = event.answer;
+      if (typeof event.text === 'string') {
+        try {
+          answer = JSON.parse(event.text);
+        } catch {
+          answer = { failed: { reason: 'invalidAnswer' } };
+        }
+      }
       // The state the session follows, told unasked as it changes.
       if (serial === 0) {
         tellAll(answer);
@@ -147,5 +180,10 @@ export function createSession(native: SystemModule | null | undefined, events: E
     available: Boolean(native),
     request,
     state,
+    activityView(view) {
+      if (view === activity.view) return;
+      activity = { ...activity, view };
+      if (activity.followed) void request({ activityFollow: { view } });
+    },
   };
 }

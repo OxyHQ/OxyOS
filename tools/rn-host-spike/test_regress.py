@@ -153,5 +153,47 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
 
 
+class ActivityIsCountedPerStep(unittest.TestCase):
+    """`activity` and `processes` (docs/adr/0060-activity-monitor.mdx): counts in the step, from the
+    step before's settling, and the signals a known process received between them."""
+
+    def results(self, before, now):
+        return [{"t_settled": 100, "activity": before}, {"t_settled": 200, "activity": now}]
+
+    def check(self, expect, before, now, processes=None):
+        failures = []
+        step = {"name": "hidden", "do": ["wait", 1], "expect": expect}
+        results = self.results(before, now)
+        regress.check_activity(1, step, results[1], results, processes or regress.ProcessRecorder(None, []),
+                               failures)
+        return failures
+
+    def test_a_hidden_step_holds_its_counts_to_none(self):
+        held = {"samples": 4, "sent": 4, "wakeups": 9, "host_wakeups": 30, "followed": True}
+        self.assertEqual(self.check({"activity": {"samples": 0, "wakeups": 0, "followed": True}}, held, held), [])
+
+    def test_a_count_in_the_step_is_the_difference(self):
+        before = {"samples": 4, "sent": 4, "wakeups": 9, "host_wakeups": 30, "followed": True}
+        now = {"samples": 5, "sent": 5, "wakeups": 11, "host_wakeups": 33, "followed": True}
+        failures = self.check({"activity": {"samples": 0, "host_wakeups": [0, 5]}}, before, now)
+        self.assertEqual(failures, ["step 2 (hidden): activity samples 1 in the step, expected 0"])
+
+    def test_signals_are_those_of_the_step(self):
+        directory = pathlib.Path(regress.tempfile.mkdtemp())
+        record = directory / "idle.signals"
+        record.write_text("50 started 7\n90 TERM\n150 TERM\n")
+
+        class Known:
+            processes = {"idle": (None, record)}
+            ended = {"idle": 160}
+            signals = regress.ProcessRecorder.signals
+            running_at = regress.ProcessRecorder.running_at
+
+        expect = {"processes": {"idle": {"signals": ["TERM"], "running": False}}}
+        self.assertEqual(self.check(expect, {}, {}, Known()), [])
+        expect = {"processes": {"idle": {"signals": [], "running": True}}}
+        self.assertEqual(len(self.check(expect, {}, {}, Known())), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

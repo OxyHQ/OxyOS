@@ -11,7 +11,7 @@ import { createSession, type Events } from '../src/session.ts';
 /** A played OxyOSSystem: the requests sent, and a way to answer one or tell state unasked. */
 function played({ sends = true } = {}) {
   const sent: { serial: number; body: Record<string, unknown> }[] = [];
-  let listener: ((event: { serial: number; answer: unknown }) => void) | undefined;
+  let listener: ((event: { serial: number; answer?: unknown; text?: string }) => void) | undefined;
   const events: Events = {
     addListener(name, handler) {
       assert.equal(name, 'OxyOSSystemAnswer');
@@ -35,6 +35,7 @@ function played({ sends = true } = {}) {
     sent,
     answer: (serial: number, answer: unknown) => listener?.({ serial, answer }),
     tell: (answer: unknown) => listener?.({ serial: 0, answer }),
+    tellText: (text: string) => listener?.({ serial: 0, text }),
   };
 }
 
@@ -167,4 +168,32 @@ test('a followed state tells its followers in order and stops each once', () => 
   assert.equal(state.current(), 2);
   assert.deepEqual([starts, stops], [1, 1]);
   assert.ok(new PlatformError('audio', 'busy') instanceof Error);
+});
+
+test("Activity Monitor's samples are followed while something shows them, of the view it chose", async () => {
+  const { platform, sent, tellText, answer } = played();
+  const { activity } = platform;
+  // The view is kept until following begins, which sends it.
+  activity.setView('memory');
+  assert.equal(sent.length, 0);
+  const samples: unknown[] = [];
+  const stop = activity.sample.subscribe((sample) => samples.push(sample));
+  assert.deepEqual(sent.at(-1)?.body, { activityFollow: { view: 'memory' } });
+  // A sample comes as the session's text (SystemData), parsed once.
+  tellText(JSON.stringify({ activity: { view: 'memory', processes: [{ pid: 7 }] } }));
+  assert.deepEqual(samples, [{ view: 'memory', processes: [{ pid: 7 }] }]);
+  assert.deepEqual(activity.sample.current(), { view: 'memory', processes: [{ pid: 7 }] });
+  // Another view while followed: told at once; the same view again: nothing.
+  activity.setView('cpu');
+  assert.deepEqual(sent.at(-1)?.body, { activityFollow: { view: 'cpu' } });
+  const before = sent.length;
+  activity.setView('cpu');
+  assert.equal(sent.length, before);
+  stop();
+  assert.deepEqual(sent.at(-1)?.body, { activityFollow: { view: null } });
+  // Quitting refused rejects with the platform's error.
+  const quitting = activity.quit(7, 123, false);
+  answer(sent.at(-1)!.serial, { refused: { reason: 'needsInput' } });
+  await assert.rejects(quitting, (error: unknown) => isPlatformError(error, 'needsInput'));
+  assert.deepEqual(sent.at(-1)?.body, { activityQuit: { pid: 7, started: 123, force: false } });
 });

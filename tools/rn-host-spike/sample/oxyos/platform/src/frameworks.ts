@@ -27,6 +27,8 @@ function caller(session: Session, domain: PlatformDomain) {
 }
 
 export type Direction = 'output' | 'input';
+/** What Activity Monitor shows: each view reads what its columns need. */
+export type ActivityView = 'cpu' | 'memory' | 'energy' | 'disk' | 'network';
 
 export function createFrameworks(session: Session) {
   const call = (domain: PlatformDomain) => caller(session, domain);
@@ -115,7 +117,28 @@ export function createFrameworks(session: Session) {
     open: (id: string, options?: CallOptions) => sto({ open: { id } }, options),
   };
 
-  return { network, bluetooth, power, audio, settings, store };
+  /**
+   * The machine's use and every process's (docs/adr/0060-activity-monitor.mdx): the `activity`
+   * grant (Activity Monitor). `sample` is followed: its first follower begins the session's
+   * sampling of `setView`'s view, every two seconds while the follower's window is shown, and its
+   * last ends it. A process is named by its pid and its start (`started`, as a sample gives it).
+   */
+  const act = call('activity');
+  const activity = {
+    available,
+    sample: state.activity as Followed<Json>,
+    setView: (view: ActivityView) => session.activityView(view),
+    /** Quits one of the person's processes, citing the press that confirmed it (SIGKILL with `force`). */
+    quit: (pid: number, started: number, force: boolean, options?: CallOptions) =>
+      act({ activityQuit: { pid, started, force } }, options),
+    /** Quits an application the session launched, as the dock does (`force`: Force Quit). */
+    quitApp: (id: string, force: boolean, options?: CallOptions) => act({ activityQuitApp: { id, force } }, options),
+    /** One process's details: its parent, memory, open files and ports, control group. */
+    inspect: (pid: number, started: number, options?: CallOptions) =>
+      act({ activityInspect: { pid, started } }, options),
+  };
+
+  return { network, bluetooth, power, audio, settings, store, activity };
 }
 
 export type Frameworks = ReturnType<typeof createFrameworks>;

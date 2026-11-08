@@ -37,6 +37,7 @@ pub mod scanout;
 /// Screenshots as files (docs/adr/0024-system-shortcuts.mdx, decision 10).
 pub mod screenshots;
 pub use gpu_buffers::GpuFrame;
+pub mod activity;
 pub mod bluetooth;
 pub mod choosers;
 pub mod displays;

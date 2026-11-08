@@ -48,6 +48,8 @@ async-channel = "2"
 # Battery and energy: UPower's details, power-profiles-daemon, logind's sleep, the history and
 # each application's use (docs/adr/0057-battery-and-energy.mdx).
 oxyos-power = { path = "../oxyos-power" }
+# Activity Monitor's samplers: the machine's use and every process's (docs/adr/0060-activity-monitor.mdx).
+oxyos-activity = { path = "../oxyos-activity" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "fs"] }
 # Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): encoded as PNG (image-rs's png, as
 # oxyos-image decodes), named by the local time (jiff, as oxyos-solar finds the sun).

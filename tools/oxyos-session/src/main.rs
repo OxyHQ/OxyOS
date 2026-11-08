@@ -630,6 +630,15 @@ fn main() -> Result<()> {
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
     };
+    // Activity Monitor (docs/adr/0060-activity-monitor.mdx): the machine's use and every process's,
+    // sampled only while its window is shown. The login screen has none.
+    let mut activity = if greeter {
+        None
+    } else {
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        compositor.wakers.push(activity.wake_fd()?);
+        Some(activity)
+    };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
     let mut input_methods = if greeter {
@@ -746,17 +755,27 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
-        // Battery and energy (ADR 0057), before the store, which takes the requests left.
+        // Battery and energy (ADR 0057) and Activity Monitor (ADR 0060), before the store, which
+        // takes the requests left.
+        let running: Vec<oxyos_power::energy::Running> = launcher
+            .running()
+            .map(|(pid, launched)| oxyos_power::energy::Running {
+                pid,
+                id: launched.id.clone(),
+                name: launched.name.clone(),
+            })
+            .collect();
         if let Some(power) = power.as_mut() {
-            let running: Vec<oxyos_power::energy::Running> = launcher
-                .running()
-                .map(|(pid, launched)| oxyos_power::energy::Running {
-                    pid,
-                    id: launched.id.clone(),
-                    name: launched.name.clone(),
-                })
-                .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        if let Some(activity) = activity.as_mut() {
+            let displays_off = compositor.displays_off();
+            activity.serve(
+                &mut compositor.scene,
+                &running,
+                displays_off,
+                power.as_mut(),
+            );
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
@@ -1045,6 +1064,7 @@ fn main() -> Result<()> {
                     privacy: launched.grants.privacy,
                     network: launched.grants.network,
                     bluetooth: launched.grants.bluetooth,
+                    activity: launched.grants.activity,
                     ..Grants::default()
                 },
             })
