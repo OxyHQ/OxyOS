@@ -16,7 +16,6 @@
 pub mod data;
 mod runtimes;
 mod watch;
-pub use data::OwnData;
 pub use runtimes::{installed as installed_runtimes, runtime, InstalledRuntime, RUNTIMES};
 pub use watch::Watch;
 

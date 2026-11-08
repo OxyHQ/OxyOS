@@ -66,6 +66,9 @@ export const storage = {
   measure: () => ask({ storage: {} }),
   reveal: (uri) => ask({ reveal: { uri } }),
   remove: (id) => ask({ uninstall: { id } }),
+  // Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx): the session confirms it in
+  // its sheet, quits the application and erases its own data (`{reset: {id}}`).
+  reset: (id) => ask({ resetApplication: { id } }),
 };
 
 /** The account's decisions on its applications' capabilities: `privacy` grant. The list is told

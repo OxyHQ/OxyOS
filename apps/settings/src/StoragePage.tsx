@@ -21,6 +21,7 @@ import { UsageCard } from "@oxy.so/bloom/usage-card";
 import { messagesLanguage, type Messages } from "./messages";
 import type { SettingsActions, SettingsSnapshot } from "./model";
 import {
+  SETTINGS_ID,
   appTotal,
   storageBar,
   unusedApps,
@@ -153,6 +154,20 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
   const app = measured.apps.find((one) => one.id === shownApp) ?? null;
   const emptyAutomatically = snapshot.preferences.emptyTrashAutomatically;
 
+  // Reset… (docs/adr/0061): the session asks the person in the system's sheet; once done, its own
+  // data is measured again.
+  const reset = async (target: StorageApp) => {
+    if (!storage.reset) return;
+    const outcome = await storage.reset(target.id);
+    if (outcome === "reset") {
+      AccessibilityInfo.announceForAccessibility(words.resetDone(target.name));
+      setAwaitingIndex(true);
+      void measure();
+    } else if (outcome === "failed") {
+      setFailure(words.resetFailed(target.name));
+    }
+  };
+
   const remove = async (target: StorageApp) => {
     const outcome = await storage.remove(target.id);
     if (outcome === "removed") {
@@ -271,6 +286,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
         locale={locale}
         onClose={() => setShownApp(null)}
         onRemove={(target) => void remove(target)}
+        onReset={storage.reset ? (target) => void reset(target) : undefined}
       />
       <LargeFilesSheet
         open={sheet === "files"}
@@ -311,7 +327,9 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
 /**
  * An application's details, as a Mac's Storage › Applications shows them: its package, its own
  * data and its caches, when it was last opened, and what can be done to it, each an action of the
- * sheet (Delete App… for one the person installed; resetting its data is another such action).
+ * sheet: Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx: its own data and
+ * settings erased, the session asking the person in the system's sheet; never Settings' own) and
+ * Delete App… for one the person installed.
  */
 function ApplicationSheet({
   app,
@@ -320,6 +338,7 @@ function ApplicationSheet({
   locale,
   onClose,
   onRemove,
+  onReset,
 }: {
   app: StorageApp | null;
   words: Words;
@@ -327,11 +346,25 @@ function ApplicationSheet({
   locale: string;
   onClose: () => void;
   onRemove: (app: StorageApp) => void;
+  /** Absent where the platform cannot reset an application. */
+  onReset?: (app: StorageApp) => void;
 }) {
   const shown = React.useRef(app);
   if (app) shown.current = app;
   const one = shown.current;
   const actions: DialogAction[] = [
+    ...(onReset && one && one.id !== SETTINGS_ID
+      ? [
+          {
+            label: words.resetApp,
+            onPress: () => {
+              if (one) onReset(one);
+            },
+            shouldCloseOnPress: false,
+            testID: "storage-app-reset",
+          },
+        ]
+      : []),
     ...(one?.removable
       ? [
           {
