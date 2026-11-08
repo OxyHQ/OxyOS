@@ -865,7 +865,11 @@ impl Samba {
             .write_all(format!("{password}\n{password}\n").as_bytes())
             .unwrap();
         assert!(smbpasswd.wait().unwrap().success());
+        // A process group of its own: smbd signals its group as it ends or fails, which must
+        // never reach the tests' runner.
+        use std::os::unix::process::CommandExt;
         let child = std::process::Command::new(smbd)
+            .process_group(0)
             .args(["--foreground", "--no-process-group", "--configfile"])
             .arg(&configuration)
             .stdout(std::process::Stdio::null())
