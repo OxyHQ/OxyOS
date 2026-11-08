@@ -35,6 +35,7 @@ use crate::secret::Secret;
 use crate::AccountId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "http")]
 pub(crate) mod http;
@@ -110,6 +111,27 @@ pub struct SignedIn {
     pub user_id: String,
     pub device_id: String,
     pub device_secret: Option<Secret>,
+    /// The windows the QR's redemption told (none for another sign-in).
+    pub windows: Windows,
+}
+
+/// When the QR's windows end, as Oxy told them (ADR 0058 R9) and this machine measures them: on
+/// its own monotonic clock, from when the answer arrived, the seconds Oxy counted less
+/// [`WINDOW_MARGIN`] for the way back. Neither machine's clock setting enters into it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Windows {
+    /// The claim's: until then the proof may be redeemed, and redeemed again with its key.
+    pub redemption: Option<Instant>,
+    /// The pending credential's confirmation's (R8).
+    pub confirm: Option<Instant>,
+}
+
+/// What a window is shortened by for the answer's way back.
+pub const WINDOW_MARGIN: Duration = Duration::from_secs(2);
+
+/// A window's end: `seconds` from `arrived`, less [`WINDOW_MARGIN`] (never before `arrived`).
+pub fn window_end(arrived: Instant, seconds: u64) -> Instant {
+    arrived + Duration::from_secs(seconds).saturating_sub(WINDOW_MARGIN)
 }
 
 /// OxyOS's public client, named by the platform's own sign-ins (`platformClient`). It says that
@@ -188,8 +210,12 @@ pub enum ApiError {
     InvalidCredentials,
     /// The authenticator's code is wrong, or the challenge expired or was spent.
     SecondFactorInvalid,
-    /// Too many attempts: try again after this many seconds, if Oxy said.
-    Locked { retry_after: Option<u64> },
+    /// Too many attempts: try again after this many seconds, if Oxy said; and, once Oxy knew the
+    /// QR's proof (R9), when its window ends.
+    Locked {
+        retry_after: Option<u64>,
+        window: Option<Instant>,
+    },
     /// The platform does not name an application Oxy recognises for it
     /// (`application_not_recognised`).
     NotRecognised,
@@ -213,10 +239,13 @@ impl fmt::Display for ApiError {
             }
             ApiError::Locked {
                 retry_after: Some(seconds),
+                ..
             } => {
                 write!(f, "too many attempts: try again in {seconds} s")
             }
-            ApiError::Locked { retry_after: None } => f.write_str("too many attempts"),
+            ApiError::Locked {
+                retry_after: None, ..
+            } => f.write_str("too many attempts"),
             ApiError::NotRecognised => f.write_str("Oxy does not recognise the application"),
             ApiError::Refused { status, code } => {
                 write!(

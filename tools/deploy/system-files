@@ -1,9 +1,12 @@
 # What a deploy installs, root-owned, for the login, the accounts and the PIN (docs/adr/0020-oxy-account-login.mdx,
-# "Installing on a machine"; docs/adr/0010-lock-screen.mdx; docs/adr/0054-recovery-and-erasing.mdx), read by
-# tools/deploy/remote.sh. tools/deploy/system-files.py checks it against the tree: every binary, unit, PAM
-# service, sysusers and tmpfiles file of tools/oxyos-session, tools/oxyos-login and tools/oxyos-accountd is
-# here, and every PAM file where its own header says it is installed. A FROM in target/release/ is built
-# there (its package is the tool's directory).
+# "Installing on a machine"; docs/adr/0010-lock-screen.mdx; docs/adr/0054-recovery-and-erasing.mdx), and for
+# Safe Mode on a converted machine (ADR 0054, decision 10: the recovery's program, which writes its boot
+# entries, OxyOS's kernel-install plugin and the polkit rule), read by tools/deploy/remote.sh.
+# tools/deploy/system-files.py checks it against the tree: every binary, unit, PAM service, sysusers and
+# tmpfiles file of tools/oxyos-session, tools/oxyos-login and tools/oxyos-accountd is here, every PAM file
+# where its own header says it is installed, the recovery's program, every kernel-install plugin of
+# tools/oxyos-recovery and every polkit rule of config/, each where the image installs it. A FROM in
+# target/release/ is built there (by its tool's package).
 # FROM                                                                  TO                                              MODE
 target/release/oxyos-session                                            /usr/bin/oxyos-session                          0755
 target/release/oxyos-login                                              /usr/libexec/oxyos/oxyos-login                  0755
@@ -20,3 +23,6 @@ tools/oxyos-accountd/pam.d/oxyos-accountd                               /etc/pam
 tools/oxyos-login/oxyos-login.sysusers                                  /usr/lib/sysusers.d/oxyos-login.conf            0644
 tools/oxyos-login/oxyos-login.tmpfiles                                  /usr/lib/tmpfiles.d/oxyos-login.conf            0644
 config/includes.chroot_after_packages/etc/sysctl.d/10-oxyos-ptrace.conf /etc/sysctl.d/10-oxyos-ptrace.conf              0644
+target/release/oxyos-recovery                                           /usr/sbin/oxyos-recovery                        0755
+tools/oxyos-recovery/package/usr/lib/kernel/install.d/91-oxyos-safe-mode.install /usr/lib/kernel/install.d/91-oxyos-safe-mode.install 0755
+config/includes.chroot_after_packages/etc/polkit-1/rules.d/50-oxyos-boot-loader-entry.rules /etc/polkit-1/rules.d/50-oxyos-boot-loader-entry.rules 0644

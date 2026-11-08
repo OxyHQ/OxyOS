@@ -817,7 +817,7 @@ fn a_retry_out_of_turn_and_an_unknown_appearance_are_not_requests() {
 #[test]
 fn a_wait_oxy_asks_for_is_told_before_the_setup_goes_on() {
     let api = FakeApi::default();
-    api.limited.lock().unwrap().push_back(Some(1));
+    api.limited.lock().unwrap().push_back((Some(1), None));
     let mut service = Service::start(api, Enrollers { login: Some(me()) }, 1);
     let client = service.connect();
     client.send(&enroll_by_qr(None)).unwrap();

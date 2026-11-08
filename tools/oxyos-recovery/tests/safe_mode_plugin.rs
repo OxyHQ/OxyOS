@@ -78,3 +78,45 @@ fn kernel_install_writes_safe_mode_beside_the_kernel_and_removes_it_with_it() {
     assert!(!safe.exists());
     fs::remove_dir_all(&esp).unwrap();
 }
+
+#[test]
+fn sync_writes_the_installed_kernels_safe_mode_entries_once() {
+    // As a deploy to a converted machine runs it (tools/deploy/remote.sh), with kernel-install's
+    // boot root and entry token.
+    let esp = std::env::temp_dir().join(format!("oxyos-safe-mode-sync-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&esp);
+    let entries = esp.join("loader/entries");
+    fs::create_dir_all(&entries).unwrap();
+    fs::write(
+        entries.join(format!("oxyos-{VERSION}+3.conf")),
+        format!("title      OxyOS\nsort-key   oxyos\nversion    {VERSION}\noptions    root=UUID=0 ro quiet\nlinux      /oxyos/{VERSION}/linux\ninitrd     /oxyos/{VERSION}/initrd.img-{VERSION}\n"),
+    )
+    .unwrap();
+    fs::write(
+        entries.join("oxyos-recovery.conf"),
+        "title      OxyOS Recovery\nsort-key   oxyos-recovery\n",
+    )
+    .unwrap();
+    let sync = || {
+        let output = Command::new(env!("CARGO_BIN_EXE_oxyos-recovery"))
+            .args(["safe-mode-entry", "sync", "--boot-root"])
+            .arg(&esp)
+            .args(["--entry-token", "oxyos"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    assert_eq!(sync(), format!("oxyos-safe-mode-{VERSION}.conf written.\n"));
+    assert!(
+        fs::read_to_string(entries.join(format!("oxyos-safe-mode-{VERSION}.conf")))
+            .unwrap()
+            .contains("sort-key   oxyos-safe-mode\n")
+    );
+    assert_eq!(sync(), "Safe Mode's entries are as the kernels' are.\n");
+    fs::remove_dir_all(&esp).unwrap();
+}
