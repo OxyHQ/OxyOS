@@ -1186,7 +1186,15 @@ def serve_accounts(path, accounts, login=None, log=None):
         elif by_device:
             # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
             # (the real service's; played here as its answer), and the PIN is the local credential.
-            progress(connection, (["securing"] if pin else []) + ["verifying", "preparing", "signingIn"])
+            progress(connection, (["securing"] if pin else []) + ["verifying", "preparing"])
+            wait = played.get("wait_first")
+            if wait:
+                # `login.enroll.wait_first`: Oxy answered the redemption 429 (its limit, per proof,
+                # oxy ADR 0058): the service tells the wait, waits, and asks again with the same key.
+                record("waiting", wait)
+                connection.send(json.dumps({"waiting": {"retryAfterSeconds": wait}}).encode())
+                time.sleep(wait)
+            progress(connection, ["signingIn"])
             answer = None
         elif request.get("password") != played["password"]:
             progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn"])
@@ -1206,7 +1214,8 @@ def serve_accounts(path, accounts, login=None, log=None):
                 answer = {"failed": {"reason": failing}}
                 failing = None
             elif answer is None:
-                progress(connection, ["finishing"])
+                # The credential confirmed with Oxy once the machine holds it (oxy ADR 0058 R8).
+                progress(connection, ["finishing", "confirming"])
                 listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
@@ -1232,11 +1241,10 @@ def serve_accounts(path, accounts, login=None, log=None):
                 return
             turn = json.loads(packet)
             if kept and turn == "retry":
-                # What the service kept is set up again: the machine, and Oxy only if it was not
-                # reached.
+                # What the service kept is tried again: Oxy, where it was not reached; the machine,
+                # where it could not be set up. Then finishing and the confirmation, as at first.
                 record.asked = "retry"
-                progress(connection, ["preparing", "signingIn"] if answer["failed"]["reason"] == "unreachable"
-                         else ["preparing"])
+                progress(connection, ["signingIn"] if answer["failed"]["reason"] == "unreachable" else ["preparing"])
                 answer = None
                 continue
             if kept or not isinstance(turn, dict) or "secondFactor" not in turn:

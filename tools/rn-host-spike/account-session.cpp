@@ -305,6 +305,16 @@ void AccountSession::reportStages(Stage stage) {
   currentReport = stage ? std::make_unique<StageReport>(StageReport{this, std::move(stage)}) : nullptr;
   oxyos_account_enrollment_on_progress(enrollment_, currentReport ? &AccountSession::reported : nullptr,
                                        currentReport.get());
+  // A wait is told for every call that reports, by the session's own handler.
+  oxyos_account_enrollment_on_waiting(enrollment_, currentReport && waiting_ ? &AccountSession::waited : nullptr,
+                                      currentReport.get());
+}
+
+void AccountSession::waited(void* context, uint64_t seconds) {
+  auto* report = static_cast<StageReport*>(context);
+  if (!report || !report->session->waiting_) return;
+  auto told = report->session->waiting_;
+  report->session->post(Answer{}, [told, seconds](Answer&) { told(seconds); });
 }
 
 void AccountSession::reported(void* context, const char* stage) {
