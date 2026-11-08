@@ -146,7 +146,10 @@ The **Scenarios** check runs on self-hosted runners on a machine that also does 
 keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
 labelled `oxyos-merge` alone (two of them on seldon), so a merge never waits behind a pull request's
 run. `tools/gate/machine.sh`, run as root on a Debian trixie machine, prepares it, and running it
-again changes nothing that is already so:
+again changes nothing that is already so. Changed limits (`GATE_CPU_QUOTA`, `GATE_MEMORY_HIGH`,
+`GATE_MEMORY_MAX`, `GATE_RUN_MEMORY_MAX`) take effect as it runs: it writes them in the slices' units
+and gives them to every gate slice that runs now (`systemctl set-property --runtime`), since systemd
+applies a changed unit only to a slice it starts; it never restarts a slice or a runner:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
