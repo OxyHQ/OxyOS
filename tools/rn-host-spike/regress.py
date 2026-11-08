@@ -5518,6 +5518,17 @@ def main():
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
+    else:
+        # Without one, a home of the run's own all the same, empty: never the developer's. A home
+        # with Desktop, Documents and Downloads in it (a machine that had a desktop) made the
+        # dock's zoom (dock-edges, window-zoom-scaled) leave the work area uncovered, and passed
+        # for a user whose home had none. The machine's GPU cache and drivers are named above.
+        # Not "home": that is a scenario's own, whose existence the checks read as such.
+        empty = (out / "empty-home").resolve()
+        shutil.rmtree(empty, ignore_errors=True)
+        (empty / ".config").mkdir(parents=True)
+        env["HOME"] = str(empty)
+        env["XDG_CONFIG_HOME"] = str(empty / ".config")
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
@@ -5538,10 +5549,12 @@ def main():
     env["TZ"] = RUN_TZ = scenario.get("tz", scenario.get("wallpaper", {}).get("tz", FIXED_TZ))
     # The order the shell's host is to force between the keyboard reaching a region and JavaScript's
     # accessibility focus moving into it (bloom-host.cpp, OXYOS_HOST_TEST_ORDER): "focus-first",
-    # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26).
+    # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26); or an
+    # application window's host, between a modal's own focus and the host following the modal
+    # coming: "window-focus-first" (decision 27).
     env.pop("OXYOS_HOST_TEST_ORDER", None)
     if "host_order" in scenario:
-        if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first"):
+        if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first", "window-focus-first"):
             raise ValueError(f"unknown host_order {scenario['host_order']!r}")
         env["OXYOS_HOST_TEST_ORDER"] = scenario["host_order"]
     recorder = None

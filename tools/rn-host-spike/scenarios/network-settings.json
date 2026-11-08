@@ -1,5 +1,5 @@
 {
-  "about": "Settings' Wi-Fi and Network pages as a Mac's (docs/adr/0038-networks.mdx), Settings granted `settings` and `network` as the image's policy grants it, over a NetworkManager played on the run's own bus (oxyos-fake-networkmanager): LukeSkyRouter joined (WPA2, saved), Café Libre open, Vecinos WPA2 (hunter22!), eduroam 802.1X, an Ethernet port with no cable. Wi-Fi lists the network joined, the known and the other networks (eduroam not supported) and scans; Details says the address, mask, router, DNS, IPv6 and hardware address the daemon has; choosing Vecinos asks its password in the shell's system sheet, never in Settings, and joins, the daemon alone keeping it (it is in no file and no report of Settings'); a known network is forgotten from its menu; Network says Ethernet's cable unplugged, then connected with its speed and address once one is plugged, and that VPNs are not available yet.",
+  "about": "Settings' Wi-Fi and Network pages as a Mac's (docs/adr/0038-networks.mdx), Settings granted `settings` and `network` as the image's policy grants it, over a NetworkManager played on the run's own bus (oxyos-fake-networkmanager): LukeSkyRouter joined (WPA2, saved), Café Libre open, Vecinos WPA2 (hunter22!), eduroam 802.1X, an Ethernet port with no cable. Wi-Fi lists the network joined, the known and the other networks (eduroam not supported) and scans; Details says the address in use, then, in its TCP/IP part, the address, mask, router, DNS and IPv6 address the daemon has; choosing Vecinos asks its password in the shell's system sheet, never in Settings, and joins, the daemon alone keeping it (it is in no file and no report of Settings'); a known network is forgotten from its menu; Network says Ethernet's cable unplugged, then connected with its speed and address once one is plugged, and that VPNs are not available yet.",
   "locale": "en_US.UTF-8",
   "module": "OxyOSSettings",
   "window": [
@@ -116,18 +116,31 @@
       }
     },
     {
-      "name": "Details of the network joined: its IP address, subnet mask, router, DNS, IPv6 and hardware address, as the daemon has them",
+      "name": "Details of the network joined: its Wi-Fi part, the address in use as the daemon has it (docs/adr/0038-networks.mdx, 8 November 2026)",
       "do": [
         "press_named",
         "Details of “LukeSkyRouter”"
       ],
       "expect": {
         "texts": [
+          "Private Wi-Fi address",
+          "Wi-Fi address",
+          "F4:A4:75:12:34:56"
+        ]
+      }
+    },
+    {
+      "name": "Its TCP/IP part: its IP address, subnet mask, router, DNS and IPv6 address, as the daemon has them",
+      "do": [
+        "press_named",
+        "TCP/IP"
+      ],
+      "expect": {
+        "texts": [
           "192.168.8.133",
           "255.255.255.0",
           "192.168.8.1",
-          "2001:db8::133",
-          "F4:A4:75:12:34:56"
+          "2001:db8::133"
         ]
       }
     },
