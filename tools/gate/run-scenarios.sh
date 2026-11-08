@@ -42,7 +42,14 @@ while [ $# -gt 0 ]; do
     *) sed -n '8,12p' "$0" >&2; exit 2 ;;
   esac
 done
-"$TREE/tools/dev/bootstrap"
+# build COMMAND...: a build (bootstrap, Cargo, CMake and Ninja, npm and the packages' bundlers) at
+# the least priority, below every gate's scenarios. Every gate on the machine shares its CPU task by
+# task (tools/gate/machine.sh: no CPU controller below oxyosgate.slice), so a build at full priority
+# took the CPU of another gate's running scenarios: a deploy beside a merge-queue run's build failed
+# 17 scenarios that passed alone, each late by a step (the host answering a press 0.8 s on, a drag's
+# return without its frames). A scenario never runs below a build, whichever gate either is.
+build() { nice -n 19 "$@"; }
+build "$TREE/tools/dev/bootstrap"
 . "$TREE/tools/dev/env.sh"
 W=$OXYOS_TOOLCHAIN
 IM=$OXYOS_INPUT_METHODS_WORK/prefix
@@ -62,8 +69,9 @@ T=$CARGO_TARGET_DIR/release
 started=$(date +%s)
 phase() { echo "[$(( $(date +%s) - started ))s] $*"; }
 fail() { echo "gate: $*"; exit 1; }
-# step LOG COMMAND...: the command's output in the run's LOG, its last lines said if it fails.
-step() { log=$R/$1; shift; "$@" > "$log" 2>&1 || { tail -30 "$log"; fail "$(basename "$log" .log) failed (log: $log)"; }; }
+# step LOG COMMAND...: a build's command (build), its output in the run's LOG, its last lines said if
+# it fails.
+step() { log=$R/$1; shift; build "$@" > "$log" 2>&1 || { tail -30 "$log"; fail "$(basename "$log" .log) failed (log: $log)"; }; }
 
 phase "OxyOS $(git -C "$TREE" rev-parse --short HEAD), Bloom $(git -C "$BLOOM_DIR" rev-parse --short HEAD), Dropsea $(git -C "$DROPSEA_DIR" rev-parse --short HEAD), Atlas $(git -C "$ATLAS_DIR" rev-parse --short HEAD); run $R"
 cd "$TREE"
