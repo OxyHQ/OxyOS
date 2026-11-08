@@ -52,6 +52,7 @@ import {
   recoveryKeyGroups,
   search,
   stageOf,
+  staysOpen,
   urlsFromText,
   warningsOf,
   type Audit,
@@ -813,6 +814,26 @@ function Browser({ client, words, onChanged, locale }: Common & { locale: string
   React.useEffect(() => {
     void load();
   }, [load]);
+  // The session's lock deactivates the window and locks the keychain: each time the window becomes
+  // active or stops being, the service is asked whether the keychain may stay open, and nothing of
+  // it is shown until it says so. Locked, unlocked with a PIN, or the proof gone with the lock: it
+  // closes, forgetting everything shown, and asks for the account's password again.
+  const [checking, setChecking] = React.useState(false);
+  React.useEffect(() => {
+    if (!client.watchActive) return;
+    let current = true;
+    const unsubscribe = client.watchActive(async () => {
+      setChecking(true);
+      const told = await asked(client.status());
+      if (!current) return;
+      if ("ok" in told && staysOpen(told.ok)) setChecking(false);
+      else lapse();
+    });
+    return () => {
+      current = false;
+      unsubscribe();
+    };
+  }, [client, lapse]);
   const open = (next: Sheet) => {
     touch();
     setOpened((count) => count + 1);
@@ -829,6 +850,13 @@ function Browser({ client, words, onChanged, locale }: Common & { locale: string
   }));
   const listed = items ? search(itemsIn(category, items, audit), query) : [];
   const listing = category !== "devices";
+  if (checking) {
+    return (
+      <View style={{ alignItems: "center", paddingVertical: 32 }} testID="passwords-checking">
+        <Loading size="sm" accessibilityLabel={words.title} />
+      </View>
+    );
+  }
   return (
     <View style={{ gap: 16 }} testID="passwords-open">
       <CategoryBar

@@ -15,6 +15,7 @@ import {
   recoveryKeyGroups,
   search,
   stageOf,
+  staysOpen,
   statusFrom,
   summaryFrom,
   urlsFromText,
@@ -210,6 +211,11 @@ test("the page opens behind the password, but for a locked keychain and a lost p
   assert.equal(stageOf(status("removed", true)), "removed");
   assert.equal(stageOf(status("unbound", true)), "unbound");
   assert.equal(stageOf(status("member", true)), "open");
+  // Asked again as the window's activation changes (the lock): open only while verified.
+  assert.equal(staysOpen(status("member", true)), true);
+  assert.equal(staysOpen(status("member", false)), false);
+  assert.equal(staysOpen(status("locked", false, null)), false);
+  assert.equal(staysOpen(null), false);
   assert.equal(closesAccess({ refused: "verificationRequired" }), true);
   assert.equal(closesAccess({ refused: "locked" }), true);
   assert.equal(closesAccess({ refused: "wrongPassword" }), false);

@@ -159,6 +159,10 @@ export type KeychainPlatform = {
   /** Copies `text` marked sensitive (docs/adr/0007-clipboard.mdx, decision 6): clipboard managers
       keep none of it, and it is cleared after `SENSITIVE_CLEAR_SECONDS` if still there. */
   copySensitive: (text: string) => Promise<boolean>;
+  /** Calls `listener` each time Settings' window becomes active or stops being (the session's lock
+      leaves no window active, docs/adr/0016-windows.mdx): Passwords asks again whether it may stay
+      open. Returns the unsubscribe; none where the platform cannot tell. */
+  watchActive?: (listener: (active: boolean) => void) => () => void;
 };
 
 /** How long a copied password or code stays on the clipboard (ADR 0050 decision 8). */
@@ -413,6 +417,7 @@ export function keychainClient(platform: KeychainPlatform) {
       ask({ keychainGenerate: {} }, "generatedPassword", (value) => (isString(value) && value !== "" ? value : null)),
     code: (itemId: string) => ask({ keychainCode: { itemId } }, "keychainCode", codeFrom),
     copySensitive: (text: string) => platform.copySensitive(text),
+    watchActive: platform.watchActive,
   };
 }
 
@@ -562,6 +567,12 @@ export function stageOf(status: KeychainStatus | null): Stage {
     case "member":
       return "open";
   }
+}
+
+/** Whether the keychain, as the service tells it now, may stay open in the page: a member's, the
+    person verified. Anything else (locked with the session, the proof lapsed) closes it. */
+export function staysOpen(status: KeychainStatus | null): boolean {
+  return status !== null && status.state === "member" && status.verified;
 }
 
 /** Whether a refusal means the page must be opened again: the proof lapsed, or the session

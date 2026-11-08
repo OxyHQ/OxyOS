@@ -1024,11 +1024,27 @@ const eraseActions: EraseActions | undefined = accountSession
     request handed to the host, which sends it to the accounts' service and forgets it, and a copy
     marked sensitive, which the host clears after 90 seconds (docs/adr/0007-clipboard.mdx). */
 const clipboard = TurboModuleRegistry.get<{ setSensitiveString?(text: string): Promise<boolean> }>('OxyOSClipboard');
+const nativeWindow = TurboModuleRegistry.get<{
+  getConstants?(): { available?: boolean };
+  getState(): { active?: unknown };
+}>('OxyOSWindow');
 const keychainPlatform: KeychainPlatform | undefined =
   accountSession && typeof accountSession.keychain === 'function'
     ? {
         ask: (request) => accountSession.keychain(JSON.stringify(request)),
         copySensitive: async (text) => (clipboard?.setSensitiveString ? clipboard.setSensitiveString(text) : false),
+        // The window's activation as the host tells it (docs/adr/0016-windows.mdx): the lock leaves
+        // no window active, so Passwords asks again whether it may stay open.
+        watchActive: (listener) => {
+          const told = nativeWindow?.getConstants?.()?.available ? nativeWindow.getState() : null;
+          let active: boolean | null = typeof told?.active === 'boolean' ? told.active : null;
+          const subscription = DeviceEventEmitter.addListener('OxyOSWindowChanged', (state: { active?: unknown }) => {
+            if (typeof state?.active !== 'boolean' || state.active === active) return;
+            active = state.active;
+            listener(state.active);
+          });
+          return () => subscription.remove();
+        },
       }
     : undefined;
 
