@@ -93,7 +93,7 @@
           ]
         },
         "at_hit": {
-          "890,291": {
+          "890,382": {
             "role": "Switch",
             "name": "Prefer non-blinking cursor"
           }
@@ -106,16 +106,19 @@
           }
         },
         "pixels": {
-          "872,292": "#e9dce3",
-          "904,292": "#8c798d"
+          "872,383": "#e9dce3",
+          "904,383": "#8c798d"
         }
       }
     },
     {
       "name": "the switch pressed in Settings' inactive window only activates it, as a Mac's first click on a control: the switch stays off and React hears nothing",
       "do": [
-        "press_named",
-        "Prefer non-blinking cursor"
+        "press",
+        [
+          890,
+          382
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -149,8 +152,8 @@
           }
         },
         "pixels": {
-          "872,292": "#e9dce3",
-          "904,292": "#8c798d"
+          "872,383": "#e9dce3",
+          "904,383": "#8c798d"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -161,8 +164,11 @@
     {
       "name": "pressed again in the active window, the switch turns on: the session keeps caret_blink off and tells every application at once, Settings and the other alike",
       "do": [
-        "press_named",
-        "Prefer non-blinking cursor"
+        "press",
+        [
+          890,
+          382
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -202,8 +208,8 @@
           }
         },
         "pixels": {
-          "872,292": "#9422ae",
-          "904,292": "#ffeefc"
+          "872,383": "#9422ae",
+          "904,383": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -277,8 +283,11 @@
     {
       "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
       "do": [
-        "press_named",
-        "Prefer non-blinking cursor"
+        "press",
+        [
+          890,
+          382
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -314,8 +323,8 @@
           }
         },
         "pixels": {
-          "872,292": "#9422ae",
-          "904,292": "#ffeefc"
+          "872,383": "#9422ae",
+          "904,383": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -326,8 +335,11 @@
     {
       "name": "pressed again in the active window, the switch off: the session keeps caret_blink on; the other application's caret, its window not the key one, is not drawn and does not blink",
       "do": [
-        "press_named",
-        "Prefer non-blinking cursor"
+        "press",
+        [
+          890,
+          382
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -365,8 +377,8 @@
           }
         },
         "pixels": {
-          "872,292": "#e9dce3",
-          "904,292": "#8c798d"
+          "872,383": "#e9dce3",
+          "904,383": "#8c798d"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -440,8 +452,11 @@
     {
       "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
       "do": [
-        "press_named",
-        "Prefer non-blinking cursor"
+        "press",
+        [
+          890,
+          382
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -475,8 +490,8 @@
           }
         },
         "pixels": {
-          "872,292": "#e9dce3",
-          "904,292": "#8c798d"
+          "872,383": "#e9dce3",
+          "904,383": "#8c798d"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -487,8 +502,11 @@
     {
       "name": "pressed again in the active window, the switch on again: kept, and told to both",
       "do": [
-        "press_named",
-        "Prefer non-blinking cursor"
+        "press",
+        [
+          890,
+          382
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -528,8 +546,8 @@
           }
         },
         "pixels": {
-          "872,292": "#9422ae",
-          "904,292": "#ffeefc"
+          "872,383": "#9422ae",
+          "904,383": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 0,

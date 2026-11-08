@@ -104,8 +104,11 @@
     {
       "name": "Reduce motion's switch on: the session keeps it and tells every application",
       "do": [
-        "press_named",
-        "Reduce motion"
+        "press",
+        [
+          890,
+          250
+        ]
       ],
       "allow_unchanged": true,
       "expect": {
@@ -124,7 +127,7 @@
           ]
         },
         "pixels": {
-          "874,165": "#006eaf"
+          "874,250": "#006eaf"
         }
       }
     },
