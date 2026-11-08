@@ -324,10 +324,10 @@ fn a_password_pam_rejects_that_oxy_accepts_becomes_the_verifier() {
         Checked::ACCEPTED
     );
     assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
-    // The platform's own sign-in, which rotated the credential.
+    // The platform's own sign-in, which rotated the credential, confirmed (R8).
     assert_eq!(
         machine.api().calls(),
-        [Call::Mint, Call::Profile, Call::Password]
+        [Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     assert_eq!(
         machine.stored().credential.unwrap().device_secret.expose(),
@@ -632,4 +632,46 @@ fn mints_are_rationed_per_application() {
         .platform
         .token(uid, &Attestation::OwnPlatform, TokenReason::Boot)
         .is_some());
+}
+
+#[test]
+fn a_rotation_oxy_could_not_confirm_keeps_the_credential_the_machine_had() {
+    const NEW: &str = "a new password set elsewhere";
+    let machine = machine_as(
+        FakeApi {
+            password: NEW,
+            ..FakeApi::default()
+        },
+        NEW,
+        None,
+    );
+    let before = machine.stored().credential.unwrap().device_secret;
+    machine
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    // The password was changed elsewhere: Oxy accepts the new one, which becomes the verifier,
+    // and the rotation waits for another check.
+    let name = account().user_name();
+    machine
+        .users()
+        .users
+        .lock()
+        .unwrap()
+        .get_mut(name.as_str())
+        .unwrap()
+        .1 = Some(PASSWORD.into());
+    assert_eq!(
+        machine
+            .platform
+            .check(&user(), Secret::new(NEW), Local::Rejected),
+        Checked::ACCEPTED
+    );
+    assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
+    assert_eq!(machine.stored().credential.unwrap().device_secret, before);
+    // The credential the machine has still works: the rotated one was never confirmed (R8).
+    assert!(machine.api().live().contains(&before.expose().to_owned()));
+    assert!(machine.api().is_pending(&platform_secret(2)));
 }
