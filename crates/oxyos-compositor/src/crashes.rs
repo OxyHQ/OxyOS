@@ -602,7 +602,8 @@ impl Crashes {
         for number in numbers {
             if let Some(accepted) = scene.take_sheet_answer(number) {
                 let id = self.notices.remove(&number).expect("shown");
-                if accepted {
+                // Reopen: unless the person opened it meanwhile.
+                if accepted && !launcher.runs(&id) {
                     served.open.push(id);
                 }
             }
@@ -654,7 +655,10 @@ impl Crashes {
                 continue;
             }
             match action.as_deref() {
-                None | Some("reopen") => served.open.push(application),
+                None | Some("reopen") if !launcher.runs(&application) => {
+                    served.open.push(application)
+                }
+                None | Some("reopen") => {}
                 Some("report") => {
                     if !self.notices.values().any(|shown| *shown == application) {
                         self.show_notice(scene, &application, true);

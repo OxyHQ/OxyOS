@@ -684,6 +684,24 @@ fn reopen_is_the_sheets_answer_and_the_notifications_press() {
             .open,
         [MENTION]
     );
+    // Opened meanwhile (from the dock, say): Reopen opens no second one.
+    let running = launcher.launch(MENTION).unwrap();
+    session.told.clear();
+    crashes.exited_at(
+        &mut session.scene,
+        &[exit(MENTION, SEGV, false, None)],
+        start + REPEATED * 4,
+        utc(4_000),
+    );
+    session.pump();
+    let number = session.notifications()[0].0;
+    session.activate(number, 1);
+    assert_eq!(
+        crashes.serve_at(&mut session.scene, &mut launcher, false, start),
+        Served::default()
+    );
+    assert!(launcher.kill(running));
+    launcher.end(Duration::from_secs(2));
 }
 
 #[test]

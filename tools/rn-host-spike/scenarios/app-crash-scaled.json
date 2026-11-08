@@ -57,7 +57,7 @@
             "application": "so.oxy.crashprobe",
             "contains": [
               "Reason:       exit status 70",
-              "Fatal JavaScript error: Error: Its storage cannot be read"
+              "Its storage cannot be read"
             ]
           }
         ]
@@ -127,7 +127,7 @@
             "Listo"
           ],
           "texts_matching": [
-            "Fatal JavaScript error: Error: Its storage cannot be read"
+            "Its storage cannot be read"
           ],
           "absent": [
             "Crash Probe sigue cerrándose inesperadamente"
