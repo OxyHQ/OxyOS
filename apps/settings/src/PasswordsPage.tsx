@@ -106,39 +106,46 @@ export function PasswordsPage({ actions, strings, locale }: Props) {
     setClosed(false);
     await refresh();
   }, [refresh]);
-  // The session's lock leaves no window active (docs/adr/0016-windows.mdx) and locks the keychain.
-  // Each time Settings' window stops being active the service is asked whether the keychain may
-  // stay open (at once and again a moment later, once the lock has reached it); each time it
-  // becomes active again nothing of the page shows, sheets included, until the service said so.
-  // Locked, or the proof gone with the lock (a PIN never opens it): every stage is made anew,
-  // forgetting what it held (a list, an item, a recovery key, a code, what was typed), and the
-  // account's password is asked again.
+  // The session's lock leaves no window active (docs/adr/0016-windows.mdx) and locks the keychain,
+  // but tells applications nothing else. So whenever Settings' window is not the active one (it
+  // stopped being, or another application was active when the session locked), the service is
+  // asked every few seconds whether the keychain is still unlocked and the person verified
+  // (`keychainStatus`, which renews nothing); when the window becomes active again nothing of the
+  // page shows, its sheets included, until the service said so. Locked, or the proof gone with the
+  // lock (a PIN never opens the keychain): every stage is made anew, forgetting what it held (a
+  // list, an item, a recovery key, a code, what was typed), and the account's password is asked
+  // again. While the window stays active nothing is asked: the lock makes it inactive first.
   const [hidden, setHidden] = React.useState(false);
   const [generation, setGeneration] = React.useState(0);
   React.useEffect(() => {
     if (!client?.watchActive) return;
     let current = true;
-    let again: ReturnType<typeof setTimeout> | undefined;
+    let polling: ReturnType<typeof setInterval> | undefined;
+    // Whether the last answer let the page stay: it is made anew once as that ends, not at every ask.
+    let stayed = true;
     const check = async () => {
       const told = await asked(client.status());
       if (!current) return;
       const now = "ok" in told ? told.ok : null;
-      if (!staysOpen(now)) {
+      const stays = staysOpen(now);
+      if (!stays && stayed) {
         setClosed(true);
         setGeneration((count) => count + 1);
+        setStatus(now);
       }
-      setStatus(now);
+      stayed = stays;
       setHidden(false);
     };
     const unsubscribe = client.watchActive((active) => {
-      if (again) clearTimeout(again);
+      if (polling) clearInterval(polling);
+      polling = undefined;
       if (active) setHidden(true);
+      else polling = setInterval(() => void check(), INACTIVE_CHECK_MS);
       void check();
-      if (!active) again = setTimeout(() => void check(), 2000);
     });
     return () => {
       current = false;
-      if (again) clearTimeout(again);
+      if (polling) clearInterval(polling);
       unsubscribe();
     };
   }, [client]);
@@ -729,6 +736,10 @@ function Join({ client, words, onChanged, note }: Common & { note: string | null
     </Panel>
   );
 }
+
+/** How often Passwords asks whether the keychain is still open while Settings' window is not the
+    active one (the session may lock meanwhile). */
+const INACTIVE_CHECK_MS = 2000;
 
 /** How often a join or an approval asks how it goes. */
 const FOLLOW_MS = 2000;

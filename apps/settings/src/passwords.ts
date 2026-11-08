@@ -160,8 +160,9 @@ export type KeychainPlatform = {
       keep none of it, and it is cleared after `SENSITIVE_CLEAR_SECONDS` if still there. */
   copySensitive: (text: string) => Promise<boolean>;
   /** Calls `listener` each time Settings' window becomes active or stops being (the session's lock
-      leaves no window active, docs/adr/0016-windows.mdx): Passwords asks again whether it may stay
-      open. Returns the unsubscribe; none where the platform cannot tell. */
+      leaves no window active, docs/adr/0016-windows.mdx), and at once with `false` if it is not
+      active as it is called: Passwords asks whether it may stay open. Returns the unsubscribe;
+      none where the platform cannot tell. */
   watchActive?: (listener: (active: boolean) => void) => () => void;
 };
 

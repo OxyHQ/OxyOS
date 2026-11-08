@@ -1043,6 +1043,8 @@ const keychainPlatform: KeychainPlatform | undefined =
             active = state.active;
             listener(state.active);
           });
+          // Not active already (another application is): said at once, so it is followed from now.
+          if (active === false) listener(false);
           return () => subscription.remove();
         },
       }
