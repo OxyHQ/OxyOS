@@ -2585,6 +2585,7 @@ dependencies = [
  "jiff",
  "libc",
  "oxyos-keychain",
+ "oxyos-preferences",
  "oxyos-seqpacket",
  "rand_core 0.6.4",
  "rustix",

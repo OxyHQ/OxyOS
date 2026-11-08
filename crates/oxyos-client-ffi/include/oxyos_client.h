@@ -2145,7 +2145,8 @@ void oxyos_account_session_subscription_free(OxyOSAccountSubscription* subscript
  * the SDK's sign-in runs with: JSON {"api", "clientId"}, neither secret; OXYOS_ERROR when the
  * service could not be asked or refused (`notConfigured`: no client id). */
 int64_t oxyos_account_platform(char* out, size_t capacity);
-/* One setup's conversation: `enroll`, then second factors while the service asks for one. */
+/* One setup's conversation: `enroll`, then second factors while the service asks for one, and
+ * `retry` after a failure whose sign-in the service kept. */
 typedef struct OxyOSAccountEnrollment OxyOSAccountEnrollment;
 /* NULL when the service cannot be reached (oxyos_last_error). */
 OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
@@ -2153,21 +2154,42 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * password (null for an account without one) and the PIN chosen for this computer (null for none;
  * 4 to 16 digits; docs/adr/0020-oxy-account-login.mdx decision 2), NUL-terminated UTF-8; the
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
- * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
- * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}} ("pinRequired": a setup without a password, by the QR, needs a PIN;
- * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
+ * the password and the PIN at least. Blocks while the service sets the account up, telling its
+ * steps to oxyos_account_enrollment_on_progress's function. The answer, JSON:
+ * {"enrolled": {"accountId", "user"}}, "secondFactorRequired",
+ * {"failed": {"reason": "unreachable" | "localFailure"}} (Oxy could not be reached, or the machine
+ * could not be set up and was put back: the sign-in is kept, oxyos_account_enrollment_retry tries
+ * again, never a new sign-in) or {"refused": {"reason", "retryAfterSeconds"}}, which ends the setup
+ * ("credentialRefused": sign in again; "pinRequired": a setup without a password, by the QR, needs
+ * a PIN; "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
                                         const char* device_secret, const char* account_id,
                                         const char* password, const char* pin, char* out, size_t capacity);
 /* Answers the second factor the service asked for (`code`, secret): the answer as _enroll's; a wrong
- * code {"refused": {"reason": "secondFactorInvalid"}}, after which another may be sent. */
+ * code {"refused": {"reason": "secondFactorInvalid"}}, or {"failed": {"reason": "unreachable"}},
+ * after which a code may be sent again. */
 int64_t oxyos_account_enrollment_second_factor(OxyOSAccountEnrollment* enrollment, const char* code,
                                                char* out, size_t capacity);
 /* The setup's last answer again. */
 int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment, char* out,
                                         size_t capacity);
+/* The setup again after a {"failed": …} answer, with the sign-in the service kept: the answer as
+ * _enroll's, its steps told as _enroll's are. Blocks as _enroll does. */
+int64_t oxyos_account_enrollment_retry(OxyOSAccountEnrollment* enrollment, char* out, size_t capacity);
+/* A setup's step, as the service starts it: "securing" (the PIN's verifier), "verifying" (Oxy checks
+ * the sign-in), "preparing" (the account's user and home), "signingIn" (Oxy issues this computer's
+ * credential), "finishing" (the account's file, its verifier), in that order, any of them skipped
+ * where it has nothing to do (a retry with a kept credential: "preparing", "finishing"). `stage` is
+ * a static string; nothing secret is told. */
+typedef void (*OxyOSAccountEnrollmentProgressFn)(void* context, const char* stage);
+/* `progress` (null: none) is called with `context` on the thread blocked in _enroll,
+ * _second_factor or _retry, before that call returns. 0, or OXYOS_ERROR. */
+int oxyos_account_enrollment_on_progress(OxyOSAccountEnrollment* enrollment,
+                                         OxyOSAccountEnrollmentProgressFn progress, void* context);
+/* The appearance a new account's home starts with, "light", "dark" or "auto", before _enroll: 0, or
+ * OXYOS_ERROR for anything else (nothing set). An account set up again keeps its own. */
+int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);
 /* Ends a setup: closing its connection abandons what the service had not finished. */
 void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
 
