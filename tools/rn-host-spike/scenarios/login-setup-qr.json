@@ -1,5 +1,5 @@
 {
-  "about": "Adding an Oxy account with the QR (docs/adr/0020-oxy-account-login.mdx, decision 4), against a played Oxy API and a played accounts' service (no credential of anyone's): \"Add Account\" pressed beside an enrolled account, online, the login screen shows the Oxy SDK's own account chooser, the one an app's account dialog shows, on its card: on a computer, as in a browser, its split card with the Commons QR a phone scans beside the form, the card grown to the width the chooser asks, the email or username field focused. The screen joins Oxy's Socket.IO `/auth-session` namespace over React Native's WebSocket (the host's WebSocketModule) and a phone approves the request then (the played API's stand-in): told on the socket, the screen claims the session at once, not at its status check twelve seconds on, the credential goes to the host, and the person gives the account's password once more, in the login screen's own field, focused. The accounts' service sets the account up with the credential and the password; enrolled, the new account is chosen and its password signs it in.",
+  "about": "Adding an Oxy account with the QR (docs/adr/0020-oxy-account-login.mdx, decision 4), against a played Oxy API and a played accounts' service (no credential of anyone's): \"Add Account\" pressed beside an enrolled account, online, the login screen shows the Oxy SDK's own account chooser, the one an app's account dialog shows, on its card: on a computer, as in a browser, its split card with the Commons QR a phone scans beside the form, the card grown to the width the chooser asks, the email or username field focused. The screen joins Oxy's Socket.IO `/auth-session` namespace over React Native's WebSocket (the host's WebSocketModule) and a phone approves the request then (the played API's stand-in): told on the socket, the screen claims the session at once, once (one approval: the account on the device, its token taken by every request after; no device picker ever shown), not at its status check twelve seconds on, the credential goes to the host, and the person gives the account's password once more, in the login screen's own field, focused. The accounts' service sets the account up with the credential and the password; enrolled, the new account is chosen and its password signs it in.",
   "shell": "OxyOSLogin",
   "outputs": "1280x800",
   "login": {
@@ -92,7 +92,9 @@
           ],
           "absent": [
             "Get Commons",
-            "Commons isn't installed"
+            "Commons isn't installed",
+            "Choose an account",
+            "Use another account"
           ],
           "focus_input": "signin-identifier"
         }
@@ -111,6 +113,8 @@
           "WS /auth-session auth_update 101",
           "GET /auth/session/status/{token} 200",
           "POST /auth/session/claim 200",
+          "POST /session/device/add 200",
+          "GET /users/me 200",
           "GET /users/me/sign-in-methods 200"
         ],
         "delivered": {},
@@ -121,9 +125,15 @@
           ],
           "absent": [
             "Scan with Commons to sign in",
-            "Email or username"
+            "Email or username",
+            "Choose an account",
+            "Use another account"
           ],
           "focus_input": "login-setup-password"
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 1,
+          "POST /auth/session/create 200": 0
         }
       }
     },
@@ -155,6 +165,10 @@
           "never": [
             "played password 1"
           ]
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 0,
+          "POST /auth/session/create 200": 0
         }
       }
     },
