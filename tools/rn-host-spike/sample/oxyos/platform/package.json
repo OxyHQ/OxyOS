@@ -1,0 +1,10 @@
+{
+  "name": "@oxyos/platform",
+  "private": true,
+  "description": "OxyOS's platform API (docs/adr/0058-the-platform-api.mdx), in the runtime's framework.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.ts"
+  }
+}

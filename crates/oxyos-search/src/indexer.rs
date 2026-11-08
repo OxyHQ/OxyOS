@@ -20,12 +20,19 @@
 //!   Directory Tagging Specification, which Cargo's, pip's and other caches write), and the folders
 //!   the person kept out in Settings › Spotlight.
 //! - **Settled:** once nothing waits, it tells the writer, which commits and closes.
+//! - **Rebuilt** when the person asks (Settings › Spotlight's *Rebuild Index…*): a new, empty
+//!   index beside the one answering, and a crawl that reads every item into it, as the first
+//!   crawl of a new index does, at the same idle classes; then it takes the old one's place. A
+//!   rebuild the service stopped in goes on at its next start, its committed items not read
+//!   again. Asked during another crawl, that crawl ends where it is and the rebuild begins.
+//! - **How far a crawl went** (the items it went through) is in the state the service tells,
+//!   and the service is woken to tell it at most once a second, only while someone follows it.
 //! - **Idle:** with nothing to do, the thread waits on its descriptors with no deadline.
 
 use crate::category::Category;
 use crate::extract;
-use crate::index::{Record, Searcher, Source};
-use crate::writer::{Status, Write};
+use crate::index::{Index, Record, Searcher, Source};
+use crate::writer::{Status, Wake, Write};
 use oxyos_files::{tag_index::EXCLUDED_FOLDERS, tags, uri, Scope};
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use rustix::fd::{AsFd, OwnedFd};
@@ -44,6 +51,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub const SETTLE: Duration = Duration::from_millis(400);
 /// How many items a crawl reads between looks at its commands.
 const COMMANDS_EVERY: u32 = 256;
+/// How often, at most, a crawl wakes the service to tell how far it went (while followed).
+const PROGRESS_EVERY: Duration = Duration::from_secs(1);
 
 /// What a watched folder's watch is told of.
 const FOLDER_EVENTS: WatchFlags = WatchFlags::ATTRIB
@@ -61,13 +70,27 @@ const FOLDER_EVENTS: WatchFlags = WatchFlags::ATTRIB
 pub enum Command {
     /// The folders the person kept out (Settings › Spotlight), all of them.
     Excluded(Vec<PathBuf>),
+    /// Discard the index and build it again from the files.
+    Rebuild,
 }
 
 /// The crawler's thread's state.
 pub struct Indexer {
     scope: Scope,
+    /// The index's cache folder (where a rebuild's index is made).
+    cache: PathBuf,
     /// The index as committed: what it holds of the files when the crawl begins.
     searcher: Searcher,
+    /// A rebuild's index, as committed, while it is built.
+    rebuilding: Option<Searcher>,
+    /// A rebuild was asked and has not begun.
+    rebuild_asked: bool,
+    /// The service's wake, to tell it the state changed.
+    wake: Wake,
+    /// When the service was last woken to tell how far a crawl went.
+    progress_told: Option<Instant>,
+    /// Items the crawl under way went through.
+    found: u64,
     /// Where what it reads goes.
     writes: Sender<Write>,
     inotify: OwnedFd,
@@ -92,14 +115,22 @@ pub struct Indexer {
 impl Indexer {
     pub fn new(
         scope: Scope,
+        cache: PathBuf,
         searcher: Searcher,
         writes: Sender<Write>,
         excluded: Vec<PathBuf>,
         status: Arc<Mutex<Status>>,
+        wake: Wake,
     ) -> std::io::Result<Indexer> {
         Ok(Indexer {
             scope,
+            cache,
             searcher,
+            rebuilding: None,
+            rebuild_asked: false,
+            wake,
+            progress_told: None,
+            found: 0,
             writes,
             inotify: inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK)?,
             folders: HashMap::new(),
@@ -128,10 +159,19 @@ impl Indexer {
         if !self.commands(&commands) {
             return;
         }
-        self.crawl_all(&commands);
+        // A rebuild the service stopped in goes on; otherwise the index is reconciled.
+        let resume = Index::rebuild_under_way(&self.cache);
+        if resume {
+            self.rebuild(&commands, true);
+        } else {
+            self.crawl_all(&commands);
+        }
         self.status.lock().expect("lock").crawled = true;
         let mut buffer = vec![MaybeUninit::<u8>::uninit(); 64 * 1024];
         loop {
+            if self.rebuild_asked {
+                self.rebuild(&commands, false);
+            }
             self.settle();
             let deadline = self.deadline();
             if deadline.is_none() && !self.settled {
@@ -189,8 +229,15 @@ impl Indexer {
     fn busy(&mut self) {
         if self.settled {
             self.settled = false;
-            self.status.lock().expect("lock").crawler_idle = false;
+            let followed = {
+                let mut status = self.status.lock().expect("lock");
+                status.crawler_idle = false;
+                status.followed
+            };
             let _ = self.writes.send(Write::Busy);
+            if followed {
+                self.wake.status();
+            }
         }
     }
 
@@ -212,6 +259,8 @@ impl Indexer {
 
     fn command(&mut self, command: Command) {
         match command {
+            // One under way is the one asked.
+            Command::Rebuild => self.rebuild_asked = self.rebuilding.is_none(),
             Command::Excluded(excluded) => {
                 self.busy();
                 let added: Vec<PathBuf> = excluded
@@ -265,8 +314,35 @@ impl Indexer {
         places
     }
 
-    /// Reconciles the index with every place: what it held, by what is there now.
-    fn crawl_all(&mut self, commands: &Receiver<Command>) {
+    /// Builds the index again from the files: a new index beside the one answering (the one
+    /// under way when `resume`), every item read into it, then it takes the old one's place.
+    /// Ends early, the new index left for the next start, only if the service is gone.
+    fn rebuild(&mut self, commands: &Receiver<Command>, resume: bool) {
+        self.rebuild_asked = false;
+        let index = match Index::rebuild(&self.cache, resume) {
+            Ok(index) => index,
+            Err(error) => {
+                eprintln!("[search] the index cannot be rebuilt: {error}");
+                self.status.lock().expect("lock").rebuilding = false;
+                self.wake.status();
+                return;
+            }
+        };
+        self.rebuilding = Some(index.searcher_handle());
+        self.status.lock().expect("lock").rebuilding = true;
+        self.write(Write::Rebuild(Box::new(index)));
+        let ended = self.crawl_all(commands);
+        self.rebuilding = None;
+        if ended {
+            // The writer says it is no longer rebuilding once its index answers.
+            self.write(Write::Rebuilt);
+        }
+    }
+
+    /// Reconciles the index with every place: what it held, by what is there now (a rebuild's
+    /// index, while one is built). False if it ended early: the service gone, or a rebuild asked
+    /// (what it did not reach is then not removed).
+    fn crawl_all(&mut self, commands: &Receiver<Command>) -> bool {
         for wd in self.wds.keys() {
             let _ = inotify::remove_watch(&self.inotify, *wd);
         }
@@ -274,15 +350,22 @@ impl Indexer {
         self.folders.clear();
         self.told_partial = false;
         self.busy();
-        let _ = self.searcher.reload();
-        self.known = self.searcher.files().ok();
+        let searcher = self.rebuilding.as_ref().unwrap_or(&self.searcher).clone();
+        let _ = searcher.reload();
+        self.known = searcher.files().ok();
         self.seen.clear();
+        self.found = 0;
+        self.progress(true);
         self.roots = self.places();
+        let mut ended = true;
         for root in self.roots.clone() {
-            self.crawl_with(&root, Some(commands));
+            if !self.crawl_with(&root, Some(commands)) {
+                ended = false;
+                break;
+            }
         }
         // What the index held that is no longer there.
-        if let Some(known) = self.known.take() {
+        if let Some(known) = self.known.take().filter(|_| ended) {
             for id in known.into_keys() {
                 if !self.seen.contains(&id) {
                     self.write(Write::Remove(id));
@@ -290,6 +373,26 @@ impl Indexer {
             }
         }
         self.seen = HashSet::new();
+        self.status.lock().expect("lock").found = None;
+        ended
+    }
+
+    /// Says how far the crawl went: in the state at once, and to the service (to tell who follows
+    /// it) at once when `now`, else at most once a second.
+    fn progress(&mut self, now: bool) {
+        let followed = {
+            let mut status = self.status.lock().expect("lock");
+            status.found = Some(self.found);
+            status.followed
+        };
+        let due = now
+            || self
+                .progress_told
+                .is_none_or(|told| told.elapsed() >= PROGRESS_EVERY);
+        if followed && due {
+            self.progress_told = Some(Instant::now());
+            self.wake.status();
+        }
     }
 
     fn sync_volumes(&mut self, commands: &Receiver<Command>) {
@@ -346,8 +449,9 @@ impl Indexer {
     }
 
     /// Crawls the folder `top` (watched, read, each folder and file in it indexed if it is not
-    /// as the index holds it). A long crawl takes commands and commits as it goes.
-    fn crawl_with(&mut self, top: &Path, commands: Option<&Receiver<Command>>) {
+    /// as the index holds it). A long crawl takes commands and says how far it went as it goes;
+    /// false if it ended early (the service gone, or a rebuild asked of a crawl that is not one).
+    fn crawl_with(&mut self, top: &Path, commands: Option<&Receiver<Command>>) -> bool {
         let mut visited = HashSet::new();
         let mut folders = vec![top.to_path_buf()];
         while let Some(folder) = folders.pop() {
@@ -396,13 +500,14 @@ impl Indexer {
                     self.since_commands += 1;
                     if self.since_commands >= COMMANDS_EVERY {
                         self.since_commands = 0;
-                        if !self.commands(commands) {
-                            return;
+                        if !self.commands(commands) || self.rebuild_asked {
+                            return false;
                         }
                     }
                 }
             }
         }
+        true
     }
 
     fn past_limit(&mut self, folder: &Path) {
@@ -422,6 +527,11 @@ impl Indexer {
         let id = uri::of(path, false);
         let changed = metadata.mtime() * 1_000_000_000 + metadata.mtime_nsec();
         let size = if metadata.is_dir() { 0 } else { metadata.len() };
+        if self.known.is_some() {
+            // A crawl of the whole goes on: one more item gone through.
+            self.found += 1;
+            self.progress(false);
+        }
         if let Some(known) = &self.known {
             self.seen.insert(id.clone());
             if known.get(&id) == Some(&(changed, size)) {

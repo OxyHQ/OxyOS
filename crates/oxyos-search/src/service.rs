@@ -26,7 +26,13 @@
 //! {"preferences": {}}  {"setPreferences": {"categories"?, "excluded"?: [URI]}}
 //!                                   ← {"preferences": {"categories": {NAME: bool}, "excluded": [URI]}}
 //! {"status": {}}                    ← {"status": {"indexing", "items", "partial", "bytes", "readsPdf",
-//!                                                "read"}}   (files read for their text since it started)
+//!                                                "read", "rebuilding", "found"}}
+//!                                   (`read`: files read for their text since it started; `found`:
+//!                                    the items a crawl under way went through, null with none)
+//! {"followStatus": {}}              ← {"status": {…}}, then {"status": {…}} unasked as it changes
+//! {"unfollowStatus": {}}            ← {"unfollowed": {}}
+//! {"rebuild": {}}                   ← {"rebuilding": {}}: the index discarded and built again from
+//!                                     the files, the old one answering until the new one is ready
 //! {"storage": {}}                   ← {"storage": {"home": URI, "kinds": {NAME: {"files", "bytes"}},
 //!                                                 "indexing", "partial"}}
 //! {"largest": {"limit"?, "language"?}}  ← {"results": {"items": [Item], "topHit": null, "indexing"}}
@@ -37,9 +43,9 @@
 //! off for Spotlight (a question naming its categories, the launcher's, is not Spotlight's); any
 //! other client sees the files, and an application the session launched its own items
 //! too. Donating and removing are a launched application's, its own items alone; the preferences
-//! are Settings' (the `settings` grant), and so are what the home's files occupy by kind and its
-//! largest files (`storage`, `largest`: Settings › Storage, docs/adr/0062-storage.mdx), read from
-//! the index's columns, never by walking the disk.
+//! and rebuilding the index are Settings' (the `settings` grant), and so are what the home's files
+//! occupy by kind and its largest files (`storage`, `largest`: Settings › Storage,
+//! docs/adr/0062-storage.mdx), read from the index's columns, never by walking the disk.
 //!
 //! **Threads:** this one answers, at the normal priority, so a question is answered at once while
 //! the index is being built; the writer ([`crate::writer`]), at nice 10, changes the index, so
@@ -52,7 +58,7 @@ use crate::extract;
 use crate::index::{Index, Question, Record, Searcher, Source, Usage, Viewer};
 use crate::indexer::{Command, Indexer};
 use crate::query::{self, Token};
-use crate::writer::{self, Status};
+use crate::writer::{self, Status, Wake};
 use oxyos_files::{uri, Scope};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
@@ -268,6 +274,9 @@ enum Ask {
     },
     RemoveAll {},
     Preferences {},
+    Rebuild {},
+    FollowStatus {},
+    UnfollowStatus {},
     SetPreferences {
         #[serde(default)]
         categories: Option<BTreeMap<Category, bool>>,
@@ -425,6 +434,8 @@ pub struct Service {
     usage: HashMap<String, Usage>,
     languages: Vec<String>,
     watchers: HashSet<u32>,
+    /// Who follows the index's state, with the state each was last told.
+    status_followers: HashMap<u32, Value>,
     /// What to say on the control socket.
     out: Vec<String>,
     /// Answers given when the indexer has committed what was asked (from its thread).
@@ -433,9 +444,9 @@ pub struct Service {
 
 impl Service {
     /// The service over `scope`, its index at `paths`: its writer started on a thread of its own at
-    /// nice 10, its crawler on another at the idle class. `committed` is written a byte after each
-    /// commit.
-    pub fn start(scope: Scope, paths: Paths, committed: UnixStream) -> std::io::Result<Service> {
+    /// nice 10, its crawler on another at the idle class. `told` is written a byte after each
+    /// commit and each change of the index's state ([`writer::Wake`]).
+    pub fn start(scope: Scope, paths: Paths, told: UnixStream) -> std::io::Result<Service> {
         let index = Index::open(&paths.cache).map_err(std::io::Error::other)?;
         let searcher = index.searcher_handle();
         let preferences = Preferences::load(&paths.config);
@@ -447,29 +458,24 @@ impl Service {
         let (commands, received) = std::sync::mpsc::channel();
         let (wake, woken) = UnixStream::pair()?;
         woken.set_nonblocking(true)?;
-        committed.set_nonblocking(true)?;
+        told.set_nonblocking(true)?;
+        let told = Wake::new(told);
         let (writes, written) = std::sync::mpsc::channel();
         {
             let status = status.clone();
+            let told = told.clone();
             std::thread::Builder::new()
                 .name("search-writer".into())
-                .spawn(move || {
-                    writer::run(
-                        index,
-                        written,
-                        status,
-                        Box::new(move || {
-                            let _ = (&committed).write(&[1]);
-                        }),
-                    );
-                })?;
+                .spawn(move || writer::run(index, written, status, told))?;
         }
         let indexer = Indexer::new(
             scope.clone(),
+            paths.cache.clone(),
             searcher.clone(),
             writes.clone(),
             preferences.excluded.clone(),
             status.clone(),
+            told,
         )?;
         std::thread::Builder::new()
             .name("search-crawler".into())
@@ -489,6 +495,7 @@ impl Service {
             usage,
             languages: vec!["en".into()],
             watchers: HashSet::new(),
+            status_followers: HashMap::new(),
             out: Vec::new(),
             later: Arc::new(Mutex::new(Vec::new())),
         })
@@ -527,7 +534,8 @@ impl Service {
         });
     }
 
-    /// The indexer committed: the reader takes it, and every watcher is told.
+    /// The indexer committed: the reader takes it, and every watcher is told, and who follows the
+    /// state.
     pub fn committed(&mut self) {
         let _ = self.searcher.reload();
         let watchers: Vec<u32> = self.watchers.iter().copied().collect();
@@ -536,6 +544,45 @@ impl Service {
         }
         let later = std::mem::take(&mut *self.later.lock().expect("lock"));
         self.out.extend(later);
+        self.state_changed();
+    }
+
+    /// The index's state may have changed: each follower is told it, if it is not what it was
+    /// last told.
+    pub fn state_changed(&mut self) {
+        if self.status_followers.is_empty() {
+            return;
+        }
+        let status = self.status();
+        let told: Vec<u32> = self
+            .status_followers
+            .iter()
+            .filter(|(_, last)| **last != status)
+            .map(|(client, _)| *client)
+            .collect();
+        for client in told {
+            self.status_followers.insert(client, status.clone());
+            self.answer(client, 0, &json!({ "status": status }));
+        }
+    }
+
+    /// The index's state.
+    fn status(&self) -> Value {
+        let status = *self.status.lock().expect("lock");
+        json!({
+            "indexing": !status.idle(),
+            "items": self.searcher.count(),
+            "partial": status.partial,
+            "bytes": self.searcher.disk_size(),
+            "readsPdf": extract::reads_pdf(),
+            "read": status.read,
+            "rebuilding": status.rebuilding,
+            "found": status.found,
+        })
+    }
+
+    fn set_followed(&self) {
+        self.status.lock().expect("lock").followed = !self.status_followers.is_empty();
     }
 
     /// What to write on the control socket now.
@@ -573,6 +620,9 @@ impl Service {
             "gone" => {
                 if let Some(client) = body["client"].as_u64() {
                     self.watchers.remove(&(client as u32));
+                    if self.status_followers.remove(&(client as u32)).is_some() {
+                        self.set_followed();
+                    }
                 }
             }
             "ask" => {
@@ -755,16 +805,26 @@ impl Service {
                 self.preferences = preferences;
                 Some(json!({"preferences": self.preferences.json()}))
             }
-            Ask::Status {} => {
-                let status = *self.status.lock().expect("lock");
-                Some(json!({"status": {
-                    "indexing": !status.idle(),
-                    "items": self.searcher.count(),
-                    "partial": status.partial,
-                    "bytes": self.searcher.disk_size(),
-                    "readsPdf": extract::reads_pdf(),
-                    "read": status.read,
-                }}))
+            Ask::Status {} => Some(json!({"status": self.status()})),
+            Ask::FollowStatus {} => {
+                let status = self.status();
+                self.status_followers.insert(client, status.clone());
+                self.set_followed();
+                Some(json!({ "status": status }))
+            }
+            Ask::UnfollowStatus {} => {
+                self.status_followers.remove(&client);
+                self.set_followed();
+                Some(json!({"unfollowed": {}}))
+            }
+            Ask::Rebuild {} => {
+                if !asker.settings {
+                    return Some(refused("notPermitted"));
+                }
+                // Rebuilding from the crawler's asking: the state says so at once.
+                self.status.lock().expect("lock").rebuilding = true;
+                self.send(Command::Rebuild);
+                Some(json!({"rebuilding": {}}))
             }
             Ask::Storage {} => {
                 if !asker.settings {
@@ -1042,9 +1102,9 @@ fn run() -> std::io::Result<()> {
 /// when none), until the socket closes.
 pub fn serve(control: UnixStream, scope: Scope, paths: Option<Paths>) -> std::io::Result<()> {
     let paths = paths.unwrap_or_else(|| Paths::for_user(&scope));
-    let (committed, commits) = UnixStream::pair()?;
-    commits.set_nonblocking(true)?;
-    let mut service = Service::start(scope, paths, committed)?;
+    let (told, woken) = UnixStream::pair()?;
+    woken.set_nonblocking(true)?;
+    let mut service = Service::start(scope, paths, told)?;
     let mut reader = BufReader::new(control.try_clone()?);
     let mut writer = control;
     let mut line = String::new();
@@ -1053,7 +1113,7 @@ pub fn serve(control: UnixStream, scope: Scope, paths: Option<Paths>) -> std::io
         if reader.buffer().is_empty() {
             let mut fds = [
                 PollFd::new(reader.get_ref(), PollFlags::IN),
-                PollFd::new(&commits, PollFlags::IN),
+                PollFd::new(&woken, PollFlags::IN),
             ];
             match poll(&mut fds, None) {
                 Ok(_) | Err(rustix::io::Errno::INTR) => {}
@@ -1061,10 +1121,15 @@ pub fn serve(control: UnixStream, scope: Scope, paths: Option<Paths>) -> std::io
             }
             if !fds[1].revents().is_empty() {
                 let mut bytes = [0u8; 256];
-                while matches!(std::io::Read::read(&mut &commits, &mut bytes), Ok(read) if read > 0)
-                {
+                let mut results = false;
+                while let Ok(read @ 1..) = std::io::Read::read(&mut &woken, &mut bytes) {
+                    results |= bytes[..read].contains(&writer::RESULTS);
                 }
-                service.committed();
+                if results {
+                    service.committed();
+                } else {
+                    service.state_changed();
+                }
             }
             if fds[0].revents().is_empty() {
                 flush(&mut service, &mut writer)?;

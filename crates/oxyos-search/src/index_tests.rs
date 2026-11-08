@@ -455,3 +455,138 @@ fn what_the_files_occupy_by_kind_and_the_largest_first_come_from_the_columns() {
         .contains_key(&Category::Movie));
     assert_eq!(searcher.largest(home, 10).unwrap().len(), 4);
 }
+
+fn donated(owner: &str, id: &str, title: &str) -> Record {
+    Record {
+        id: format!("{owner}:{id}"),
+        source: Source::Donated,
+        owner: Some(owner.to_string()),
+        category: Category::Message,
+        titles: BTreeMap::from([(String::new(), title.to_string())]),
+        keywords: Vec::new(),
+        tags: Vec::new(),
+        path: None,
+        url: Some(format!("{owner}://{id}")),
+        application: Some(owner.to_string()),
+        icon: None,
+        media: None,
+        size: None,
+        allocated: None,
+        modified: None,
+        created: None,
+        changed: None,
+    }
+}
+
+fn names(folder: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(folder)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_rebuilt_index_takes_the_old_ones_place_and_the_old_one_answers_until_then() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path();
+    let mut live = Index::open(cache).unwrap();
+    let answering = live.searcher_handle();
+    live.put(&file("/home/ana/old.txt", Category::Text, NOW), None)
+        .unwrap();
+    live.put(&application("so.oxy.allo", "Allo", &[]), None)
+        .unwrap();
+    live.put(
+        &donated("so.oxy.allo", "m1", "Lunch"),
+        Some("the zebra crossing"),
+    )
+    .unwrap();
+    live.commit(true).unwrap();
+    assert!(!Index::rebuild_under_way(cache));
+
+    // A rebuild: a new, empty index beside it, named in the layout before it is written to.
+    let mut rebuilt = Index::rebuild(cache, false).unwrap();
+    assert!(Index::rebuild_under_way(cache));
+    assert_eq!(names(cache), ["index-2", "index-2.1", "index-2.json"]);
+    // What the disk cannot give again is carried over, a donated item with its text.
+    let given = answering.given().unwrap();
+    assert_eq!(given.len(), 2, "{given:?}");
+    for (record, text) in &given {
+        rebuilt.put(record, text.as_deref()).unwrap();
+    }
+    rebuilt
+        .put(&file("/home/ana/new.txt", Category::Text, NOW), None)
+        .unwrap();
+    rebuilt.commit(false).unwrap();
+    // The old one answers until the new one takes its place.
+    assert_eq!(ask(&live, "old", &shell()).0, ["file:///home/ana/old.txt"]);
+    assert!(ask(&live, "new", &shell()).0.is_empty());
+
+    let (live, promoted) = rebuilt.promote(live);
+    promoted.unwrap();
+    assert!(!Index::rebuild_under_way(cache));
+    // The old one's directory is gone; the layout names the new one.
+    assert_eq!(names(cache), ["index-2.1", "index-2.json"]);
+    // Every handle answers from the new index: the handle taken before, too.
+    assert_eq!(ask(&live, "new", &shell()).0, ["file:///home/ana/new.txt"]);
+    assert!(ask(&live, "old", &shell()).0.is_empty());
+    let question = Question {
+        parsed: query::parse("zebra", &[], NOW),
+        within: Vec::new(),
+        categories: Vec::new(),
+        limit: 10,
+    };
+    let viewer = Viewer {
+        application: Some("so.oxy.allo".into()),
+        ..Viewer::default()
+    };
+    let (found, _) = answering
+        .search(&question, &viewer, &HashMap::new(), NOW)
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].record.id, "so.oxy.allo:m1");
+    assert_eq!(ask(&live, "allo", &shell()).0, ["application:so.oxy.allo"]);
+    drop(live);
+
+    // Opened again, it is the rebuilt one; a second rebuild is the next generation.
+    let live = Index::open(cache).unwrap();
+    assert_eq!(ask(&live, "new", &shell()).0, ["file:///home/ana/new.txt"]);
+    let second = Index::rebuild(cache, false).unwrap();
+    drop(second);
+    assert_eq!(names(cache), ["index-2.1", "index-2.2", "index-2.json"]);
+}
+
+#[test]
+fn a_rebuild_cut_short_is_kept_to_go_on_with_and_a_stray_old_index_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = dir.path();
+    drop(Index::open(cache).unwrap());
+    let mut rebuilt = Index::rebuild(cache, false).unwrap();
+    rebuilt
+        .put(&file("/home/ana/read.txt", Category::Text, NOW), None)
+        .unwrap();
+    rebuilt.commit(true).unwrap();
+    drop(rebuilt);
+    // The service stopped: opened again, the old index answers, the rebuild kept.
+    let live = Index::open(cache).unwrap();
+    assert!(Index::rebuild_under_way(cache));
+    assert!(ask(&live, "read", &shell()).0.is_empty());
+    // Gone on with: what it committed is there.
+    let resumed = Index::rebuild(cache, true).unwrap();
+    assert_eq!(
+        resumed.files().unwrap().into_keys().collect::<Vec<_>>(),
+        ["file:///home/ana/read.txt"]
+    );
+    let (live, promoted) = resumed.promote(live);
+    promoted.unwrap();
+    drop(live);
+    // A machine stopped after the layout was written but before the old index was removed:
+    // the next open removes it, and anything else not named.
+    std::fs::create_dir_all(cache.join("index-2/stale")).unwrap();
+    std::fs::create_dir_all(cache.join("index-0")).unwrap();
+    std::fs::write(cache.join("index-2.json.staged"), "{").unwrap();
+    drop(Index::open(cache).unwrap());
+    assert_eq!(names(cache), ["index-2.1", "index-2.json"]);
+}

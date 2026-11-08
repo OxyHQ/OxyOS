@@ -6,7 +6,7 @@ order: 60
 
 # ADR 0051: Search
 
-Status: **accepted; implemented** (steps 1 to 7): the platform, the shell, Settings, Bloom and Dropsea. Amended by [ADR 0062](./0062-storage) (8 November 2026), decision 9: each file's blocks and its category are fast fields (the index's version 2, made again once), and Settings asks what the home's files occupy by kind (`storage`) and its largest files (`largest`). Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 31) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
+Status: **accepted; implemented** (steps 1 to 8): the platform, the shell, Settings, Bloom and Dropsea. Amended on 8 November 2026 (decision 14, step 8): Settings › Spotlight follows the index's state, says how far a crawl went, and rebuilds the index. Amended by [ADR 0062](./0062-storage) (8 November 2026), decision 9: each file's blocks and its category are fast fields (the index's version 2, made again once), and Settings asks what the home's files occupy by kind (`storage`) and its largest files (`largest`). Builds on [ADR 0049](./0049-file-tags) (tags in the items' extended attributes, its index crawled once and kept current by inotify, whose "Not in this decision" left this out), [ADR 0028](./0028-file-access) (the person's places and what an application reaches), [ADR 0024](./0024-system-shortcuts) and [ADR 0041](./0041-input-methods) (the system's keys, amended below), [ADR 0019](./0019-settings) (Settings and its pages), [ADR 0030](./0030-installing-applications) (packages, the system applications' ids), [ADR 0033](./0033-protocol-versions) (version 31) and [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter).
 
 ## Problem
 
@@ -42,7 +42,7 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
    - **Stopped or crashed:** questions waiting are answered `unavailable`, and the next question starts it again, no sooner than five seconds after the last start.
    - The login screen has none.
 
-2. **The index** (`index.rs`), in `$XDG_CACHE_HOME/oxyos/search/index-1`: a cache, made again when it is missing, damaged or of another version.
+2. **The index** (`index.rs`), in `$XDG_CACHE_HOME/oxyos/search/index-N`, N its version (2 since [ADR 0062](./0062-storage)): a cache, made again when it is missing, damaged or of another version.
    - **One document per item.** Its record (id, source, category, titles in each language, keywords, tags, dates, size) is stored as JSON. Indexed:
      - its titles as words, as every beginning of each word (the edge n-grams of search-as-you-type), and whole;
      - its keywords and tags likewise, its tags also as filters;
@@ -116,12 +116,14 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
      - `watch` and `unwatch` (the client's first listener and its last), `used`;
      - `donate`, `remove` and `removeAll` (answered once the index holds them);
      - `preferences` and `setPreferences`;
-     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`, `read`);
+     - `status` (`indexing`, `items`, `partial`, `bytes`, `readsPdf`, `read`, and, decision 14, `rebuilding` and `found`);
+     - `followStatus` ← `status`, then `{"status": {…}}` told unasked (serial 0) as it changes, and `unfollowStatus` (decision 14);
+     - `rebuild` ← `rebuilding` (Settings', decision 14);
      - `storage` ← `storage` (`home`, `kinds`, each kind's `files` and `bytes`, `indexing`, `partial`) and `largest` (`limit`, `language`) ← `results`: Settings' alone, Settings › Storage's ([ADR 0062](./0062-storage), decision 9).
 
      Every answer is one object of one key (`{"done": {}}`, `{"results": {…}}`); a refusal is `{"refused": {"reason"}}`: `notPermitted`, `invalid`, and from the compositor `unavailable` (no service) or `busy` (more than 64 asks waiting in the scene, 256 in the broker).
    - **An item:** `id`, `category`, `title` (in the language asked), `uri` for a file (a folder's ending in `/`), `url`, `application`, `icon`, `contentType`, `size`, `modified`, `created`, `lastUsed`, `tags`, `snippet` (of a text, source or office document among the first ten, about 160 characters around the first word found) and `location` (its folder from the home, `Documents › Work`).
-   - **The host** (`OxyOSSearch`) and **Bloom's `PlatformSearch`** (`usePlatformSearch`, Bloom 17.20.0): `query`, `watch`, `used`, and `index.donate`, `index.remove`, `index.removeAll` (Core Spotlight's `CSSearchableIndex`). The shell has the same as its platform's `search`, and Settings as its actions' `search` (`preferences`, `setPreferences`, `status`, and `watch`, so its page shows the index's state as it changes, never asking on a clock).
+   - **The host** (`OxyOSSearch`) and **Bloom's `PlatformSearch`** (`usePlatformSearch`, Bloom 17.20.0): `query`, `watch`, `used`, and `index.donate`, `index.remove`, `index.removeAll` (Core Spotlight's `CSSearchableIndex`). The shell has the same as its platform's `search`, and Settings as its actions' `search` (`preferences`, `setPreferences`, `rebuild`, and `state`, the index's state followed, so its page shows it as it changes, never asking on a clock).
 
 8. **Applications' items, Core Spotlight's way.** An application donates `{id, title, category, text?, keywords?, url, modified?}`: contacts, events, mail and messages later, through the applications that keep them.
    - The category is one of contact, event, mail, message or other; at most 1000 items a request; 64 KiB of text an item.
@@ -131,7 +133,8 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
 9. **Settings › Spotlight** (*Spotlight*), a page of Settings' general group, as on a Mac (`oxyos-settings://spotlight`):
    - **Search results:** a switch for each category, saved by the service (`$XDG_CONFIG_HOME/oxyos/search.json`). A category turned off leaves the shell's results; Dropsea's search is not changed, as Finder's is not by Spotlight's switches.
    - **Search Privacy:** the folders kept out, added with the system's folder chooser and removed. A folder kept out is removed from the index at once and never read; let back in, it is crawled.
-   - **The index's status:** indexing or not, and how many items it holds.
+   - **The index's status:** indexing or not, and how many items it holds; while a crawl goes on, how many items it went through so far (decision 14).
+   - **Rebuild Index…**, which asks first (decision 14).
 
 10. **The search panel** (`apps/shell/src/components/Spotlight.tsx`). **Super+Space** opens it, as ⌘Space opens Spotlight, at the owner's request (ADR 0024 and 0041 amended; below); again, it closes.
     - **The panel:** floating, centred, a fifth of the way down; its field large. As the person types, results come grouped by category with small headers: **Top Hit** first, then each section in the order of its best item, a few rows each. On the right, a preview of the selected item: its picture or icon, title, kind, size, dates, tags, snippet and location.
@@ -158,6 +161,14 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
     - **While nothing happens, nothing wakes:** the three threads wait on their descriptors and channels with no deadline. A deadline exists only while a change is settling or written changes wait for their commit. tantivy's threads exist only while there is something to write.
     - **The PDF reader** runs under `prlimit` (1 GiB of memory, 20 s of CPU) and is killed after 30 s.
 
+14. **Rebuilding the index, and how far it went** (amended 8 November 2026). A Mac rebuilds Spotlight's index when a disk is added to Spotlight's Privacy list and taken off again; Settings › Spotlight has a button for it.
+    - **Rebuild Index…** asks first (*Rebuild the Spotlight index?*, with Cancel), then asks the service `rebuild`; Settings alone may (the `settings` grant, as the preferences). A rebuild under way is the one asked: asked again, nothing new begins.
+    - **A new index beside the one answering** (`index-N.G` beside `index-N`), never the old one emptied: until the new one is ready, questions are answered from the old one, complete, and their `indexing` says the index is being built. The crawler reads every item into the new one as the first crawl of a new index does, at the same classes (decision 13: the CPU's and the disk's idle class, the writer at nice 10, commits every two seconds while it goes on).
+    - **What the disk cannot give again is carried over:** the applications, the packages' declared items and what applications donated (a donated item's text is kept in its stored record for this: nothing can read it again; an item donated before this amendment comes over without its text until it is donated again). While it is built, what the session and the applications give goes into both indexes, and anything removed is removed from both (a folder kept out leaves the results at once).
+    - **Then it takes the old one's place:** everything committed, its writer closed, and the one record of which index is the person's, `index-N.json` (`{"live", "rebuild"}`), written whole and synced (a staged file renamed over it, the folder synced); the service's handle is pointed at the new reader and the old directory removed. Whenever the machine stops, the index on the disk is the old one or the new one: the layout names the new one before it is written to, so a rebuild cut short **goes on at the next start**, its committed items not read again, and a directory the layout does not name (an old one not yet removed, another version's) is removed when the index is opened.
+    - **How far it went, honestly:** the state has `found`, the items the crawl under way went through so far (null with none going on), and `rebuilding`. Settings says *Rebuilding the index… 1,234 items so far*, *Indexing… 1,234 items so far*, or *N items indexed*. No percentage and no bar: how many items there are is known only once the crawl went through them.
+    - **Told only while followed** (ADR 0058's followed state): `followStatus` answers the state and then tells it unasked as it changes, until `unfollowStatus` or the client is gone. The crawler wakes the service to tell it at most once a second, only while someone follows it; the writer after each commit. A state equal to the one a follower was last told is not told again. Nobody following, nothing is told and nothing more wakes; the shell's watchers (`changed`) are told only what changes the results, not a rebuild's progress.
+
 ## Steps
 
 1. **The index, its readers and its language** (`crates/oxyos-search`: `category`, `query`, `extract`, `index`). *Done.* Tests:
@@ -183,6 +194,12 @@ OxyOS searched only the launcher's applications, by name, in the shell's memory.
 5. **Bloom 17.20.0:** `PlatformSearch`, `usePlatformSearch`, and `Search`'s tokens (`tokens`, `onRemoveToken`). *Done* (OxyHQ/Bloom#657).
 6. **The shell's panel, the launcher, Settings › Spotlight and Settings' `searchable.json`.** *Done.*
 7. **Dropsea's search over the service, its tokens, and `select` in its `files` URL.** *Done* (OxyHQ/Dropsea#49, #50).
+8. **Rebuilding and progress** (decision 14). *Done.* Tests:
+   - `index_tests`: a rebuild's index made beside the old one and named in the layout; the old one answering until the new one takes its place, then every handle (one taken before, too) answering from the new one; the applications and a donated item with its text carried over; the old directory gone; the next generation; a rebuild cut short kept and gone on with, and directories the layout does not name (an old one left by a stop, another version's, a staged layout) removed;
+   - `service_tests`: Settings alone rebuilding; its follower told the state at once, then that it rebuilds, then that it is done; every file read again (`read` 2, then 4), the same items, the application and the donated item found by its text; the cache holding the new index alone; once unfollowed, told nothing more; a rebuild the service stopped in going on at its next start;
+   - `tests/idle.rs`: after a rebuild, the service's threads wake **0** times in 4 s, tantivy's threads gone, the old directory removed;
+   - Settings' model: the line of state, as a crawl, a rebuild or neither, in both languages, never a percentage;
+   - `spotlight-rebuild` (at 1 and 1.25): the page following the state, *Rebuild Index…* asking first, cancelled and then confirmed, the new index's state shown, each press Settings' exactly and nothing else delivered.
 
 ## Not in this decision
 

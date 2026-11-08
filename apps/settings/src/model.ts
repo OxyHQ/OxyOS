@@ -264,18 +264,26 @@ export type SearchCategory =
 /** Spotlight's preferences: the kinds its results show, and the folders kept out of the index
     (`file://` URIs). */
 export type SearchPreferences = { categories: Record<SearchCategory, boolean>; excluded: string[] };
-/** The index as the search service tells it: being built, how many items it holds, and whether it
-    holds only part of what it would. */
-export type SearchStatus = { indexing: boolean; items: number; partial: boolean };
+/** The index as the search service tells it: being built, how many items it holds (the index
+    answering's), whether it holds only part of what it would, whether it is being rebuilt, and how
+    many items the crawl under way went through so far (null with none going on). */
+export type SearchStatus = {
+  indexing: boolean;
+  items: number;
+  partial: boolean;
+  rebuilding?: boolean;
+  found?: number | null;
+};
 /** What Settings › Spotlight asks of the search service (docs/adr/0051-search.mdx). Each change
     answers with the preferences the service kept. */
 export type SettingsSearch = {
   preferences(): Promise<SearchPreferences>;
   setPreferences(change: Partial<SearchPreferences>): Promise<SearchPreferences>;
-  status(): Promise<SearchStatus>;
-  /** Told whenever the index changed (the service's `watch`): the status is asked again then,
-      never on a clock. Returns the unsubscribe. */
-  watch(listener: () => void): () => void;
+  /** The index's state, followed (docs/adr/0058-the-platform-api.mdx, decision 3): told by the
+      service as it changes and only while the page follows it, never asked on a clock. */
+  state: { current(): SearchStatus | null; subscribe(listener: () => void): () => void };
+  /** Discards the index and builds it again from the files; the old one answers until then. */
+  rebuild(): Promise<void>;
 };
 
 /**

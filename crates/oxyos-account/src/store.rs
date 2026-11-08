@@ -26,6 +26,7 @@
 
 use crate::api::{DeviceCredential, Profile};
 use crate::id::{AccountId, UserName};
+use crate::pin::{LocalSignIn, PinState};
 use crate::secret;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, DirBuilder, File, OpenOptions};
@@ -48,6 +49,8 @@ pub const ERASE_ARMED: &str = "erase-armed";
 /// The version of an account's file written; version 1 is still read.
 const VERSION: u32 = 2;
 const SUFFIX: &str = ".json";
+/// An account's local sign-in, its PIN and whether its password signs in (`crate::pin`).
+const LOCAL_SUFFIX: &str = ".local";
 const NEW: &str = ".new";
 
 /// An enrolled account.
@@ -129,6 +132,10 @@ pub struct Listed {
     /// The account's picture, a file of the pictures' directory, when it has one.
     pub picture: Option<PathBuf>,
     pub state: State,
+    /// Its PIN: none, set, or locked out (`crate::pin`); never its verifier.
+    pub pin: PinState,
+    /// Whether its password signs in on this computer.
+    pub password: bool,
 }
 
 pub struct Store {
@@ -281,6 +288,9 @@ impl Store {
             .as_ref()
             .map(|directory| directory.join(user))
             .filter(|path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()));
+        // Which field the screen shows; PAM decides what signs in, so an unreadable one shows the
+        // password's and hides no account.
+        let local = self.local(&account.user_name()).unwrap_or_default();
         let profile = &stored.profile;
         let name = [&profile.display_name, &profile.username]
             .into_iter()
@@ -299,6 +309,8 @@ impl Store {
             } else {
                 State::SignInAgain
             },
+            pin: local.pin_state(),
+            password: local.password,
         })
     }
 
@@ -337,7 +349,61 @@ impl Store {
             password_changed: enrollment.password_changed,
         };
         let bytes = secret::json(&stored).map_err(|error| invalid(error.to_string()))?;
-        let path = self.path(&enrollment.user);
+        self.write_whole(&self.path(&enrollment.user), &bytes)
+    }
+
+    fn local_path(&self, user: &UserName) -> PathBuf {
+        self.directory.join(format!("{user}{LOCAL_SUFFIX}"))
+    }
+
+    /// `user`'s local sign-in: its PIN and whether its password signs in. An account without the
+    /// file (set up before PINs) has no PIN and its password.
+    pub fn local(&self, user: &UserName) -> io::Result<LocalSignIn> {
+        let path = self.local_path(user);
+        let mut file = match File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(LocalSignIn::default())
+            }
+            Err(error) => return Err(error),
+        };
+        let mut bytes = Zeroizing::new(Vec::with_capacity(4 * 1024));
+        file.read_to_end(&mut bytes)?;
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Stored {
+            version: u32,
+            #[serde(flatten)]
+            local: LocalSignIn,
+        }
+        let stored: Stored = serde_json::from_slice(&bytes)
+            .map_err(|error| invalid(format!("{}: {error}", path.display())))?;
+        if stored.version != 1 {
+            return Err(invalid(format!(
+                "{}: not a local sign-in of version 1",
+                path.display()
+            )));
+        }
+        Ok(stored.local)
+    }
+
+    /// Writes `user`'s local sign-in whole, replacing the one it had.
+    pub fn put_local(&self, user: &UserName, local: &LocalSignIn) -> io::Result<()> {
+        #[derive(Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Written<'a> {
+            version: u32,
+            #[serde(flatten)]
+            local: &'a LocalSignIn,
+        }
+        let bytes = secret::json(&Written { version: 1, local })
+            .map_err(|error| invalid(error.to_string()))?;
+        self.write_whole(&self.local_path(user), &bytes)
+    }
+
+    /// Writes `bytes` to `path` whole: a new file beside it, mode 0600, flushed, renamed over.
+    fn write_whole(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
+        let path = path.to_owned();
         let mut temporary = path.clone().into_os_string();
         temporary.push(NEW);
         let temporary = PathBuf::from(temporary);
@@ -350,7 +416,7 @@ impl Store {
                 .open(&temporary)?;
             // The mode asked for, whatever the umask took from it.
             file.set_permissions(fs::Permissions::from_mode(0o600))?;
-            file.write_all(&bytes)?;
+            file.write_all(bytes)?;
             file.sync_all()?;
             fs::rename(&temporary, &path)
         })();
@@ -361,11 +427,16 @@ impl Store {
         self.sync()
     }
 
-    /// Forgets the account's file.
+    /// Forgets the account's file and its local sign-in.
     pub fn remove(&self, user: &UserName) -> io::Result<()> {
+        match fs::remove_file(self.local_path(user)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
         match fs::remove_file(self.path(user)) {
             Ok(()) => self.sync(),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => self.sync(),
             Err(error) => Err(error),
         }
     }

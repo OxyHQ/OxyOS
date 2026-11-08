@@ -144,6 +144,8 @@ const SAMPLE_ORIGIN = path.join(__dirname, 'package.json');
 // from here alone, a package this folder and the Bloom tree both have would be this folder's while
 // Bloom's packages took the Bloom tree's (one expo-constants 58.0.15 in each: two copies).
 const SAMPLE_SOURCES = __dirname + path.sep;
+// `@oxyos/platform`'s manifest: what it exports, each a file of `oxyos/platform/`.
+const PLATFORM_PACKAGE = require('./oxyos/platform/package.json');
 /**
  * The runtime's one copy of a package (docs/adr/0030-installing-applications.mdx, decision 17):
  * Bloom's tree and this folder's node_modules (the Expo modules the host implements) may each have
@@ -309,6 +311,14 @@ module.exports = withReactNativeCSS(mergeConfig(getDefaultConfig(__dirname), {
     unstable_enablePackageExports: true,
     unstable_conditionNames: ['react-native', 'require', 'default'],
     resolveRequest(context, moduleName, platform) {
+      // OxyOS's platform API (docs/adr/0058-the-platform-api.mdx), the runtime's own, by
+      // its package's exports (`oxyos/platform/`): in the runtime's framework, so every application has the one copy.
+      if (moduleName === '@oxyos/platform' || moduleName.startsWith('@oxyos/platform/')) {
+        const subpath = '.' + moduleName.slice('@oxyos/platform'.length);
+        const target = PLATFORM_PACKAGE.exports[subpath];
+        if (!target) throw new Error(`@oxyos/platform does not export ${moduleName}`);
+        return { type: 'sourceFile', filePath: path.join(OVERRIDES, 'platform', target) };
+      }
       if (moduleName === '@oxy.so/bloom' || moduleName.startsWith('@oxy.so/bloom/')) {
         // The platform's own applications (apps/, this repository) declare the Bloom they need in
         // their package.json: a checkout of another stops the build. An application from its own

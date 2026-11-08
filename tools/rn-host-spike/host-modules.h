@@ -120,8 +120,9 @@ struct ShellService {
   // could not be sent. `OxyOSShellLaunch` answers.
   std::function<uint32_t(const std::string& id)> launch;
   // At the login screen (docs/adr/0020-oxy-account-login.mdx) the password is for `account`, an
-  // enrolled account's Unix user; empty, the session's own user.
-  std::function<bool(const std::string& secret, const std::string& account)> authenticate;
+  // enrolled account's Unix user; empty, the session's own user. `passcode`: it is the account's
+  // PIN for this computer (decision 2).
+  std::function<bool(const std::string& secret, const std::string& account, bool passcode)> authenticate;
   // Chooses the entry `index` of the commit `serial` of window `window`'s menus, as the shell was
   // told them (docs/adr/0021-menu-bar.mdx); the compositor delivers it only if they are still the
   // active window's.
