@@ -55,6 +55,11 @@ test("a session's reasons are the platform's codes, or failed with the reason ke
   const failed = errorOf('network', { failed: { reason: 'wrongPassword' } });
   assert.equal(failed?.code, 'failed');
   assert.equal(failed?.reason, 'wrongPassword');
+  assert.equal(failed?.refused, false);
+  assert.equal(refused?.refused, true);
+  // What else the session said is kept, for a caller that reads it (the store's `told`).
+  const told = errorOf('store', { failed: { reason: 'noRelease', told: true, detail: 'none for this machine' } });
+  assert.deepEqual(told?.details, { told: true, detail: 'none for this machine' });
   assert.equal(errorOf('store', null)?.code, 'failed');
 });
 
@@ -93,7 +98,7 @@ test('without the host module, or a request not sent, a call rejects with unavai
 test('aborting rejects at once with cancelled, and the answer that comes later is dropped', async () => {
   const { platform, sent, answer } = played();
   const controller = new AbortController();
-  const asked = platform.store.install('so.oxy.inbox', { signal: controller.signal });
+  const asked = platform.store.install({ id: 'so.oxy.inbox' }, { signal: controller.signal });
   controller.abort();
   await assert.rejects(asked, (error) => isPlatformError(error, 'cancelled') && error.domain === 'store');
   answer(sent.at(-1)!.serial, { installed: {} });
@@ -108,7 +113,8 @@ test('aborting rejects at once with cancelled, and the answer that comes later i
 test("an install's progress goes to its caller, then its answer", async () => {
   const { platform, sent, answer } = played();
   const seen: unknown[] = [];
-  const installing = platform.store.install('so.oxy.inbox', { onProgress: (progress) => seen.push(progress) });
+  const installing = platform.store.install({ listing: 'inbox' }, { onProgress: (progress) => seen.push(progress) });
+  assert.deepEqual(sent.at(-1)?.body, { install: { listing: 'inbox' } });
   const { serial } = sent.at(-1)!;
   answer(serial, { progress: { done: 1, total: 2 } });
   answer(serial, { installed: { id: 'so.oxy.inbox' } });

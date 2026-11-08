@@ -1,8 +1,8 @@
-// Installing applications on OxyOS (docs/adr/0030-installing-applications.mdx, decisions 8, 9
-// and 16), over the Bloom host's `OxyOSSystem`: the session's vocabulary for the store (the `store`
-// grant), the account's updates (`updates`), the shell's system
-// sheets, and the capabilities an application asks for at first use. The session decides; nothing
-// here grants anything. A request that changes anything cites the latest press, as the session requires.
+// What of the session's vocabulary has not moved to `@oxyos/platform` yet
+// (docs/adr/0058-the-platform-api.mdx, step 9): signing out, the input sources, AutoFill's list,
+// the shell's system sheets, the launch's capabilities and those asked at first use
+// (docs/adr/0030-installing-applications.mdx, decision 8). The session decides; nothing here
+// grants anything. A request that changes anything cites the latest press, as the session requires.
 import * as React from 'react';
 import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { session as connection } from '@oxyos/platform';
@@ -25,24 +25,6 @@ export function ask(request, onProgress) {
 function useFollowed(source) {
   return React.useSyncExternalStore(source.subscribe, source.current);
 }
-
-/** The store's (Atlas's) requests: `store` grant. */
-export const store = {
-  status: (ids) => ask({ status: { ids } }),
-  install: (id, onProgress) => ask({ install: { id } }, onProgress),
-  uninstall: (id) => ask({ uninstall: { id } }),
-  open: (id) => ask({ open: { id } }),
-};
-
-/** The account's updates: `updates` (or `store`) grant. One state, the session's. */
-export const updates = {
-  state: () => ask({ state: {} }),
-  check: () => ask({ check: {} }),
-  update: (ids) => ask({ update: { ids } }),
-  updateAll: () => ask({ updateAll: {} }),
-  current: state.updateState.current,
-  subscribe: state.updateState.subscribe,
-};
 
 /**
  * The person's session (docs/adr/0020-oxy-account-login.mdx, decision 5): Settings (its `settings`

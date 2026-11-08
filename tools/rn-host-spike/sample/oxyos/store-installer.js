@@ -6,7 +6,8 @@
 // by its slug, the install service resolves it from the store's signed metadata, the shell asks
 // the person in the system's sheet, and the session decides. Nothing here installs, verifies or
 // grants anything.
-import { ask, launch, updates as systemUpdates } from './system';
+import { settings, store } from '@oxyos/platform';
+import { launch } from './system';
 
 /** The person's language, for the store's texts the machine keeps in several. */
 function language() {
@@ -52,23 +53,28 @@ export function storeInstaller(StoreInstallerError) {
   if (!granted.includes('store')) return null;
 
   /** What a session's answer that is not the one asked for means to the store. */
-  function failure(answer) {
-    const [kind] = Object.keys(answer ?? {});
-    const value = answer?.[kind] ?? {};
-    const told = value.told === true;
-    const message = value.detail ?? value.reason ?? kind ?? 'no answer';
+  // The platform API's error (`@oxyos/platform`'s PlatformError) as the SDK's: whether the session
+  // refused it or tried it and failed, its own reason, and whether it already said so in its sheet.
+  function failure(error) {
+    const details = error?.details ?? {};
+    const told = details.told === true;
+    const message = details.detail ?? error?.reason ?? error?.code ?? 'no answer';
     const reason =
-      kind === 'failed' && value.reason === 'unavailable'
+      !error?.refused && error?.reason === 'unavailable'
         ? 'serviceUnavailable'
-        : value.reason === 'notInstalled'
+        : error?.reason === 'notInstalled'
           ? 'notInstalled'
-          : value.reason === 'noRelease'
+          : error?.reason === 'noRelease'
             ? 'notAvailable'
-            : kind === 'refused'
+            : error?.refused
               ? 'refused'
               : 'failed';
     return new StoreInstallerError(reason, { told, message });
   }
+  /** A session request's answer, its rejection as the SDK's error. */
+  const asked = (pending) => pending.catch((error) => {
+    throw failure(error);
+  });
 
   /** Each listing's package id, as the install service resolved it (null: none for this machine). */
   const packages = new Map();
@@ -100,8 +106,8 @@ export function storeInstaller(StoreInstallerError) {
   }
 
   async function status(slugs) {
-    const answer = await ask({ status: { listings: [...slugs] } });
-    if (!answer || !Array.isArray(answer.status)) throw failure(answer);
+    const answer = await asked(store.status({ listings: [...slugs] }));
+    if (!Array.isArray(answer.status)) throw failure(null);
     const states = {};
     for (const entry of answer.status) {
       if (typeof entry.listing !== 'string') continue;
@@ -142,7 +148,7 @@ export function storeInstaller(StoreInstallerError) {
   }
 
   // The account's updates changed: the listings the store knows may have updates now, or none.
-  systemUpdates.subscribe(() => {
+  settings.updates.subscribe(() => {
     const known = [...packages.keys()].filter((slug) => !installing.has(slug));
     if (known.length === 0) return;
     status(known).then(
@@ -157,25 +163,36 @@ export function storeInstaller(StoreInstallerError) {
     async install(slug) {
       // Asked by its listing: the session resolves it, or says in the sheet that the install
       // service is not there. The ring shows only once the person confirmed (the first progress).
-      const answer = await ask({ install: { listing: slug } }, (progress) => progressed(slug, progress));
-      installing.delete(slug);
-      if (answer && answer.installed) {
+      let answer;
+      try {
+        answer = await store.install({ listing: slug }, { onProgress: (progress) => progressed(slug, progress) });
+      } catch (error) {
+        installing.delete(slug);
         await refresh(slug);
-        return 'installed';
+        throw failure(error);
       }
+      installing.delete(slug);
       await refresh(slug);
-      if (answer && answer.cancelled) return 'declined';
-      throw failure(answer);
+      if (answer.installed) return 'installed';
+      if (answer.cancelled) return 'declined';
+      throw failure(null);
     },
 
     async update(slug) {
       const id = await packageOf(slug);
       installing.set(slug, null);
       tell(slug, { state: 'installing', fraction: null });
-      const answer = await ask({ update: { ids: [id] } });
+      let answer;
+      try {
+        answer = await settings.update([id]);
+      } catch (error) {
+        installing.delete(slug);
+        await refresh(slug);
+        throw failure(error);
+      }
       installing.delete(slug);
       await refresh(slug);
-      if (!answer || !Array.isArray(answer.updated)) throw failure(answer);
+      if (!Array.isArray(answer.updated)) throw failure(null);
       const outcome = answer.updated.find((u) => u.id === id)?.outcome;
       if (outcome === 'awaitingConsent') return 'declined';
       if (outcome === 'failed') throw new StoreInstallerError('failed');
@@ -184,17 +201,23 @@ export function storeInstaller(StoreInstallerError) {
 
     async uninstall(slug) {
       const id = await packageOf(slug);
-      const answer = await ask({ uninstall: { id } });
+      let answer;
+      try {
+        answer = await store.uninstall(id);
+      } catch (error) {
+        await refresh(slug);
+        throw failure(error);
+      }
       await refresh(slug);
-      if (answer && answer.uninstalled) return 'removed';
-      if (answer && answer.cancelled) return 'declined';
-      throw failure(answer);
+      if (answer.uninstalled) return 'removed';
+      if (answer.cancelled) return 'declined';
+      throw failure(null);
     },
 
     async open(slug) {
       const id = await packageOf(slug);
-      const answer = await ask({ open: { id } });
-      if (!answer || !answer.opened) throw failure(answer);
+      const answer = await asked(store.open(id));
+      if (!answer.opened) throw failure(null);
     },
 
     subscribe(listener) {
@@ -203,27 +226,27 @@ export function storeInstaller(StoreInstallerError) {
     },
 
     updates: {
-      current: () => storeUpdates(systemUpdates.current()),
+      current: () => storeUpdates(settings.updates.current()),
       async read() {
-        const answer = await systemUpdates.state();
-        if (!answer || !answer.updateState) throw failure(answer);
+        const answer = await asked(settings.refreshUpdates());
+        if (!answer.updateState) throw failure(null);
         return storeUpdates(answer.updateState);
       },
       async check() {
-        const answer = await systemUpdates.check();
-        if (!answer || !answer.updateState) throw failure(answer);
+        const answer = await asked(settings.checkUpdates());
+        if (!answer.updateState) throw failure(null);
         return storeUpdates(answer.updateState);
       },
       async apply(ids) {
-        const answer = await systemUpdates.update([...ids]);
-        if (!answer || !Array.isArray(answer.updated)) throw failure(answer);
+        const answer = await asked(settings.update([...ids]));
+        if (!Array.isArray(answer.updated)) throw failure(null);
       },
       async applyAll() {
-        const answer = await systemUpdates.updateAll();
-        if (!answer || !Array.isArray(answer.updated)) throw failure(answer);
+        const answer = await asked(settings.updateAll());
+        if (!Array.isArray(answer.updated)) throw failure(null);
       },
       subscribe(listener) {
-        return systemUpdates.subscribe((state) => listener(storeUpdates(state)));
+        return settings.updates.subscribe((state) => listener(storeUpdates(state)));
       },
     },
   };

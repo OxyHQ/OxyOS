@@ -112,8 +112,13 @@ export function createFrameworks(session: Session) {
   /** Installing, updating and removing applications (ADR 0030, decision 9): the `store` grant. */
   const store = {
     available,
-    status: (ids: string[], options?: CallOptions) => sto({ status: { ids } }, options),
-    install: (id: string, options?: ProgressOptions) => sto({ install: { id } }, options),
+    /** Where packages stand, by their ids or by the store's listings (the session resolves a
+        listing to the package built for this machine). */
+    status: (of: { ids: string[] } | { listings: string[] }, options?: CallOptions) => sto({ status: of }, options),
+    /** Installs a package by its id or a listing; resolves `{installed}`, or `{cancelled}` when
+        the person declined in the system's sheet. */
+    install: (what: { id: string } | { listing: string }, options?: ProgressOptions) =>
+      sto({ install: what }, options),
     uninstall: (id: string, options?: CallOptions) => sto({ uninstall: { id } }, options),
     open: (id: string, options?: CallOptions) => sto({ open: { id } }, options),
   };
