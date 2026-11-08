@@ -21,15 +21,14 @@ const PAD_RESOLUTION: i32 = 40;
 /// How many fingers the touchpad tracks, each in a multitouch slot: four, the thumb and three
 /// fingers of Launchpad's pinch and the four of a swipe (ADR 0046).
 const PAD_SLOTS: i32 = 4;
-/// libinput's swipes and pinches move in its unaccelerated units, a touchpad's motion normalized
-/// to 1000 dpi: 39.37 a millimetre, each a logical pixel of a swipe (ADR 0046's distances).
-const GESTURE_UNITS_PER_MM: f64 = 1000.0 / 25.4;
 /// One wheel notch in REL_WHEEL_HI_RES units; libinput turns a notch into 15 logical pixels.
 const NOTCH: i32 = 120;
 const PIXELS_PER_NOTCH: i32 = 15;
 /// How far libinput scrolls for each millimetre two fingers move on this touchpad, in logical
 /// pixels: its motion normalized to 1000 dpi (39.37 units a millimetre), slowed as it slows a
 /// touchpad's scroll. Measured: libinput 1.28 scrolls 6.84 for a frame of 26 units (0.65 mm).
+/// A swipe's unaccelerated motion is slowed alike (ADR 0046's distances are in it): 3.94 for a
+/// frame of three fingers moving 15 units (0.375 mm).
 const SCROLL_PIXELS_PER_MM: f64 = 10.52;
 
 fn abs(code: AbsoluteAxisCode, value: i32) -> InputEvent {
@@ -259,7 +258,7 @@ impl Devices {
 
     /// Swipes `fingers` (three or four) on the touchpad, 15 mm apart in a row across its middle:
     /// together by as far as libinput moves a swipe (dx, dy) logical pixels for (its unaccelerated
-    /// motion, `GESTURE_UNITS_PER_MM`), steadily over `frames` frames, `hz` a second; then they
+    /// motion, slowed as a scroll is, `SCROLL_PIXELS_PER_MM`), steadily over `frames` frames, `hz` a second; then they
     /// rest 100 ms, so that nothing is flicked, and lift. `sent` is called after each frame.
     /// libinput tells the swipe from a pinch by itself, counts its fingers, and reports it from
     /// when it recognizes it.
@@ -272,7 +271,7 @@ impl Devices {
         mut sent: impl FnMut(),
     ) -> io::Result<()> {
         let fingers = i32::from(fingers.clamp(1, PAD_SLOTS as u8));
-        let unit = f64::from(PAD_RESOLUTION) / GESTURE_UNITS_PER_MM;
+        let unit = f64::from(PAD_RESOLUTION) / SCROLL_PIXELS_PER_MM;
         let travel = (f64::from(dx) * unit, f64::from(dy) * unit);
         let frames = frames.max(1);
         // The row's middle where the whole swipe stays on the pad's middle.

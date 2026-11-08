@@ -2466,6 +2466,9 @@ function MoreGestures({ snapshot, actions, strings }: PageProps) {
           {(hovers) => (
             <GroupedSectionItem
               title={words[gesture]}
+              // Its menu says the whole gesture, as a Mac's popup does: a long title wraps rather
+              // than being cut short ("Pasar de un escritorio a otro").
+              titleNumberOfLines={2}
               testID={`${testID}-row`}
               icon={
                 <GestureIllustration
