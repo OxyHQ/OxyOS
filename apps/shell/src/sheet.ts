@@ -29,6 +29,12 @@
  * accounts' service, never to the application. A wrong one asks again saying so; too many say how
  * long to wait. A relying party where the person already has one (`excluded`) or has none
  * (`none`) is only said, with one button.
+ *
+ * An application that quit unexpectedly again within ten minutes
+ * (docs/adr/0061-crashes-and-resetting-an-application.mdx), the session says so (`crash`), its
+ * keyboard on Reopen: Reopen (the answer), Ignore, Reset… (which asks the session to reset it, and
+ * the session asks the person in a sheet of its own, `reset`) and Report…, which shows the report
+ * the session wrote, kept on this computer, to copy. Nothing is ever sent anywhere.
  */
 
 import type { Language, ShellMessages } from "./messages";
@@ -58,6 +64,20 @@ export type SheetText =
   | { kind: "bluetooth-display"; name: string; device: BluetoothKind; code: string }
   | { kind: "bluetooth-code"; name: string; device: BluetoothKind; code: BluetoothCodeKind }
   | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string }
+  // An application that quit unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx):
+  // `times` in the last ten minutes, its report and where the session keeps it, shown at the notice
+  // or at the report (the notification's Report…).
+  | {
+      kind: "crash";
+      id: string;
+      name: string;
+      times: number;
+      report: string;
+      file?: string;
+      show: "notice" | "report";
+    }
+  // Resetting an application: what is erased, and whether it quits first.
+  | { kind: "reset"; id: string; name: string; running: boolean }
   // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): `id` the asking
   // application's desktop entry id, `rpId` the relying party (a domain name).
   | PasskeySheet;
@@ -138,12 +158,23 @@ export type SheetView = {
   /** Which password the field takes: a Wi-Fi network's (8 to 63 bytes, or 64 hexadecimal digits),
       or the Oxy account's (anything not empty). */
   passwordKind?: "wifi" | "account";
+  /** What else the sheet offers, beside its answer (an application that quit: Reset…, Report…):
+      buttons of their own at its foot's start. */
+  actions?: { id: SheetAction; label: string }[];
+  /** A report to show (an application that quit): its title, its text, its buttons' names, and
+      whether the sheet opens at it. */
+  report?: { title: string; text: string; copy: string; copied: string; done: string; first: boolean };
+  /** Whether the keyboard starts on its answer, a Mac's default button (Space presses it). */
+  focusAnswer?: boolean;
 };
 
 /** Whether what the password field holds can be submitted, by the password it takes. */
 export function submittablePassword(password: string, kind: "wifi" | "account" = "wifi"): boolean {
   return kind === "account" ? password.length > 0 : validWifiPassword(password);
 }
+
+/** What a sheet offers beside its answer. */
+export type SheetAction = "reset" | "report";
 
 /** A capability's name, in the catalogue's language; its own name for one OxyOS does not know. */
 export function capabilityLabel(name: string, messages: ShellMessages): string {
@@ -384,6 +415,39 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
     }
     case "passkey":
       return passkeyView(sheet, messages, names);
+    case "crash": {
+      const again = sheet.times > 1;
+      return {
+        title: again ? w.crashAgain(sheet.name) : w.crash(sheet.name),
+        body: again ? w.crashAgainBody(sheet.times) : w.crashBody,
+        lines: [],
+        accept: w.reopen,
+        refuse: w.ignore,
+        destructive: false,
+        actions: [
+          { id: "reset", label: w.resetButtonEllipsis },
+          { id: "report", label: w.reportButton },
+        ],
+        report: {
+          title: w.reportTitle(sheet.name),
+          text: sheet.report,
+          copy: w.copy,
+          copied: w.copied,
+          done: w.done,
+          first: sheet.show === "report",
+        },
+        focusAnswer: true,
+      };
+    }
+    case "reset":
+      return {
+        title: w.reset(sheet.name),
+        body: sheet.running ? `${w.resetBody(sheet.name)} ${w.resetQuits(sheet.name)}` : w.resetBody(sheet.name),
+        lines: [],
+        accept: w.resetButton,
+        refuse: w.cancel,
+        destructive: true,
+      };
     case "bluetooth-failed":
       return {
         title: w.bluetoothFailed(sheet.name),

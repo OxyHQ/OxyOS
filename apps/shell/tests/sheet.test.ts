@@ -355,3 +355,71 @@ test("the account's password is submitted once anything is typed; a Wi-Fi passwo
   assert.equal(submittablePassword("x"), false);
   assert.equal(submittablePassword("12345678", "wifi"), true);
 });
+
+// An application that quit unexpectedly, and resetting one (docs/adr/0061).
+const report = "Mention quit unexpectedly.\n\nApplication:  Mention\n";
+
+test("an application that keeps quitting is told with Reopen as its answer, Ignore, Reset… and Report…", () => {
+  const text = readSheet(
+    JSON.stringify({ kind: "crash", id: "so.oxy.mention", name: "Mention", times: 2, report, show: "notice" }),
+  );
+  assert.ok(text);
+  const en = sheetView(text, EN);
+  assert.equal(en.title, "Mention keeps quitting unexpectedly");
+  assert.equal(en.body, "It quit 2 times in the last 10 minutes. If it keeps quitting, resetting it may help.");
+  assert.equal(en.accept, "Reopen");
+  assert.equal(en.refuse, "Ignore");
+  assert.equal(en.destructive, false);
+  assert.equal(en.focusAnswer, true);
+  assert.deepEqual(en.actions, [
+    { id: "reset", label: "Reset…" },
+    { id: "report", label: "Report…" },
+  ]);
+  assert.deepEqual(en.report, {
+    title: "What Mention reported",
+    text: report,
+    copy: "Copy",
+    copied: "Copied",
+    done: "Done",
+    first: false,
+  });
+  const es = sheetView(text, ES);
+  assert.equal(es.title, "Mention sigue cerrándose inesperadamente");
+  assert.equal(es.body, "Se ha cerrado 2 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar.");
+  assert.equal(es.accept, "Volver a abrir");
+  assert.equal(es.refuse, "Ignorar");
+  assert.deepEqual(
+    es.actions?.map((action) => action.label),
+    ["Restablecer…", "Informe…"],
+  );
+  assert.equal(es.report?.done, "Listo");
+});
+
+test("a report asked from the notification opens at the report, of a quit that happened once", () => {
+  const once = sheetView(
+    { kind: "crash", id: "so.oxy.mention", name: "Mention", times: 1, report, show: "report" },
+    EN,
+  );
+  assert.equal(once.title, "Mention quit unexpectedly");
+  assert.equal(once.body, "You can reopen it, or see what it reported.");
+  assert.equal(once.report?.first, true);
+  const es = sheetView({ kind: "crash", id: "so.oxy.mention", name: "Mention", times: 1, report, show: "report" }, ES);
+  assert.equal(es.title, "Mention se cerró inesperadamente");
+});
+
+test("resetting says what is erased and what is kept, destructively, and that a running app quits", () => {
+  const en = sheetView({ kind: "reset", id: "so.oxy.mention", name: "Mention", running: false }, EN);
+  assert.equal(en.title, "Reset “Mention”?");
+  assert.equal(
+    en.body,
+    "Mention's data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.",
+  );
+  assert.equal(en.accept, "Reset");
+  assert.equal(en.refuse, "Cancel");
+  assert.equal(en.destructive, true);
+  assert.equal(en.focusAnswer, undefined, "no key resets");
+  const running = sheetView({ kind: "reset", id: "so.oxy.mention", name: "Mention", running: true }, ES);
+  assert.equal(running.title, "¿Restablecer “Mention”?");
+  assert.match(running.body, /se conservan\. Antes se cerrará Mention\.$/);
+  assert.equal(running.accept, "Restablecer");
+});

@@ -1,5 +1,7 @@
 #include "host-modules.h"
 
+#include "crash-report.h"
+
 #include "files.h"
 #include "images.h"
 #include "system.h"
@@ -625,30 +627,45 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->unsupported({"setAccessibilityFocus"});
   } else if (name == "ExceptionsManager") {
-    auto report = [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count > 0 && args[0].isObject()) {
-        auto data = args[0].asObject(rt);
-        std::cerr << "[js exception] " << text(rt, data.getProperty(rt, "message")) << "\n";
-        auto stack = data.getProperty(rt, "stack");
-        if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
-          auto frames = stack.asObject(rt).asArray(rt);
-          for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
-            auto frame = frames.getValueAtIndex(rt, i);
-            if (!frame.isObject()) continue;
-            auto f = frame.asObject(rt);
-            std::cerr << "    at " << text(rt, f.getProperty(rt, "methodName")) << " ("
-                      << text(rt, f.getProperty(rt, "file")) << ":" << text(rt, f.getProperty(rt, "lineNumber"))
-                      << ")\n";
-          }
+    // An exception React Native reports: said in the log; a fatal one (React Native's `isFatal`,
+    // or `reportFatalException`) ends the application with its report (crash-report.h), as a
+    // release build of React Native ends on Android and iOS.
+    auto said = [](jsi::Runtime& rt, const jsi::Value& message, const jsi::Value& stack) {
+      std::string text_ = text(rt, message) + "\n";
+      if (stack.isObject() && stack.asObject(rt).isArray(rt)) {
+        auto frames = stack.asObject(rt).asArray(rt);
+        for (size_t i = 0; i < std::min<size_t>(frames.size(rt), 12); ++i) {
+          auto frame = frames.getValueAtIndex(rt, i);
+          if (!frame.isObject()) continue;
+          auto f = frame.asObject(rt);
+          text_ += "    at " + text(rt, f.getProperty(rt, "methodName")) + " (" + text(rt, f.getProperty(rt, "file")) +
+                   ":" + text(rt, f.getProperty(rt, "lineNumber")) + ")\n";
         }
-      } else if (count > 0) {
-        std::cerr << "[js exception] " << text(rt, args[0]) << "\n";
       }
-      return jsi::Value::undefined();
+      return text_;
     };
-    module->method("reportException", report);
-    module->method("reportFatalException", report);
-    module->method("reportSoftException", report);
+    auto report = [said](bool fatal) {
+      return [said, fatal](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        std::string text_;
+        bool isFatal = fatal;
+        if (count > 0 && args[0].isObject()) {
+          // reportException(data): its message, stack and isFatal.
+          auto data = args[0].asObject(rt);
+          text_ = said(rt, data.getProperty(rt, "message"), data.getProperty(rt, "stack"));
+          auto fatalData = data.getProperty(rt, "isFatal");
+          isFatal = isFatal || (fatalData.isBool() && fatalData.getBool());
+        } else if (count > 0) {
+          // reportFatalException(message, stack, id) and reportSoftException's.
+          text_ = count > 1 ? said(rt, args[0], args[1]) : said(rt, args[0], jsi::Value::undefined());
+        }
+        if (isFatal) oxyos::endForFatalJavaScriptError(text_);
+        std::cerr << "[js exception] " << text_;
+        return jsi::Value::undefined();
+      };
+    };
+    module->method("reportException", report(false));
+    module->method("reportFatalException", report(true));
+    module->method("reportSoftException", report(false));
     module->unsupported({"updateExceptionMessage", "dismissRedbox"});
   } else if (name == "DeviceEventManager") {
     module->unsupported({"invokeDefaultBackPressHandler"});

@@ -427,6 +427,8 @@ class Window {
   void usePainter(StartedPaint started);
   // Whether the compositor closed the connection.
   bool disconnected() const;
+  // A request the compositor did not take (window.cpp): nothing once it is gone, else thrown.
+  void refused(const std::string& what) const;
   Clipboard clipboard_;
   std::map<uint32_t, Surface> surfaces_;
   // The secure regions each surface last sent (setSecureRegions).

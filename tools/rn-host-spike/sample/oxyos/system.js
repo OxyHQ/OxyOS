@@ -66,6 +66,9 @@ export const storage = {
   measure: () => ask({ storage: {} }),
   reveal: (uri) => ask({ reveal: { uri } }),
   remove: (id) => ask({ uninstall: { id } }),
+  // Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx): the session confirms it in
+  // its sheet, quits the application and erases its own data (`{reset: {id}}`).
+  reset: (id) => ask({ resetApplication: { id } }),
 };
 
 /** The account's decisions on its applications' capabilities: `privacy` grant. The list is told
@@ -303,5 +306,13 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ passkey }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword, answerCode, answerPasskey };
+  // An application that quit (docs/adr/0061-crashes-and-resetting-an-application.mdx): its
+  // notice's Reset… answers the notice no and asks the session to reset it, citing the press; the
+  // session asks the person in a sheet of its own, and opens it again once it is reset.
+  const resetApplication = React.useCallback((sheet, id) => {
+    native?.answerSheet(sheet, false);
+    void connection.request({ resetApplication: { id, reopen: true } });
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  return { sheets, answer, answerPassword, answerCode, answerPasskey, resetApplication };
 }

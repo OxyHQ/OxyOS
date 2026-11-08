@@ -88,6 +88,26 @@ fn the_charts_say_the_charge_at_each_bins_end_and_nothing_where_no_session_ran()
 }
 
 #[test]
+fn a_session_that_began_on_a_bins_edge_is_charted_at_once() {
+    // Started at noon and charted that same second: the bins end at noon, the last holds it.
+    let records = vec![
+        at(NOON, Event::Session(true)),
+        at(NOON, Event::Display(true)),
+        at(NOON, Event::Battery(64, Charge::Discharging)),
+    ];
+    let charts = history::charts(&records, NOON);
+    assert_eq!(charts.day.end, NOON);
+    assert_eq!(charts.day.levels[95], Some(64));
+    assert!(charts.day.levels[..95].iter().all(Option::is_none));
+    assert_eq!(charts.days.levels[239], Some(64));
+    // A second later the same, in the bin that begins at noon.
+    let charts = history::charts(&records, NOON + 1);
+    assert_eq!(charts.day.end, NOON + 900);
+    assert_eq!(charts.day.levels[95], Some(64));
+    assert!(charts.day.levels[..95].iter().all(Option::is_none));
+}
+
+#[test]
 fn the_display_off_asleep_or_a_session_that_ended_unseen_is_no_use_of_the_screen() {
     let start = NOON - 4 * HOUR;
     let records = vec![

@@ -108,6 +108,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- crash_reports: the reports the session wrote of applications that quit unexpectedly
+  (docs/adr/0061-crashes-and-resetting-an-application.mdx), in the run's home
+  (`.local/state/oxyos/crash-reports`) once the step settled, exactly and oldest first: each
+  {"application": its id, "contains": [TEXT]} (each text in the report);
 - background: the applications' background activity (docs/adr/0060-login-items-and-background-
   activity.mdx): "ended", the processes the session ended in the step, by their application's id,
   exactly and in order (a step that ends one and does not say so fails); "running", given, the
@@ -641,7 +645,10 @@ points at a socket of its own, so none asks the machine's): the application ids 
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
-application's window first shows TEXT). A token it mints names the application it is for and is no
+application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
+service restarting as a package upgrade restarts it: every subscription closed under its
+application, then every process refused `notPermitted` for MS, as the real service refuses one until
+the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
 credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
@@ -1321,6 +1328,8 @@ def serve_account_session(path, spec, log):
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
+    # Until when the played service is restarting (`account.later`'s `restart`): it refuses everyone.
+    restarting = [0.0]
     # The account's local sign-in (`account.local`) and its PIN (`account.local_pin`), as Settings
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
@@ -1361,8 +1370,28 @@ def serve_account_session(path, spec, log):
 
     ACCOUNT["push"] = push
 
+    def restart(refuse_for):
+        with lock:
+            restarting[0] = time.monotonic() + refuse_for / 1000
+            for connection in subscribers:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+            subscribers.clear()
+
+    ACCOUNT["restart"] = restart
+
     def converse(connection):
         application = application_of(connection)
+        if time.monotonic() < restarting[0]:
+            with connection:
+                try:
+                    connection.recv(16384)
+                    connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
+                except OSError:
+                    pass
+            return
         with connection:
             while True:
                 try:
@@ -1486,7 +1515,7 @@ def serve_account_session(path, spec, log):
 def account_later(changes, report_path):
     """The played service's snapshot changing while the run goes on (`account.later`): each
     [{"when_shown": TEXT, "snapshot": {...}}] once the application's window first shows TEXT, the
-    revision one past the last."""
+    revision one past the last; {"when_shown": TEXT, "restart": {"refuse_for": MS}} restarts it."""
     started = time.monotonic_ns()
 
     def watch():
@@ -1500,10 +1529,14 @@ def account_later(changes, report_path):
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                if waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
+                # Every change waiting for what this frame shows, in order.
+                while waiting and entry.get("kind") == "frame" and entry.get("surface") == 1 \
                         and entry.get("t", 0) >= started \
                         and any(waiting[0]["when_shown"] in shown for shown in entry.get("texts", [])):
                     change = waiting.pop(0)
+                    if "restart" in change:
+                        ACCOUNT["restart"](change["restart"].get("refuse_for", 0))
+                        continue
                     current = ACCOUNT["snapshot"]
                     ACCOUNT["push"](dict(current, **change["snapshot"], revision=current["revision"] + 1))
             seen = len(lines)
@@ -2389,6 +2422,27 @@ def check_home(state, wanted, fail):
                 fail(f"{relative} {'is missing' if want else 'is still there'}")
         elif state.get(relative) != want:
             fail(f"{relative} does not hold {want!r}")
+
+
+CRASH_REPORTS = ".local/state/oxyos/crash-reports/"
+
+
+def check_crash_reports(state, wanted, fail):
+    """A step's `crash_reports` (docs/adr/0061): the reports in the home, exactly, oldest first
+    (`<id>_<YYYY-MM-DD-HHMMSS>[-N].crash`, by when, then by name), each of the application wanted
+    and holding each text wanted."""
+    names = [path[len(CRASH_REPORTS):] for path in state
+             if path.startswith(CRASH_REPORTS) and path.endswith(".crash") and "/" not in path[len(CRASH_REPORTS):]]
+    names.sort(key=lambda name: (name[:-len(".crash")].rsplit("_", 1)[1], name))
+    got = [name[:-len(".crash")].rsplit("_", 1)[0] for name in names]
+    if got != [want["application"] for want in wanted]:
+        fail(f"the crash reports are of {got}, expected {[want['application'] for want in wanted]}")
+        return
+    for name, want in zip(names, wanted):
+        text = state[CRASH_REPORTS + name]
+        for needed in want.get("contains", []):
+            if not isinstance(text, str) or needed not in text:
+                fail(f"the crash report {name} does not say {needed!r}: {text!r:.400}")
 
 
 def latest_frames(report, until, closed_before):
@@ -3433,6 +3487,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"React received {got}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
+    if "crash_reports" in expect:
+        check_crash_reports(home_root.at(end) if home_root else HomeState(), expect["crash_reports"], fail)
     if "react_hover" in expect:
         got = {}
         for line in report:
@@ -5624,10 +5680,12 @@ def main():
             [path for path in env.get("VK_ADD_DRIVER_FILES", "").split(os.pathsep) if path]
             + vulkan_driver_folders(env))
     # What applications keep (their data and cache directories, application.h) is the run's own,
-    # never the user's; a scenario's `app_data` is there before the application starts.
-    for kept in ("xdg-data", "xdg-cache"):
+    # never the user's; a scenario's `app_data` is there before the application starts. So is the
+    # session's state (the crash reports it writes, docs/adr/0061).
+    for kept in ("xdg-data", "xdg-cache", "xdg-state"):
         shutil.rmtree(out / kept, ignore_errors=True)
     env["XDG_DATA_HOME"] = str(out / "xdg-data")
+    env["XDG_STATE_HOME"] = str(out / "xdg-state")
     env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache else out / "xdg-cache")
     if scenario.get("shell"):
         # The shell's applications are the development registry's alone (ADR 0013), not the
@@ -5708,6 +5766,7 @@ def main():
         env["HOME"] = str(home_root)
         env["XDG_DATA_HOME"] = str(home_root / ".local/share")
         env["XDG_CONFIG_HOME"] = str(home_root / ".config")
+        env["XDG_STATE_HOME"] = str(home_root / ".local/state")
         env["XDG_CACHE_HOME"] = str(pathlib.Path(options.app_cache).resolve() if options.app_cache
                                     else home_root / ".cache")
     else:

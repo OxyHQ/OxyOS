@@ -542,6 +542,25 @@ const en = (f: Formats) => ({
     bluetoothOtherFailure: "Make sure it's turned on and nearby.",
     /** A code said digit by digit: "Code: 1 2 3 4 5 6". */
     bluetoothCodeSaid: (digits: string) => `Code: ${digits}`,
+    /** An application that quit unexpectedly, and resetting one (docs/adr/0061). */
+    crash: (name: string) => `${name} quit unexpectedly`,
+    crashBody: "You can reopen it, or see what it reported.",
+    crashAgain: (name: string) => `${name} keeps quitting unexpectedly`,
+    crashAgainBody: (times: number) =>
+      `It quit ${f.number(times)} times in the last 10 minutes. If it keeps quitting, resetting it may help.`,
+    reopen: "Reopen",
+    ignore: "Ignore",
+    resetButtonEllipsis: "Reset…",
+    reportButton: "Report…",
+    reportTitle: (name: string) => `What ${name} reported`,
+    copy: "Copy",
+    copied: "Copied",
+    done: "Done",
+    reset: (name: string) => `Reset “${name}”?`,
+    resetBody: (name: string) =>
+      `${name}'s data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.`,
+    resetQuits: (name: string) => `${name} will quit first.`,
+    resetButton: "Reset",
     /** A size's units, from bytes up. */
     units: ["bytes", "KB", "MB", "GB"] as readonly string[],
     /** Each capability's name, and what an application asking for it would do. */
@@ -988,6 +1007,24 @@ const es = (f: Formats): Catalogue => ({
     bluetoothTimeout: "Asegúrate de que está encendido, cerca y en modo de enlace.",
     bluetoothOtherFailure: "Asegúrate de que está encendido y cerca.",
     bluetoothCodeSaid: (digits) => `Código: ${digits}`,
+    crash: (name) => `${name} se cerró inesperadamente`,
+    crashBody: "Puedes volver a abrirla o ver lo que informó.",
+    crashAgain: (name) => `${name} sigue cerrándose inesperadamente`,
+    crashAgainBody: (times) =>
+      `Se ha cerrado ${f.number(times)} veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar.`,
+    reopen: "Volver a abrir",
+    ignore: "Ignorar",
+    resetButtonEllipsis: "Restablecer…",
+    reportButton: "Informe…",
+    reportTitle: (name) => `Lo que informó ${name}`,
+    copy: "Copiar",
+    copied: "Copiado",
+    done: "Listo",
+    reset: (name) => `¿Restablecer “${name}”?`,
+    resetBody: (name) =>
+      `Se borrarán los datos y los ajustes de ${name} en este ordenador, y se abrirá como nueva. Tus documentos y archivos, y tus contraseñas, se conservan.`,
+    resetQuits: (name) => `Antes se cerrará ${name}.`,
+    resetButton: "Restablecer",
     units: ["bytes", "kB", "MB", "GB"],
     capabilities: {
       network: ["Internet", "conectarse a Internet"],

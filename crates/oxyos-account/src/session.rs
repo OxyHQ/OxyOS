@@ -16,6 +16,8 @@
 //!   child and its user's:
 //!
 //!   ```text
+//!   → {"present": {}}                                                       as it connects
+//!   ← "accepted" | {"refused": {"reason": "notPermitted"}}, then closed
 //!   → {"register": {"desktopEntryId": "so.oxy.dropsea", "system": true}}   + the child's pidfd
 //!   ← "registered" | {"refused": {"reason"}}
 //!   → {"check": {"password", "local": "accepted" | "rejected"}}          the lock's online check
@@ -29,6 +31,13 @@
 //!   A registration lives while its process does (the service watches the pidfd) and while the
 //!   registrar's connection stays open: the session keeps one for its life, and closing it drops
 //!   every registration made on it.
+//!
+//!   A registrar verified is kept ([`VERIFIED`]: its process by pid and start time, the file it
+//!   runs and its parent's by device and inode), so the service started again (a package upgrade
+//!   restarts it) still knows a session whose program's file the upgrade replaced: the session
+//!   connects again and registers what still runs ([`RegistrarThread`]), and the service takes it
+//!   if the kernel shows the same process running the same file under the same parent. Nothing the
+//!   session says counts, and a boot keeps nothing.
 //! - **An application** is a process whose pidfd is a live registration's, of the registrar's
 //!   user. Anything else (another user, a process nobody registered, a child of a launched one)
 //!   is refused. It may ask, any number of times on one connection:
@@ -129,6 +138,9 @@ const _: () = assert!(MAX_MESSAGE >= 4096);
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Request {
+    /// The registrar presenting itself as its connection opens: answered `"accepted"` if the
+    /// kernel's word on it says it is one, refused `notPermitted` (and closed) if not.
+    Present {},
     #[serde(rename_all = "camelCase")]
     Register {
         desktop_entry_id: String,
@@ -330,6 +342,7 @@ pub enum Reason {
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Answer {
+    Accepted,
     Registered,
     Refused {
         reason: Reason,
@@ -443,7 +456,36 @@ pub struct Registrars {
     pub parent: PathBuf,
     /// Both programs' owner and the parent's user: root (the tests', their own user).
     pub owner: u32,
+    /// Where the service keeps the registrars it verified this boot ([`VERIFIED`]), so that one
+    /// still running when the service starts again is known though an upgrade replaced its
+    /// program's file since; None: only the files as they are now are taken.
+    pub verified: Option<PathBuf>,
 }
+
+/// Where the service keeps the registrars it verified, one file per process: the service's own,
+/// 0700, under `/run` (so a boot starts with none), and kept when the service restarts
+/// (`RuntimeDirectoryPreserve=yes`).
+pub const VERIFIED: &str = "/run/oxyos/accountd/registrars";
+
+/// A registrar the service verified, as the kernel showed it then: the process (by its pid and
+/// start time, one process for the whole boot), the file it ran (by device and inode: a file
+/// replaced since is still held by the process running it, so its inode is never another file's
+/// meanwhile), and the same of its parent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Verified {
+    uid: u32,
+    started: u64,
+    device: u64,
+    inode: u64,
+    parent: i32,
+    parent_started: u64,
+    parent_device: u64,
+    parent_inode: u64,
+}
+
+/// How large a kept registrar's file may be.
+const VERIFIED_LIMIT: u64 = 4096;
 
 impl Registrars {
     pub fn new(program: PathBuf, parent: PathBuf) -> Self {
@@ -451,27 +493,135 @@ impl Registrars {
             program,
             parent,
             owner: 0,
+            verified: None,
         }
     }
 
+    /// The registrars this boot's service verified are kept in `directory` ([`VERIFIED`]).
+    pub fn remembering(mut self, directory: PathBuf) -> Self {
+        self.verified = Some(directory);
+        self
+    }
+
     /// Whether `pidfd`'s process runs the session program and its parent, of the owner's user,
-    /// the login program; judged while it lives.
-    fn runs_program(&self, pidfd: &OwnedFd) -> bool {
-        let (Ok(program), Ok(parent)) = (Program::at(&self.program), Program::at(&self.parent))
-        else {
-            return false;
-        };
-        pidfd::while_alive(pidfd, |pid| {
+    /// the login program; judged while it lives. A process that does is kept ([`Verified`]); one
+    /// whose program's file an upgrade replaced since (it runs the file it was verified running,
+    /// no longer at the program's path) is known by what was kept of it: the same process, the
+    /// same file, the same parent running the same file, every one read again from the kernel.
+    /// Nothing the peer says counts.
+    fn verify(&self, pidfd: &OwnedFd) -> bool {
+        let program = Program::at(&self.program).ok();
+        let parent = Program::at(&self.parent).ok();
+        let observed = pidfd::while_alive(pidfd, |pid| {
             let running = Program::of_process(pid)?;
             let status = pidfd::status(pid)?;
             let started_by = Program::of_process(status.parent)?;
             let starter = pidfd::status(status.parent)?;
-            Ok(running.is(&program, self.owner)
-                && started_by.is(&parent, self.owner)
-                && starter.uid == self.owner)
-        })
-        .is_some_and(|(_, verified)| verified)
+            let seen = Verified {
+                uid: status.uid,
+                started: pidfd::started(pid)?,
+                device: running.device,
+                inode: running.inode,
+                parent: status.parent,
+                parent_started: pidfd::started(status.parent)?,
+                parent_device: started_by.device,
+                parent_inode: started_by.inode,
+            };
+            // Root's files, written by no one else, the parent root's: what was verified once is
+            // still that.
+            let kept = running.is(&running, self.owner)
+                && started_by.is(&started_by, self.owner)
+                && starter.uid == self.owner;
+            let now = kept
+                && program.is_some_and(|program| running.is(&program, self.owner))
+                && parent.is_some_and(|parent| started_by.is(&parent, self.owner));
+            Ok((seen, kept, now))
+        });
+        let Some((pid, (seen, kept, now))) = observed else {
+            return false;
+        };
+        if now {
+            self.remember(pid, &seen);
+            return true;
+        }
+        kept && self.recall(pid) == Some(seen)
     }
+
+    /// Keeps `seen`, the verified registrar `pid`, and forgets those whose process is gone.
+    fn remember(&self, pid: i32, seen: &Verified) {
+        let Some(directory) = &self.verified else {
+            return;
+        };
+        if let Err(error) = write_verified(directory, pid, seen) {
+            eprintln!(
+                "oxyos-accountd: {}: a registrar not kept: {error}",
+                directory.display()
+            );
+        }
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(other) = name.to_str().and_then(|name| name.parse::<i32>().ok()) else {
+                continue;
+            };
+            if other == pid {
+                continue;
+            }
+            let gone = match self.recall(other) {
+                Some(kept) => pidfd::started(other).ok() != Some(kept.started),
+                None => true,
+            };
+            if gone {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    /// What was kept of the registrar `pid`, if the service kept it: a file of the service's own
+    /// user in its own directory, written by no one else.
+    fn recall(&self, pid: i32) -> Option<Verified> {
+        use std::io::Read;
+        use std::os::unix::fs::MetadataExt;
+        let directory = self.verified.as_ref()?;
+        let me = rustix::process::geteuid().as_raw();
+        let ours =
+            |metadata: &std::fs::Metadata| metadata.uid() == me && metadata.mode() & 0o077 == 0;
+        let dir = std::fs::symlink_metadata(directory).ok()?;
+        if !dir.is_dir() || !ours(&dir) {
+            return None;
+        }
+        let path = directory.join(pid.to_string());
+        let file = std::fs::symlink_metadata(&path).ok()?;
+        if !file.is_file() || !ours(&file) {
+            return None;
+        }
+        let mut text = String::new();
+        std::fs::File::open(&path)
+            .ok()?
+            .take(VERIFIED_LIMIT)
+            .read_to_string(&mut text)
+            .ok()?;
+        serde_json::from_str(&text).ok()
+    }
+}
+
+/// `seen` written whole for `pid` in `directory`: a file made beside it, then renamed over it.
+fn write_verified(directory: &Path, pid: i32, seen: &Verified) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let text = serde_json::to_vec(seen).map_err(io::Error::other)?;
+    let making = directory.join(format!(".{pid}.new"));
+    let _ = std::fs::remove_file(&making);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&making)?;
+    file.write_all(&text)?;
+    drop(file);
+    std::fs::rename(&making, directory.join(pid.to_string()))
 }
 
 /// A process the session launched, while it runs and its registrar's connection is open.
@@ -640,7 +790,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
         let Ok(Some(enrollment)) = self.platform.enrollment_of(peer.uid) else {
             return Kind::Refused;
         };
-        if !self.registrars.runs_program(&pidfd) {
+        if !self.registrars.verify(&pidfd) {
             return Kind::Refused;
         }
         if !take(&self.open_registrars, peer.uid, MAX_REGISTRARS) {
@@ -777,6 +927,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                 return Ok(());
             };
             let answer = match request {
+                Some(Request::Present {}) => Answer::Accepted,
                 Some(Request::Register {
                     desktop_entry_id,
                     system,
@@ -1245,6 +1396,21 @@ impl Registrar {
 }
 
 impl Registrar {
+    /// Presents the session: the service answers whether it takes this connection's process for
+    /// the session's registrar.
+    pub fn present(&self) -> io::Result<Result<(), Reason>> {
+        self.connection.send(&Request::Present {})?;
+        match self.connection.receive::<Answer>()? {
+            Some(Some(Answer::Accepted)) => Ok(Ok(())),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
+            Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
+            None => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the service closed the connection",
+            )),
+        }
+    }
+
     /// Locks the session's keychain (the session locked).
     pub fn keychain_lock(&self) -> io::Result<Result<(), Reason>> {
         self.connection.send(&Request::KeychainLock {})?;
@@ -1299,11 +1465,14 @@ pub fn check(socket: &Path, password: Secret, local: Local) -> io::Result<Checke
 }
 
 /// The session's registrar, on a thread of its own: a launch hands it the process and goes on,
-/// never waiting for the service. It keeps one connection for the session's life. Each process
-/// it was given is registered on it while the process lives; if the service goes (restarted), it
-/// connects again (after 1, 2, 4, 8 and 16 s, then at the next launch) and registers again every
-/// process still running. Without the service nothing is registered, and applications simply get
-/// no token.
+/// never waiting for the service. It keeps one connection for the session's life, presents the
+/// session on it (`present`), and registers on it each process it was given while the process
+/// lives. If the service goes (restarted: a package upgrade does it) or does not take the session,
+/// it connects again, with waits doubling from 1 s to [`RECONNECT_MAX`] ([`RECONNECT_REFUSED_MAX`]
+/// while the service refuses it), and at each launch, for as long as the session runs: it never
+/// gives up. Connected again, it registers every process still running. What it could not do is
+/// said once per outage and cause, and its end is said too. Without the service nothing is
+/// registered, and applications simply get no token meanwhile.
 pub struct RegistrarThread {
     launches: std::sync::mpsc::Sender<Job>,
     wake: std::os::unix::net::UnixStream,
@@ -1316,14 +1485,32 @@ enum Job {
     KeychainLock,
 }
 
-/// The waits before connecting again to a service that went.
-const RECONNECT: [Duration; 5] = [
-    Duration::from_secs(1),
-    Duration::from_secs(2),
-    Duration::from_secs(4),
-    Duration::from_secs(8),
-    Duration::from_secs(16),
-];
+/// The longest wait before connecting again to a service that is not there.
+pub const RECONNECT_MAX: Duration = Duration::from_secs(30);
+/// The longest wait before presenting the session again to a service that refused it (one
+/// started since, that knows it, may take it).
+pub const RECONNECT_REFUSED_MAX: Duration = Duration::from_secs(300);
+
+/// The wait before the `attempt`th attempt (from 0) to connect again: 1 s, doubling, up to
+/// [`RECONNECT_MAX`] (or [`RECONNECT_REFUSED_MAX`] if the service `refused` the session); never
+/// none.
+pub fn reconnect_wait(attempt: u32, refused: bool) -> Duration {
+    let most = if refused {
+        RECONNECT_REFUSED_MAX
+    } else {
+        RECONNECT_MAX
+    };
+    Duration::from_secs(1u64 << attempt.min(16)).min(most)
+}
+
+/// Why the registrar is not connected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Outage {
+    /// The service could not be reached, or its connection broke.
+    Unreachable(String),
+    /// The service refused the session.
+    Refused(Reason),
+}
 
 impl RegistrarThread {
     /// The registrar of the service at `socket`; `log` says what it could not do.
@@ -1357,6 +1544,88 @@ impl RegistrarThread {
     }
 }
 
+/// A connection to the service at `socket`, the session presented on it and every process of
+/// `live` registered on it again.
+fn reconnect(
+    socket: &Path,
+    live: &[(String, bool, OwnedFd)],
+    log: &dyn Fn(&str),
+) -> Result<Registrar, Outage> {
+    let registrar = Registrar::connect(socket)
+        .map_err(|error| Outage::Unreachable(format!("{}: {error}", socket.display())))?;
+    match registrar.present() {
+        Ok(Ok(())) => {}
+        Ok(Err(reason)) => return Err(Outage::Refused(reason)),
+        Err(error) => {
+            return Err(Outage::Unreachable(format!(
+                "presenting the session: {error}"
+            )))
+        }
+    }
+    for (id, system, pidfd) in live {
+        if !register_one(&registrar, id, *system, pidfd, log) {
+            return Err(Outage::Unreachable(format!(
+                "the connection ended registering {id}"
+            )));
+        }
+    }
+    Ok(registrar)
+}
+
+/// The registrar's state between connections.
+struct Connecting {
+    /// The next attempt, and how many were made since the connection was lost.
+    retry: Option<(std::time::Instant, u32)>,
+    /// Why it is not connected, as said last (None: connected, or never tried).
+    said: Option<Outage>,
+}
+
+impl Connecting {
+    /// An attempt failed for `outage`: said if it is news, and the next one set.
+    fn failed(&mut self, outage: Outage, log: &dyn Fn(&str)) {
+        let attempt = self.retry.map_or(0, |(_, made)| made);
+        let wait = reconnect_wait(attempt, matches!(outage, Outage::Refused(_)));
+        if self.said.as_ref() != Some(&outage) {
+            match &outage {
+                Outage::Unreachable(why) => log(&format!(
+                    "{why}; launches are registered once it is back \
+                     (trying again in {} s, and at each launch)",
+                    wait.as_secs()
+                )),
+                Outage::Refused(reason) => log(&format!(
+                    "it refused the session: {reason:?}; launches are not \
+                     registered (trying again in {} s, and at each launch)",
+                    wait.as_secs()
+                )),
+            }
+            self.said = Some(outage);
+        }
+        self.retry = Some((std::time::Instant::now() + wait, attempt.saturating_add(1)));
+    }
+
+    /// Connected: said if it was not before.
+    fn connected(&mut self, registered: usize, log: &dyn Fn(&str)) {
+        if self.said.take().is_some() {
+            log(&format!(
+                "connected again; its {registered} running applications \
+                 registered again"
+            ));
+        }
+        self.retry = None;
+    }
+
+    /// The connection was lost: tried again after a second (a service restarting is back by
+    /// then), then with the waits.
+    fn lost(&mut self, log: &dyn Fn(&str)) {
+        let outage = Outage::Unreachable("the service closed the session's connection".into());
+        if self.said.as_ref() != Some(&outage) {
+            log("it closed the session's connection: connecting again");
+            self.said = Some(outage);
+        }
+        self.retry = Some((std::time::Instant::now() + reconnect_wait(0, false), 0));
+    }
+}
+
 fn registrar_thread(
     socket: &Path,
     launches: &std::sync::mpsc::Receiver<Job>,
@@ -1367,32 +1636,12 @@ fn registrar_thread(
     use std::time::Instant;
     let mut live: Vec<(String, bool, OwnedFd)> = Vec::new();
     let mut registrar: Option<Registrar> = None;
-    // The next attempt to connect again, and how many were made since the service went.
-    let mut retry: Option<(Instant, usize)> = None;
-    let mut said_unreachable = false;
-    let connect = |live: &[(String, bool, OwnedFd)], said: &mut bool| -> Option<Registrar> {
-        let registrar = match Registrar::connect(socket) {
-            Ok(registrar) => registrar,
-            Err(error) => {
-                if !std::mem::replace(said, true) {
-                    log(&format!(
-                        "the accounts' service at {}: {error}; launches are not registered",
-                        socket.display()
-                    ));
-                }
-                return None;
-            }
-        };
-        *said = false;
-        for (id, system, pidfd) in live {
-            if !register_one(&registrar, id, *system, pidfd, log) {
-                return None;
-            }
-        }
-        Some(registrar)
+    let mut state = Connecting {
+        retry: None,
+        said: None,
     };
     loop {
-        let timeout = retry.map(|(at, _)| {
+        let timeout = state.retry.map(|(at, _)| {
             let wait = at.saturating_duration_since(Instant::now());
             rustix::time::Timespec {
                 tv_sec: wait.as_secs() as i64,
@@ -1410,8 +1659,10 @@ fn registrar_thread(
         );
         if let Err(error) = poll(&mut fds, timeout.as_ref()) {
             if error != rustix::io::Errno::INTR {
+                // Never a reason to stop registering: said, and waited on again after a moment.
                 log(&format!("waiting: {error}"));
-                return;
+                drop(fds);
+                std::thread::sleep(Duration::from_secs(1));
             }
             continue;
         }
@@ -1428,8 +1679,9 @@ fn registrar_thread(
         if lost {
             // The service closed the connection (it stopped): its registrations went with it.
             registrar = None;
-            retry = Some((Instant::now() + RECONNECT[0], 0));
+            state.lost(log);
         }
+        let mut launched = false;
         if woke {
             let mut bytes = [0u8; 64];
             // The session let go of its registrar: it is ending.
@@ -1443,7 +1695,7 @@ fn registrar_thread(
                         if let Some(connected) = &registrar {
                             if !lock_keychain(connected, log) {
                                 registrar = None;
-                                retry = Some((Instant::now() + RECONNECT[0], 0));
+                                state.lost(log);
                             }
                         }
                         continue;
@@ -1452,23 +1704,22 @@ fn registrar_thread(
                 if let Some(connected) = &registrar {
                     if !register_one(connected, &id, system, &pidfd, log) {
                         registrar = None;
-                        retry = Some((Instant::now() + RECONNECT[0], 0));
+                        state.lost(log);
                     }
                 }
                 live.push((id, system, pidfd));
-            }
-            // Not connected and not waiting to: a launch is the time to try again.
-            if registrar.is_none() && retry.is_none() {
-                registrar = connect(&live, &mut said_unreachable);
+                launched = true;
             }
         }
-        if let Some((at, made)) = retry {
-            if Instant::now() >= at {
-                registrar = connect(&live, &mut said_unreachable);
-                retry = match (&registrar, RECONNECT.get(made + 1)) {
-                    (Some(_), _) | (None, None) => None,
-                    (None, Some(wait)) => Some((Instant::now() + *wait, made + 1)),
-                };
+        // Not connected: a launch is a time to try again, as is the wait's end.
+        let due = state.retry.is_some_and(|(at, _)| Instant::now() >= at);
+        if registrar.is_none() && (launched || due || state.retry.is_none() && woke) {
+            match reconnect(socket, &live, log) {
+                Ok(connected) => {
+                    state.connected(live.len(), log);
+                    registrar = Some(connected);
+                }
+                Err(outage) => state.failed(outage, log),
             }
         }
     }
