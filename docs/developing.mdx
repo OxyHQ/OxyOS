@@ -150,7 +150,7 @@ prepares it, and running it again changes nothing that is already so:
 - `/usr/local/libexec/oxyos-gate-cpus reserve|release`, the one command its user may run through sudo:
   the first four physical cores and their SMT siblings for the calling gate's slice alone while its
   timing scenarios run, every other CPU for the rest of the machine and the other gates; a reservation releases itself after
-  30 minutes. One gate at a time holds them (`/run/lock/oxyos-gate/timing`); the rest of every gate
+  30 minutes. One gate at a time holds them (`/run/lock/oxyos-gate-timing.lock`); the rest of every gate
   runs at once beside the others, and a scenario that serves its probe on a fixed port waits for
   that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
   collides. Every run has a home of its own (`regress.py`), never the user's.

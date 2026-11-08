@@ -171,10 +171,11 @@ $GATE_USER ALL=(root) NOPASSWD: /usr/local/libexec/oxyos-gate-cpus reserve, /usr
 EOF
 chmod 440 /etc/sudoers.d/oxyos-gate
 visudo -cq -f /etc/sudoers.d/oxyos-gate
-# The gates' locks (tools/gate/run-scenarios.sh): the reserved cores' and each fixed port's, for
-# every gate whoever runs it. Not sticky, so one user's lock file opens for another's run
-# (fs.protected_regular refuses that in a sticky directory).
-echo "d /run/lock/oxyos-gate 0777 root root -" > /etc/tmpfiles.d/oxyos-gate.conf
+# The gates' locks (tools/gate/run-scenarios.sh), for every gate whoever runs it: the reserved
+# cores', root's, and each fixed port's in a directory that is not sticky, so a lock one user's run
+# made opens for another's (fs.protected_regular refuses that in a sticky one).
+printf '%s\n' "f /run/lock/oxyos-gate-timing.lock 0666 root root -" "d /run/lock/oxyos-gate 0777 root root -" \
+  > /etc/tmpfiles.d/oxyos-gate.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/oxyos-gate.conf
 systemctl daemon-reload
 echo "machine.sh: $GATE_USER, oxyosgate.slice, $(sed -n 's/^GATE_CPUS=//p' /etc/oxyos-gate.conf) reserved for one gate at a time"

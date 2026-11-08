@@ -124,9 +124,10 @@ phase "$(grep -vcE '^(perf|refresh)-' "$R/list") scenarios run, $GATE_JOBS at a 
 # Alone, on the reserved cores, given back however this ends: one gate at a time on this machine
 # (the timing lock, whoever runs it: a runner, a deploy), the gate's own slice on them and every other
 # gate's, the owner's and the users' off them, so a timing scenario measures OxyOS, not the machine.
-# Opened to read (a lock needs no more), so the file one user made serves the other's runs.
-(umask 0; : >> "$LOCKS/timing") 2>/dev/null || true
-exec 8<"$LOCKS/timing"
+# The machine's (root's, every user's: tools/gate/machine.sh), else one of this cache's. Opened to
+# read, which a lock needs no more than.
+timing=/run/lock/oxyos-gate-timing.lock; [ -r $timing ] || { timing=$LOCKS/timing; : >> "$timing"; }
+exec 8<"$timing"
 flock -n 8 || { phase "waiting for another gate's timing scenarios to end"; flock 8; }
 reserve=/usr/local/libexec/oxyos-gate-cpus
 reserved=
