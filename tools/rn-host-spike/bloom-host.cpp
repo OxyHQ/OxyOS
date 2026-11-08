@@ -452,6 +452,7 @@ bool deliverApplication(oxyos::HostServices& services) {
   bool busy = services.storage && services.storage->deliver();
   if (services.connectivity) busy |= services.connectivity->deliver();
   if (services.accountSession) busy |= services.accountSession->deliver();
+  if (services.migration) busy |= services.migration->deliver();
   return busy;
 }
 
@@ -464,6 +465,7 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
     fds.push_back(services.accountSession->fd());
     if (int subscription = services.accountSession->subscriptionFd(); subscription >= 0) fds.push_back(subscription);
   }
+  if (services.migration) fds.push_back(services.migration->fd());
   return fds;
 }
 

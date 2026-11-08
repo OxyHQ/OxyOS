@@ -13,13 +13,13 @@ test("the accounts' service's list becomes the screen's accounts", () => {
   assert.deepEqual(
     accountsFrom([
       { user: "oxy-a", name: "Ada Lovelace", picture: "/var/lib/oxyos/pictures/oxy-a" },
-      { user: "oxy-b", name: "  " },
+      { user: "oxy-b", name: "  ", signInAgain: true },
       { name: "no user" },
       "nonsense",
     ]),
     [
-      { user: "oxy-a", name: "Ada Lovelace", picture: "file:///var/lib/oxyos/pictures/oxy-a" },
-      { user: "oxy-b", name: "oxy-b", picture: null },
+      { user: "oxy-a", name: "Ada Lovelace", picture: "file:///var/lib/oxyos/pictures/oxy-a", signInAgain: false },
+      { user: "oxy-b", name: "oxy-b", picture: null, signInAgain: true },
     ],
   );
 });

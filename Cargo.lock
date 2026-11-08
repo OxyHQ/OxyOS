@@ -2604,6 +2604,7 @@ dependencies = [
  "oxyos-gestures",
  "oxyos-gpu-device",
  "oxyos-image",
+ "oxyos-install",
  "oxyos-intl",
  "oxyos-ipc",
  "oxyos-net",

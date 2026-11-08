@@ -7,6 +7,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
+import { Meter } from "@oxy.so/bloom/stat-bar";
 import { Text } from "@oxy.so/bloom/typography";
 import { Box } from "../../shell/src/primitives";
 import { LockBackdrop } from "../../shell/src/components/LockScreen";
@@ -23,6 +24,18 @@ import {
   type SignedInAccount,
 } from "./setup";
 import { useLoginMessages } from "./useLoginMessages";
+import { useShellMessages } from "../../shell/src/useShellMessages";
+import {
+  afterBackups,
+  backupDate,
+  diskName,
+  disksFrom,
+  migratedFrom,
+  progressFrom,
+  shareFrom,
+  type BackupSource,
+  type MigrateStep,
+} from "./migrate";
 
 export type { LoginAccount, Accounts } from "./model";
 
@@ -50,6 +63,18 @@ export type SetupActions = {
   end: () => void;
 };
 
+/** Migrate from a Backup (docs/adr/0059-backups.mdx, decision 7): the platform's migration
+    service, which does the work and answers only while no account is enrolled. Each a promise of
+    its answer ({failed} when it could not be asked); the passwords go to it, never kept here. */
+export type MigrationActions = {
+  disks: () => Promise<unknown>;
+  backups: (source: BackupSource, password: string, sharePassword: string | null) => Promise<unknown>;
+  /** `progress` with each of its progress messages, before the answer. */
+  migrate: (repository: string, snapshot: string, progress: (told: unknown) => void) => Promise<unknown>;
+  /** Ends the conversation: a disk the service mounted for it is let go. */
+  end: () => void;
+};
+
 /** What the login screen asks of its platform. It holds no authority over who signs in. */
 export type LoginActions = {
   /** Sends the password typed for `account` (its Unix user) to be checked; false if it could
@@ -62,6 +87,8 @@ export type LoginActions = {
   online: (api?: string) => Promise<boolean>;
   /** Adding an account; none where the platform sets none up. */
   setup?: SetupActions;
+  /** Migrating from a backup at the first setup; none where the platform offers none. */
+  migration?: MigrationActions;
   /** The accounts again, once one was added. */
   reloadAccounts?: () => void;
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
@@ -331,6 +358,374 @@ function SetupPanel({
   );
 }
 
+/** A text field of the panel's own, as the second factor's code is typed. */
+function Field({
+  testID,
+  label,
+  value,
+  onChangeText,
+  secure,
+  onSubmit,
+  autoFocus,
+}: {
+  testID: string;
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  secure?: boolean;
+  onSubmit?: () => void;
+  autoFocus?: boolean;
+}) {
+  return (
+    <TextInput
+      testID={testID}
+      accessibilityLabel={label}
+      value={value}
+      onChangeText={onChangeText}
+      onSubmitEditing={onSubmit}
+      autoFocus={autoFocus}
+      secureTextEntry={secure}
+      autoCapitalize="none"
+      autoCorrect={false}
+      placeholder={label}
+      placeholderTextColor="rgba(255,255,255,0.65)"
+      submitBehavior={onSubmit ? "submit" : "blurAndSubmit"}
+      maxLength={256}
+      style={{
+        marginTop: 10,
+        width: 240,
+        height: 30,
+        borderRadius: 15,
+        paddingHorizontal: 14,
+        backgroundColor: "rgba(255,255,255,0.22)",
+        color: "#fff",
+        fontSize: 13,
+      }}
+    />
+  );
+}
+
+/** Choices of the panel's own (disks, computers, backups): Bloom's `ChoiceList`, upright, each
+    chosen with a press, Space or Return, going on with it. */
+function Choices({
+  label,
+  options,
+  choose,
+}: {
+  label: string;
+  options: { value: string; label: string; detail?: string; testID: string }[];
+  choose: (value: string) => void;
+}) {
+  if (options.length === 0) return null;
+  return (
+    <ChoiceList
+      label={label}
+      value={options[0]!.value}
+      onValueChange={choose}
+      orientation="vertical"
+      options={options.map(({ value, label: name, testID }) => ({ value, label: name, testID }))}
+      style={{ gap: 2, marginTop: 12, alignSelf: "stretch" }}
+      optionStyle={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.12)" }}
+      renderContent={(option) => {
+        const detail = options.find((one) => one.value === option.value)?.detail;
+        return (
+          <Box>
+            <Text style={white(13, "600")}>{option.label}</Text>
+            {detail ? <Text style={{ ...white(12, "400", 0.8), marginTop: 2 }}>{detail}</Text> : null}
+          </Box>
+        );
+      }}
+    />
+  );
+}
+
+/**
+ * Migrate from a Backup (docs/adr/0059-backups.mdx, decision 7): at the first setup, another
+ * computer's accounts brought over from its backup on a disk or a share, as a Mac's Migration
+ * Assistant brings them from Time Machine. Where the backups are, their password, the computer and
+ * the backup (newest first), then the migration and how far it is. The platform's migration
+ * service does the work; once it is done the accounts are listed, each to sign in again online.
+ */
+function MigratePanel({
+  step,
+  setStep,
+  migration,
+  migrated,
+  back,
+  announce,
+}: {
+  step: MigrateStep;
+  setStep: (step: MigrateStep) => void;
+  migration: MigrationActions;
+  migrated: (count: number) => void;
+  back: () => void;
+  announce?: (text: string, polite: boolean) => void;
+}) {
+  const catalogue = useLoginMessages();
+  const words = catalogue.migrate;
+  const { language } = useShellMessages();
+  const [busy, setBusy] = useState(false);
+  const [answer, setAnswer] = useState<ShellLock["answer"]>(undefined);
+  const answered = useRef(0);
+  const [share, setShare] = useState({ host: "", share: "", user: "" });
+  // A share's password, until the backups' password is sent with it: then forgotten.
+  const sharePassword = useRef("");
+  const [typedSharePassword, setTypedSharePassword] = useState("");
+  const latest = useRef(migration);
+  latest.current = migration;
+  // The disks, asked for as the step that lists them opens (again with Look Again).
+  useEffect(() => {
+    if (step.step !== "source" || step.disks !== null) return undefined;
+    let current = true;
+    latest.current
+      .disks()
+      .catch(() => null)
+      .then((told) => {
+        if (!current) return;
+        const disks = disksFrom(told);
+        setStep({ step: "source", disks: typeof disks === "string" ? [] : disks, problem: typeof disks === "string" ? disks : step.problem });
+      });
+    return () => {
+      current = false;
+    };
+  }, [step]);
+  const names = (accounts: { name: string }[]) => words.list(accounts.map((account) => account.name));
+  const problem = (which: string | null) => (which ? <SetupMessage text={words.problems[which as keyof typeof words.problems]} /> : null);
+  let content: React.ReactNode;
+  let goBack: (() => void) | null = null;
+  switch (step.step) {
+    case "source": {
+      goBack = back;
+      content = (
+        <>
+          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>{words.sourceDescription}</Text>
+          {step.disks === null ? (
+            <SetupMessage text={words.lookingForDisks} />
+          ) : step.disks.length === 0 ? (
+            <SetupMessage text={words.noDisks} />
+          ) : (
+            <Choices
+              label={words.disks}
+              options={step.disks.map((disk) => ({
+                value: disk.uuid,
+                label: diskName(disk, language),
+                testID: `login-migrate-disk-${disk.uuid}`,
+              }))}
+              choose={(uuid) => {
+                const disk = step.disks?.find((one) => one.uuid === uuid);
+                if (disk) {
+                  setStep({ step: "password", source: { disk: { uuid } }, place: diskName(disk, language), problem: null });
+                }
+              }}
+            />
+          )}
+          {problem(step.problem)}
+          <Link testID="login-migrate-share" label={words.networkShare} onPress={() => setStep({ step: "share", problem: null })} />
+          {step.disks !== null && (
+            <Link testID="login-migrate-look-again" label={words.lookAgain} onPress={() => setStep({ step: "source", disks: null, problem: null })} />
+          )}
+        </>
+      );
+      break;
+    }
+    case "share": {
+      goBack = () => setStep({ step: "source", disks: null, problem: null });
+      const typed = shareFrom(share.host, share.share, share.user);
+      const connect = () => {
+        if (!typed) return;
+        sharePassword.current = typedSharePassword;
+        setTypedSharePassword("");
+        setStep({ step: "password", source: { share: { share: typed } }, place: `smb://${typed.host}/${typed.share}`, problem: null });
+      };
+      content = (
+        <>
+          <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>{words.shareTitle}</Text>
+          <Field testID="login-migrate-share-host" label={words.shareHost} value={share.host} autoFocus onChangeText={(host) => setShare({ ...share, host })} />
+          <Field testID="login-migrate-share-name" label={words.shareName} value={share.share} onChangeText={(name) => setShare({ ...share, share: name })} />
+          <Field testID="login-migrate-share-user" label={words.shareUser} value={share.user} onChangeText={(user) => setShare({ ...share, user })} />
+          <Field
+            testID="login-migrate-share-password"
+            label={words.sharePassword}
+            value={typedSharePassword}
+            secure
+            onChangeText={setTypedSharePassword}
+            onSubmit={connect}
+          />
+          {problem(step.problem)}
+          {typed && <Link testID="login-migrate-connect" label={words.connect} onPress={connect} />}
+        </>
+      );
+      break;
+    }
+    case "password": {
+      goBack = () => {
+        sharePassword.current = "";
+        setStep({ step: "source", disks: null, problem: null });
+      };
+      content = (
+        <>
+          <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>{words.passwordTitle(step.place)}</Text>
+          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>{words.passwordDescription}</Text>
+          <PasswordField
+            testID="login-migrate"
+            placeholder={words.passwordPlaceholder}
+            accessibilityLabel={words.passwordPlaceholder}
+            authenticate={(password) => {
+              setBusy(true);
+              const shared = "share" in step.source ? sharePassword.current : null;
+              migration
+                .backups(step.source, password, shared)
+                .catch(() => null)
+                .then((told) => {
+                  setBusy(false);
+                  const next = afterBackups(told, step);
+                  const id = ++answered.current;
+                  if (next.step === "password") {
+                    setStep(next);
+                    setAnswer({ id, outcome: "rejected", wait: 0 });
+                    return;
+                  }
+                  sharePassword.current = "";
+                  setAnswer({ id, outcome: "busy", wait: 0 });
+                  // A share that did not answer as one: its details again.
+                  if (next.step === "source" && "share" in step.source) {
+                    setStep({ step: "share", problem: next.problem });
+                  } else {
+                    setStep(next);
+                  }
+                });
+              return true;
+            }}
+            answer={answer}
+            announce={announce}
+          />
+          {busy ? <SetupMessage text={words.opening} /> : problem(step.problem)}
+        </>
+      );
+      break;
+    }
+    case "computer": {
+      goBack = () => setStep({ step: "source", disks: null, problem: null });
+      content = (
+        <Choices
+          label={words.computers}
+          options={step.computers.map((computer) => ({
+            value: computer.repository,
+            label: computer.name,
+            detail: backupDate(computer.backups[0]!.time, language),
+            testID: `login-migrate-computer-${computer.repository}`,
+          }))}
+          choose={(repository) => {
+            const computer = step.computers.find((one) => one.repository === repository);
+            if (computer) setStep({ step: "backup", computer, several: step.computers });
+          }}
+        />
+      );
+      break;
+    }
+    case "backup": {
+      goBack = () =>
+        setStep(step.several ? { step: "computer", computers: step.several } : { step: "source", disks: null, problem: null });
+      content = (
+        <>
+          <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>{words.backups(step.computer.name)}</Text>
+          {step.computer.accounts.length > 0 && (
+            <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>
+              {words.accounts(names(step.computer.accounts))}
+            </Text>
+          )}
+          <Box style={{ alignSelf: "stretch", maxHeight: 260 }}>
+            <ScrollView testID="login-migrate-backups">
+              <Choices
+                label={words.backups(step.computer.name)}
+                options={step.computer.backups.map((backup) => ({
+                  value: backup.snapshot,
+                  label: backupDate(backup.time, language),
+                  testID: `login-migrate-backup-${backup.snapshot}`,
+                }))}
+                choose={(snapshot) => {
+                  const backup = step.computer.backups.find((one) => one.snapshot === snapshot);
+                  if (backup) setStep({ step: "confirm", computer: step.computer, backup, several: step.several });
+                }}
+              />
+            </ScrollView>
+          </Box>
+        </>
+      );
+      break;
+    }
+    case "confirm": {
+      goBack = () => setStep({ step: "backup", computer: step.computer, several: step.several });
+      const start = () => {
+        const { computer, backup } = step;
+        setStep({ step: "migrating", computer, progress: { step: "accounts", percent: 0 } });
+        migration
+          .migrate(computer.repository, backup.snapshot, (told) => {
+            const progress = progressFrom(told);
+            if (progress) setStep({ step: "migrating", computer, progress });
+          })
+          .catch(() => null)
+          .then((told) => {
+            const done = migratedFrom(told);
+            if (typeof done === "string") setStep({ step: "failed", problem: done });
+            else migrated(done.accounts.length);
+          });
+      };
+      content = (
+        <>
+          <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>{words.confirmTitle(step.computer.name)}</Text>
+          <Text style={{ ...white(13, "400", 0.85), marginTop: 6, textAlign: "center" }}>
+            {words.confirmDescription(backupDate(step.backup.time, language), names(step.computer.accounts))}
+          </Text>
+          <Link testID="login-migrate-start" label={words.migrateAction} onPress={start} />
+        </>
+      );
+      break;
+    }
+    case "migrating": {
+      const { progress } = step;
+      const said =
+        progress.step === "files"
+          ? words.steps.files(new Intl.NumberFormat(language, { style: "percent" }).format(progress.percent))
+          : words.steps[progress.step];
+      content = (
+        <>
+          <Text style={{ ...white(15, "600"), marginTop: 10, textAlign: "center" }}>{step.computer.name}</Text>
+          <Box style={{ marginTop: 14 }}>
+            <Meter
+              testID="login-migrate-progress"
+              role="progressbar"
+              value={progress.step === "finishing" ? 1 : progress.percent}
+              accessibilityLabel={words.title}
+              width={240}
+            />
+          </Box>
+          <SetupMessage text={said} />
+          <Text style={{ ...white(12, "400", 0.75), marginTop: 6, textAlign: "center" }}>{words.migrating}</Text>
+        </>
+      );
+      break;
+    }
+    case "failed": {
+      goBack = back;
+      content = (
+        <>
+          {problem(step.problem)}
+          <Link testID="login-migrate-start-over" label={words.startOver} onPress={() => setStep({ step: "source", disks: null, problem: null })} />
+        </>
+      );
+      break;
+    }
+  }
+  return (
+    <Box testID="login-migrate" className="items-center" style={{ width: 360, maxWidth: "100%" }}>
+      <Text style={white(17, "600")}>{words.title}</Text>
+      {content}
+      {goBack && <Link testID="login-migrate-back" label={catalogue.setup.back} onPress={goBack} />}
+    </Box>
+  );
+}
+
 /** The enrolled accounts to choose from, when there are several: each its picture and name, the
     chosen one's bright. Bloom's `ChoiceList`, as a Mac's login window: one keyboard stop, the
     arrows moving between the accounts without choosing, Space or Return choosing the one whose
@@ -400,6 +795,8 @@ export function LoginScreen({
   const [toPassword, setToPassword] = useState(0);
   // Setup: closed (null), or where it stands.
   const [setup, setSetup] = useState<SetupStep | null>(null);
+  // Migrate from a Backup: closed (null), or where it stands.
+  const [migrating, setMigrating] = useState<MigrateStep | null>(null);
   // The first boot: no account yet, so setup is what the screen offers.
   const first = opensOnSetup(accounts);
   const shown: SetupStep | null = setup ?? (first ? { step: "checking" } : null);
@@ -429,24 +826,87 @@ export function LoginScreen({
         {words.unreadable}
       </Text>
     );
-  } else if (shown) {
+  } else if (migrating && actions.migration) {
+    const migration = actions.migration;
     content = (
-      <SetupPanel
-        step={shown}
-        setStep={setSetup}
-        actions={actions}
-        enrolled={(user, name) => {
-          // Said once, as the new account is listed and chosen, its password field focused.
-          const added = words.setup.added(name);
-          if (actions.announce) actions.announce(added, false);
-          else AccessibilityInfo.announceForAccessibility(added);
-          actions.setup?.end();
+      <MigratePanel
+        step={migrating}
+        setStep={setMigrating}
+        migration={migration}
+        announce={actions.announce}
+        migrated={(count) => {
+          // Said once, as the accounts brought over are listed, each to sign in again.
+          const said = words.migrate.migrated(count);
+          if (actions.announce) actions.announce(said, false);
+          else AccessibilityInfo.announceForAccessibility(said);
+          migration.end();
           actions.reloadAccounts?.();
-          setChosen(user);
+          setMigrating(null);
           setSetup(null);
         }}
-        back={account ? () => setSetup(null) : undefined}
+        back={() => {
+          migration.end();
+          setMigrating(null);
+        }}
       />
+    );
+  } else if (shown) {
+    // At the first setup, before an account is set up, another computer's may be brought over.
+    const offerMigration =
+      first &&
+      actions.migration &&
+      (shown.step === "checking" || shown.step === "offline" || shown.step === "notConfigured" || shown.step === "signIn");
+    content = (
+      <>
+        <SetupPanel
+          step={shown}
+          setStep={setSetup}
+          actions={actions}
+          enrolled={(user, name) => {
+            // Said once, as the new account is listed and chosen, its password field focused.
+            const added = words.setup.added(name);
+            if (actions.announce) actions.announce(added, false);
+            else AccessibilityInfo.announceForAccessibility(added);
+            actions.setup?.end();
+            actions.reloadAccounts?.();
+            setChosen(user);
+            setSetup(null);
+          }}
+          back={account ? () => setSetup(null) : undefined}
+        />
+        {offerMigration && (
+          <Link
+            testID="login-migrate-offer"
+            label={words.migrate.offer}
+            onPress={() => {
+              actions.setup?.end();
+              setMigrating({ step: "source", disks: null, problem: null });
+            }}
+          />
+        )}
+      </>
+    );
+  } else if (account?.signInAgain) {
+    // Signed out by Oxy, or brought over from a backup: its password opens it once it is set up
+    // again online, so the screen offers that, never a password that cannot open it.
+    content = (
+      <>
+        {accounts.length > 1 ? (
+          <AccountChooser accounts={accounts} chosen={account.user} choose={setChosen} />
+        ) : (
+          <>
+            <UserPicture picture={account.picture} />
+            <Text style={{ ...white(15, "600"), marginTop: 10 }}>{account.name}</Text>
+          </>
+        )}
+        <Text
+          testID="login-sign-in-again"
+          style={{ ...white(13, "400", 0.85), marginTop: 14, maxWidth: 320, textAlign: "center" }}
+        >
+          {words.signInAgain.description(account.name)}
+        </Text>
+        <Link testID="login-sign-in-again-action" label={words.signInAgain.action} onPress={() => setSetup({ step: "checking" })} />
+      </>
     );
   } else if (account) {
     content = (
@@ -484,7 +944,13 @@ export function LoginScreen({
     );
   }
   return (
-    <LockBackdrop testID="login" wallpaper={wallpaper} now={now} Masked={Masked} clock={shown?.step !== "signIn"}>
+    <LockBackdrop
+      testID="login"
+      wallpaper={wallpaper}
+      now={now}
+      Masked={Masked}
+      clock={migrating ? migrating.step === "source" || migrating.step === "migrating" : shown?.step !== "signIn"}
+    >
       {content}
     </LockBackdrop>
   );

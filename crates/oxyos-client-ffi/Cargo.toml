@@ -23,6 +23,9 @@ oxyos-files = { path = "../oxyos-files" }
 oxyos-app-storage = { path = "../oxyos-app-storage" }
 # The accounts' service's sockets and their types, without its HTTP client.
 oxyos-account = { path = "../oxyos-account", default-features = false }
+# The migration service's socket (docs/adr/0059-backups.mdx, migration.rs): SOCK_SEQPACKET messages
+# of up to 64 KiB, a computer's list of backups among them.
+oxyos-install = { path = "../oxyos-install" }
 oxyos-protocol = { path = "../oxyos-protocol" }
 oxyos-paint = { path = "../oxyos-paint" }
 oxyos-gpu-device = { path = "../oxyos-gpu-device" }

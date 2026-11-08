@@ -2039,7 +2039,8 @@ int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, 
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
- * [{"user" (its Unix user's name), "name", "picture" (a file, or null)}]. Written as
+ * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "signInAgain" (Oxy signed
+ * it out, or it was restored from a backup: it is set up again online)}]. Written as
  * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
 int64_t oxyos_accounts(char* out, size_t capacity);
 
@@ -2117,6 +2118,38 @@ int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment
                                         size_t capacity);
 /* Ends a setup: closing its connection abandons what the service had not finished. */
 void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
+
+/* Migrate from a Backup (docs/adr/0059-backups.mdx, decision 7), for the login screen of a computer
+ * nobody has set up yet: one conversation with the migration service (OXYOS_MIGRATE_SOCKET, else
+ * /run/oxyos/migrate/socket), which answers root and the login screen's user alone, and only while
+ * no account is enrolled. Each answer is JSON, read strictly and written rebuilt, at most
+ * OXYOS_MIGRATION_MESSAGE_MAX bytes; any of them may be {"refused": {"reason"}} ("notPermitted",
+ * "alreadySetUp", "notConnected", "noBackup", "wrongPassword", "shareRefused", "unreachable",
+ * "inUse", "full", "invalidBackup", "clash", "failed", ...). Each call blocks: never on the
+ * interface's thread. OXYOS_ERROR (oxyos_last_error) once the conversation has ended. */
+#define OXYOS_MIGRATION_MESSAGE_MAX 65536
+typedef struct OxyOSMigration OxyOSMigration;
+/* NULL when the service cannot be reached (oxyos_last_error). */
+OxyOSMigration* oxyos_migration_new(void);
+/* The disks that may hold backups: {"disks": [{"uuid", "label", "fsType", "size"}]}. */
+int64_t oxyos_migration_disks(OxyOSMigration* migration, char* out, size_t capacity);
+/* The computers whose backups `password` opens at `source` (JSON {"disk": {"uuid"}} or
+ * {"share": {"share": {"host", "share", "user"}}}), `share_password` a share's or NULL (secrets:
+ * copied into buffers this library overwrites; overwrite your own): {"backups": {"computers":
+ * [{"repository", "name", "backups": [{"snapshot", "time"}] (newest first), "accounts": [{"user",
+ * "name", "administrator"}]}], "unopened"}}. The source stays open for the conversation. */
+int64_t oxyos_migration_backups(OxyOSMigration* migration, const char* source, const char* password,
+                                const char* share_password, char* out, size_t capacity);
+/* Asks for a backup of the computers listed to be migrated into this one. 0, or OXYOS_ERROR. */
+int oxyos_migration_migrate(OxyOSMigration* migration, const char* repository, const char* snapshot);
+/* The migration's next message, waiting for it: {"migrating": {"step" ("accounts", "files",
+ * "finishing"), "percent" (0 to 1)}} while it goes on, then {"migrated": {"computer", "accounts":
+ * [{"user", "name"}]}} or a refusal. */
+int64_t oxyos_migration_next(OxyOSMigration* migration, char* out, size_t capacity);
+/* The last answer again, for a buffer that was too small. */
+int64_t oxyos_migration_answer(const OxyOSMigration* migration, char* out, size_t capacity);
+/* Ends the conversation; a migration under way is finished by the service all the same. */
+void oxyos_migration_free(OxyOSMigration* migration);
 
 /* Wallpapers (docs/adr/0048-wallpapers.mdx). Each writes JSON into `out` (`capacity` bytes,
    NUL-terminated when it fits) and returns its length: larger than `capacity`, call again with

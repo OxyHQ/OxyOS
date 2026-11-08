@@ -32,6 +32,7 @@ pub mod gestures;
 pub mod gpu;
 pub mod images;
 pub mod intl;
+pub mod migration;
 pub mod net;
 pub mod paint;
 #[cfg(test)]

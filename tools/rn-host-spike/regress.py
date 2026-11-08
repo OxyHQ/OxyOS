@@ -583,7 +583,9 @@ for the one account it plays, committing the device credential `oxy.device`; eve
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
 be `oxy.device`'s, the password `enroll.password`, a second factor `enroll.code` when given) and
-lists `enroll.account` once enrolled. A step's `accounts_asked` is what the setup asked the service
+lists `enroll.account` once enrolled. `login.migrate` plays the migration service for *Migrate from a
+Backup* (docs/adr/0059-backups.mdx, `serve_migration`), and a step's `migrate_asked` is what it was
+asked in the step ("ASKED: ANSWERED", exactly, in order). A step's `accounts_asked` is what the setup asked the service
 in it ("ASKED: ANSWERED", exactly, in order) and `oxy_requests` requests Oxy's API answered in it
 ("METHOD PATH STATUS", each at least once). No credential of anyone's is in a scenario: every one
 is the run's own. `login.record`: what the login program must have recorded once the run
@@ -1067,7 +1069,8 @@ def serve_accounts(path, accounts, login=None, log=None):
     listener.bind(str(path))
     listener.listen(16)
     login = login or {}
-    accounts = list(accounts)
+    # The caller's list: the played migration service lists the accounts it brought over in it.
+    accounts = accounts if isinstance(accounts, list) else list(accounts)
 
     def record(asked, answered):
         if log:
@@ -1129,6 +1132,89 @@ def serve_accounts(path, accounts, login=None, log=None):
                     pass
 
     record.turn = 0
+    threading.Thread(target=serve, daemon=True).start()
+    return listener
+
+
+def serve_migration(path, spec, accounts, log=None):
+    """The migration service as the login screen asks it (SOCK_SEQPACKET, crates/oxyos-backup's
+    migrate.rs, docs/adr/0059-backups.mdx decision 7), on one conversation at a time: `disks` with
+    `login.migrate.disks`; `backups` with `login.migrate.computers` for a disk it plays and the
+    password `login.migrate.password` (refused `wrongPassword` otherwise, `notConnected` for another
+    disk); `migrate` of a backup it listed, saying its progress (accounts, files by quarters,
+    finishing) and then `migrated` with `login.migrate.accounts`, which the accounts' stand-in lists
+    from then on, each `signInAgain`. Once it migrated, every request is refused `alreadySetUp`.
+    What it was asked is logged ("ASKED: ANSWERED"), never a password."""
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    listener.bind(str(path))
+    listener.listen(4)
+    state = {"migrated": False}
+
+    def record(asked, answered):
+        if log:
+            with open(log, "a") as out:
+                out.write(json.dumps({"t": time.monotonic_ns(), "asked": asked, "answered": answered}) + "\n")
+
+    def send(connection, answer):
+        connection.send(json.dumps(answer).encode())
+
+    def converse(connection):
+        opened = False
+        while True:
+            packet = connection.recv(65536)
+            if not packet:
+                return
+            message = json.loads(packet)
+            asked = next(iter(message)) if isinstance(message, dict) and message else str(message)
+            if state["migrated"]:
+                answer = {"refused": {"reason": "alreadySetUp"}}
+            elif asked == "disks":
+                answer = {"disks": spec.get("disks", [])}
+            elif asked == "backups":
+                request = message["backups"]
+                uuid = request.get("source", {}).get("disk", {}).get("uuid")
+                if uuid not in [disk["uuid"] for disk in spec.get("disks", [])]:
+                    answer = {"refused": {"reason": "notConnected"}}
+                elif request.get("password") != spec["password"]:
+                    answer = {"refused": {"reason": "wrongPassword"}}
+                else:
+                    opened = True
+                    answer = {"backups": {"computers": spec["computers"], "unopened": spec.get("unopened", 0)}}
+            elif asked == "migrate":
+                request = message["migrate"]
+                listed = [(computer["repository"], backup["snapshot"])
+                          for computer in spec["computers"] for backup in computer["backups"]]
+                if not opened:
+                    answer = {"refused": {"reason": "notOpened"}}
+                elif (request.get("repository"), request.get("snapshot")) not in listed:
+                    answer = {"refused": {"reason": "invalidRequest"}}
+                else:
+                    steps = [("accounts", 0.0)] + [("files", q / 4) for q in range(5)] + [("finishing", 1.0)]
+                    for step, percent in steps:
+                        send(connection, {"migrating": {"step": step, "percent": percent}})
+                        time.sleep(spec.get("step_ms", 400) / 1000)
+                    for account in spec["accounts"]:
+                        if all(listed_account["user"] != account["user"] for listed_account in accounts):
+                            accounts.append(dict(account, state="signInAgain"))
+                    state["migrated"] = True
+                    answer = {"migrated": {"computer": next(computer["name"] for computer in spec["computers"]
+                                                            if computer["repository"] == request["repository"]),
+                                           "accounts": [{"user": a["user"], "name": a["name"]}
+                                                        for a in spec["accounts"]]}}
+            else:
+                answer = {"refused": {"reason": "invalidRequest"}}
+            record(asked, next(iter(answer)) if "refused" not in answer else answer["refused"]["reason"])
+            send(connection, answer)
+
+    def serve():
+        while True:
+            connection, _ = listener.accept()
+            with connection:
+                try:
+                    converse(connection)
+                except (OSError, ValueError, KeyError, TypeError, StopIteration):
+                    pass
+
     threading.Thread(target=serve, daemon=True).start()
     return listener
 
@@ -1568,7 +1654,15 @@ def login_program(out, offscreen, login):
     oxy = played_oxy(login["oxy"], out / "oxy-api.jsonl") if "oxy" in login else None
     if oxy:
         login = dict(login, platform={"api": oxy[0], "clientId": "oxy_pk_played"})
-    serve_accounts(accountd, login.get("accounts", []), login, out / "login-accounts.jsonl")
+    listed = list(login.get("accounts", []))
+    serve_accounts(accountd, listed, login, out / "login-accounts.jsonl")
+    # Migrate from a Backup (`login.migrate`): a played migration service, which lists what it
+    # brought over in the accounts' stand-in.
+    migrate = sockets / "migrate"
+    (out / "login-migrate.jsonl").unlink(missing_ok=True)
+    ACCOUNT["migrate_log"] = out / "login-migrate.jsonl"
+    if "migrate" in login:
+        serve_migration(migrate, login["migrate"], listed, out / "login-migrate.jsonl")
     program = pathlib.Path(offscreen).resolve().parent / "oxyos-login"
     process = subprocess.Popen(
         [str(program), "--dev", "--pam-confdir", str(pam), "--record", str(record),
@@ -1582,7 +1676,7 @@ def login_program(out, offscreen, login):
     # Offline: Oxy's API is a port held bound without listening, so connecting is refused.
     refusing = socket.socket()
     refusing.bind(("127.0.0.1", 0))
-    env = {"OXYOS_ACCOUNTD_SOCKET": str(accountd),
+    env = {"OXYOS_ACCOUNTD_SOCKET": str(accountd), "OXYOS_MIGRATE_SOCKET": str(migrate),
            "OXYOS_OXY_API": oxy[0] if oxy else f"http://127.0.0.1:{refusing.getsockname()[1]}/"}
     return process, greeter, record, env, (refusing, sockets)
 
@@ -3344,6 +3438,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         got = [f"{line['asked']}: {line['answered']}" for line in lines if start <= line["t"] <= end]
         if got != expect["accounts_asked"]:
             fail(f"the accounts' service was asked {got}, expected exactly {expect['accounts_asked']}")
+    if "migrate_asked" in expect:
+        # What the login screen asked the played migration service in the step (`login.migrate`):
+        # "ASKED: ANSWERED" ("disks: disks", "backups: wrongPassword", "migrate: migrated"),
+        # exactly, in order.
+        log = ACCOUNT.get("migrate_log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        got = [f"{line['asked']}: {line['answered']}" for line in lines if start <= line["t"] <= end]
+        if got != expect["migrate_asked"]:
+            fail(f"the migration service was asked {got}, expected exactly {expect['migrate_asked']}")
     if "oxy_requests" in expect:
         # Requests the played Oxy API answered in the step (`login.oxy`), "METHOD PATH STATUS":
         # each listed was made at least once.

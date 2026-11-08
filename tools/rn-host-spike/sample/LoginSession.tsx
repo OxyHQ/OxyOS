@@ -6,7 +6,9 @@
  * compositor shows and reaches. The accounts are the accounts' service's; the password goes
  * through the compositor to the login program, never further into JavaScript. Adding an account
  * runs the Oxy SDK's own sign-in (SetupSignIn.tsx) and hands the credential and the password to
- * the accounts' service through the host (`OxyOSAccountSession`), never keeping either here.
+ * the accounts' service through the host (`OxyOSAccountSession`), never keeping either here. At the
+ * first setup, Migrate from a Backup asks the migration service through the host (`OxyOSMigration`,
+ * docs/adr/0059-backups.mdx), the backup password going straight on to it.
  */
 import * as React from 'react';
 import { StyleSheet, TurboModuleRegistry, View } from 'react-native';
@@ -15,7 +17,12 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
-import { LoginScreen, type LoginActions, type SetupActions } from '../../../apps/login/src/LoginScreen';
+import {
+  LoginScreen,
+  type LoginActions,
+  type MigrationActions,
+  type SetupActions,
+} from '../../../apps/login/src/LoginScreen';
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
 import { enrollAnswerFrom, platformFrom } from '../../../apps/login/src/setup';
 import { SetupSignIn } from './SetupSignIn';
@@ -63,6 +70,25 @@ const setupActions: SetupActions | undefined =
       }
     : undefined;
 
+const migrationModule = TurboModuleRegistry.get<{
+  getConstants(): { available: boolean };
+  disks(): Promise<unknown>;
+  backups(source: object, password: string, sharePassword: string | null): Promise<unknown>;
+  migrate(repository: string, snapshot: string, progress: (told: unknown) => void): Promise<unknown>;
+  end(): void;
+}>('OxyOSMigration');
+
+/** Migrating from a backup through the host: the migration service's conversation. */
+const migrationActions: MigrationActions | undefined =
+  migrationModule && migrationModule.getConstants().available
+    ? {
+        disks: () => migrationModule.disks(),
+        backups: (source, password, sharePassword) => migrationModule.backups(source, password, sharePassword),
+        migrate: (repository, snapshot, progress) => migrationModule.migrate(repository, snapshot, progress),
+        end: () => migrationModule.end(),
+      }
+    : undefined;
+
 export default function LoginSession() {
   const shell = useOxyOSShell();
   const now = useMinuteClock();
@@ -84,6 +110,7 @@ export default function LoginSession() {
     capsLock: !!state?.capsLock,
     online: (api) => reachable(api ?? state?.oxyApi ?? 'https://api.oxy.so'),
     setup: setupActions,
+    migration: migrationActions,
     reloadAccounts: () => setAccounts(accountsFrom(shell.accounts())),
     announce: (text, polite) => shell.announce(text, polite),
   };

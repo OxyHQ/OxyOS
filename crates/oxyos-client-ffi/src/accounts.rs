@@ -14,8 +14,10 @@ fn socket() -> PathBuf {
         .map_or_else(|| oxyos_account::ipc::SOCKET.into(), PathBuf::from)
 }
 
-/// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null)}]` in the
-/// service's order, or why they could not be read.
+/// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null), "signInAgain"}]`
+/// in the service's order, or why they could not be read. `signInAgain`: Oxy signed the account
+/// out, or it was restored from a backup (docs/adr/0059-backups.mdx): it is set up again online
+/// before its password opens it.
 pub fn accounts_json() -> Result<String, String> {
     accounts_json_at(&socket())
 }
@@ -27,13 +29,14 @@ fn accounts_json_at(socket: &std::path::Path) -> Result<String, String> {
         .iter()
         .map(|account| {
             format!(
-                "{{\"user\":{},\"name\":{},\"picture\":{}}}",
+                "{{\"user\":{},\"name\":{},\"picture\":{},\"signInAgain\":{}}}",
                 json_string(&account.user),
                 json_string(&account.name),
                 account
                     .picture
                     .as_deref()
-                    .map_or("null".into(), json_string)
+                    .map_or("null".into(), json_string),
+                account.state == oxyos_account::store::State::SignInAgain
             )
         })
         .collect();
@@ -105,14 +108,14 @@ mod tests {
                         uid: 1002,
                         name: "Bea".into(),
                         picture: None,
-                        state: oxyos_account::store::State::Ready,
+                        state: oxyos_account::store::State::SignInAgain,
                     },
                 ]))
                 .unwrap();
         });
         assert_eq!(
             accounts_json_at(&socket).unwrap(),
-            r#"[{"user":"oxy-a","name":"Ada \"Countess\" Lovelace","picture":"/var/lib/oxyos/pictures/oxy-a"},{"user":"oxy-b","name":"Bea","picture":null}]"#
+            r#"[{"user":"oxy-a","name":"Ada \"Countess\" Lovelace","picture":"/var/lib/oxyos/pictures/oxy-a","signInAgain":false},{"user":"oxy-b","name":"Bea","picture":null,"signInAgain":true}]"#
         );
         service.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();
