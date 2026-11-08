@@ -45,6 +45,7 @@
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
+#include <algorithm>
 #include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -1280,23 +1281,30 @@ int main(int argc, char** argv) {
     uint32_t controlSerial = 0;
     // Launches and the URLs the shell opens are numbered together: each LAUNCH_RESULT names one.
     uint32_t launchSerial = 0;
-    // An application's requests to open the platform's Settings at a page, by their serial, each
-    // told what the session answered (docs/adr/0019-settings.mdx).
-    std::map<uint32_t, std::function<void(bool, const std::string&)>> settingsOpens;
+    // An application's requests to open a URL (the platform's Settings at a page, or another
+    // application's, docs/adr/0058-the-platform-api.mdx, step 6), by their serial, each told what
+    // the session answered.
+    std::map<uint32_t, std::function<void(bool, const std::string&)>> urlOpens;
     if (!shellMode) {
-      services.openSettingsUrl = [&window, &lastPress, &launchSerial, &settingsOpens](
-                                     const std::string& url, std::function<void(bool, const std::string&)> done) {
-        if (!window) return done(false, "OxyOS opens Settings only from an application's window");
-        if (window->protocolVersion() < OXYOS_APPLICATION_OPENS_SETTINGS_VERSION) {
-          return done(false, "this session cannot open Settings for an application (protocol version " +
+      services.openUrl = [&window, &lastPress, &launchSerial, &urlOpens](
+                             const std::string& url, std::function<void(bool, const std::string&)> done) {
+        if (!window) return done(false, "OxyOS opens a URL only from an application's window");
+        // Settings' since version 27; any other scheme's since 34: an older compositor closes the
+        // connection for it.
+        std::string scheme = url.substr(0, url.find(':'));
+        std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+        uint32_t needs = scheme == OXYOS_PLATFORM_SETTINGS_SCHEME ? OXYOS_APPLICATION_OPENS_SETTINGS_VERSION
+                                                                  : OXYOS_APPLICATION_OPENS_URLS_VERSION;
+        if (window->protocolVersion() < needs) {
+          return done(false, "this session cannot open " + scheme + " links for an application (protocol version " +
                                  std::to_string(window->protocolVersion()) + ")");
         }
-        if (lastPress == 0) return done(false, "OxyOS opens Settings only for something the person did");
+        if (lastPress == 0) return done(false, "OxyOS opens a URL only for something the person did");
         ++launchSerial;
         bool sent = window->openUrl(launchSerial, lastPress, url);
         oxyos::Report::get().input("url.open", 0, folly::dynamic::object("url", url)("sent", sent));
-        if (!sent) return done(false, "the request to open Settings could not be sent");
-        settingsOpens[launchSerial] = std::move(done);
+        if (!sent) return done(false, "the request to open it could not be sent");
+        urlOpens[launchSerial] = std::move(done);
       };
       // The lock from an application (the Oxy SDK's sign in, docs/adr/0020-oxy-account-login.mdx):
       // only while its window is the active one, which the compositor checks too.
@@ -2622,11 +2630,11 @@ int main(int argc, char** argv) {
         for (const auto& result : launchResults) {
           oxyos::Report::get().input("launch.result", 0,
                                      folly::dynamic::object("serial", result.code)("launched", result.flag != 0));
-          // An application's Settings opened at a page: its own answer.
-          if (auto asked = settingsOpens.find(result.code); asked != settingsOpens.end()) {
+          // An application's URL opened: its own answer.
+          if (auto asked = urlOpens.find(result.code); asked != urlOpens.end()) {
             auto done = std::move(asked->second);
-            settingsOpens.erase(asked);
-            done(result.flag != 0, result.flag != 0 ? "" : "the session did not open Settings");
+            urlOpens.erase(asked);
+            done(result.flag != 0, result.flag != 0 ? "" : "no application opened it");
             continue;
           }
           instance->callFunctionOnModule(

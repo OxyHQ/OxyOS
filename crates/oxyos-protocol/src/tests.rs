@@ -3003,6 +3003,12 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
 }
 
 #[test]
+fn version_34_an_application_opens_a_url_of_any_scheme() {
+    // No message of its own: the rule for an application's OpenUrl is wider from it.
+    assert_eq!(crate::APPLICATION_OPENS_URLS_VERSION, 34);
+}
+
+#[test]
 fn version_32_a_pin_is_only_version_32s() {
     let request = Request::AuthenticatePasscode { surface: 3 };
     assert_eq!(request_since(&request), crate::PASSCODE_VERSION);
@@ -3149,14 +3155,14 @@ fn background_items_kinds_actions_and_statuses_are_closed_sets() {
 }
 
 #[test]
-fn version_34_safe_mode_is_only_version_34s() {
+fn version_35_safe_mode_is_only_version_35s() {
     let event = Event::SafeMode {};
-    assert_eq!(event_since(&event), 34);
+    assert_eq!(event_since(&event), 35);
     let mut old = Vec::new();
-    assert!(!write_event_for(&mut old, &event, 33).unwrap());
+    assert!(!write_event_for(&mut old, &event, 34).unwrap());
     assert!(old.is_empty());
     let mut new = Vec::new();
-    assert!(write_event_for(&mut new, &event, 34).unwrap());
-    assert!(read_event_for(&mut Cursor::new(new.clone()), 33).is_err());
-    assert_eq!(read_event_for(&mut Cursor::new(new), 34).unwrap(), event);
+    assert!(write_event_for(&mut new, &event, 35).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 34).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 35).unwrap(), event);
 }

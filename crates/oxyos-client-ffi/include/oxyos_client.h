@@ -96,7 +96,7 @@ typedef struct OxyOSClient OxyOSClient;
 /* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
  * protocol version 33). */
 #define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
-/* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 34). */
+/* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 35). */
 #define OXYOS_EVENT_SAFE_MODE 166
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
@@ -556,7 +556,7 @@ typedef struct OxyOSClient OxyOSClient;
  *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
  *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   SAFE_MODE          to the shell and the login screen: the session started in Safe Mode, told
- *                      once as it connects; show it until the session ends (protocol version 34).
+ *                      once as it connects; show it until the session ends (protocol version 35).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -923,12 +923,15 @@ int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t
 /* The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
  * whose entry declares its scheme, citing `input`, an input it received (docs/adr/0034-the-dock.mdx).
  * A LAUNCH_RESULT answers: code, `serial`; flag, whether it was opened. Refused to a compositor of a
- * version before 8. An application may ask it only for the platform's Settings at a page
- * (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), and only of a compositor whose version
- * (`oxyos_client_protocol_version`) is OXYOS_APPLICATION_OPENS_SETTINGS_VERSION or newer: an
- * older one, and any other URL, closes the connection as unauthorized. */
+ * version before 8. An application may ask it for the platform's Settings at a page
+ * (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx) only of a compositor whose version
+ * (`oxyos_client_protocol_version`) is OXYOS_APPLICATION_OPENS_SETTINGS_VERSION or newer, and for a
+ * URL of any other scheme but `file` (opened by the application whose entry declares it,
+ * docs/adr/0058-the-platform-api.mdx, step 6) only of one of OXYOS_APPLICATION_OPENS_URLS_VERSION
+ * or newer: an older one, and a file's URL, closes the connection as unauthorized. */
 #define OXYOS_PLATFORM_SETTINGS_SCHEME "oxyos-settings"
 #define OXYOS_APPLICATION_OPENS_SETTINGS_VERSION 27
+#define OXYOS_APPLICATION_OPENS_URLS_VERSION 34
 /* An application locks the session (`oxyos_client_lock_session`) only while one of its windows is
  * the active one, and only of a compositor of this version or newer: an older one closes the
  * connection as unauthorized. A request while its window is not the active one is ignored. */
