@@ -24,11 +24,12 @@ impl Authentication for LoginProgram {
     fn attempt(
         &mut self,
         account: Option<&str>,
+        passcode: bool,
         mut secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)> {
         // The password's memory moves to the login program's message whole, and is overwritten.
         let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
-        self.0.attempt(account, secret).map(outcome)
+        self.0.attempt(account, passcode, secret).map(outcome)
     }
 
     fn as_fd(&self) -> BorrowedFd<'_> {

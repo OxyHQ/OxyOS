@@ -6,16 +6,20 @@
  * `OxyProvider` with OxyOS's client id and Oxy's API as the accounts' service names them, and the
  * SDK's seam for a platform's setup client, `authStateStore` (oxy ADR 0058, B3): a store that keeps
  * nothing and hands the credential a sign-in commits to the Bloom host at once
- * (`OxyOSAccountSession.holdCredential`), which holds it until the person gives the account's
- * password once more. Every way in is the SDK's: the email's code or link, the password, the
- * authenticator, the QR approved on a phone, or a new account. An account without a password sets
- * one through the SDK's own flow (`OxyPasswordPanel`) before that. Nothing here is a sign-in of
- * OxyOS's own.
+ * (`OxyOSAccountSession.holdCredential`), which holds it until the setup ends. Every way in is the
+ * SDK's: the email's code or link, the password, the authenticator, the QR approved on a phone, or
+ * a new account. Nothing here is a sign-in of OxyOS's own.
+ *
+ * Once signed in, the account's sign-in methods say whether it has a password (decision 2): with
+ * one, it is asked once more; without, the person chooses a PIN and is never asked to make an Oxy
+ * password. Methods that cannot be read are never taken for "no password": the screen says so and
+ * asks again, and nothing goes on until they are read (failing closed).
  */
 import * as React from 'react';
-import { TurboModuleRegistry, View } from 'react-native';
-import { OxyAuthChooser, OxyPasswordPanel, OxyProvider, OxySurfaceFrame, useOxy } from '@oxy.so/services';
+import { Pressable, Text, TurboModuleRegistry, View } from 'react-native';
+import { OxyAuthChooser, OxyProvider, OxySurfaceFrame, useOxy } from '@oxy.so/services';
 import type { SetupSignInProps } from '../../../apps/login/src/LoginScreen';
+import { useLoginMessages } from '../../../apps/login/src/useLoginMessages';
 
 const native = TurboModuleRegistry.get<{
   holdCredential(deviceId: string, deviceSecret: string, accountId: string): boolean;
@@ -37,36 +41,67 @@ function handingOverStore(onHanded: (accountId: string) => void) {
   };
 }
 
-/** After the sign-in: the account's password set if it has none, then the setup's next step. */
+/** Whether the account has a password: read from its sign-in methods, or not known. */
+type Methods = { state: 'reading' } | { state: 'read'; hasPassword: boolean } | { state: 'unread' };
+
+/**
+ * After the sign-in: the account's sign-in methods read, then the setup's next step with whether
+ * it has a password. Not read (offline, refused, an answer outside the contract), it says so and
+ * offers to read them again; it never guesses.
+ */
 function AfterSignIn({ accountId, onSignedIn }: { accountId: string; onSignedIn: SetupSignInProps['onSignedIn'] }) {
+  const words = useLoginMessages().setup;
   const { oxyServices, user } = useOxy() as {
-    oxyServices: { auth: { methods(): Promise<{ hasPassword: boolean }> } };
+    oxyServices: { auth: { methods(): Promise<{ hasPassword?: unknown }> } };
     user?: { username?: string; name?: { full?: string } | string } | null;
   };
-  const [hasPassword, setHasPassword] = React.useState<boolean | null>(null);
-  const name =
-    (typeof user?.name === 'string' ? user.name : user?.name?.full) || user?.username || '';
+  const [methods, setMethods] = React.useState<Methods>({ state: 'reading' });
+  const [attempt, setAttempt] = React.useState(0);
+  const name = (typeof user?.name === 'string' ? user.name : user?.name?.full) || user?.username || '';
   React.useEffect(() => {
     let current = true;
+    setMethods({ state: 'reading' });
     oxyServices.auth
       .methods()
-      .then((methods) => current && setHasPassword(methods.hasPassword))
-      .catch(() => current && setHasPassword(false));
+      .then((read) => {
+        if (!current) return;
+        setMethods(
+          typeof read?.hasPassword === 'boolean' ? { state: 'read', hasPassword: read.hasPassword } : { state: 'unread' },
+        );
+      })
+      .catch(() => current && setMethods({ state: 'unread' }));
     return () => {
       current = false;
     };
-  }, [oxyServices]);
+  }, [oxyServices, attempt]);
   React.useEffect(() => {
-    if (hasPassword) onSignedIn({ id: accountId, name });
-  }, [hasPassword, accountId, name, onSignedIn]);
-  if (hasPassword !== false) return null;
-  return <OxyPasswordPanel onDone={() => setHasPassword(true)} />;
+    if (methods.state === 'read') onSignedIn({ id: accountId, name, hasPassword: methods.hasPassword });
+  }, [methods, accountId, name, onSignedIn]);
+  if (methods.state === 'read') return null;
+  return (
+    <View testID="login-setup-methods" style={{ alignItems: 'center', paddingVertical: 16 }}>
+      <Text accessibilityRole="alert" style={{ color: '#fff', fontSize: 13, textAlign: 'center' }}>
+        {methods.state === 'reading' ? words.checkingAccount : words.accountUnchecked}
+      </Text>
+      {methods.state === 'unread' ? (
+        <Pressable
+          testID="login-setup-methods-retry"
+          accessibilityRole="button"
+          accessibilityLabel={words.retry}
+          onPress={() => setAttempt((count) => count + 1)}
+          style={{ marginTop: 14, paddingHorizontal: 12, paddingVertical: 4 }}
+        >
+          <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{words.retry}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
 /**
  * The chooser until a sign-in signed the account in, whichever way it came (the chooser's own
  * steps, or the QR the provider's controller completes): the account the host was handed the
- * credential of, now the provider's. Then the password step.
+ * credential of, now the provider's. Then what it signs in with on this computer.
  */
 function Setup({
   accountId,

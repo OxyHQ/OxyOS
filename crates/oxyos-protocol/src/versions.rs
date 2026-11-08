@@ -69,7 +69,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// (`TextInputContentType`) and a fill of the credential the person picked (`TextInputFill`),
 /// sent only to a field that told its content type; version 31,
 /// search (`SearchRequest`, `SearchText`, docs/adr/0051-search.mdx), both ways, asked by any
-/// client, the index's changes sent unasked to a client that asked to watch them.
+/// client, the index's changes sent unasked to a client that asked to watch them; version 32, a
+/// lock surface's PIN (`AuthenticatePasscode`, docs/adr/0020-oxy-account-login.mdx decision 2),
+/// asked by a lock surface.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -109,6 +111,7 @@ const REQUESTS_ADDED: Added = &[
     (28, 252..=252),
     (30, 69..=69),
     (31, 164..=164),
+    (32, 101..=101),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {
