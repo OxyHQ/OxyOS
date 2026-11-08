@@ -29,9 +29,13 @@ fi
 # end a signed-in session, and which program owns tty1 is for the owner of the machine to choose):
 # its new binary takes effect at its next start.
 T=oxyos-try
+# Each staged beside its place and renamed over the one before, so none is ever missing (a session
+# started meanwhile still finds its program); a program running keeps the file it started with.
 grep -v '^#' $T/tools/deploy/system-files | while read -r from to mode; do
   [ -n "$from" ] || continue
-  sudo -n install -D -o root -g root -m "$mode" "$T/$from" "$to"
+  staged="${to%/*}/.${to##*/}.new"
+  sudo -n install -D -o root -g root -m "$mode" "$T/$from" "$staged"
+  sudo -n mv -fT "$staged" "$to"
 done
 for f in $(awk '$2 ~ "^/usr/lib/sysusers.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-sysusers "${f##*/}"; done
 for f in $(awk '$2 ~ "^/usr/lib/tmpfiles.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-tmpfiles --create "${f##*/}"; done
@@ -115,12 +119,24 @@ if [ -d $V/.unpack/deploy/sounds ]; then
   sudo -n install -d -m 755 -o root -g root /usr/share/doc/oxyos-sounds
   sudo -n install -m 644 -o root -g root $V/.unpack/deploy/sounds-doc/copyright /usr/share/doc/oxyos-sounds/copyright
 fi
-# The system entries and the policy; Dropsea's and Atlas's entries go when they are not sent, and
-# so.oxy.stash's, the id Dropsea had before its rename (2 November 2026), always goes.
-sudo -n install -d -m 755 -o root -g root /usr/share/oxyos/applications
-sudo -n rm -f /usr/share/oxyos/applications/so.oxy.stash.desktop /usr/share/oxyos/applications/so.oxy.dropsea.desktop /usr/share/oxyos/applications/so.oxy.atlas.desktop
-sudo -n install -m 644 -o root -g root $V/.unpack/deploy/entries/*.desktop /usr/share/oxyos/applications/
-sudo -n install -m 644 -o root -g root $V/.unpack/deploy/system-apps.json /usr/share/oxyos/system-apps.json
+# The system entries, then the policy naming them, each staged beside its place (a dot name a
+# registry never lists) and renamed over the one before: a running session never finds one missing
+# or half written, so never leaves a system application out meanwhile. Then Dropsea's and Atlas's
+# entries go when they are not sent, and so.oxy.stash's, the id Dropsea had before its rename
+# (2 November 2026), always goes.
+A=/usr/share/oxyos/applications
+sudo -n install -d -m 755 -o root -g root $A
+for f in $V/.unpack/deploy/entries/*.desktop; do
+  n=${f##*/}
+  sudo -n install -m 644 -o root -g root "$f" "$A/.$n.new"
+  sudo -n mv -fT "$A/.$n.new" "$A/$n"
+done
+sudo -n install -m 644 -o root -g root $V/.unpack/deploy/system-apps.json /usr/share/oxyos/.system-apps.json.new
+sudo -n mv -fT /usr/share/oxyos/.system-apps.json.new /usr/share/oxyos/system-apps.json
+for n in so.oxy.dropsea.desktop so.oxy.atlas.desktop; do
+  [ -e "$V/.unpack/deploy/entries/$n" ] || sudo -n rm -f "$A/$n"
+done
+sudo -n rm -f $A/so.oxy.stash.desktop
 # The entry the one-bundle deploy installed: its id is the policy's now, its bundle gone from it.
 sudo -n rm -f /usr/local/share/oxyos/applications/so.oxy.settings.desktop
 # Inbox and Allo, the user's: their packages and the development registry naming them.

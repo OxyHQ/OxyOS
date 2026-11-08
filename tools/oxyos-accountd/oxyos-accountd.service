@@ -48,6 +48,11 @@ LimitMEMLOCK=16M
 LimitCORE=0
 RuntimeDirectory=oxyos/accountd
 RuntimeDirectoryMode=0755
+# Kept when the service stops or restarts (a package upgrade restarts it under running sessions),
+# for its registrars directory (0700, root's): the sessions it verified this boot, so a session
+# whose program an upgrade replaced is still known (docs/adr/0020-oxy-account-login.mdx). A boot
+# empties /run.
+RuntimeDirectoryPreserve=yes
 
 # The file system is read-only but for what it writes:
 # - /etc: useradd, chpasswd (through pam_unix) and userdel replace passwd, shadow, group and
