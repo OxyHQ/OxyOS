@@ -570,9 +570,10 @@ bool Window::setAppearance(uint32_t serial, bool dark) {
 
 bool Window::refreshControls() { return oxyos_client_refresh_controls(client_) == 0; }
 
-bool Window::authenticate(uint32_t id, const std::string& secret, const std::string& account) {
-  return oxyos_client_authenticate_account(client_, id, account.empty() ? nullptr : account.c_str(), secret.data(),
-                                           secret.size()) == 0;
+bool Window::authenticate(uint32_t id, const std::string& secret, const std::string& account, bool passcode) {
+  const char* named = account.empty() ? nullptr : account.c_str();
+  if (passcode) return oxyos_client_authenticate_passcode(client_, id, named, secret.data(), secret.size()) == 0;
+  return oxyos_client_authenticate_account(client_, id, named, secret.data(), secret.size()) == 0;
 }
 
 void Window::nameWindow(const std::string& title, const std::string& appId) {

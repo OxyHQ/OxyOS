@@ -7,7 +7,7 @@ use crate::ipc::{
     Turn,
 };
 use crate::platform::Platform;
-use crate::setup::Setup;
+use crate::setup::{Progress, Setup};
 use crate::store::Store;
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
@@ -24,7 +24,8 @@ fn enroll(password: &str) -> Request {
         device_id: DEVICE.into(),
         device_secret: Secret::new(DEVICE_SECRET),
         account_id: ACCOUNT.into(),
-        password: Secret::new(password),
+        password: Some(Secret::new(password)),
+        pin: None,
     }
 }
 
@@ -402,10 +403,12 @@ fn the_list_is_the_documented_one() {
         name: "Ada".into(),
         picture: None,
         state: crate::store::State::SignInAgain,
+        pin: crate::pin::PinState::Locked,
+        password: false,
     }]);
     assert_eq!(
         serde_json::to_string(&answer).unwrap(),
-        r#"{"accounts":[{"accountId":"a","user":"oxy-a","uid":1001,"name":"Ada","state":"signInAgain"}]}"#
+        r#"{"accounts":[{"accountId":"a","user":"oxy-a","uid":1001,"name":"Ada","state":"signInAgain","pin":"locked","password":false}]}"#
     );
     // What an older service lists, without a state, is ready.
     let older: crate::ipc::Account =
@@ -504,5 +507,105 @@ fn the_login_program_checks_a_password_on_the_socket() {
     assert_eq!(
         serde_json::to_string(&Answer::Checked(Checked::ACCEPTED)).unwrap(),
         r#"{"checked":{"result":"accepted"}}"#
+    );
+}
+
+#[cfg(feature = "local")]
+#[test]
+fn a_pin_is_checked_for_its_own_account_alone() {
+    use crate::ipc::{verify_pin_at, PinResult};
+    // Not the login program's user: an ordinary peer, as the lock's PAM runs.
+    let login = Some(me().wrapping_add(1));
+    let mut service = Service::start(FakeApi::default(), Enrollers { login }, 4);
+    let setup = service.platform.setup();
+    let mut enrolled = None;
+    if let Progress::Enrolled(done) = setup
+        .enroll(crate::setup::Request {
+            credential: credential(),
+            account: ACCOUNT.into(),
+            password: Some(Secret::new(PASSWORD)),
+            pin: Some(Secret::new("482916")),
+        })
+        .unwrap()
+    {
+        enrolled = Some(done);
+    }
+    let user = enrolled.unwrap().user;
+    let mut stored = setup.store().get(&account()).unwrap().unwrap();
+    stored.uid = me().wrapping_add(7);
+    setup.store().put(&stored).unwrap();
+    // Another uid's account: answered as one without a PIN, nothing checked or counted.
+    let other = verify_pin_at(&service.socket, user.as_str(), Secret::new("000000")).unwrap();
+    // Root may check any account's (its first wrong one counted).
+    let counted = if me() == 0 {
+        assert_eq!(other.result, PinResult::Rejected);
+        1
+    } else {
+        assert_eq!(other.result, PinResult::None);
+        0
+    };
+    assert_eq!(
+        setup.store().local(&user).unwrap().pin.unwrap().failures,
+        counted
+    );
+    // The peer's own account.
+    let mut stored = setup.store().get(&account()).unwrap().unwrap();
+    stored.uid = me();
+    setup.store().put(&stored).unwrap();
+    let wrong = verify_pin_at(&service.socket, user.as_str(), Secret::new("000000")).unwrap();
+    assert_eq!(wrong.result, PinResult::Rejected);
+    assert_eq!(
+        setup.store().local(&user).unwrap().pin.unwrap().failures,
+        counted + 1
+    );
+    let right = verify_pin_at(&service.socket, user.as_str(), Secret::new("482916")).unwrap();
+    assert_eq!(right.result, PinResult::Accepted);
+    assert_eq!(setup.store().local(&user).unwrap().pin.unwrap().failures, 0);
+    // Anything else of such a peer is refused.
+    if me() != 0 {
+        assert_eq!(
+            list(&service.socket).unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+    } else {
+        list(&service.socket).unwrap();
+    }
+    let log = service.finish();
+    assert!(
+        log.iter().any(|line| line.contains("PinChecked")),
+        "{log:?}"
+    );
+    assert!(log.iter().all(|line| !line.contains("482916")));
+}
+
+#[test]
+fn the_pin_wire_format_is_the_documented_one() {
+    let request = Request::VerifyPin {
+        user: "oxy-a".into(),
+        pin: Secret::new("1234"),
+    };
+    assert_eq!(
+        serde_json::to_string(&request).unwrap(),
+        r#"{"verifyPin":{"user":"oxy-a","pin":"1234"}}"#
+    );
+    let answer = Answer::Pin(crate::ipc::PinAnswer {
+        result: crate::ipc::PinResult::Throttled,
+        retry_after_seconds: Some(30),
+    });
+    assert_eq!(
+        serde_json::to_string(&answer).unwrap(),
+        r#"{"pin":{"result":"throttled","retryAfterSeconds":30}}"#
+    );
+    // An enroll without a password says so by leaving it out.
+    let enroll = Request::Enroll {
+        device_id: "d".into(),
+        device_secret: Secret::new("s"),
+        account_id: "a".into(),
+        password: None,
+        pin: Some(Secret::new("1234")),
+    };
+    assert_eq!(
+        serde_json::to_string(&enroll).unwrap(),
+        r#"{"enroll":{"deviceId":"d","deviceSecret":"s","accountId":"a","pin":"1234"}}"#
     );
 }

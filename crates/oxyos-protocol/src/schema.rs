@@ -258,6 +258,10 @@ messages! {
         // without it the password is the session's own user's. The authentication path decides
         // what it may check; a session checks only its own user's.
         100 => AuthenticateAccount { surface: u32, user: PreeditText },
+        // A lock surface's next password is the account's PIN for this computer (ADR 0020
+        // decision 2, version 32), given before its chunks while locked: the authentication path
+        // checks it as a PIN (its own PAM service), never as the password and never online.
+        101 => AuthenticatePasscode { surface: u32 },
         // The session's shell (its `shell` grant, ADR 0024): hides the application of a window (all
         // its windows leave the screen, not into the dock, until the application is activated:
         // FocusWindow of any of them shows them again), or quits it (each of its windows is asked
@@ -339,7 +343,7 @@ messages! {
         // completes it), at most MAX_SEARCH_TEXT_BYTES; the compositor hands it to the index with
         // who asked, which only it knows, and the answers come as SearchText naming `serial`.
         164 => SearchRequest { serial: u32, index: u16, last: bool, text: PreeditText },
-        // Login items and background activity (version 32,
+        // Login items and background activity (version 33,
         // docs/adr/0060-login-items-and-background-activity.mdx). An application asks the session
         // how one of its background items stands, or registers or unregisters it, as a Mac's
         // `SMAppService`; answered by BackgroundItemState naming `serial`. Only a process the
@@ -777,7 +781,7 @@ messages! {
         // SearchRequest `serial`, JSON text in chunks; `serial` 0 is told unasked, when what the
         // client asked to watch changed.
         164 => SearchText { serial: u32, index: u16, last: bool, text: PreeditText },
-        // To an application (version 32, docs/adr/0060-login-items-and-background-activity.mdx):
+        // To an application (version 33, docs/adr/0060-login-items-and-background-activity.mdx):
         // how one of its background items stands, answering its BackgroundItem `serial`; `serial` 0
         // is told unasked when the person changed it (removed it from Open at Login, turned its
         // background activity off or on).

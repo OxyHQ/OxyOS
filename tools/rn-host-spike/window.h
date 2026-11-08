@@ -149,7 +149,7 @@ class Window {
   void sheetAnswer(uint32_t sheet, bool accepted, uint64_t serial);
   bool requestCapability(uint32_t serial, uint64_t input, uint8_t capability);
   // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
-  // protocol version 32): how one of this application's background items stands, or registering or
+  // protocol version 33): how one of this application's background items stands, or registering or
   // unregistering it (OXYOS_BACKGROUND_ITEM_*), answered by a BACKGROUND_ITEM_STATE naming `serial`.
   // False if it could not be sent.
   bool backgroundItem(uint32_t serial, uint8_t kind, uint8_t action);
@@ -285,7 +285,7 @@ class Window {
   // The protocol version the connection speaks (docs/adr/0033-protocol-versions.mdx).
   uint16_t protocolVersion() const;
   // The password for `account` (a login screen's; empty: the session's own user).
-  bool authenticate(uint32_t id, const std::string& secret, const std::string& account = "");
+  bool authenticate(uint32_t id, const std::string& secret, const std::string& account = "", bool passcode = false);
   // The windows a shell surface shows live (docs/adr/0022-window-views.mdx), bottom to top,
   // shown with its next present. Throws on failure.
   void showWindows(uint32_t id, const std::vector<OxyOSWindowView>& views);

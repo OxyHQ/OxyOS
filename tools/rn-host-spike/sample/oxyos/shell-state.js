@@ -26,6 +26,9 @@
  * the password typed in the lock screen for the session to check, and `authentication` is the
  * latest answer, { id, outcome: 'accepted' | 'rejected' | 'busy' | 'throttled', wait } (wait: the
  * seconds until another may be tried). Only the session unlocks: `locked` then says so.
+ * `authenticatePin(pin, account)` sends the account's PIN for this computer as one
+ * (docs/adr/0020-oxy-account-login.mdx decision 2); false when it could not be sent (a compositor
+ * older than protocol version 32 takes none).
  *
  * The system shortcuts (docs/adr/0024-system-shortcuts.mdx): `shortcuts` are the latest the
  * compositor took from the keyboard for the shell to show, in order, [{ id, action, output }] (a
@@ -247,6 +250,7 @@ const actions = {
   // not sent); `OxyOSShellLaunch` says whether it was started.
   launch: (id) => native?.launch(id) ?? 0,
   authenticate: (password, account) => native?.authenticate(password, account) ?? false,
+  authenticatePin: (pin, account) => native?.authenticate(pin, account ?? '', { passcode: true }) ?? false,
   accounts: () => native?.accounts() ?? null,
   activateMenuItem: (window, serial, index) => native?.activateMenuItem(window, serial, index),
   setControlLevel: (control, level) => native?.setControlLevel(control, level),

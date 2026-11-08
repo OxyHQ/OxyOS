@@ -56,7 +56,22 @@
 //!   of the peer's own account. So are `erasePreview` and `eraseAll`, erasing the machine
 //!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx), [`erase`](crate::erase)): an
 //!   erase is refused `notAdministrator`, `wrongPassword`, `throttled` (with `retryAfter`, in
-//!   seconds), `unavailable` (no recovery) or `failed`, and a refusal changed nothing. The keychain's
+//!   seconds), `unavailable` (no recovery) or `failed`, and a refusal changed nothing.
+//!   The account's local sign-in (`crate::pin`): Settings and the shell's lock screen read it,
+//!   Settings alone changes it, the person proved by the password or the PIN:
+//!
+//!   ```text
+//!   → "localSignIn"                      ← {"localSignIn": {"pin": "none" | "set" | "locked",
+//!                                                           "password": bool}}
+//!   → {"setPin": {"pin", "password"? | "currentPin"?}}            ← {"localSignIn": …}
+//!   → {"removePin": {"password"}}                                 ← {"localSignIn": …}
+//!   → {"setPasswordSignIn": {"enabled", "password"? | "currentPin"?}}
+//!                                                                 ← {"localSignIn": …}
+//!   ```
+//!
+//!   refused `wrongPassword`, `wrongPin`, `throttled` (`retryAfter`), `pinLocked`,
+//!   `unusablePin`, `passwordSignInOff`, `noPin`, `offline`, `secondFactorRequired` or `failed`;
+//!   a refusal changed nothing. The keychain's
 //!   requests (`crate::keychain`) are Settings' too; any other application is refused
 //!   `notPermitted`.
 //! - **Limits,** as the service's own socket: every peer waits at most [`IDLE`] for its next
@@ -71,8 +86,8 @@ use crate::api::OxyApi;
 use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
 use crate::keychain::{
-    self, AuditView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView, JoinMethod,
-    MemberView, Status, Suggestion,
+    self, AuditView, CodeView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView,
+    JoinMethod, MemberView, Status, Suggestion,
 };
 use crate::pidfd::{self, Program};
 use crate::platform::{self, Checked, Local, Platform, Snapshot, Token, TokenReason};
@@ -199,9 +214,37 @@ pub enum Request {
         current: Secret,
     },
     KeychainLeave {},
+    /// A strong password (ADR 0050 decision 8's generator), for a new or edited item.
+    KeychainGenerate {},
+    /// An item's verification code now.
+    #[serde(rename_all = "camelCase")]
+    KeychainCode {
+        item_id: String,
+    },
     ErasePreview {},
     EraseAll {
         password: Secret,
+    },
+    // The local sign-in (`crate::pin`): Settings' and the shell's to read, Settings' to change.
+    LocalSignIn,
+    #[serde(rename_all = "camelCase")]
+    SetPin {
+        pin: Secret,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<Secret>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current_pin: Option<Secret>,
+    },
+    RemovePin {
+        password: Secret,
+    },
+    #[serde(rename_all = "camelCase")]
+    SetPasswordSignIn {
+        enabled: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<Secret>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        current_pin: Option<Secret>,
     },
 }
 
@@ -246,6 +289,18 @@ pub enum Reason {
     NotAdministrator,
     /// An erase of a machine without a recovery.
     Unavailable,
+    // The local sign-in's (`crate::pin`).
+    WrongPin,
+    /// Too many wrong PINs: the password, or Oxy online, first.
+    PinLocked,
+    /// Not 4 to 16 digits, or the password itself.
+    UnusablePin,
+    /// The password does not sign in on this computer.
+    PasswordSignInOff,
+    /// The password cannot be turned off without a PIN.
+    NoPin,
+    /// The account has an authenticator: set it up again at the login screen.
+    SecondFactorRequired,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -298,8 +353,10 @@ pub enum Answer {
     KeychainDeleted,
     KeychainAudit(AuditView),
     KeychainLeft,
+    KeychainCode(CodeView),
     ErasePreview(ErasePreview),
     Erasing(Erasing),
+    LocalSignIn(platform::LocalView),
 }
 
 impl Answer {
@@ -308,6 +365,30 @@ impl Answer {
             reason,
             retry_after: None,
         }
+    }
+}
+
+impl From<platform::LocalRefusal> for Answer {
+    fn from(refusal: platform::LocalRefusal) -> Self {
+        use platform::LocalRefusal as R;
+        let reason = match refusal {
+            R::WrongPassword => Reason::WrongPassword,
+            R::WrongPin => Reason::WrongPin,
+            R::Throttled(seconds) => {
+                return Answer::Refused {
+                    reason: Reason::Throttled,
+                    retry_after: Some(seconds),
+                }
+            }
+            R::PinLocked => Reason::PinLocked,
+            R::UnusablePin => Reason::UnusablePin,
+            R::PasswordSignInOff => Reason::PasswordSignInOff,
+            R::NoPin => Reason::NoPin,
+            R::Offline => Reason::Offline,
+            R::SecondFactorRequired => Reason::SecondFactorRequired,
+            R::Failed => Reason::Failed,
+        };
+        Answer::refused(reason)
     }
 }
 
@@ -463,6 +544,12 @@ pub enum Event {
     },
     EraseRefused(Reason),
     Refused(Reason),
+    /// Settings changed the local sign-in (`setPin`, `removePin`, `passwordOn`, `passwordOff`),
+    /// or was refused.
+    LocalChanged {
+        change: &'static str,
+        refused: Option<Reason>,
+    },
 }
 
 impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessions<A, U> {
@@ -848,6 +935,23 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                 Some(Request::Register { .. } | Request::Check { .. }) => {
                     Answer::refused(Reason::NotPermitted)
                 }
+                // The lock screen reads which field to show; Settings changes it.
+                Some(Request::LocalSignIn) if registration.system => {
+                    match self.platform.local_sign_in(uid) {
+                        Ok(Some(view)) => Answer::LocalSignIn(view),
+                        _ => Answer::refused(Reason::Failed),
+                    }
+                }
+                Some(
+                    Request::SetPin { .. }
+                    | Request::RemovePin { .. }
+                    | Request::SetPasswordSignIn { .. },
+                ) if !is_settings(registration) => Answer::refused(Reason::NotPermitted),
+                Some(
+                    request @ (Request::SetPin { .. }
+                    | Request::RemovePin { .. }
+                    | Request::SetPasswordSignIn { .. }),
+                ) => self.change_local(uid, request, log),
                 // The keychain is Settings' alone to manage (ADR 0050 decision 5), and AutoFill
                 // the registrar's: any other application never learns whether it holds anything.
                 Some(request) if keychain::is_keychain_request(&request) => {
@@ -944,6 +1048,63 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                 return Ok(());
             }
         }
+    }
+}
+
+impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessions<A, U> {
+    /// Settings' change to the local sign-in (`crate::pin`): one proof, the password or the
+    /// current PIN, never both.
+    #[cfg(feature = "local")]
+    fn change_local(&self, uid: u32, request: Request, log: &mut impl FnMut(&Event)) -> Answer {
+        use platform::{LocalChange, Proof};
+        let proof = |password: Option<Secret>, pin: Option<Secret>| match (password, pin) {
+            (Some(password), None) => Some(Proof::Password(password)),
+            (None, Some(pin)) => Some(Proof::Pin(pin)),
+            _ => None,
+        };
+        let (proof, change) = match request {
+            Request::SetPin {
+                pin,
+                password,
+                current_pin,
+            } => (proof(password, current_pin), LocalChange::SetPin(pin)),
+            Request::RemovePin { password } => {
+                (Some(Proof::Password(password)), LocalChange::RemovePin)
+            }
+            Request::SetPasswordSignIn {
+                enabled,
+                password,
+                current_pin,
+            } => (
+                proof(password, current_pin),
+                LocalChange::PasswordSignIn(enabled),
+            ),
+            _ => return Answer::refused(Reason::InvalidRequest),
+        };
+        let Some(proof) = proof else {
+            return Answer::refused(Reason::InvalidRequest);
+        };
+        let what = change.name();
+        let answer = match self
+            .platform
+            .change_local(uid, proof, change, self.eraser.passwords())
+        {
+            Ok(view) => Answer::LocalSignIn(view),
+            Err(refusal) => Answer::from(refusal),
+        };
+        log(&Event::LocalChanged {
+            change: what,
+            refused: match &answer {
+                Answer::Refused { reason, .. } => Some(*reason),
+                _ => None,
+            },
+        });
+        answer
+    }
+
+    #[cfg(not(feature = "local"))]
+    fn change_local(&self, _uid: u32, _request: Request, _log: &mut impl FnMut(&Event)) -> Answer {
+        Answer::refused(Reason::Failed)
     }
 }
 

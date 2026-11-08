@@ -283,6 +283,7 @@ fn requests() -> Vec<Request> {
             surface: 5,
             user: PreeditText::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap(),
         },
+        Request::AuthenticatePasscode { surface: 5 },
         Request::AccessibleSelection {
             surface: 1,
             index: 1,
@@ -2975,6 +2976,16 @@ fn version_28_a_drags_volumes_are_only_version_28s() {
 }
 
 #[test]
+fn version_32_a_pin_is_only_version_32s() {
+    let request = Request::AuthenticatePasscode { surface: 3 };
+    assert_eq!(request_since(&request), crate::PASSCODE_VERSION);
+    assert_eq!(crate::PASSCODE_VERSION, 32);
+    let mut bytes = Vec::new();
+    write_request(&mut bytes, &request).unwrap();
+    assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), request);
+}
+
+#[test]
 fn version_31_search_is_only_version_31s() {
     // A request of the index's vocabulary goes in chunks of whole characters, each a packet, and
     // the chunks read back are the text sent.
@@ -3054,33 +3065,33 @@ fn version_31_search_is_only_version_31s() {
 }
 
 #[test]
-fn version_32_background_items_are_only_version_32s() {
+fn version_33_background_items_are_only_version_33s() {
     // An application's ask and the session's answer, each one packet.
     let ask = Request::BackgroundItem {
         serial: 3,
         kind: BackgroundItemKind::LoginItem,
         action: BackgroundItemAction::Unregister,
     };
-    assert_eq!(request_since(&ask), 32);
+    assert_eq!(request_since(&ask), 33);
     let mut bytes = Vec::new();
     write_request(&mut bytes, &ask).unwrap();
     assert_eq!(read_request(&mut Cursor::new(bytes)).unwrap(), ask);
-    // The answer, and a change the person made, are never told a version 31 client, and a
-    // version 31 reader refuses them.
+    // The answer, and a change the person made, are never told a version 32 client, and a
+    // version 32 reader refuses them.
     for serial in [3, 0] {
         let state = Event::BackgroundItemState {
             serial,
             kind: BackgroundItemKind::Background,
             status: BackgroundStatus::Enabled,
         };
-        assert_eq!(event_since(&state), 32);
+        assert_eq!(event_since(&state), 33);
         let mut old = Vec::new();
-        assert!(!write_event_for(&mut old, &state, 31).unwrap());
+        assert!(!write_event_for(&mut old, &state, 32).unwrap());
         assert!(old.is_empty());
         let mut new = Vec::new();
-        assert!(write_event_for(&mut new, &state, 32).unwrap());
-        assert!(read_event_for(&mut Cursor::new(new.clone()), 31).is_err());
-        assert_eq!(read_event_for(&mut Cursor::new(new), 32).unwrap(), state);
+        assert!(write_event_for(&mut new, &state, 33).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 32).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 33).unwrap(), state);
     }
 }
 

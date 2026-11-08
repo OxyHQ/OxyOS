@@ -235,6 +235,12 @@ impl Eraser {
         }
     }
 
+    /// The account's own password checked on the machine (Settings' other changes that need it:
+    /// the local sign-in, `crate::pin`).
+    pub fn passwords(&self) -> &(dyn Passwords + Send + Sync) {
+        &*self.passwords
+    }
+
     /// What erasing would do, for `uid`'s account. A machine whose unit cannot be asked about is
     /// not available.
     pub fn preview<A, U>(&self, platform: &Platform<A, U>, uid: u32) -> ErasePreview

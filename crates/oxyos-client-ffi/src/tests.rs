@@ -3877,6 +3877,59 @@ fn a_password_goes_in_chunks_then_is_submitted() {
 }
 
 #[test]
+fn a_pin_is_said_after_the_account_and_before_the_secret() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-pin-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        (0..5)
+            .map(|_| server.recv_request().unwrap().0)
+            .collect::<Vec<_>>()
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    let account = CString::new("oxy-aaaaaaaaaaaaaaaaaaaa").unwrap();
+    let pin = "482916";
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once; the strings
+    // are as long as said, the account NUL-terminated.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_create_lock_surface(client, 4, 1), 0);
+        assert_eq!(
+            oxyos_client_authenticate_passcode(
+                client,
+                4,
+                account.as_ptr(),
+                pin.as_ptr().cast(),
+                pin.len()
+            ),
+            0
+        );
+        let requests = compositor.join().unwrap();
+        assert!(matches!(requests[1], Request::AuthenticateAccount { .. }));
+        assert_eq!(requests[2], Request::AuthenticatePasscode { surface: 4 });
+        assert_eq!(
+            requests[3],
+            Request::AuthenticateSecret {
+                surface: 4,
+                secret: SecretChunk::new(pin).unwrap()
+            }
+        );
+        assert_eq!(requests[4], Request::Authenticate { surface: 4 });
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
 fn a_login_screens_password_names_its_account_first() {
     let directory =
         std::env::temp_dir().join(format!("oxyos-client-ffi-login-{}", std::process::id()));

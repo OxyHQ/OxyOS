@@ -5816,6 +5816,43 @@ fn a_login_screens_password_carries_its_account_once() {
 }
 
 #[test]
+fn a_pin_is_said_for_its_password_alone() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.lock();
+    let surface = h.lock_surface(1);
+    let pin = Request::AuthenticatePasscode { surface: 1 };
+    h.request(LOCKER, pin).unwrap();
+    h.give_password(surface, "482916").unwrap();
+    let submitted = h.scene.take_authentication().unwrap();
+    assert!(submitted.passcode);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    // The next one is the password again, unless said once more.
+    h.give_password(surface, "correct horse").unwrap();
+    assert!(!h.scene.take_authentication().unwrap().passcode);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    // Only a lock surface says it; said while unlocked, or for a surface gone, it is for nothing.
+    assert_eq!(
+        h.request(APP, Request::AuthenticatePasscode { surface: window.id }),
+        Err(ErrorCode::InvalidRole)
+    );
+    h.scene.unlock();
+    h.request(LOCKER, pin).unwrap();
+    h.scene.lock();
+    h.give_password(surface, "482916").unwrap();
+    assert!(!h.scene.take_authentication().unwrap().passcode);
+    h.scene
+        .authenticated(surface, oxyos_protocol::AuthOutcome::Rejected, 0);
+    h.request(LOCKER, pin).unwrap();
+    h.request(LOCKER, Request::Destroy { surface: 1 }).unwrap();
+    let surface = h.lock_surface(2);
+    h.give_password(surface, "482916").unwrap();
+    assert!(!h.scene.take_authentication().unwrap().passcode);
+}
+
+#[test]
 fn only_a_lock_surface_while_locked_gives_a_password() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

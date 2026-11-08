@@ -57,6 +57,7 @@ import {
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
 import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
+import { localOutcomeFrom, localSignInFrom } from '../../../apps/settings/src/local-sign-in';
 import type { NetworkActions, NetworkAnswer, NetworkState } from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
@@ -990,6 +991,8 @@ const sessionHost = (globalThis as Record<symbol, unknown>)[Symbol.for('oxy.so/s
   | SessionHost
   | undefined;
 const accountSession = TurboModuleRegistry.get<{
+  localSignIn(): Promise<unknown>;
+  changeLocal(change: string, secrets: { pin?: string; password?: string; currentPin?: string }): Promise<unknown>;
   remove(): Promise<unknown>;
   erasePreview(): Promise<unknown>;
   eraseAll(password: string): Promise<unknown>;
@@ -1002,6 +1005,15 @@ const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOu
 const accountActions: AccountActions = {
   signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
   remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
+  // The account's sign-in on this computer (docs/adr/0020-oxy-account-login.mdx decision 2): its
+  // PIN and password, read and changed by the accounts' service; the secrets go to the host, which
+  // sends them on and forgets them.
+  local: accountSession
+    ? {
+        read: async () => localSignInFrom(await accountSession.localSignIn()),
+        change: async (change, secrets) => localOutcomeFrom(await accountSession.changeLocal(change, secrets)),
+      }
+    : undefined,
 };
 
 /** Erasing the computer, the accounts' service's (Settings alone may ask): what it would do, read

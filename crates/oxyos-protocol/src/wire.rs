@@ -97,19 +97,19 @@ wire_enum! {
     ApplicationListKind: u8 { Dock = 1, OpenAtLogin = 2, NotificationSoundsOff = 3 }
 }
 wire_enum! {
-    /// What an application registers with the session (version 32,
+    /// What an application registers with the session (version 33,
     /// docs/adr/0060-login-items-and-background-activity.mdx), as a Mac's `SMAppService`: itself,
     /// opened at login (the person's Open at Login list, ADR 0034), or its process, kept running in
     /// the background once its window closes.
     BackgroundItemKind: u8 { LoginItem = 1, Background = 2 }
 }
 wire_enum! {
-    /// What an application asks of one of its background items (version 32): how it stands,
+    /// What an application asks of one of its background items (version 33): how it stands,
     /// registering it, unregistering it.
     BackgroundItemAction: u8 { Status = 1, Register = 2, Unregister = 3 }
 }
 wire_enum! {
-    /// How one of an application's background items stands (version 32), as `SMAppService.Status`
+    /// How one of an application's background items stands (version 33), as `SMAppService.Status`
     /// says: not registered; registered and allowed; registered but turned off by the person (its
     /// capability denied: registering again changes nothing until they allow it); or not the
     /// client's to have (not an application the session launched, or one the platform gives no

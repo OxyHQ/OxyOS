@@ -95,7 +95,8 @@ fn request(account: &str, credential: &DeviceCredential, password: &str) -> Requ
             device_secret: Secret::new(credential.device_secret.expose()),
         },
         account: account.into(),
-        password: Secret::new(password),
+        password: Some(Secret::new(password)),
+        pin: None,
     }
 }
 

@@ -1301,9 +1301,10 @@ int main(int argc, char** argv) {
             ++launchSerial;
             return window->launch(launchSerial, id) ? launchSerial : 0;
           },
-          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account) {
+          .authenticate = [&window, &shellSurfaces](const std::string& secret, const std::string& account,
+                                                    bool passcode) {
             auto surface = shellSurfaces.lockSurface();
-            return surface && window->authenticate(*surface, secret, account);
+            return surface && window->authenticate(*surface, secret, account, passcode);
           },
           .activateMenuItem = [&window](uint32_t target, uint32_t serial, uint32_t index) {
             window->activateMenuItem(target, serial, index);
@@ -1562,9 +1563,9 @@ int main(int argc, char** argv) {
           return launchCapabilities.allows(capability);
         },
     };
-    // An application's window of a compositor that has them (protocol version 32) asks about its
+    // An application's window of a compositor that has them (protocol version 33) asks about its
     // login item and background activity; the session decides, by its launch record.
-    if (!shellMode && window && window->protocolVersion() >= 32) {
+    if (!shellMode && window && window->protocolVersion() >= 33) {
       services.backgroundItems.ask = [&window, &backgroundSerial](uint8_t kind, uint8_t action) -> uint32_t {
         backgroundSerial = backgroundSerial == UINT32_MAX ? 1 : backgroundSerial + 1;
         bool sent = window->backgroundItem(backgroundSerial, kind, action);

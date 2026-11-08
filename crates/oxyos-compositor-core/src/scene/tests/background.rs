@@ -96,7 +96,7 @@ fn any_client_asks_the_program_decides_and_the_answer_reaches_it_alone() {
 #[test]
 fn a_client_of_an_older_version_is_never_told_and_one_gone_is_forgotten() {
     let mut h = Harness::new();
-    h.scene.set_version(APP, 31);
+    h.scene.set_version(APP, 32);
     h.scene.background_item_state(
         APP,
         0,

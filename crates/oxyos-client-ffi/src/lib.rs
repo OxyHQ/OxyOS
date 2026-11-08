@@ -315,7 +315,7 @@ pub const OXYOS_APPLICATION_LIST_OPEN_AT_LOGIN: u32 = 2;
 /// changed by it; a compositor of version 23 or later.
 pub const OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF: u32 = 3;
 /// An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
-/// protocol version 32), as a Mac's `SMAppService`: itself opened at login, or its process kept
+/// protocol version 33), as a Mac's `SMAppService`: itself opened at login, or its process kept
 /// running once its window closes; what it asks of one; and how one stands.
 pub const OXYOS_BACKGROUND_ITEM_LOGIN_ITEM: u8 = 1;
 pub const OXYOS_BACKGROUND_ITEM_BACKGROUND: u8 = 2;
@@ -459,7 +459,7 @@ pub const OXYOS_EVENT_CAPABILITY_RESULT: u32 = 163;
 /// oxyos_client_search_request `code` (0: what the client asked to watch changed, unasked);
 /// detail, its index (0 begins it); flag 1 on the last; text, the chunk.
 pub const OXYOS_EVENT_SEARCH_TEXT: u32 = 164;
-/// Login items and background activity (protocol version 32): how one of the application's
+/// Login items and background activity (protocol version 33): how one of the application's
 /// background items stands, answering oxyos_client_background_item `code` (0: the person changed
 /// it, unasked); detail, its kind (OXYOS_BACKGROUND_ITEM_*); flag, its status (OXYOS_BACKGROUND_*).
 pub const OXYOS_EVENT_BACKGROUND_ITEM_STATE: u32 = 165;
@@ -2945,7 +2945,7 @@ pub unsafe extern "C" fn oxyos_client_request_capability(
 /// (docs/adr/0060-login-items-and-background-activity.mdx): `kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
 /// or _BACKGROUND, `action` OXYOS_BACKGROUND_ITEM_STATUS, _REGISTER or _UNREGISTER. A
 /// BACKGROUND_ITEM_STATE naming `serial` answers. 0 on success; an error, sending nothing, for an
-/// unknown kind or action, or to a compositor of a version before 32.
+/// unknown kind or action, or to a compositor of a version before 33.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.
@@ -3022,6 +3022,41 @@ pub unsafe extern "C" fn oxyos_client_authenticate_account(
     length: usize,
 ) -> c_int {
     // SAFETY: forwarded caller contract.
+    unsafe { authenticate(client, surface, account, false, secret, length) }
+}
+
+/// As `oxyos_client_authenticate_account`, the secret being the account's PIN for this computer
+/// (docs/adr/0020-oxy-account-login.mdx decision 2): the session checks it as a PIN, never as the
+/// password and never online. Refused (nothing sent) by a compositor older than protocol version
+/// 32. 0 on success.
+///
+/// # Safety
+/// As `oxyos_client_authenticate_account`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_authenticate_passcode(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { authenticate(client, surface, account, true, secret, length) }
+}
+
+/// # Safety
+/// As `oxyos_client_authenticate_account`.
+#[allow(unsafe_code)]
+unsafe fn authenticate(
+    client: *mut OxyOSClient,
+    surface: u32,
+    account: *const c_char,
+    passcode: bool,
+    secret: *const c_char,
+    length: usize,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
     let Some(client) = (unsafe { self::client(client) }) else {
         return fail("null client");
     };
@@ -3052,8 +3087,17 @@ pub unsafe extern "C" fn oxyos_client_authenticate_account(
                 None => return fail("an account is a user name of 1 to 31 bytes of UTF-8"),
             }
         };
+    // A PIN to a compositor that would not know it for one is never sent as a password.
+    if passcode && client.version() < oxyos_protocol::PASSCODE_VERSION {
+        return fail("the compositor takes no PIN (protocol version 32)");
+    }
     if let Some(user) = account.and_then(PreeditText::new) {
         if let Err(error) = client.send(&Request::AuthenticateAccount { surface, user }) {
+            return fail(error);
+        }
+    }
+    if passcode {
+        if let Err(error) = client.send(&Request::AuthenticatePasscode { surface }) {
             return fail(error);
         }
     }

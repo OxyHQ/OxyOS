@@ -25,7 +25,7 @@ export type BackgroundItemStatus =
 
 /** One of the application's background items: how it stands (followed), and registering it. */
 export interface BackgroundItem extends Followed<BackgroundItemStatus> {
-  /** Whether the session can be asked (protocol version 32). */
+  /** Whether the session can be asked (protocol version 33). */
   readonly available: boolean;
   /** How it stands now. */
   status(options?: CallOptions): Promise<BackgroundItemStatus>;

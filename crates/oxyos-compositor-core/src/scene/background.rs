@@ -14,7 +14,7 @@ use oxyos_protocol::{
 
 /// The first protocol version with background items: a client of an older one is never told one,
 /// and could not have asked.
-pub const BACKGROUND_VERSION: u16 = 32;
+pub const BACKGROUND_VERSION: u16 = 33;
 /// Asks taken and not yet handed to the program; past it, a client is refused.
 const MAX_PENDING: usize = 32;
 
