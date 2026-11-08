@@ -43,6 +43,7 @@ const icons = {
   'so.oxy.dropsea': 'tools/shell-preview/assets/apps/dropsea.png',
   'so.oxy.atlas': 'tools/shell-preview/assets/apps/atlas.png',
   'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
+  'so.oxy.crashprobe': 'tools/shell-preview/assets/apps/inbox.png',
 };
 // Each application's declared searchable items (docs/adr/0051-search.mdx): `searchable.json` at its
 // package's root, beside `manifest.json` and `index.hbc`, listed in the manifest as every file is.
@@ -60,6 +61,9 @@ const entries = {
   'so.oxy.allo': 'entries/allo.js',
   // A probe installed as an application of its own (the scenarios' install service publishes it).
   'so.oxy.permissionprobe': 'entries/permission.js',
+  // An application that quits unexpectedly while its data is corrupt (docs/adr/0061), installed by
+  // the crash scenarios.
+  'so.oxy.crashprobe': 'entries/crash.js',
 };
 // The applications built from their own checkouts (docs/react-native-android-adaptation.mdx), each
 // named by its variable and built when it is given: the runtime's entry (oxyos/application.js)
