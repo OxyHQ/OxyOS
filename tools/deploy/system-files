@@ -1,0 +1,22 @@
+# What a deploy installs, root-owned, for the login, the accounts and the PIN (docs/adr/0020-oxy-account-login.mdx,
+# "Installing on a machine"; docs/adr/0010-lock-screen.mdx; docs/adr/0054-recovery-and-erasing.mdx), read by
+# tools/deploy/remote.sh. tools/deploy/system-files.py checks it against the tree: every binary, unit, PAM
+# service, sysusers and tmpfiles file of tools/oxyos-session, tools/oxyos-login and tools/oxyos-accountd is
+# here, and every PAM file where its own header says it is installed. A FROM in target/release/ is built
+# there (its package is the tool's directory).
+# FROM                                                                  TO                                              MODE
+target/release/oxyos-session                                            /usr/bin/oxyos-session                          0755
+target/release/oxyos-login                                              /usr/libexec/oxyos/oxyos-login                  0755
+target/release/oxyos-accountd                                           /usr/libexec/oxyos-accountd                     0755
+target/release/oxyos-pin-check                                          /usr/libexec/oxyos/oxyos-pin-check              0755
+tools/oxyos-accountd/oxyos-accountd.service                             /usr/lib/systemd/system/oxyos-accountd.service  0644
+tools/oxyos-login/oxyos-login.service                                   /usr/lib/systemd/system/oxyos-login.service     0644
+tools/oxyos-session/pam.d/oxyos                                         /etc/pam.d/oxyos                                0644
+tools/oxyos-session/pam.d/oxyos-pin                                     /etc/pam.d/oxyos-pin                            0644
+tools/oxyos-login/pam.d/oxyos-login                                     /etc/pam.d/oxyos-login                          0644
+tools/oxyos-login/pam.d/oxyos-login-greeter                             /etc/pam.d/oxyos-login-greeter                  0644
+tools/oxyos-login/pam.d/oxyos-login-pin                                 /etc/pam.d/oxyos-login-pin                      0644
+tools/oxyos-accountd/pam.d/oxyos-accountd                               /etc/pam.d/oxyos-accountd                       0644
+tools/oxyos-login/oxyos-login.sysusers                                  /usr/lib/sysusers.d/oxyos-login.conf            0644
+tools/oxyos-login/oxyos-login.tmpfiles                                  /usr/lib/tmpfiles.d/oxyos-login.conf            0644
+config/includes.chroot_after_packages/etc/sysctl.d/10-oxyos-ptrace.conf /etc/sysctl.d/10-oxyos-ptrace.conf              0644
