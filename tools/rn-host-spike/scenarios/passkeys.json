@@ -1,5 +1,5 @@
 {
- "about": "Passkeys' sheet (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): an application using and creating passkeys is verified by the person in the shell's system sheet over its window, with the development compositor's fixture accounts' service (`passkeys`: a made-up account password; never installed), the screen reader on in Spanish. Using one for github.com: the relying party, the two accounts to choose from (↓ chooses the second, said), and the Oxy account's password in the sheet's secure field; a wrong one is refused by the service and asked again saying so, the account chosen kept; the right one verifies the second account and the sheet goes. Creating one for example.org names the account and is verified the same way. A relying party with no passkey is only said, with one button; Escape cancels it. The password reaches the fixture service alone: it is in no report. At 1 (1280 × 720), light.",
+ "about": "Passkeys' sheet (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): an application using and creating passkeys is verified by the person in the shell's system sheet over its window, with the development compositor's fixture accounts' service (`passkeys`: a made-up account password; never installed), the screen reader on in Spanish. Using one for github.com: the relying party, the two accounts to choose from (a press chooses the second), and the Oxy account's password in the sheet's secure field; a wrong one is refused by the service and asked again saying so, the account chosen kept; the right one verifies the second account and the sheet goes. Creating one for example.org names the account and is verified the same way. A relying party with no passkey is only said, with one button; Escape cancels it. The password reaches the fixture service alone: it is in no report. At 1 (1280 × 720), light.",
  "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -54,29 +54,37 @@
    "expect": {}
   },
   {
-   "name": "↓ chooses the second account",
+   "name": "The second account pressed: it is the one chosen, the first no longer",
    "do": [
-    "key",
-    108
-   ],
-   "allow_unchanged": true,
-   "expect": {}
-  },
-  {
-   "name": "The second account chosen, said",
-   "do": [
-    "wait_named",
-    [
-     "Elige una cuenta: bea@example.com",
-     5000
-    ]
+    "press_named",
+    "bea@example.com, Bea"
    ],
    "allow_unchanged": true,
    "expect": {
+    "at": {
+     "shell": [
+      {
+       "role": "Radio",
+       "name": "bea@example.com, Bea",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    },
     "passkeys": {
      "told": []
     }
    }
+  },
+  {
+   "name": "Back to the password field",
+   "do": [
+    "press_named",
+    "Contraseña de la cuenta Oxy"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
   },
   {
    "name": "A wrong password typed",
@@ -111,20 +119,19 @@
      "told": [
       "fixture-1 wrong password"
      ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Radio",
+       "name": "bea@example.com, Bea",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
     }
    }
-  },
-  {
-   "name": "The second account is the one chosen",
-   "do": [
-    "wait_named",
-    [
-     "Elige una cuenta: bea@example.com",
-     5000
-    ]
-   ],
-   "allow_unchanged": true,
-   "expect": {}
   },
   {
    "name": "The sheet takes the keyboard: what is pressed next is the sheet's",
