@@ -2375,6 +2375,7 @@ fn settle(
         session.compositor.serve(&session.listener)?;
         session.serve_launches();
         session.serve_installs();
+        session.serve_background();
         session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
@@ -2895,6 +2896,95 @@ fn urls_json(session: &mut Session) -> String {
         })
         .collect();
     format!("[{}]", opened.join(","))
+}
+
+/// The applications' background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+/// those with a process running in the background once the step settled, and the processes the
+/// session ended in the step (each its application's id, in order).
+fn background_json(session: &mut Session) -> String {
+    let running: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| background.in_background().into_iter().collect())
+        .unwrap_or_default();
+    let ended = std::mem::take(&mut session.background_ended);
+    let list = |ids: &[String]| {
+        ids.iter()
+            .map(|id| json_string(id))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    // What each process in the background has used so far: its CPU time and how many times its
+    // threads woke (their context switches), which a step's idle check compares with the last.
+    let used: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| {
+            background
+                .background_processes()
+                .iter()
+                .filter_map(|(id, pid)| {
+                    let (cpu_ms, wakeups) = process_use(*pid)?;
+                    Some(format!(
+                        "{}:{{\"cpu_ms\":{cpu_ms:.1},\"wakeups\":{wakeups}}}",
+                        json_string(id)
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    format!(
+        "{{\"running\":[{}],\"ended\":[{}],\"used\":{{{}}}}}",
+        list(&running),
+        list(&ended),
+        used.join(",")
+    )
+}
+
+/// A process's CPU time so far, in ms (its threads' run time, the scheduler's), and how many times
+/// its threads were switched out (woken and run again): read from /proc.
+fn process_use(pid: u32) -> Option<(f64, u64)> {
+    let mut cpu_ns = 0u64;
+    let mut switches = 0u64;
+    for task in std::fs::read_dir(format!("/proc/{pid}/task"))
+        .ok()?
+        .flatten()
+    {
+        if let Ok(stat) = std::fs::read_to_string(task.path().join("schedstat")) {
+            cpu_ns += stat
+                .split_whitespace()
+                .next()
+                .and_then(|ns| ns.parse::<u64>().ok())
+                .unwrap_or(0);
+        }
+        if let Ok(status) = std::fs::read_to_string(task.path().join("status")) {
+            switches += status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum::<u64>();
+        }
+    }
+    Some((cpu_ns as f64 / 1e6, switches))
+}
+
+/// The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+/// oldest first: each its number (one more for every post), application and title.
+fn notifications_json(session: &Session) -> String {
+    let kept: Vec<String> = session
+        .compositor
+        .scene
+        .kept_notifications()
+        .into_iter()
+        .map(|(number, application, title)| {
+            format!(
+                "{{\"number\":{number},\"application\":{},\"title\":{}}}",
+                json_string(&application),
+                json_string(&title)
+            )
+        })
+        .collect();
+    format!("[{}]", kept.join(","))
 }
 
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
@@ -5188,6 +5278,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 launcher.with_installed_fixture(oxyos_apps::installed_applications(root, &user))
             });
         }
+        // The applications' login items and background activity
+        // (docs/adr/0060-login-items-and-background-activity.mdx), their installed applications'
+        // decisions read beside the fixture's entries, as the session reads the service's.
+        session.background = Some(oxyos_compositor::background::BackgroundActivity::new(
+            launch.installed_fixture.as_ref().map(|root| {
+                oxyos_apps::installed_applications(
+                    root,
+                    &oxyos_apps::session_user().unwrap_or_default(),
+                )
+            }),
+        ));
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
         // starts them.
         let open_at_login = session.settings.preferences().open_at_login.clone();
@@ -5439,14 +5540,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
     if let Some(program) = launch.command.first() {
-        children.0.push(
-            Command::new(program)
-                .args(&launch.command[1..])
-                .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
-                .env_remove("DISPLAY")
-                .env_remove("WAYLAND_DISPLAY")
-                .spawn()?,
-        );
+        let mut application = Command::new(program);
+        application
+            .args(&launch.command[1..])
+            .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        // It lists the fixture's installed applications too, as the shell does and as a session's
+        // applications list the install service's (ADR 0030, decision 7): Settings names them.
+        if let Some(root) = &session.installed_fixture {
+            application.env("OXYOS_INSTALLED_FIXTURE", root);
+        }
+        children.0.push(application.spawn()?);
     }
     // Its own launch, as the session records one, when the scenario names the application;
     // unless the scenario has it be a process the session did not start
@@ -5624,6 +5729,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     }
                     session.serve_launches();
                     session.serve_installs();
+                    session.serve_background();
                     session.serve_preferences();
                     session.reader.absorb(&mut session.compositor);
                 }
@@ -5875,11 +5981,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let background = background_json(&mut session);
+        let notifications = notifications_json(&session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),

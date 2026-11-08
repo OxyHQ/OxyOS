@@ -8185,6 +8185,8 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// AutoFill's list and its fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
 mod autofill;
+/// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
+mod background;
 mod choosers;
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;

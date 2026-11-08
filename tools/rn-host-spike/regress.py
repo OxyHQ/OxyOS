@@ -108,6 +108,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   {"url", "application"}: the application started for it ("{home}" in a URL being the run's home's
   file:// URI as encodeURIComponent writes it, a desktop folder opened in Dropsea, ADR 0047); a step
   that opens one and does not say so fails;
+- background: the applications' background activity (docs/adr/0060-login-items-and-background-
+  activity.mdx): "ended", the processes the session ended in the step, by their application's id,
+  exactly and in order (a step that ends one and does not say so fails); "running", given, the
+  applications with a process running in the background once the step settled, exactly;
+  "idle_cpu_ms_max" and "idle_wakeups_max", the most CPU each such process used and the most
+  times its threads woke since the step before (nothing wakes one with nothing to do);
+- notifications: the notifications the session keeps once the step settled (docs/adr/0026-
+  notifications.mdx), exactly, oldest first, each {"number", "application", "title"}: the number is
+  one more for every post, so a notification posted twice, or once more than it should be, shows;
 - signed_out: whether Settings signed out in the step (`{"signOut": {}}`,
   docs/adr/0020-oxy-account-login.mdx): the session would end there, back to the login screen; the
   development compositor records it and goes on. A step that signs out and does not say so fails;
@@ -3268,7 +3277,8 @@ def check_views(index, step, result, results, failures):
 
 
 def check_step(index, step, result, report, start, failures, through_devices=False, screenshot=None,
-               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None):
+               shell_report=None, spoken=None, preferences=None, refresh_hz=60.0, home_root=None,
+               previous=None):
     expect = step.get("expect", {})
     if through_devices:
         # What differs through the devices; a key set to null is not checked there.
@@ -4346,6 +4356,37 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                    for url in expect.get("urls_opened", [])]
     if urls != wanted_urls:
         fail(f"URLs opened: {urls}, expected {wanted_urls}")
+    # Background activity (docs/adr/0060-login-items-and-background-activity.mdx): the processes the
+    # session ended in the step, by application, exactly (a step that ends one and does not say so
+    # fails), and, given, the applications with a process running in the background once it settled.
+    background = result.get("background") or {"running": [], "ended": []}
+    if not step.get("within"):
+        wanted_background = expect.get("background", {})
+        if background["ended"] != wanted_background.get("ended", []):
+            fail(f"background processes ended: {background['ended']}, expected {wanted_background.get('ended', [])}")
+        if "running" in wanted_background and background["running"] != wanted_background["running"]:
+            fail(f"running in the background: {background['running']}, expected {wanted_background['running']}")
+        # Nothing wakes a process in the background that has nothing to do: since the step before,
+        # each used at most `idle_cpu_ms_max` of CPU and woke at most `idle_wakeups_max` times.
+        if "idle_cpu_ms_max" in wanted_background or "idle_wakeups_max" in wanted_background:
+            before = (previous or {}).get("background", {}).get("used", {})
+            for id, now in background.get("used", {}).items():
+                if id not in before:
+                    fail(f"{id}: in the background only since this step, nothing to compare")
+                    continue
+                cpu = now["cpu_ms"] - before[id]["cpu_ms"]
+                wakeups = now["wakeups"] - before[id]["wakeups"]
+                if cpu > wanted_background.get("idle_cpu_ms_max", float("inf")):
+                    fail(f"{id} used {cpu:.1f} ms of CPU in the background, at most {wanted_background['idle_cpu_ms_max']}")
+                if wakeups > wanted_background.get("idle_wakeups_max", float("inf")):
+                    fail(f"{id} woke {wakeups} times in the background, at most {wanted_background['idle_wakeups_max']}")
+    # The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+    # given: exactly those, oldest first, each its number (one more for every post: a notification
+    # posted twice, or replaced, shows in it), application and title.
+    if "notifications" in expect and not step.get("within"):
+        kept = result.get("notifications") or []
+        if kept != expect["notifications"]:
+            fail(f"notifications kept: {kept}, expected {expect['notifications']}")
     if bool(result.get("signed_out")) != bool(expect.get("signed_out", False)):
         fail(f"signed out: {bool(result.get('signed_out'))}, expected {bool(expect.get('signed_out', False))}")
     # Files the shell had opened with an application (ADR 0034, OpenFiles): exactly and in order,
@@ -5535,7 +5576,8 @@ def main():
     for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
         start = check_step(index, step, result, report, start, failures, through_devices,
                            out / f"launch-{index + 2}.png", shell_report, spoken,
-                           out / "preferences", refresh_hz, recorder)
+                           out / "preferences", refresh_hz, recorder,
+                           previous=summary["steps"][index - 1] if index else None)
         check_views(index, step, result, summary["steps"], failures)
     # The person's input reached whom it should, once (every scenario, every step).
     check_input_delivery(summary, host_reports(out), failures)
