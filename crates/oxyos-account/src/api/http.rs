@@ -242,6 +242,22 @@ struct Me {
     username: Option<String>,
     name: Option<serde_json::Value>,
     avatar: Option<String>,
+    languages: Option<serde_json::Value>,
+}
+
+/// The account's languages, primary first: the array's non-empty strings, none if it has none.
+fn languages(languages: Option<serde_json::Value>) -> Option<Vec<String>> {
+    let serde_json::Value::Array(items) = languages? else {
+        return None;
+    };
+    let languages: Vec<String> = items
+        .into_iter()
+        .filter_map(|item| match item {
+            serde_json::Value::String(text) if !text.trim().is_empty() => Some(text.trim().into()),
+            _ => None,
+        })
+        .collect();
+    (!languages.is_empty()).then_some(languages)
 }
 
 /// The account's name: a string, or `{full}` or `{first, last}`.
@@ -366,6 +382,7 @@ impl OxyApi for HttpApi {
             username: me.username.filter(|name| !name.trim().is_empty()),
             display_name: display_name(me.name),
             avatar: me.avatar.filter(|avatar| !avatar.is_empty()),
+            languages: languages(me.languages),
         })
     }
 

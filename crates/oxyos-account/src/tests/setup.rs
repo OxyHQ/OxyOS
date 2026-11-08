@@ -309,6 +309,7 @@ fn enrolled_other(machine: &Machine<FakeUsers>, id: &str, uid: u32) -> UserName 
                 username: None,
                 display_name: None,
                 avatar: None,
+                languages: None,
             },
             credential: None,
             password_changed: false,

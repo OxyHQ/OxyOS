@@ -648,7 +648,8 @@ A scenario with `account` runs against a played accounts' service's session sock
 (docs/adr/0020-oxy-account-login.mdx, decision 6; `OXYOS_ACCOUNTD_SESSION_SOCKET`, which every run
 points at a socket of its own, so none asks the machine's): the application ids it knows as the
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
-snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
+snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online, no languages; an
+`account` given replaces hers whole and is told unchanged, `languages` included), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
 application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
 service restarting as a package upgrade restarts it: every subscription closed under its

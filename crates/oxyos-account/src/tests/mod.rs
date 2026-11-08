@@ -359,6 +359,7 @@ impl OxyApi for FakeApi {
             username: Some(USERNAME.into()),
             display_name: Some("Ada Lovelace".into()),
             avatar: Some("avatar-file-1".into()),
+            languages: Some(vec!["en-GB".into(), "es-ES".into()]),
         })
     }
 

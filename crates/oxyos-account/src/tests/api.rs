@@ -142,11 +142,40 @@ fn the_profile_is_read_with_the_token() {
             username: Some("ada".into()),
             display_name: Some("Ada Lovelace".into()),
             avatar: Some("file-9".into()),
+            languages: None,
         }
     );
     let request = request.join().unwrap();
     assert_eq!(request.line, "GET /users/me HTTP/1.1");
     assert_eq!(request.header("authorization"), Some("Bearer token-1"));
+}
+
+#[test]
+fn the_profile_keeps_the_accounts_languages_primary_first() {
+    let profile = |languages: &str| {
+        let (base, request) = server(
+            200,
+            "",
+            &format!(
+                r#"{{"data":{{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"{languages}}}}}"#
+            ),
+        );
+        let profile = api(&base).profile(&Secret::new("token-1")).unwrap();
+        request.join().unwrap();
+        profile.languages
+    };
+    let both = Some(vec!["es-ES".to_owned(), "en-GB".to_owned()]);
+    assert_eq!(profile(r#","languages":["es-ES","en-GB"]"#), both);
+    // Only its non-empty strings.
+    assert_eq!(
+        profile(r#","languages":["es-ES",""," ",7,null,"en-GB"]"#),
+        both
+    );
+    // None when it names none, or not as a list.
+    assert_eq!(profile(""), None);
+    assert_eq!(profile(r#","languages":null"#), None);
+    assert_eq!(profile(r#","languages":[""]"#), None);
+    assert_eq!(profile(r#","languages":"es-ES""#), None);
 }
 
 #[test]

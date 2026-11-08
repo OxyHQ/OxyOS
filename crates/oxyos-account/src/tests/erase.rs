@@ -180,6 +180,7 @@ fn enroll(
                 username: username.map(Into::into),
                 display_name: display_name.map(Into::into),
                 avatar: None,
+                languages: None,
             },
             credential: signed_in.then(|| DeviceCredential {
                 device_id: DEVICE.into(),
