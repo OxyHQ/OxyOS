@@ -3,7 +3,10 @@
 
 use super::*;
 use oxyos_compositor_core::Grants;
-use oxyos_networks::{Known, Network, Security, Wifi, WifiState};
+use oxyos_networks::{
+    Connectivity, Known, Link, LinkQuality, Network, Ping, Resolved, Saved, SavedKind, Security,
+    Wifi, WifiState,
+};
 use oxyos_protocol::{Event, Request};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -22,6 +25,12 @@ struct Machine {
     /// Every password the daemon was given.
     given: Vec<String>,
     version: u64,
+    /// Each saved network's private address, Fixed unless set.
+    private: BTreeMap<String, PrivateAddress>,
+    /// How many times a network was joined again for its address.
+    rejoins: u32,
+    /// What diagnostics asked of the network behind the daemon, in order.
+    probes: Vec<String>,
 }
 
 /// A daemon played in memory: Home (WPA, `PASSWORD`), Café (open), eduroam (enterprise).
@@ -46,6 +55,7 @@ impl Daemon for Played {
                 id: format!("id-{ssid}"),
                 ssid: ssid.clone(),
                 auto_join: true,
+                private_address: m.private.get(ssid).copied().unwrap_or_default(),
             })
             .collect();
         let networks: Vec<Network> = if m.wifi {
@@ -146,6 +156,112 @@ impl Daemon for Played {
         m.version += 1;
         Ok(())
     }
+
+    fn set_private_address(&self, id: &str, mode: PrivateAddress) -> Result<Rejoin, Failure> {
+        let mut m = self.0.lock().unwrap();
+        let ssid = m
+            .saved
+            .iter()
+            .map(|(ssid, _)| ssid.clone())
+            .find(|ssid| format!("id-{ssid}") == id)
+            .ok_or(Failure::NotFound)?;
+        m.private.insert(ssid.clone(), mode);
+        let joined = m.joined.as_deref() == Some(ssid.as_str());
+        if joined {
+            m.rejoins += 1;
+        }
+        m.version += 1;
+        Ok(if joined {
+            Rejoin::Rejoined
+        } else {
+            Rejoin::NotJoined
+        })
+    }
+
+    fn reset_plan(&self) -> Result<ResetPlan, Failure> {
+        let m = self.0.lock().unwrap();
+        Ok(ResetPlan {
+            removed: m
+                .saved
+                .iter()
+                .map(|(ssid, _)| Saved {
+                    id: format!("id-{ssid}"),
+                    name: ssid.clone(),
+                    kind: SavedKind::Wifi,
+                })
+                .collect(),
+            kept: Vec::new(),
+        })
+    }
+
+    fn reset(&self) -> Result<ResetPlan, Failure> {
+        let plan = self.reset_plan()?;
+        let mut m = self.0.lock().unwrap();
+        m.saved.clear();
+        m.private.clear();
+        m.joined = None;
+        m.version += 1;
+        Ok(plan)
+    }
+
+    fn survey(&self) -> Result<Survey, Failure> {
+        let m = self.0.lock().unwrap();
+        Ok(Survey {
+            link: m.joined.as_ref().map(|ssid| Link {
+                ssid: ssid.clone(),
+                interface: "wlp0s20f3".into(),
+                bssid: "A0:B1:C2:D3:E4:F5".into(),
+                signal: 70,
+                quality: LinkQuality::of(70),
+                frequency: 5180,
+                band: Some("5"),
+                channel: Some(36),
+                width: Some(80),
+                tx_rate: Some(866),
+                max_rate: None,
+                security: Security::Wpa,
+                address: "02:11:22:33:44:55".into(),
+                permanent_address: "F4:A4:75:12:34:56".into(),
+                private_address: m.private.get(ssid).copied().unwrap_or_default(),
+            }),
+            connectivity: Connectivity::of(0, false),
+            router: Some("192.168.8.1".parse().unwrap()),
+            dns: vec!["192.168.8.1".into()],
+        })
+    }
+}
+
+impl Probe for Played {
+    fn ping(&self, address: std::net::Ipv4Addr, count: u32, _: Duration) -> Ping {
+        self.0
+            .lock()
+            .unwrap()
+            .probes
+            .push(format!("ping {address}"));
+        Ping::Sent {
+            sent: count,
+            answered: vec![Duration::from_millis(2); count as usize],
+        }
+    }
+    fn neighbour(&self, address: std::net::Ipv4Addr) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .probes
+            .push(format!("neighbour {address}"));
+        true
+    }
+    fn resolve(&self, name: &str, _: Duration) -> Resolved {
+        self.0
+            .lock()
+            .unwrap()
+            .probes
+            .push(format!("resolve {name}"));
+        Resolved::Addresses {
+            count: 2,
+            took: Duration::from_millis(14),
+        }
+    }
 }
 
 impl Reach for Played {
@@ -176,6 +292,10 @@ impl Reach for Played {
 
     fn socket(&self) -> Option<std::path::PathBuf> {
         None
+    }
+
+    fn probe(&self) -> Arc<dyn Probe> {
+        Arc::new(self.clone())
     }
 }
 
@@ -673,4 +793,170 @@ fn a_strength_is_told_only_when_its_arcs_change() {
     s.turn();
     assert_eq!(told(&s), before + 1);
     assert!(s.told(SHELL).last().unwrap().contains(r#""signal":50"#));
+}
+
+#[test]
+fn privacy_reset_and_diagnostics_are_read_strictly_and_change_nothing_without_an_input() {
+    for text in [
+        r#"{"privateAddress":{"id":"id-Home","mode":"fixed"}}"#,
+        r#"{"networkResetPreview":{}}"#,
+        r#"{"networkReset":{}}"#,
+        r#"{"wifiDiagnostics":{}}"#,
+    ] {
+        assert!(ours(text), "{text}");
+    }
+    let ask = |text: &str| serde_json::from_str::<Ask>(text);
+    assert!(ask(r#"{"privateAddress":{"id":"id-Home","mode":"sometimes"}}"#).is_err());
+    assert!(ask(r#"{"privateAddress":{"id":"id-Home"}}"#).is_err());
+    assert!(ask(r#"{"networkReset":{"all":true}}"#).is_err());
+    let mut s = Session::new(Machine {
+        wifi: true,
+        joined: Some("Home".into()),
+        saved: vec![("Home".into(), Some(PASSWORD.into()))],
+        ..Machine::default()
+    });
+    for text in [
+        r#"{"privateAddress":{"id":"id-Home","mode":"off"}}"#,
+        r#"{"networkReset":{}}"#,
+        r#"{"wifiDiagnostics":{}}"#,
+    ] {
+        let asked = s.ask(SETTINGS, text, false);
+        assert_eq!(
+            s.answer(SETTINGS, asked).unwrap(),
+            r#"{"refused":{"reason":"needsInput"}}"#,
+            "{text}"
+        );
+        let refused = s.ask(APP, text, true);
+        assert_eq!(
+            s.answer(APP, refused).unwrap(),
+            r#"{"refused":{"reason":"notPermitted"}}"#
+        );
+    }
+    let m = s.machine.0.lock().unwrap();
+    assert!(m.private.is_empty() && m.saved.len() == 1 && m.probes.is_empty());
+}
+
+#[test]
+fn a_private_address_is_set_the_network_joined_again_and_told() {
+    let mut s = Session::new(Machine {
+        wifi: true,
+        joined: Some("Home".into()),
+        saved: vec![("Home".into(), Some(PASSWORD.into()))],
+        ..Machine::default()
+    });
+    assert!(s
+        .told(SETTINGS)
+        .last()
+        .unwrap()
+        .contains(r#""privateAddress":"fixed""#));
+    let asked = s.ask(
+        SETTINGS,
+        r#"{"privateAddress":{"id":"id-Home","mode":"rotating"}}"#,
+        true,
+    );
+    assert_eq!(
+        s.wait_answer(SETTINGS, asked),
+        r#"{"privateAddress":{"mode":"rotating","rejoined":true}}"#
+    );
+    s.until(|s| {
+        s.told(SHELL)
+            .last()
+            .is_some_and(|t| t.contains(r#""privateAddress":"rotating""#))
+    });
+    assert_eq!(s.machine.0.lock().unwrap().rejoins, 1);
+    let missing = s.ask(
+        SETTINGS,
+        r#"{"privateAddress":{"id":"id-Gone","mode":"off"}}"#,
+        true,
+    );
+    assert_eq!(
+        s.wait_answer(SETTINGS, missing),
+        r#"{"failed":{"reason":"notFound"}}"#
+    );
+}
+
+#[test]
+fn resetting_says_what_goes_then_removes_it() {
+    let mut s = Session::new(Machine {
+        wifi: true,
+        joined: Some("Home".into()),
+        saved: vec![
+            ("Home".into(), Some(PASSWORD.into())),
+            ("Café".into(), None),
+        ],
+        ..Machine::default()
+    });
+    // What goes, asked without an input: nothing changes.
+    let preview = s.ask(SETTINGS, r#"{"networkResetPreview":{}}"#, false);
+    let plan: Value = serde_json::from_str(&s.wait_answer(SETTINGS, preview)).unwrap();
+    assert_eq!(
+        plan["networkResetPreview"]["removed"],
+        json!([
+            {"id": "id-Home", "name": "Home", "kind": "wifi"},
+            {"id": "id-Café", "name": "Café", "kind": "wifi"}
+        ])
+    );
+    assert_eq!(s.machine.0.lock().unwrap().saved.len(), 2);
+    // Not while a join is under way: it would save what is being removed.
+    s.networks.joining = Some("Café".into());
+    let busy = s.ask(SETTINGS, r#"{"networkReset":{}}"#, true);
+    assert_eq!(
+        s.answer(SETTINGS, busy).unwrap(),
+        r#"{"failed":{"reason":"busy"}}"#
+    );
+    assert_eq!(s.machine.0.lock().unwrap().saved.len(), 2);
+    s.networks.joining = None;
+    let reset = s.ask(SETTINGS, r#"{"networkReset":{}}"#, true);
+    let done: Value = serde_json::from_str(&s.wait_answer(SETTINGS, reset)).unwrap();
+    assert_eq!(done["networkReset"]["removed"].as_array().unwrap().len(), 2);
+    assert_eq!(done["networkReset"]["kept"], json!([]));
+    s.until(|s| {
+        s.told(SHELL)
+            .last()
+            .is_some_and(|t| t.contains(r#""known":[]"#))
+    });
+    let m = s.machine.0.lock().unwrap();
+    assert!(m.saved.is_empty() && m.joined.is_none());
+}
+
+#[test]
+fn diagnostics_run_once_when_asked_and_say_what_was_measured() {
+    let mut s = Session::new(Machine {
+        wifi: true,
+        joined: Some("Home".into()),
+        saved: vec![("Home".into(), Some(PASSWORD.into()))],
+        ..Machine::default()
+    });
+    // Nothing is probed until asked.
+    for _ in 0..10 {
+        s.turn();
+    }
+    assert!(s.machine.0.lock().unwrap().probes.is_empty());
+    let asked = s.ask(SETTINGS, r#"{"wifiDiagnostics":{}}"#, true);
+    let found: Value = serde_json::from_str(&s.wait_answer(SETTINGS, asked)).unwrap();
+    let found = &found["wifiDiagnostics"];
+    assert_eq!(found["link"]["ssid"], "Home");
+    assert_eq!(found["link"]["channel"], 36);
+    assert_eq!(found["router"]["verdict"], "reached");
+    assert_eq!(found["router"]["ms"], 2.0);
+    assert_eq!(found["dns"]["verdict"], "resolved");
+    assert_eq!(found["dns"]["name"], oxyos_networks::DIAGNOSTIC_NAME);
+    assert_eq!(
+        found["connectivity"],
+        json!({"checked": false, "state": "unknown"})
+    );
+    // Once: nothing asked again as the session goes on.
+    for _ in 0..10 {
+        s.turn();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        s.machine.0.lock().unwrap().probes,
+        [
+            "ping 192.168.8.1",
+            format!("resolve {}", oxyos_networks::DIAGNOSTIC_NAME).as_str()
+        ]
+    );
+    // Only Settings, which asked, is told them.
+    assert!(!s.told(SHELL).iter().any(|t| t.contains("wifiDiagnostics")));
 }

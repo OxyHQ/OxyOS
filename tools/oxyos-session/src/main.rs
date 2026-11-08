@@ -604,6 +604,30 @@ fn main() -> Result<()> {
         compositor.wakers.push(installs.wake_fd()?);
         Some(installs)
     };
+    // Settings › Storage (docs/adr/0062-storage.mdx): the volume, the system's, the Trash's and
+    // each application's, measured when Settings asks and never otherwise; an item shown in the
+    // file manager. The login screen has none.
+    let mut storage = if greeter {
+        None
+    } else {
+        match oxyos_files::Scope::for_user() {
+            Ok(scope) => {
+                let mut storage = oxyos_compositor::storage::Storage::new(
+                    scope,
+                    std::sync::Arc::new(oxyos_compositor::storage::MachineDisk),
+                    PathBuf::from(oxyos_install::ipc::SOCKET),
+                )?;
+                storage.set_locale(&settings.locale());
+                storage.list_applications(oxyos_apps::Listing::read(None));
+                compositor.wakers.push(storage.wake_fd()?);
+                Some(storage)
+            }
+            Err(error) => {
+                eprintln!("[session] Storage has no home to measure: {error}");
+                None
+            }
+        }
+    };
     // Wi-Fi and networks (ADR 0038): the shell's and Settings' requests, over the system's
     // NetworkManager, as the session's user (polkit decides). The login screen has none yet.
     let mut networks = if greeter {
@@ -754,6 +778,8 @@ fn main() -> Result<()> {
             }
         }
         if let Some(trash) = trash.as_mut() {
+            // Empty Trash Automatically, as the person has it (docs/adr/0062-storage.mdx).
+            trash.set_empty_automatically(settings.preferences().empty_trash_automatically);
             trash.serve(&mut compositor.scene);
             // Its sound now, not a turn later.
             compositor.play_sounds();
@@ -807,6 +833,30 @@ fn main() -> Result<()> {
                 compositor.controls.as_mut(),
             ) {
                 controls.bluetooth_is(&mut compositor.scene, status);
+            }
+        }
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the store, which takes the
+        // requests left: an item revealed opens the file manager as the shell's URLs do.
+        if let Some(storage) = storage.as_mut() {
+            storage.set_locale(&settings.locale());
+            for reveal in storage.serve(&mut compositor.scene) {
+                let opened = match launcher.open_url(&reveal.url) {
+                    Ok((id, pid)) => {
+                        eprintln!("[session] revealed in {id} ({pid}): {}", reveal.url);
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] {} not opened: {error}", reveal.url);
+                        false
+                    }
+                };
+                storage.revealed(&mut compositor.scene, &reveal, opened);
             }
         }
         if let Some(installs) = installs.as_mut() {
@@ -1168,6 +1218,13 @@ fn main() -> Result<()> {
         // An ask waiting for the search service to be started again.
         if let Some(deadline) = search.as_ref().and_then(|search| search.deadline()) {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
+        // The next item in the Trash reaching its 30 days, while the Trash empties itself.
+        if let Some(due) = trash.as_ref().and_then(|trash| trash.deadline()) {
+            wait = wait.min(
+                due.duration_since(std::time::SystemTime::now())
+                    .unwrap_or_default(),
+            );
         }
         if let Some(since) = signed_in {
             wait = wait.min(SIGNED_IN_SPLASH.saturating_sub(since.elapsed()));

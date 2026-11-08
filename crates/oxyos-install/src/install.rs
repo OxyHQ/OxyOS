@@ -34,6 +34,12 @@
 //!   records. A check asked for while one runs joins it. Watchers are told each change.
 //! - **Removal and collection:** a version tree goes once no account's current, previous or staged
 //!   version names it and no session holds it; objects once no tree links them.
+//! - **Room first** (docs/adr/0062-storage.mdx, decision 8): before anything is fetched, the disk
+//!   must have room for what a version fetches and for the bytecode compiled from its entry;
+//!   otherwise nothing is fetched, and the refusal says how many bytes more are needed.
+//! - **What an account's applications occupy and when it last used them** (decision 6): `list`
+//!   gives each one's version's size (its files as its manifest lists them, and its bytecode) and
+//!   when the account last opened it (a session's `hold`), or installed it if never since.
 
 use crate::accounts::{Account, Accounts};
 use crate::compile::Compile;
@@ -89,6 +95,10 @@ pub enum InstallError {
     Release(String),
     Fetch(String),
     Compile(String),
+    /// The disk has no room for it: this many bytes more are needed.
+    NoSpace {
+        needed: u64,
+    },
     /// The machine's own files.
     Io(String),
 }
@@ -108,6 +118,9 @@ impl fmt::Display for InstallError {
             InstallError::Release(e) => write!(f, "the store's release: {e}"),
             InstallError::Fetch(e) => write!(f, "fetching: {e}"),
             InstallError::Compile(e) => write!(f, "compiling: {e}"),
+            InstallError::NoSpace { needed } => {
+                write!(f, "the disk needs {needed} bytes more for it")
+            }
             InstallError::Io(e) => write!(f, "{e}"),
         }
     }
@@ -443,6 +456,13 @@ pub struct Listed {
     pub capabilities: BTreeMap<String, Decision>,
     /// A version staged for the account, and what it waits for.
     pub staged: Option<Staged>,
+    /// Its version's size: its files as its manifest lists them, and its bytecode.
+    #[serde(default)]
+    pub size: u64,
+    /// When the account last opened it, or installed it if never since (seconds since 1970);
+    /// none for a record from before the service kept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used: Option<i64>,
 }
 
 /// What an update came to for an account.
@@ -454,6 +474,9 @@ pub struct Updated {
     /// `switched`, `atNextLaunch`, `awaitingConsent`, `upToDate` or `failed`.
     pub outcome: String,
     pub reason: Option<String>,
+    /// Failed for want of room: the bytes more the disk needs to download it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub needed: Option<u64>,
 }
 
 /// What an update of an application is, for an account (decision 16).
@@ -534,6 +557,8 @@ pub struct Installer<F, C, A> {
     accounts: A,
     machine: Machine,
     now: fn() -> i64,
+    /// The bytes free for the service on the file system of a path: its staging directory's.
+    space: Space,
     /// Whether records are given the account's group (only root can).
     chown: bool,
     /// Every change of the records and the holds.
@@ -544,6 +569,17 @@ pub struct Installer<F, C, A> {
     checks: Mutex<Checks>,
     checked: Condvar,
     watchers: Mutex<Vec<(u64, u32, Watcher)>>,
+}
+
+/// How the service reads the bytes free on the file system of a path ([`available_space`], or the
+/// tests' and the development service's played disk).
+pub type Space = Box<dyn Fn(&Path) -> io::Result<u64> + Send + Sync>;
+
+/// The bytes free on the file system of `path` for a writer without the administrator's reserve:
+/// an application never takes the blocks kept for the system to go on working.
+pub fn available_space(path: &Path) -> io::Result<u64> {
+    let stat = rustix::fs::statvfs(path)?;
+    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
 }
 
 /// An account's data directories, relative to its home: what the session removes when the
@@ -605,6 +641,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             accounts,
             machine,
             now,
+            space: Box::new(available_space),
             chown: rustix::process::geteuid().is_root(),
             state: Mutex::new(Memory::default()),
             metadata: Mutex::new(()),
@@ -618,6 +655,37 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
 
     pub fn layout(&self) -> &Layout {
         &self.layout
+    }
+
+    /// The installer with another reading of the room on the disk: the tests', and the
+    /// development service's played disk (`oxyos-installd --development --available BYTES`).
+    pub fn with_space(mut self, space: Space) -> Self {
+        self.space = space;
+        self
+    }
+
+    /// The bytes a version needs on the disk before it is fetched: what it fetches, and room for
+    /// the bytecode compiled from its entry, as much again as the entry.
+    fn room_needed(&self, manifest: &Manifest) -> u64 {
+        let entry = manifest
+            .files
+            .iter()
+            .find(|file| file.path.as_str() == manifest.entry.bundle.as_str())
+            .map_or(0, |file| file.size);
+        self.download(manifest).saturating_add(entry)
+    }
+
+    /// Refuses a version the disk has no room for, saying how many bytes more it needs.
+    fn has_room(&self, manifest: &Manifest) -> Result<(), InstallError> {
+        let staging = self.layout.staging();
+        let needed = self.room_needed(manifest);
+        let available = (self.space)(&staging).map_err(io_at(&staging))?;
+        if available < needed {
+            return Err(InstallError::NoSpace {
+                needed: needed - available,
+            });
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -986,6 +1054,8 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                     staged: None,
                     bad: Vec::new(),
                     capabilities: BTreeMap::new(),
+                    // Installed now: used, as far as anything can say, now.
+                    last_used: Some((self.now)()),
                 };
                 decide_capabilities(&mut mine, &verified.manifest);
                 self.write_account(account, &mine)?;
@@ -1080,12 +1150,16 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
     /// Writes an account's record, then its entry for its current version: each renamed whole
     /// over the old one, root's with the account's group, 0640.
     fn write_account(&self, account: &Account, mine: &UserInstall) -> Result<(), InstallError> {
+        self.write_user_record(account, mine)?;
+        self.write_entry(account, mine)
+    }
+
+    /// Writes an account's record alone: what changes nothing its entry says (its last use).
+    fn write_user_record(&self, account: &Account, mine: &UserInstall) -> Result<(), InstallError> {
         let dir = self.layout.user(&account.name);
         self.account_directory(&dir, account)?;
         let owner = self.chown.then_some((0, account.gid));
-        write_record(&dir, &format!("{}.json", mine.id), mine, 0o640, owner)
-            .map_err(io_at(&dir))?;
-        self.write_entry(account, mine)
+        write_record(&dir, &format!("{}.json", mine.id), mine, 0o640, owner).map_err(io_at(&dir))
     }
 
     /// The account's entry of its current version (`users/<user>/applications/<id>.desktop`):
@@ -1155,7 +1229,18 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 continue;
             };
             let facts = self.facts(&id, mine.current)?;
+            let bytecode = fs::metadata(self.layout.version(&id, mine.current).join("index.hbc"))
+                .map_or(0, |metadata| metadata.len());
+            let size = facts
+                .manifest
+                .files
+                .iter()
+                .map(|file| file.size)
+                .sum::<u64>()
+                .saturating_add(bytecode);
             listed.push(Listed {
+                size,
+                last_used: mine.last_used,
                 version: facts.manifest.version,
                 version_code: mine.current,
                 entry: self
@@ -1191,12 +1276,17 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         let names = [
             Some(mine.current),
             mine.previous,
-            mine.staged.map(|s| s.version_code),
+            mine.staged.as_ref().map(|s| s.version_code),
         ];
         if !names.contains(&Some(code)) || !self.layout.version(id, code).is_dir() {
             return Err(InstallError::NotInstalled);
         }
         *memory.holds.entry((uid, id.to_string(), code)).or_insert(0) += 1;
+        // A launch: when the account last used it (Settings › Storage's unused applications).
+        // Its record alone: the registry follows the entries, which say nothing of it.
+        let mut mine = mine;
+        mine.last_used = Some((self.now)());
+        self.write_user_record(&account, &mine)?;
         Ok(())
     }
 
@@ -1491,6 +1581,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 version_code: code,
                 outcome: outcome.into(),
                 reason,
+                needed: None,
             };
             let mine = match self.user_install(&account, &id) {
                 Ok(Some(mine)) => mine,
@@ -1512,7 +1603,13 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 Ok(Applied::Switched) => outcome(Some(code), "switched", None),
                 Ok(Applied::AtNextLaunch) => outcome(Some(code), "atNextLaunch", None),
                 Ok(Applied::AwaitingConsent) => outcome(Some(code), "awaitingConsent", None),
-                Err(e) => outcome(Some(code), "failed", Some(e.to_string())),
+                Err(e) => Updated {
+                    needed: match e {
+                        InstallError::NoSpace { needed } => Some(needed),
+                        _ => None,
+                    },
+                    ..outcome(Some(code), "failed", Some(e.to_string()))
+                },
             });
         }
         self.notify(&[uid]);
@@ -1548,6 +1645,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             }
             .into(),
             reason: None,
+            needed: None,
         })
     }
 
@@ -1714,6 +1812,8 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         progress: &mut dyn FnMut(Progress),
     ) -> Result<PathBuf, InstallError> {
         let manifest = &verified.manifest;
+        // Room for it before anything is fetched.
+        self.has_room(manifest)?;
         let package_dir = self.layout.packages().join(&manifest.id);
         state::ensure_directory(&package_dir, 0o755).map_err(io_at(&package_dir))?;
         let assembling =

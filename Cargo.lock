@@ -3032,6 +3032,7 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "futures-lite",
+ "rustix",
  "serde",
  "serde_json",
  "zbus",
@@ -3058,6 +3059,7 @@ dependencies = [
  "oxyos-input-methods",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-networks",
  "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",

@@ -45,10 +45,11 @@ R=$OXYOS_CACHE/deploys/$(date +%Y%m%d-%H%M%S)-$(git -C "$TREE" rev-parse --short
 mkdir -p "$R"; M=$R/machine
 echo "deploy: $R"
 
-# The gate, in the gate's slice when the machine has one (tools/gate/machine.sh) and sudo may put it
-# there: the machine's own work keeps its priority, and the timing scenarios get the reserved cores.
-if systemctl cat oxyosgate.slice >/dev/null 2>&1 && ! grep -q oxyosgate.slice /proc/self/cgroup && sudo -n true 2>/dev/null; then
-  sudo -n --preserve-env systemd-run --scope --quiet --slice=oxyosgate.slice --uid="$(id -u)" --gid="$(id -g)" -- \
+# The gate, in a deploy's gate slice when the machine has one (tools/gate/machine.sh) and sudo may put
+# it there: the machine's own work keeps its priority, the runners' gates their share, and the
+# timing scenarios get the reserved cores.
+if systemctl cat oxyosgate-deploy.slice >/dev/null 2>&1 && ! grep -q oxyosgate /proc/self/cgroup && sudo -n true 2>/dev/null; then
+  sudo -n --preserve-env systemd-run --scope --quiet --slice=oxyosgate-deploy.slice --uid="$(id -u)" --gid="$(id -g)" -- \
     env PATH="$PATH" HOME="$HOME" sh "$TREE/tools/gate/run-scenarios.sh" --out "$R"
 else
   sh "$TREE/tools/gate/run-scenarios.sh" --out "$R"

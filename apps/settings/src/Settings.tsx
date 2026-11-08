@@ -5,16 +5,9 @@
  */
 import * as React from "react";
 import { AccessibilityInfo, PanResponder, View } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
 import { Dialog } from "@oxy.so/bloom/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@oxy.so/bloom/dropdown-menu";
 import {
   RiAccessibilityLine,
   RiAddLine,
@@ -30,11 +23,11 @@ import {
   RiHand,
   RiLoginBoxLine,
   RiLockLine,
-  RiMoreLine,
   RiMouseLine,
   RiNotification3Line,
   RiPaletteLine,
   RiFolder3Line,
+  RiHardDrive2Line,
   RiRefreshLine,
   RiResetLeftLine,
   RiSearchLine,
@@ -94,23 +87,6 @@ import {
 import { fingerCount, type Gesture } from "./gestures";
 import { GestureIllustration } from "./GestureIllustration";
 import {
-  currentNetwork,
-  detailRows,
-  ethernetStatus,
-  failureLabel,
-  failureOf,
-  formatSpeed,
-  isLocked,
-  joinFailureNeedsNote,
-  otherNetworks,
-  SCAN_INTERVAL_MS,
-  type KnownNetwork,
-  type NearbyNetwork,
-  type NetworkDetails,
-} from "./network";
-// The platform's one rule for a signal's arcs, the shell's (and the session's).
-import { signalArcs } from "../../shell/src/network";
-import {
   hourCycleOf,
   languageItems,
   localeSample,
@@ -158,16 +134,19 @@ import {
   withoutExcluded,
 } from "./spotlight";
 import { BluetoothPage } from "./BluetoothPage";
+import { NetworkPage, WifiPage } from "./NetworkPages";
 import { BatteryPage } from "./BatteryPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { StoragePage } from "./StoragePage";
 import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
   privacyRows,
   progressOf,
+  spaceNeeded,
   updatable,
   updateRows,
   type UpdateOutcome,
@@ -1563,6 +1542,9 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
   const language = messagesLanguage(locale);
   const updates = snapshot.updates;
   const [progress, setProgress] = React.useState<Record<string, { state: UpdateProgress; row: UpdateRow }>>({});
+  // The updates the disk had no room for, by id: the bytes more each needs (the install service
+  // checks before it downloads anything, docs/adr/0062-storage.mdx).
+  const [noRoom, setNoRoom] = React.useState<Record<string, number>>({});
   // The rows as last shown, in order: a row the service's list dropped keeps its place.
   const shownOrder = React.useRef<string[]>([]);
   // Under way, as the requests are: a second press never asks again.
@@ -1602,11 +1584,16 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
     void ask().then((outcomes) => {
       const said: string[] = [];
       const ended: Record<string, { state: UpdateProgress; row: UpdateRow } | null> = {};
+      const short: Record<string, number | null> = {};
       for (const row of starting) {
         underWay.current.delete(row.id);
-        const how = progressOf(outcomes.find((outcome) => outcome.id === row.id)?.outcome);
+        const outcome = outcomes.find((one) => one.id === row.id);
+        const how = progressOf(outcome?.outcome);
+        const needed = spaceNeeded(outcome);
+        short[row.id] = needed;
         if (how === "updated") said.push(words.updatedLabel(row.name));
         else if (how === "atNextLaunch") said.push(words.atNextLaunchLabel(row.name));
+        else if (needed !== null) said.push(words.noSpaceLabel(row.name, formatBytes(needed, language)));
         else if (how === "failed") said.push(words.failedLabel(row.name));
         // Declined in the consent sheet (it was answered) or failed: the row is the service's again.
         ended[row.id] = how === "updated" || how === "atNextLaunch" ? { state: how, row } : null;
@@ -1615,6 +1602,14 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
         const next = { ...current };
         for (const [id, how] of Object.entries(ended)) {
           if (how) next[id] = how;
+          else delete next[id];
+        }
+        return next;
+      });
+      setNoRoom((current) => {
+        const next = { ...current };
+        for (const [id, needed] of Object.entries(short)) {
+          if (needed !== null) next[id] = needed;
           else delete next[id];
         }
         return next;
@@ -1663,6 +1658,9 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
               description={[
                 words.version(row.version, formatBytes(row.size, language)),
                 how ? "" : row.needsConsent ? words.needsConsent : row.atNextLaunch ? words.atNextLaunch : "",
+                how === undefined && noRoom[row.id] !== undefined
+                  ? words.noSpace(formatBytes(noRoom[row.id], language))
+                  : "",
                 row.notes,
               ]
                 .filter(Boolean)
@@ -1995,342 +1993,12 @@ function PrivacyPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
-/** A network's signal in three arcs, as the shell's top bar draws it; the arcs it does not reach
-    faint. Its words are its row's. */
-function SignalGlyph({ signal }: { signal: number }) {
-  const theme = useTheme();
-  const bars = signalArcs(signal);
-  const arc = (on: boolean) => (on ? theme.colors.text : theme.colors.textTertiary);
-  return (
-    <Svg width={18} height={14} viewBox="0 0 20 16">
-      <Path d="M1 5.6a13 13 0 0 1 18 0" stroke={arc(bars >= 3)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M4.2 8.9a8.4 8.4 0 0 1 11.6 0" stroke={arc(bars >= 2)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M7.4 12.1a3.9 3.9 0 0 1 5.2 0" stroke={arc(bars >= 1)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Circle cx="10" cy="14.6" r="1.3" fill={arc(bars >= 1)} />
-    </Svg>
-  );
-}
-
-/** At a network's row's end, as a Mac lists networks: a lock when joining asks for a password,
-    then its signal; neither for a known network not nearby. */
-function NetworkGlyphs({ network }: { network: NearbyNetwork | undefined }) {
-  const theme = useTheme();
-  if (!network) return null;
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      {isLocked(network.security) ? <RiLockLine size="sm" fill={theme.colors.textSecondary} /> : null}
-      <SignalGlyph signal={network.signal} />
-    </View>
-  );
-}
-
-/** What a network's row says to the screen reader: its name, its state, its lock and signal. */
-function networkLabel(
-  ssid: string,
-  network: NearbyNetwork | undefined,
-  words: Messages["wifi"],
-  ...states: (string | null | undefined)[]
-): string {
-  const glyphs = network
-    ? [isLocked(network.security) ? words.secured : words.open, words.signal(signalArcs(network.signal))]
-    : [];
-  return [ssid, ...states, ...glyphs].filter(Boolean).join(", ");
-}
-
-/** A connection's details (ADR 0038, decision 7), one row each, only those it has. */
-function detailItems(
-  details: NetworkDetails | null,
-  strings: Messages,
-  hardwareLabel: string,
-  prefix: string,
-): React.ReactNode[] {
-  const labels = { ...strings.details, hardwareAddress: hardwareLabel };
-  return detailRows(details).map((row) => (
-    <GroupedSectionItem key={row.key} title={labels[row.key]} value={row.value} testID={`${prefix}-${row.key}`} />
-  ));
-}
-
-/** A dialog's content kept while it closes, so its words do not vanish under its animation. */
-function useHeld<T>(): [T | null, boolean, (value: T) => void, () => void] {
-  const [held, setHeld] = React.useState<{ value: T | null; open: boolean }>({ value: null, open: false });
-  const show = React.useCallback((value: T) => setHeld({ value, open: true }), []);
-  const hide = React.useCallback(() => setHeld((current) => ({ ...current, open: false })), []);
-  return [held.value, held.open, show, hide];
-}
-
 /** A row that only says something: a page with nothing else to show. */
 function Notice({ title, testID }: { title: string; testID: string }) {
   return (
     <GroupedSection>
       <GroupedSectionItem title={title} titleNumberOfLines={0} testID={testID} />
     </GroupedSection>
-  );
-}
-
-/**
- * Wi-Fi (docs/adr/0038-networks.mdx, decision 7), as a Mac's: the switch; the network joined, its
- * signal and lock, and its details; the known networks, each forgotten from its menu once
- * confirmed; the other networks nearby, each joined when chosen. Settings never asks a password:
- * the session asks it in its own sheet, and says there why a join failed. The page asks for a
- * scan when it opens and every ten seconds while it is shown, as Control Center's view does.
- */
-function WifiPage({ snapshot, actions, strings }: PageProps) {
-  const words = strings.wifi;
-  const state = snapshot.network;
-  const act = actions.network;
-  const scanning = Boolean(act && state?.available && state.wifi.device && state.wifi.enabled);
-  const [details, detailsOpen, showDetails, hideDetails] = useHeld<string>();
-  const [forgetting, forgetOpen, askForget, hideForget] = useHeld<KnownNetwork>();
-  const [note, noteOpen, showNote, hideNote] = useHeld<{ title: string; description: string }>();
-  React.useEffect(() => {
-    if (!scanning || !act) return;
-    act.scan();
-    const timer = setInterval(act.scan, SCAN_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [scanning, act]);
-  // A network joined is said once, as it connects, as VoiceOver hears a Mac's Wi-Fi join: the
-  // row it was joined from goes, so nothing focused would say it.
-  const joinedName =
-    state?.available && state.wifi.device && state.wifi.state === "connected" ? currentNetwork(state.wifi)?.ssid ?? "" : "";
-  const saidJoined = React.useRef(joinedName);
-  React.useEffect(() => {
-    if (joinedName === saidJoined.current) return;
-    saidJoined.current = joinedName;
-    if (joinedName) AccessibilityInfo.announceForAccessibility(words.joined(joinedName));
-  }, [joinedName]);
-  if (!state || !act || !state.available) return <Notice title={words.unavailable} testID="wifi-unavailable" />;
-  const wifi = state.wifi;
-  if (!wifi.device) return <Notice title={words.noDevice} testID="wifi-no-device" />;
-  const current = currentNetwork(wifi);
-  const currentName = current?.ssid ?? null;
-  const currentState = wifi.state === "connecting" ? words.connecting : words.connected;
-  const nearby = (ssid: string) => wifi.networks.find((network) => network.ssid === ssid);
-  const others = otherNetworks(wifi.networks);
-  const join = async (ssid: string) => {
-    const reason = failureOf(await act.join(ssid));
-    if (joinFailureNeedsNote(reason)) {
-      const note = { title: words.couldNotJoin(ssid), description: failureLabel(reason, words.failures, "join") };
-      showNote(note);
-      // Said as it shows: the note's dialog does not take the screen reader's focus.
-      AccessibilityInfo.announceForAccessibility(`${note.title}. ${note.description}`);
-    }
-  };
-  const forget = async (known: KnownNetwork) => {
-    const reason = failureOf(await act.forget(known.id));
-    if (reason) showNote({ title: words.couldNotForget, description: failureLabel(reason, words.failures, "forget") });
-  };
-  return (
-    <View style={PAGE}>
-      <GroupedSection footer={wifi.enabled ? undefined : wifi.hardwareBlocked ? words.hardwareBlocked : words.off}>
-        <GroupedSectionItem
-          title={words.wifi}
-          icon={<RiWifiLine />}
-          testID="wifi"
-          rightElement={
-            <Switch
-              checked={wifi.enabled}
-              onCheckedChange={act.setWifi}
-              accessibilityLabel={words.wifi}
-              testID="wifi-switch"
-            />
-          }
-        />
-        {wifi.enabled && currentName ? (
-          <GroupedSectionItem
-            title={currentName}
-            description={currentState}
-            leftInset={56}
-            testID="wifi-current"
-            accessibilityLabel={networkLabel(currentName, current ?? undefined, words, currentState)}
-            rightElement={
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <NetworkGlyphs network={current ?? undefined} />
-                <Button
-                  size="sm"
-                  appearance="outline"
-                  tone="neutral"
-                  accessibilityLabel={words.detailsLabel(currentName)}
-                  testID="wifi-details"
-                  onPress={() => showDetails(currentName)}
-                >
-                  {words.details}
-                </Button>
-              </View>
-            }
-          />
-        ) : null}
-      </GroupedSection>
-      {wifi.enabled && wifi.known.length > 0 ? (
-        <GroupedSection title={words.known}>
-          {wifi.known.map((known) => {
-            // One nearby and not joined is joined by choosing it, as a Mac's list joins it; the
-            // session has its password.
-            const there = nearby(known.ssid);
-            const joinable = !!there && !there.current;
-            const joining = state.joining === known.ssid;
-            return (
-              <GroupedSectionItem
-                key={known.id}
-                title={known.ssid}
-                testID={`wifi-known-${known.ssid}`}
-                accessibilityLabel={networkLabel(known.ssid, there, words, joining ? words.connecting : null)}
-                accessibilityState={{ busy: joining }}
-                showChevron={false}
-                onPress={
-                  joinable
-                    ? () => {
-                        void join(known.ssid);
-                      }
-                    : undefined
-                }
-                rightElement={
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <NetworkGlyphs network={nearby(known.ssid)} />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="sm"
-                          appearance="plain"
-                          tone="neutral"
-                          iconOnly
-                          icon={RiMoreLine}
-                          accessibilityLabel={words.more(known.ssid)}
-                          testID={`wifi-known-${known.ssid}-more`}
-                        />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent label={words.more(known.ssid)} align="end" size="sm">
-                        <DropdownMenuItem testID={`wifi-forget-${known.ssid}`} onPress={() => askForget(known)}>
-                          {words.forgetItem}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </View>
-                }
-              />
-            );
-          })}
-        </GroupedSection>
-      ) : null}
-      {wifi.enabled ? (
-        <GroupedSection title={words.other}>
-          {others.length === 0 ? (
-            <GroupedSectionItem title={words.none} testID="wifi-none" />
-          ) : (
-            others.map((network) => {
-              const joining = state.joining === network.ssid;
-              const unsupported = network.supported ? undefined : words.notSupported;
-              return (
-                <GroupedSectionItem
-                  key={network.ssid}
-                  title={network.ssid}
-                  description={unsupported}
-                  showChevron={false}
-                  testID={`wifi-network-${network.ssid}`}
-                  accessibilityLabel={networkLabel(
-                    network.ssid,
-                    network,
-                    words,
-                    joining ? words.connecting : null,
-                    unsupported,
-                  )}
-                  accessibilityState={{ busy: joining }}
-                  onPress={() => {
-                    void join(network.ssid);
-                  }}
-                  rightElement={
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                      {joining ? (
-                        <Loading
-                          size="sm"
-                          accessibilityLabel={words.joining(network.ssid)}
-                          testID={`wifi-joining-${network.ssid}`}
-                        />
-                      ) : null}
-                      <NetworkGlyphs network={network} />
-                    </View>
-                  }
-                />
-              );
-            })
-          )}
-        </GroupedSection>
-      ) : null}
-      <Dialog
-        open={detailsOpen}
-        onClose={hideDetails}
-        title={details ?? ""}
-        label={words.detailsLabel(details ?? "")}
-        actions={[{ label: words.ok, color: "default", onPress: hideDetails, testID: "wifi-details-ok" }]}
-        testID="wifi-details-sheet"
-      >
-        <GroupedSection>{detailItems(wifi.details, strings, strings.details.wifiAddress, "wifi-details")}</GroupedSection>
-      </Dialog>
-      <AlertDialog
-        open={forgetOpen}
-        onOpenChange={(open) => {
-          if (!open) hideForget();
-        }}
-        title={words.forgetTitle(forgetting?.ssid ?? "")}
-        description={words.forgetDescription}
-        confirmLabel={words.forget}
-        cancelLabel={words.cancel}
-        destructive
-        onConfirm={() => {
-          if (forgetting) void forget(forgetting);
-        }}
-        testID="wifi-forget-confirm"
-      />
-      <AlertDialog
-        open={noteOpen}
-        onOpenChange={(open) => {
-          if (!open) hideNote();
-        }}
-        title={note?.title ?? ""}
-        description={note?.description}
-        confirmLabel={words.ok}
-        hideCancel
-        testID="wifi-failure"
-      />
-    </View>
-  );
-}
-
-/** Network (decision 7): Ethernet's state, speed and details; VPN only says it is not there yet,
-    since nothing in OxyOS configures one. */
-function NetworkPage({ snapshot, strings, locale }: PageProps) {
-  const words = strings.network;
-  const language = messagesLanguage(locale);
-  const state = snapshot.network;
-  if (!state || !state.available) return <Notice title={words.unavailable} testID="network-unavailable" />;
-  const ethernet = state.ethernet;
-  const status = ethernetStatus(ethernet);
-  const said = {
-    none: words.noPort,
-    connected: words.connected,
-    unplugged: words.unplugged,
-    connecting: words.connecting,
-    notConnected: words.notConnected,
-  }[status];
-  const speed = status === "connected" ? formatSpeed(ethernet.speed, language) : "";
-  return (
-    <View style={PAGE}>
-      <GroupedSection title={words.ethernet}>
-        <GroupedSectionItem
-          title={words.ethernet}
-          value={said}
-          icon={<RiGlobalLine />}
-          testID="ethernet-status"
-          accessibilityLabel={`${words.ethernet}, ${said}`}
-        />
-        {speed ? <GroupedSectionItem title={words.speed} value={speed} testID="ethernet-speed" /> : null}
-        {status === "connected"
-          ? detailItems(ethernet.details, strings, strings.details.hardwareAddress, "ethernet")
-          : null}
-      </GroupedSection>
-      <GroupedSection title={words.vpn}>
-        <GroupedSectionItem title={words.vpnPlaceholder} titleNumberOfLines={0} testID="vpn-placeholder" />
-      </GroupedSection>
-    </View>
   );
 }
 
@@ -2670,7 +2338,9 @@ export function Settings({
           // and its time (docs/adr/0060-login-items-and-background-activity.mdx).
           { key: "login-items", label: words.loginItems, icon: RiLoginBoxLine, page: "login-items" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
-          // After Software Update, as a Mac's General lists Transfer or Reset.
+          // After Software Update, as a Mac's General lists Storage (docs/adr/0062-storage.mdx).
+          { key: "storage", label: words.storage, icon: RiHardDrive2Line, page: "storage" },
+          // After Storage, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
           // Just above Privacy, as a Mac's System Settings lists Spotlight.
           { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
@@ -2699,6 +2369,7 @@ export function Settings({
       "date-time": { title: words.dateTime, content: <WithPageProps render={DateTimePage} /> },
       about: { title: words.about, content: <WithPageProps render={AboutPage} /> },
       "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
+      storage: { title: words.storage, content: <WithPageProps render={StoragePage} /> },
       "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
       "login-items": { title: words.loginItems, content: <WithPageProps render={LoginItemsPage} /> },
       spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },

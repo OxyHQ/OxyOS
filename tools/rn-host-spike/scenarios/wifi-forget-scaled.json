@@ -1,0 +1,406 @@
+{
+ "about": "Forget This Network (docs/adr/0038-networks.mdx, 8 November 2026), as a Mac's, over a NetworkManager played on the run's own bus that refuses changes to connections for every user (polkit's `settings.modify.system`, as for a person who is not an administrator): Oficina, for every user, is forgotten from its menu, confirmed with what goes, and refused: said, the daemon keeping it; LukeSkyRouter, joined and this person's own, is forgotten from its sheet: cancelling the confirmation returns to the sheet, and confirmed, the daemon deletes the connection with its password and the computer leaves the network. At 1.25.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Oficina",
+    "strength": 45,
+    "security": "wpa",
+    "password": "office pass"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse",
+    "permissions": [
+     "user:someone:"
+    ]
+   },
+   {
+    "ssid": "Oficina",
+    "password": "office pass"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged",
+  "deny_system": true
+ },
+ "secrets": [
+  "correct horse"
+ ],
+ "steps": [
+  {
+   "name": "Settings with the network grant: its pages there once the session told it the network",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Wi-Fi"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi's page",
+   "do": [
+    "wait_named",
+    [
+     "Details of “LukeSkyRouter”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "LukeSkyRouter",
+     "Oficina"
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "A network for every user: its menu",
+   "do": [
+    "press_named",
+    "More for “Oficina”"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-known-Oficina-more": 1,
+     "touchEnd@wifi-known-Oficina-more": 1
+    }
+   }
+  },
+  {
+   "name": "Forget This Network…",
+   "do": [
+    "press_named",
+    "Forget This Network…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-forget-Oficina": 1,
+     "touchEnd@wifi-forget-Oficina": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Confirmed, saying its password goes",
+   "do": [
+    "wait_named",
+    [
+     "Forget",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Forget Wi-Fi network “Oficina”?",
+     "Your computer will no longer join this network, and its saved password will be removed."
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "Forget",
+   "do": [
+    "press_named",
+    "Forget"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "polkit refuses it: said, and the daemon still has it with its password",
+   "do": [
+    "wait_named",
+    [
+     "Couldn't forget the network",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Only an administrator can forget this network."
+    ],
+    "network": {
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter"
+      },
+      {
+       "ssid": "Oficina",
+       "psk": "office pass"
+      }
+     ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1
+    }
+   }
+  },
+  {
+   "name": "The network joined, this person's own: its sheet",
+   "do": [
+    "press_named",
+    "Details of “LukeSkyRouter”"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-details": 1,
+     "touchEnd@wifi-details": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Forget This Network… in the sheet",
+   "do": [
+    "wait_named",
+    [
+     "Forget This Network…",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {}
+   }
+  },
+  {
+   "name": "Forget This Network…",
+   "do": [
+    "press_named",
+    "Forget This Network…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-details-forget": 1,
+     "touchEnd@wifi-details-forget": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Confirmed",
+   "do": [
+    "wait_named",
+    [
+     "Cancel",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Forget Wi-Fi network “LukeSkyRouter”?"
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "Cancelled: the sheet comes back, as a Mac's alert returns to its sheet, nothing forgotten",
+   "do": [
+    "press_named",
+    "Cancel"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "The sheet again",
+   "do": [
+    "wait_named",
+    [
+     "Private Wi-Fi address",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "active": "LukeSkyRouter",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter"
+      },
+      {
+       "ssid": "Oficina"
+      }
+     ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Forget This Network…",
+   "do": [
+    "press_named",
+    "Forget This Network…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-details-forget": 1,
+     "touchEnd@wifi-details-forget": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Confirmed",
+   "do": [
+    "wait_named",
+    [
+     "Forget",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {}
+   }
+  },
+  {
+   "name": "Forget",
+   "do": [
+    "press_named",
+    "Forget"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@bloom-dialog-frame-content": 1,
+     "touchEnd@bloom-dialog-frame-content": 1
+    }
+   }
+  },
+  {
+   "name": "Forgotten: the daemon no longer has it nor its password, and the computer left it",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Details of “LukeSkyRouter”"
+    ],
+    "network": {
+     "active": null,
+     "joined_with": null,
+     "address": "F4:A4:75:12:34:56",
+     "connections": [
+      {
+       "ssid": "Oficina",
+       "psk": "office pass"
+      }
+     ]
+    },
+    "react": {}
+   }
+  }
+ ]
+}
