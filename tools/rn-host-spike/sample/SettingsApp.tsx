@@ -71,6 +71,7 @@ import {
   type StorageMeasured,
 } from '../../../apps/settings/src/storage';
 import { localOutcomeFrom, localSignInFrom } from '../../../apps/settings/src/local-sign-in';
+import type { KeychainPlatform } from '../../../apps/settings/src/passwords';
 import type {
   DiagnosticsAnswer,
   NetworkActions,
@@ -1186,6 +1187,7 @@ const accountSession = TurboModuleRegistry.get<{
   remove(): Promise<unknown>;
   erasePreview(): Promise<unknown>;
   eraseAll(password: string): Promise<unknown>;
+  keychain(request: string): Promise<unknown>;
 }>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
@@ -1215,6 +1217,36 @@ const eraseActions: EraseActions | undefined = accountSession
       eraseAll: async (password) => eraseOutcomeFrom(await accountSession.eraseAll(password)),
     }
   : undefined;
+
+/** Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): each
+    request handed to the host, which sends it to the accounts' service and forgets it, and a copy
+    marked sensitive, which the host clears after 90 seconds (docs/adr/0007-clipboard.mdx). */
+const clipboard = TurboModuleRegistry.get<{ setSensitiveString?(text: string): Promise<boolean> }>('OxyOSClipboard');
+const nativeWindow = TurboModuleRegistry.get<{
+  getConstants?(): { available?: boolean };
+  getState(): { active?: unknown };
+}>('OxyOSWindow');
+const keychainPlatform: KeychainPlatform | undefined =
+  accountSession && typeof accountSession.keychain === 'function'
+    ? {
+        ask: (request) => accountSession.keychain(JSON.stringify(request)),
+        copySensitive: async (text) => (clipboard?.setSensitiveString ? clipboard.setSensitiveString(text) : false),
+        // The window's activation as the host tells it (docs/adr/0016-windows.mdx): the lock leaves
+        // no window active, so Passwords asks again whether it may stay open.
+        watchActive: (listener) => {
+          const told = nativeWindow?.getConstants?.()?.available ? nativeWindow.getState() : null;
+          let active: boolean | null = typeof told?.active === 'boolean' ? told.active : null;
+          const subscription = DeviceEventEmitter.addListener('OxyOSWindowChanged', (state: { active?: unknown }) => {
+            if (typeof state?.active !== 'boolean' || state.active === active) return;
+            active = state.active;
+            listener(state.active);
+          });
+          // Not active already (another application is): said at once, so it is followed from now.
+          if (active === false) listener(false);
+          return () => subscription.remove();
+        },
+      }
+    : undefined;
 
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
@@ -1274,6 +1306,7 @@ export default function SettingsApp() {
     search: oxyosSurfaces.search,
     storage,
     erase: sessionHost ? eraseActions : undefined,
+    keychain: sessionHost ? keychainPlatform : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();
