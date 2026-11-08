@@ -91,7 +91,9 @@ for f in tools/rn-host-spike/scenarios/*.json; do
   if [ -n "${SCENARIOS:-}" ]; then echo " $SCENARIOS " | grep -q " $n " || continue; fi
   if uinput "$f"; then echo "$n" >> "$R/list-uinput"; else echo "$n" >> "$R/list"; fi
 done
-# run-one NAME [regress.py arguments...]: one run, its record kept only when it fails.
+# run-one NAME [regress.py arguments...]: one run, its record kept only when it fails. Phases 1 to 3
+# paint on the CPU, as the scenarios' pixels were written (a machine with a GPU offers it to the
+# hosts, whose Ganesh draws a level or two apart, and keeps scratch textures); phase 4 is the GPU's.
 cat > "$R/run-one.sh" <<EOF
 n=\$1; shift
 out=$R/scenarios/\$n
@@ -103,7 +105,7 @@ EOF
 mkdir -p "$R/scenarios"; : > "$R/failed"
 said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3 | cut -c1-240; }
 
-grep -vE '^(perf|refresh)-' "$R/list" | xargs -P "$GATE_JOBS" -I{} sh -c "sh '$R/run-one.sh' {} || echo {} >> '$R/failed'"
+grep -vE '^(perf|refresh)-' "$R/list" | xargs -P "$GATE_JOBS" -I{} sh -c "sh '$R/run-one.sh' {} --renderer cpu || echo {} >> '$R/failed'"
 phase "$(grep -vcE '^(perf|refresh)-' "$R/list") scenarios run, $GATE_JOBS at a time: $(wc -l < "$R/failed") failed"
 
 # Alone, on the reserved cores: one run at a time on this machine (the lock), and the cores given
@@ -119,12 +121,12 @@ if [ -x $reserve ] && sudo -n $reserve reserve 2>/dev/null; then
 else
   echo "gate: no reserved cores on this machine (tools/gate/machine.sh): the timing runs share theirs"
 fi
-grep -E '^(perf|refresh)-' "$R/list" | while read -r n; do sh "$R/run-one.sh" "$n" || echo "$n" >> "$R/failed"; done
+grep -E '^(perf|refresh)-' "$R/list" | while read -r n; do sh "$R/run-one.sh" "$n" --renderer cpu || echo "$n" >> "$R/failed"; done
 for n in $(cat "$R/failed"); do
   echo "scenario $n failed once (load $(cut -d' ' -f1 /proc/loadavg)), again alone:"; said "$n"
   grep -rh "fatal signal" -A12 "$R/scenarios/$n.failed" 2>/dev/null | head -14
   mv "$R/scenarios/$n.failed" "$R/scenarios/$n.failed-first"
-  sh "$R/run-one.sh" "$n" || { said "$n"; fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"; }
+  sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"; fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"; }
 done
 [ -n "$reserved" ] && { sudo -n $reserve release; trap - EXIT; }
 flock -u 8
@@ -139,7 +141,8 @@ if [ -s "$R/list-uinput" ]; then
     as="sudo -n --preserve-env"
   else fail "the uinput scenarios need /dev/uinput (tools/gate/machine.sh) or sudo"; fi
   while read -r n; do
-    $as sh "$R/run-one.sh" "$n" || { said "$n"; $as sh "$R/run-one.sh" "$n"; } || { said "$n"; fail "scenario $n failed twice"; }
+    $as sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"; $as sh "$R/run-one.sh" "$n" --renderer cpu; } \
+      || { said "$n"; fail "scenario $n failed twice"; }
     [ -z "$as" ] || sudo -n chown -R "$(id -u):$(id -g)" "$R/scenarios" 2>/dev/null || true
   done < "$R/list-uinput"
   phase "$(wc -l < "$R/list-uinput") scenarios through uinput run"
