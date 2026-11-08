@@ -1,0 +1,26 @@
+# What tools/dev/bootstrap fetches, pinned (docs/developing.mdx). Sourced by sh: NAME=value only.
+# Bumping one is a pull request of its own: the scenario gate runs it against this tree.
+
+# The applications the gate and a deploy build beside OxyOS: Bloom (its React Native is the runtime's,
+# ADR 0030, decision 17), and Dropsea's and Atlas's Expo projects. Commits of their main.
+BLOOM_REPO=https://github.com/OxyHQ/Bloom.git
+BLOOM_COMMIT=688b748acbd36e233097d064a8dac8912544b307
+DROPSEA_REPO=https://github.com/OxyHQ/Dropsea.git
+DROPSEA_COMMIT=f1414df35a233e4a2ee0f59a88a8256279e6596d
+ATLAS_REPO=https://github.com/OxyHQ/Atlas.git
+ATLAS_COMMIT=fc3b8217679dd9dd05f203579e49d1ddc12c2dd7
+
+# Node (the framework's and the packages' build, React Native's codegen), from nodejs.org.
+NODE_VERSION=24.22.2
+NODE_SHA256_amd64=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75
+NODE_SHA256_arm64=eb187837a2230d4047161ac0be008584e16b46f726e9c9490ee35dc6b17d9ba8
+
+# bun (the applications' packages: Bloom, Dropsea and Atlas lock theirs with it).
+BUN_VERSION=1.4.3
+BUN_SHA256_amd64=3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18
+BUN_SHA256_arm64=efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21
+
+# rustup, when the machine has no cargo; it installs the Rust that rust-toolchain.toml names.
+RUSTUP_VERSION=1.29.3
+RUSTUP_SHA256_amd64=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
+RUSTUP_SHA256_arm64=9f608c142e0e38a78957d0661ba1dfaf0b6fb37184cfaa4b9a0aa57af6184282

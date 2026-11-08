@@ -28,7 +28,9 @@
 #                    databases), packages/ (OxyOS's patched Debian packages, their sources).
 #                    Not /tmp: a build needs several GB, and /tmp is often RAM.
 #   OXYOS_FRESH=1    drop the package and bootstrap caches before building.
-#   DOCKER           the docker command (default: docker, else "sudo -n docker" when that works).
+#   DOCKER           the container command (default: docker, else "sudo -n docker" when that
+#                    works, else podman: rootless Podman runs the privileged container in the
+#                    user's own namespace, with no root on the host).
 #
 # Reproducible inputs: the container image by digest, live-build by version (container.sh), the
 # configuration by commit (an uncommitted change marks the build "-dirty"), SOURCE_DATE_EPOCH
@@ -72,10 +74,19 @@ if [ -z "${DOCKER:-}" ]; then
         DOCKER=docker
     elif sudo -n docker info >/dev/null 2>&1; then
         DOCKER="sudo -n docker"
+    elif podman info >/dev/null 2>&1; then
+        DOCKER=podman
     else
-        die "no usable docker (tried docker and sudo -n docker); set DOCKER"
+        die "no usable docker (tried docker, sudo -n docker and podman); set DOCKER"
     fi
 fi
+
+# Who owns what the build leaves in out/ and audit/: the user, as the container names them. In
+# rootless Podman the container's root is the user, and the user's own id would be a subordinate one.
+HOST_UID=$(id -u) HOST_GID=$(id -g)
+case $DOCKER in
+    *podman*) [ "$($DOCKER info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = true ] && HOST_UID=0 HOST_GID=0 ;;
+esac
 
 commit=$(git -C "$ROOT" rev-parse --short=12 HEAD)
 if [ -n "$(git -C "$ROOT" status --porcelain -- config tools/image)" ]; then
@@ -100,7 +111,7 @@ container() {
         --name "oxyos-image-$$" \
         -v "$ROOT:/src:ro" \
         -v "$WORK:/work" \
-        -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+        -e HOST_UID="$HOST_UID" -e HOST_GID="$HOST_GID" \
         -e SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" \
         -e OXYOS_COMMIT="$commit" \
         -e OXYOS_FRESH="${OXYOS_FRESH:-0}" \

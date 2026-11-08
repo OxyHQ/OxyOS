@@ -7,8 +7,8 @@ description: Building the Bloom host and Hermes with AddressSanitizer, ThreadSan
 
 A crash in the Bloom host is found with the tools that make it certain, not by retrying: a host
 and a Hermes built with a sanitizer, each in a build directory of its own beside the toolchain
-(`W=~/oxyos-build/rn-host-menubar`, its environment `~/oxyos-build/stab/env.sh`, the host's CMake
-variables `~/oxyos-build/stab/cmake-vars.txt`). None of this is installed or shipped: a sanitized
+(`W=$OXYOS_TOOLCHAIN`, `~/.cache/oxyos/toolchain` by default, with the host's CMake variables in
+`$W/cmake-vars.txt`: [Developing OxyOS](./developing), `tools/dev/bootstrap`). None of this is installed or shipped: a sanitized
 runtime is a runtime directory the regression scenarios run (`regress.py --runtimes`).
 
 ## The crash report
@@ -31,13 +31,13 @@ either in a register at the fault names the bug's kind. The handler runs on a st
 so a stack overflow on the JavaScript thread is reported too.
 
 The frames are offsets into the runtime's objects. The host and `libreactnative.so` of a deploy
-run are its build directory's (`$W/<host dir>`); `libhermesvm.so` is `$W/hermes-build`'s, built
+run are its build directory's (`$W/<host dir>`); `libhermesvm.so` is `$W/rn-<version>/hermes-build`'s, built
 with its debug information as React Native's Android build builds it
 (`tools/rn-host-spike/build-hermes.sh`, run by `build.sh`); the runtime's copy is the same library
 stripped of it. Functions and lines come from the build's:
 
 ```sh
-addr2line -f -C -i -e $W/hermes-build/lib/libhermesvm.so 0x3180c9
+addr2line -f -C -i -e $W/rn-<version>/hermes-build/lib/libhermesvm.so 0x3180c9
 ```
 
 ## Sanitizers
@@ -47,14 +47,15 @@ the host, React Native, folly, glog, the worklets, Reanimated, the SVG and gestu
 Hermes is built apart, by `build-hermes.sh` into a build directory of its own with its own
 option, and with the same compiler as the host (Clang 19 from the toolchain), whose sanitizer
 runtime the two must share. The sanitizer runtimes and `llvm-symbolizer` are Debian's
-`libclang-rt-19-dev` and `llvm-19`, unpacked into `$W/clang` (`apt-get download`, `dpkg-deb -x`).
+`libclang-rt-19-dev` and `llvm-19`, which `tools/rn-host-spike/toolchain.sh` unpacks into `$W/clang`.
 
 ```sh
-. ~/oxyos-build/stab/env.sh; export PATH=$W/tools/bin:$PATH
-tools/rn-host-spike/build-hermes.sh ~/Oxy/Bloom/node_modules/react-native $W hermes-build-tsan \
+. tools/dev/env.sh; W=$OXYOS_TOOLCHAIN; export PATH=$W/tools/bin:$PATH
+HERMES_SRC=$(sed -n 's/^HERMES_SRC=//p' $W/cmake-vars.txt) \
+  tools/rn-host-spike/build-hermes.sh $BLOOM_DIR/node_modules/react-native $W hermes-build-tsan \
   -DHERMES_ENABLE_THREAD_SANITIZER=ON
-args=$(sed "s|^OXYOS_CLIENT_LIB=.*|OXYOS_CLIENT_LIB=$PWD/target/release/liboxyos_client_ffi.a|; \
-  s|^HERMES_BUILD=.*|HERMES_BUILD=$W/hermes-build-tsan|; s|^|-D|" ~/oxyos-build/stab/cmake-vars.txt | tr '\n' ' ')
+args="$(sed "s|^HERMES_BUILD=.*|HERMES_BUILD=$W/hermes-build-tsan|; s|^|-D|" $W/cmake-vars.txt | tr '\n' ' ') \
+  -DOXYOS_CLIENT_LIB=$PWD/target/release/liboxyos_client_ffi.a"
 CC=$W/clang/usr/bin/clang-19 CXX=$W/clang/usr/bin/clang++-19 cmake -S tools/rn-host-spike -B $W/host-tsan \
   -G Ninja $args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOXYOS_SANITIZE=thread
 ninja -C $W/host-tsan oxyos-bloom-host
