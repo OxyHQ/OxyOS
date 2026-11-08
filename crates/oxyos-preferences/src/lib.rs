@@ -71,6 +71,89 @@ impl Previews {
     }
 }
 
+/// How many fingers swipe one of a trackpad's gestures (Settings › Trackpad › More Gestures,
+/// docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026): three, as a Mac's trackpad
+/// ships them, which four fingers swipe too, as on a Mac; or four, three then doing nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwipeFingers {
+    #[default]
+    Three,
+    Four,
+}
+
+impl SwipeFingers {
+    fn name(self) -> &'static str {
+        match self {
+            SwipeFingers::Three => "three",
+            SwipeFingers::Four => "four",
+        }
+    }
+
+    /// The fewest fingers that swipe it.
+    pub fn fewest(self) -> u8 {
+        match self {
+            SwipeFingers::Three => 3,
+            SwipeFingers::Four => 4,
+        }
+    }
+}
+
+/// The trackpad's gestures the person chooses, as a Mac's System Settings › Trackpad › More
+/// Gestures offers them (docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026). Each
+/// swipe is three fingers, four, or off; Mission Control (up) and App Exposé (down) share their
+/// fingers, as a Mac's do: choosing four for one chooses four for the other, unless it is off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrackpadGestures {
+    /// The fingers that swipe up and down.
+    pub vertical: SwipeFingers,
+    /// Mission Control, swiped up.
+    pub mission_control: bool,
+    /// App Exposé, swiped down.
+    pub app_expose: bool,
+    /// The desktops, swiped across; none, off.
+    pub desktops: Option<SwipeFingers>,
+    /// Launchpad, pinched with the thumb and three fingers.
+    pub launchpad: bool,
+}
+
+impl Default for TrackpadGestures {
+    fn default() -> Self {
+        Self {
+            vertical: SwipeFingers::Three,
+            mission_control: true,
+            app_expose: true,
+            desktops: Some(SwipeFingers::Three),
+            launchpad: true,
+        }
+    }
+}
+
+/// A swipe's fingers as the file and Settings give them: `three`, `four`, or `off` (none).
+fn swipe_fingers(value: &str) -> Result<Option<SwipeFingers>, Refused> {
+    match value {
+        "three" => Ok(Some(SwipeFingers::Three)),
+        "four" => Ok(Some(SwipeFingers::Four)),
+        "off" => Ok(None),
+        _ => Err(Refused::BadValue),
+    }
+}
+
+fn swipe_fingers_name(fingers: Option<SwipeFingers>) -> &'static str {
+    fingers.map_or("off", SwipeFingers::name)
+}
+
+impl TrackpadGestures {
+    /// Mission Control's fingers, none when it is off.
+    pub fn mission_control_fingers(&self) -> Option<SwipeFingers> {
+        self.mission_control.then_some(self.vertical)
+    }
+
+    /// App Exposé's fingers, none when it is off.
+    pub fn app_expose_fingers(&self) -> Option<SwipeFingers> {
+        self.app_expose.then_some(self.vertical)
+    }
+}
+
 /// When Low Power Mode is on (docs/adr/0057-battery-and-energy.mdx), as a Mac's Battery settings
 /// offer it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -184,6 +267,9 @@ pub struct Preferences {
     /// *Natural scrolling* on every other pointing device (a mouse's wheel, a trackpoint): off, a
     /// wheel's notch turned toward the person scrolls down, as every mouse has.
     pub mouse_natural_scrolling: bool,
+    /// Settings › Trackpad › More Gestures: which fingers swipe to Mission Control, App Exposé and
+    /// the desktops, and whether a pinch opens Launchpad (docs/adr/0046-interactive-gestures.mdx).
+    pub trackpad_gestures: TrackpadGestures,
     /// The wallpapers (docs/adr/0048-wallpapers.mdx): the default (`wallpaper`), whether a
     /// display's shows on all its desktops (`wallpaper_all_desktops`), and each display's and
     /// desktop's own (`wallpaper.DISPLAY`, `wallpaper.DISPLAY.N`), which only the session changes.
@@ -238,6 +324,7 @@ impl Default for Preferences {
             ui_sounds: true,
             trackpad_natural_scrolling: true,
             mouse_natural_scrolling: false,
+            trackpad_gestures: TrackpadGestures::default(),
             wallpapers: wallpaper::Wallpapers::default(),
             lock_after: 5,
             screen_reader: false,
@@ -342,6 +429,10 @@ pub const KEYS: &[&str] = &[
     "ui_sounds",
     "trackpad_natural_scrolling",
     "mouse_natural_scrolling",
+    "mission_control_swipe",
+    "app_expose_swipe",
+    "desktops_swipe",
+    "launchpad_pinch",
     "wallpaper",
     "wallpaper_all_desktops",
     "lock_after",
@@ -403,6 +494,22 @@ impl Preferences {
             "ui_sounds" => self.ui_sounds = boolean(value)?,
             "trackpad_natural_scrolling" => self.trackpad_natural_scrolling = boolean(value)?,
             "mouse_natural_scrolling" => self.mouse_natural_scrolling = boolean(value)?,
+            // Mission Control and App Exposé share their fingers, as a Mac's: three or four chosen
+            // for one is the other's too.
+            "mission_control_swipe" | "app_expose_swipe" => {
+                let fingers = swipe_fingers(value)?;
+                let gestures = &mut self.trackpad_gestures;
+                if let Some(fingers) = fingers {
+                    gestures.vertical = fingers;
+                }
+                if key == "mission_control_swipe" {
+                    gestures.mission_control = fingers.is_some();
+                } else {
+                    gestures.app_expose = fingers.is_some();
+                }
+            }
+            "desktops_swipe" => self.trackpad_gestures.desktops = swipe_fingers(value)?,
+            "launchpad_pinch" => self.trackpad_gestures.launchpad = boolean(value)?,
             // The default; a choice where Settings is goes through the session
             // (`wallpaper::Wallpapers::choose`).
             "wallpaper" => self.wallpapers.default = wallpaper::Choice::parse(value)?,
@@ -483,6 +590,14 @@ impl Preferences {
             "ui_sounds" => self.ui_sounds.to_string(),
             "trackpad_natural_scrolling" => self.trackpad_natural_scrolling.to_string(),
             "mouse_natural_scrolling" => self.mouse_natural_scrolling.to_string(),
+            "mission_control_swipe" => {
+                swipe_fingers_name(self.trackpad_gestures.mission_control_fingers()).to_owned()
+            }
+            "app_expose_swipe" => {
+                swipe_fingers_name(self.trackpad_gestures.app_expose_fingers()).to_owned()
+            }
+            "desktops_swipe" => swipe_fingers_name(self.trackpad_gestures.desktops).to_owned(),
+            "launchpad_pinch" => self.trackpad_gestures.launchpad.to_string(),
             "wallpaper" => self.wallpapers.default.text(),
             "wallpaper_all_desktops" => self.wallpapers.all_desktops.to_string(),
             "lock_after" => self.lock_after.to_string(),
