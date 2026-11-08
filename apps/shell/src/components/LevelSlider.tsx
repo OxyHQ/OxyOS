@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Button } from "@oxy.so/bloom/button";
 import { Slider } from "@oxy.so/bloom/slider";
 import { RiVolumeMuteLine } from "@oxy.so/bloom/icons/RiVolumeMuteLine";
@@ -6,7 +6,7 @@ import type { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
 import { Box } from "../primitives";
 import { ACCENT, INK } from "./control-style";
 import { percent, silent } from "../controls";
-import type { ShellControl, ShellControls } from "../model";
+import type { ShellControl, ShellControls, ShellLevel } from "../model";
 import { useShellMessages } from "../useShellMessages";
 
 /** One of Bloom's icons. */
@@ -14,12 +14,16 @@ export type Icon = typeof RiWifiLine;
 
 /** A level's row: its icon (a volume's mutes it and unmutes it) and its slider, then `children`
     (the Sound card's chevron). Nothing where the session has not told the level. The Control
-    Center's level cards and its Sound view's volume (docs/adr/0025-hardware-keys-and-control-center.mdx). */
-export function LevelSlider({
+    Center's level cards and its Sound view's volume (docs/adr/0025-hardware-keys-and-control-center.mdx).
+    It is given its own level and the intents alone, never the whole of the controls: a level that
+    changes (a slider dragged, a key) renders the slider that shows it, nothing beside it. */
+export const LevelSlider = memo(function LevelSlider({
   control,
   title,
   icon,
-  controls,
+  level,
+  setLevel,
+  setMuted,
   mute,
   testID = `control-${control}`,
   children,
@@ -28,7 +32,10 @@ export function LevelSlider({
   /** The slider's name. */
   title: string;
   icon: Icon;
-  controls: ShellControls;
+  /** The level as the session tells it; nothing where it has not told it. */
+  level: ShellLevel | undefined;
+  setLevel: ShellControls["setLevel"];
+  setMuted: ShellControls["setMuted"];
   /** A volume: its icon mutes it and unmutes it. */
   mute?: boolean;
   /** The slider's; its mute button's is this with `-mute`. */
@@ -36,7 +43,6 @@ export function LevelSlider({
   children?: React.ReactNode;
 }) {
   const messages = useShellMessages();
-  const level = controls.levels[control];
   if (!level?.available) return null;
   const Glyph = icon;
   const quiet = mute && silent(level);
@@ -53,7 +59,7 @@ export function LevelSlider({
           className="border-0 p-0"
           style={{ width: 24, height: 24 }}
           colors={{ background: "transparent", foreground: INK }}
-          onPress={() => controls.setMuted?.(control, !level.muted)}
+          onPress={() => setMuted?.(control, !level.muted)}
         />
       ) : (
         <Glyph width={16} height={16} fill={INK} />
@@ -74,10 +80,10 @@ export function LevelSlider({
           formatValue={(value) => messages.common.percent(percent(value / 100))}
           accessibilityLabel={title}
           minimumTrackTintColor={ACCENT}
-          onValueChange={(value) => controls.setLevel?.(control, value / 100)}
+          onValueChange={(value) => setLevel?.(control, value / 100)}
         />
       </Box>
       {children}
     </Box>
   );
-}
+});

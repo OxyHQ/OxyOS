@@ -124,7 +124,9 @@ export const SoundPanel = memo(function SoundPanel({
             control="output"
             title={messages.controlCenter.sound}
             icon={RiVolumeUpLine}
-            controls={controls}
+            level={controls.levels.output}
+            setLevel={controls.setLevel}
+            setMuted={controls.setMuted}
             mute
             testID="sound-volume"
           />

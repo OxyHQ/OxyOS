@@ -411,6 +411,11 @@
       ],
       "allow_unchanged": true,
       "expect": {
+        "in_shell": {
+          "renders": {
+            "components_max": 82
+          }
+        },
         "react": {},
         "controls": {
           "output_volume": 0.25,
@@ -430,6 +435,11 @@
       ],
       "allow_unchanged": true,
       "expect": {
+        "in_shell": {
+          "renders": {
+            "components_max": 75
+          }
+        },
         "react": {},
         "controls": {
           "display_brightness": 0.5
@@ -466,6 +476,9 @@
           ]
         },
         "in_shell": {
+          "renders": {
+            "components_max": 95
+          },
           "texts": [
             "Desactivada"
           ],
