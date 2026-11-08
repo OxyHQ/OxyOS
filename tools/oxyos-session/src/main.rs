@@ -27,10 +27,20 @@
 //! COMMAND, if given, starts once the shells' panels have set the work areas windows are placed
 //! in. An output plugged in gets a shell of its own; one unplugged, its shell stopped. With a shell
 //! COMMAND may be left out: the session is the desktop alone. Without one it is required. The
-//! session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then
-//! asked to stop). A shell
-//! that exits while the session is locked is started again, at most once a second: until it
-//! shows the lock screen, the compositor's covers are all there is to see.
+//! session ends when COMMAND exits, when a shell exits with status 0 while unlocked, on
+//! Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then asked to stop). A shell that quits
+//! unexpectedly, or exits while the session is locked, is started again
+//! (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6): at once the first time,
+//! then after a wait that doubles each time it fails again within a minute of its start, up to a
+//! minute, never in a loop and never given up on; the applications go on running meanwhile, and
+//! locked, until it shows the lock screen, the compositor's covers are all there is to see.
+//!
+//! An application that quits unexpectedly (ADR 0061) is reported in the person's
+//! `$XDG_STATE_HOME/oxyos/crash-reports` with what it said of its end (`OXYOS_CRASH_REPORT`, a file
+//! the session made for it in its own folder of the runtime directory) and told: a notification
+//! about it, then the system's sheet when it quits again within ten minutes. The shell and Settings
+//! ask the session to reset one (`resetApplication`), which it confirms in its sheet, quits and
+//! erases whole.
 //!
 //! The shell's dock and launcher start applications (docs/adr/0013-launching-applications.mdx):
 //! the shell asks for an id, and the session starts it if its registry (`oxyos-apps`) lists it, a

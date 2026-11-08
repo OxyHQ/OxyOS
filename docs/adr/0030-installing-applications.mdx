@@ -17,6 +17,8 @@ Status: **accepted** (decisions 1 to 15, and every choice under [Decided with th
 
 **2 November 2026:** Stash, named below, was renamed **Dropsea** ([OxyHQ/Dropsea](https://github.com/OxyHQ/Dropsea), [dropsea.net](https://dropsea.net)). Decision 13's system file manager is Dropsea. Its application id is now `so.oxy.dropsea`, its URL scheme `dropsea://` (the dock's Trash opens `dropsea://trash`), the variable its package is built with `DROPSEA_DIR`, and its scenarios `dropsea*.json`, `keyboard-dropsea*.json` and `perf-dropsea*.json`. The decision stands as written; its text keeps the name it was taken under.
 
+**8 November 2026:** an application's own data (decision 6's data and cache directories) is defined once, `oxyos_apps::data::OwnData`, which what an uninstall removes (decision 11), Settings' Storage counts and Reset erases ([ADR 0061](./0061-crashes-and-resetting-an-application), decision 5). A reset keeps the install, its version and the account's decisions on its capabilities (decision 8): they are the person's, not the application's. Decision 10's rollback (a new version exiting before its first window) and ADR 0061's notice both hear of the same exits; a rollback is the install service's, a notice the person's.
+
 It resolves the "Installing applications, an application store" left out by ADR 0013 and ADR 0015 (#35, #36).
 
 ## Problem
