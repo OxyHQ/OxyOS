@@ -1910,7 +1910,7 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
         output: 1,
         index: 0,
         last: true,
-        text: PreeditText::new("horizon").unwrap(),
+        text: PreeditText::new("ocean").unwrap(),
     };
     assert_eq!(event_since(&wallpaper), 29);
     assert!(!write_event_for(&mut nothing, &wallpaper, 28).unwrap());
