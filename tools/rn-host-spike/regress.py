@@ -634,6 +634,7 @@ Usage: regress.py SCENARIO.json --offscreen BIN --runtimes DIR --packages DIR [-
 """
 
 import argparse
+import atexit
 import base64
 import collections
 import hashlib
@@ -1667,6 +1668,7 @@ def login_program(out, offscreen, login):
         "account required pam_permit.so\nsession required pam_permit.so\n")
     # Sockets in a short directory of their own: a socket's path holds at most 107 bytes.
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-login-"))
+    atexit.register(shutil.rmtree, sockets, True)
     accountd, greeter, record = sockets / "accountd", sockets / "greeter", out / "login-record"
     record.unlink(missing_ok=True)
     # Online, Oxy's API is played (`login.oxy`) and the accounts' service names it, with a client id.
@@ -5288,6 +5290,7 @@ def main():
     # The accounts' service's session socket (decision 6): the scenario's played one (`account`),
     # else a path where nothing listens, so no run ever asks the machine's.
     account_dir = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-account-"))
+    atexit.register(shutil.rmtree, account_dir, True)
     env["OXYOS_ACCOUNTD_SESSION_SOCKET"] = str(account_dir / "session")
     if "account" in scenario:
         account_log = out / "account-session.jsonl"

@@ -64,6 +64,8 @@ User=$GATE_USER
 WorkingDirectory=$R
 ExecStart=$R/runsvc.sh
 Slice=oxyosgate.slice
+# A /tmp of the runner's own, gone with it: nothing of a job's is left in the machine's.
+PrivateTmp=yes
 KillMode=process
 KillSignal=SIGTERM
 TimeoutStopSec=5min

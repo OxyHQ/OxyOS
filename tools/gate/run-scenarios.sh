@@ -53,6 +53,9 @@ GATE_JOBS=${GATE_JOBS:-8}
 # The session's scenarios composed on the GPU alone (--gpu-only), where there is one.
 GPU_ONLY_SCENARIOS=${GPU_ONLY_SCENARIOS:-session-shell}
 export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$TREE/target}
+# What the runs make for a moment (their sockets' short directories) in the cache, never /tmp.
+export TMPDIR=$OXYOS_CACHE/tmp
+mkdir -p "$TMPDIR"
 T=$CARGO_TARGET_DIR/release
 started=$(date +%s)
 phase() { echo "[$(( $(date +%s) - started ))s] $*"; }
