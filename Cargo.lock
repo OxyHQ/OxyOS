@@ -1300,6 +1300,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2153,6 +2163,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 
 [[package]]
+name = "jpeg-encoder"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2580,6 +2596,8 @@ dependencies = [
  "jiff",
  "libc",
  "oxyos-keychain",
+ "oxyos-preferences",
+ "oxyos-seqpacket",
  "psl",
  "rand_core 0.6.4",
  "ring",
@@ -2637,8 +2655,34 @@ name = "oxyos-auth"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "oxyos-seqpacket",
  "rustix",
  "zeroize",
+]
+
+[[package]]
+name = "oxyos-backup"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "oxyos-account",
+ "oxyos-install",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "udev",
+ "zeroize",
+]
+
+[[package]]
+name = "oxyos-backupd"
+version = "0.1.0"
+dependencies = [
+ "oxyos-backup",
+ "oxyos-install",
+ "rustix",
+ "serde_json",
 ]
 
 [[package]]
@@ -2687,6 +2731,7 @@ dependencies = [
  "oxyos-gestures",
  "oxyos-gpu-device",
  "oxyos-image",
+ "oxyos-install",
  "oxyos-intl",
  "oxyos-ipc",
  "oxyos-net",
@@ -2782,6 +2827,8 @@ dependencies = [
  "jiff",
  "md-5",
  "oxyos-apps",
+ "oxyos-backup",
+ "oxyos-install",
  "oxyos-net",
  "oxyos-preferences",
  "plist",
@@ -2789,6 +2836,7 @@ dependencies = [
  "serde_json",
  "sha1 0.10.7",
  "sha2",
+ "tar",
 ]
 
 [[package]]
@@ -2866,6 +2914,7 @@ name = "oxyos-install"
 version = "0.1.0"
 dependencies = [
  "oxyos-package",
+ "oxyos-seqpacket",
  "ring",
  "rustix",
  "serde",
@@ -2909,6 +2958,7 @@ name = "oxyos-ipc"
 version = "0.1.0"
 dependencies = [
  "oxyos-protocol",
+ "oxyos-seqpacket",
  "rustix",
 ]
 
@@ -2974,6 +3024,7 @@ dependencies = [
  "oxyos-account",
  "oxyos-auth",
  "oxyos-seat",
+ "oxyos-seqpacket",
  "oxyos-vt",
  "rustix",
  "serde_json",
@@ -3005,6 +3056,7 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "futures-lite",
+ "rustix",
  "serde",
  "serde_json",
  "zbus",
@@ -3031,6 +3083,7 @@ dependencies = [
  "oxyos-input-methods",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-networks",
  "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
@@ -3161,6 +3214,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-seqpacket"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+]
+
+[[package]]
 name = "oxyos-session"
 version = "0.1.0"
 dependencies = [
@@ -3232,6 +3292,7 @@ dependencies = [
 name = "oxyos-wallpaper"
 version = "0.1.0"
 dependencies = [
+ "jpeg-encoder",
  "oxyos-image",
  "oxyos-preferences",
  "oxyos-solar",
@@ -4339,6 +4400,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
+
+[[package]]
 name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5310,6 +5381,7 @@ version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 

@@ -71,7 +71,7 @@ pub unsafe extern "C" fn oxyos_wallpaper_show(
         login,
         dark,
         output,
-        place: oxyos_solar::system_place(),
+        place: oxyos_wallpaper::place(),
     };
     let shown = oxyos_wallpaper::show(&Catalog::system(), &choice, &moment);
     let json = json!({

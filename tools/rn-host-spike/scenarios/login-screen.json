@@ -160,7 +160,7 @@
       "allow_unchanged": true
     },
     {
-      "name": "Añadir cuenta, offline: setup says it needs the network and does nothing else",
+      "name": "Añadir cuenta, offline: the setup assistant's Connect page says why and does nothing else",
       "do": [
         "a11y-action",
         [
@@ -175,10 +175,10 @@
         },
         "in_shell": {
           "texts": [
-            "Añadir una cuenta de Oxy",
-            "Para añadir una cuenta hace falta conexión a internet",
+            "Conéctate a internet",
+            "Para configurar una cuenta hace falta internet una vez",
             "Reintentar",
-            "Volver"
+            "Atrás"
           ],
           "absent": [
             "Ada Lovelace",
@@ -204,18 +204,18 @@
         },
         "in_shell": {
           "texts": [
-            "Para añadir una cuenta hace falta conexión a internet"
+            "Para configurar una cuenta hace falta internet una vez"
           ]
         }
       }
     },
     {
-      "name": "Volver: the accounts again",
+      "name": "Atrás: the accounts again",
       "do": [
         "a11y-action",
         [
           "activate",
-          "Volver"
+          "Atrás"
         ]
       ],
       "expect": {
@@ -229,7 +229,7 @@
             "Bea Ramos"
           ],
           "absent": [
-            "Añadir una cuenta de Oxy"
+            "Conéctate a internet"
           ]
         }
       }

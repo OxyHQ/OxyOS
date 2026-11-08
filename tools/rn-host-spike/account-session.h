@@ -41,6 +41,9 @@ class AccountSession {
     std::string error;
   };
   using Done = std::function<void(Answer& answer)>;
+  // A setup's stage as the service starts it ("securing", "verifying", ...), on the JavaScript
+  // thread, before the call's answer.
+  using Stage = std::function<void(const std::string& stage)>;
 
   AccountSession();
   ~AccountSession();
@@ -70,8 +73,11 @@ class AccountSession {
   // password or PIN is none), and every secret is forgotten once sent.
   void holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId);
   bool holdsCredential() const { return held_ != nullptr; }
-  void enroll(std::string password, std::string pin, Done done);
-  void secondFactor(std::string code, Done done);
+  // `appearance` ("light", "dark" or "auto"; empty: none) is the new account's first.
+  void enroll(std::string password, std::string pin, std::string appearance, Stage stage, Done done);
+  void secondFactor(std::string code, Stage stage, Done done);
+  // The setup again after it failed with the sign-in kept (`failed`): what the service kept.
+  void retry(Stage stage, Done done);
   void endEnrollment();
   static std::optional<std::string> platform();
 
@@ -84,6 +90,10 @@ class AccountSession {
  private:
   void work();
   void run(std::function<Answer()> job, Done done);
+  // The worker's: `stage` told to JavaScript, as an answer is, while the call it reports blocks.
+  void reportStages(Stage stage);
+  static void reported(void* context, const char* stage);
+  void post(Answer answer, Done done);
 
   int wake_ = -1;
   std::mutex mutex_;

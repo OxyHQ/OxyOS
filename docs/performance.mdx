@@ -611,6 +611,27 @@ pooled), 7 November 2026, on this machine while two other gates ran:
   while Settings follows it. Once the new index answers, the service is idle as before
   (`tests/idle.rs` rebuilds and counts **0** wakeups in 4 s again).
 
+### Reduce transparency
+
+With Reduce transparency on ([ADR 0019](./adr/0019-settings), step 3), no blur view of the host's
+expo-blur reads its target: no blur pass is made, and a change near a target no longer widens the
+damage to the blur view over it. The shell draws its glass as opaque fills, which cost the same as
+the translucent ones, and Launchpad's backdrop is a single fill instead of the wallpaper blurred.
+
+**Not measured yet.** `perf.py` has the pair that measures it: `glass` (`perf-glass.json`:
+MaterialProbe's lock-screen clock turning a digit over its blurred material, each frame blurring
+its target) and `glass, reduced` (`perf-glass-reduced.json`: the same with the preference on). The
+host's frame time (`render_ms`), the compositor's and the GPU's (`device_ms`) are compared between
+them, three runs each, on the ThinkPad or the gate machine's reserved cores. The scenario gate runs
+both pairs for correctness only (`window_frames`), with the CPU painter, and prints no timings, so its
+runs give no figures. The development PC was not used because, being overloaded, it would not give
+honest numbers. When they are measured, they go here:
+
+```sh
+python3 tools/rn-host-spike/perf.py interactions --offscreen target/release/oxyos-offscreen \
+  --runtimes RUN/machine/runtimes --packages RUN/machine/packages --runs 3
+```
+
 ### Memory side by side
 
 `perf.py memory` runs the shell and Settings on one compositor (1600 × 1000 at 1.25, the ThinkPad's

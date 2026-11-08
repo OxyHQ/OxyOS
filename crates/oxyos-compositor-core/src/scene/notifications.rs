@@ -62,6 +62,11 @@ struct Content {
     /// It plays the notification sound as it arrives (`NotificationSound`,
     /// docs/adr/0044-system-sounds.mdx).
     sound: bool,
+    /// What pressing it opens, for the session's own notifications alone: a URL the session opens
+    /// as the shell's own (`oxyos-settings://login-items`,
+    /// docs/adr/0060-login-items-and-background-activity.mdx), instead of activating its
+    /// application. Empty: it activates its application. An application never sets it.
+    opens: String,
 }
 
 #[derive(Clone, Debug)]
@@ -355,11 +360,30 @@ impl Scene {
         body: &str,
         sound: bool,
     ) -> Result<u32, NotificationOutcome> {
+        self.post_system_notification_opening(application, identifier, title, body, sound, "")
+    }
+
+    /// The session's own notification that opens `url` when pressed
+    /// (docs/adr/0060-login-items-and-background-activity.mdx: an application that added a login
+    /// item or background activity, opening `oxyos-settings://login-items`): kept and shown as
+    /// [`Scene::post_system_notification`]'s, and pressed, the session is asked to open the URL as
+    /// the shell's own request ([`Scene::take_url_requests`], citing the shell's press), its
+    /// application not activated. Empty `url`: it activates its application.
+    pub fn post_system_notification_opening(
+        &mut self,
+        application: &str,
+        identifier: &str,
+        title: &str,
+        body: &str,
+        sound: bool,
+        url: &str,
+    ) -> Result<u32, NotificationOutcome> {
         let content = Content {
             identifier: identifier.to_owned(),
             title: title.to_owned(),
             body: body.to_owned(),
             sound,
+            opens: url.to_owned(),
             ..Content::default()
         };
         self.keep_notification(application.to_owned(), content, true)
@@ -676,6 +700,12 @@ impl Scene {
         };
         let background = chosen.as_ref().is_some_and(|chosen| chosen.background);
         let kept = self.remove_notification(number).expect("kept");
+        // The session's own that opens a URL: opened as the shell's own request, citing its press
+        // (checked above); its application is given nothing.
+        if !kept.content.opens.is_empty() {
+            self.open_url_for_shell(shell, kept.content.opens);
+            return;
+        }
         let response = Response {
             number,
             content: kept.content,
@@ -770,6 +800,23 @@ impl Scene {
             },
         );
         input
+    }
+
+    /// The notifications the session keeps now, oldest first: each its number (the session's, one
+    /// more for every post), its application and its title. What the development compositor
+    /// reports of them.
+    pub fn kept_notifications(&self) -> Vec<(u32, String, String)> {
+        self.notifications
+            .kept
+            .iter()
+            .map(|kept| {
+                (
+                    kept.number,
+                    kept.application.clone(),
+                    kept.content.title.clone(),
+                )
+            })
+            .collect()
     }
 
     /// The applications to start because a notification of theirs was activated while none of

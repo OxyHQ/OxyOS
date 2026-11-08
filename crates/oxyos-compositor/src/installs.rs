@@ -59,7 +59,8 @@ pub enum Ask {
         #[serde(default)]
         listing: Option<String>,
     },
-    /// `store`, with an input: remove, and the account's data, after the person confirms.
+    /// `store` (or `settings`: Storage), with an input: remove, and the account's data, after the
+    /// person confirms.
     Uninstall { id: String },
     /// `store`, with an input: open an installed application.
     Open { id: String },
@@ -85,9 +86,10 @@ impl Ask {
     /// Whether `grants` may ask it.
     fn allowed(&self, grants: &oxyos_compositor_core::Grants) -> bool {
         match self {
-            Ask::Status { .. } | Ask::Install { .. } | Ask::Uninstall { .. } | Ask::Open { .. } => {
-                grants.store
-            }
+            Ask::Status { .. } | Ask::Install { .. } | Ask::Open { .. } => grants.store,
+            // Settings › Storage removes an application the person has not used in a while, as
+            // the store does, confirmed in the same sheet (docs/adr/0062-storage.mdx, decision 6).
+            Ask::Uninstall { .. } => grants.store || grants.settings,
             Ask::State {} | Ask::Check {} | Ask::Update { .. } | Ask::UpdateAll {} => {
                 grants.store || grants.updates
             }
@@ -179,6 +181,34 @@ enum Done {
         capability: u8,
         granted: bool,
     },
+    /// The account's decision on a capability the service kept, as Settings asked it (Privacy,
+    /// Login Items & Extensions).
+    Decided(Decision),
+    /// A capability granted as an application registered what it guards
+    /// (docs/adr/0060-login-items-and-background-activity.mdx): whether the service kept it.
+    Granted(Grant, bool),
+}
+
+/// The account's decision on one of an application's capabilities, as the install service kept it
+/// (docs/adr/0030-installing-applications.mdx, decision 8): the program applies it at once where
+/// it is the session's to apply (background activity,
+/// docs/adr/0060-login-items-and-background-activity.mdx).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Decision {
+    pub id: String,
+    pub capability: String,
+    pub granted: bool,
+}
+
+/// A capability to grant an installed application as it registers what the capability guards, a
+/// login item or background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+/// what the program needs to finish the registration once the install service kept it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Grant {
+    pub client: ClientId,
+    pub serial: u32,
+    pub id: String,
+    pub capability: String,
 }
 
 /// A thread's way back: what it did, and a byte to wake the compositor's turn.
@@ -188,6 +218,10 @@ struct Back {
     wake: std::sync::Arc<UnixStream>,
     /// The installs under way, shared by every flow.
     installing: Installing,
+    /// The applications with a process running in the background now
+    /// (docs/adr/0060-login-items-and-background-activity.mdx), which the account's applications
+    /// told Settings say.
+    in_background: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
 
 /// The applications being installed, by id, each with its latest progress (null before the
@@ -278,6 +312,11 @@ pub struct Installs {
     decided: BTreeMap<(ClientId, u8), bool>,
     /// The update state last told, for a client that asks before it changes.
     state: Option<String>,
+    /// The decisions the service kept since the program last took them ([`Installs::take_decisions`]).
+    decisions: Vec<Decision>,
+    /// The grants at registration the service answered since the program last took them
+    /// ([`Installs::take_grants`]).
+    grants: Vec<(Grant, bool)>,
     watching: bool,
     /// Its threads stop when it goes, and are waited for, so nothing of it outlives it.
     stop: std::sync::Arc<Stop>,
@@ -310,12 +349,15 @@ impl Installs {
                 done,
                 wake: std::sync::Arc::new(wake),
                 installing: Installing::default(),
+                in_background: std::sync::Arc::default(),
             },
             done: received,
             woken,
             sheets: BTreeMap::new(),
             decided: BTreeMap::new(),
             state: None,
+            decisions: Vec::new(),
+            grants: Vec::new(),
             watching: false,
             stop: std::sync::Arc::new(Stop::new()?),
             threads: Vec::new(),
@@ -447,9 +489,78 @@ impl Installs {
                     self.decided.insert((client, capability), granted);
                     scene.capability_result(client, serial, granted);
                 }
+                Done::Decided(decision) => self.decisions.push(decision),
+                Done::Granted(grant, kept) => self.grants.push((grant, kept)),
             }
         }
         opens
+    }
+
+    /// The decisions the install service kept since the last call, in order: the program applies
+    /// those that are the session's to apply at once (background activity,
+    /// docs/adr/0060-login-items-and-background-activity.mdx).
+    pub fn take_decisions(&mut self) -> Vec<Decision> {
+        std::mem::take(&mut self.decisions)
+    }
+
+    /// Grants `grant`'s capability to its installed application, which is registering what the
+    /// capability guards (docs/adr/0060-login-items-and-background-activity.mdx): the account's
+    /// decision, kept by the service on a thread of its own; its answer comes back through
+    /// [`Installs::take_grants`].
+    pub fn grant(&mut self, grant: Grant) {
+        let (socket, back) = (self.socket.clone(), self.back.clone());
+        if let Ok(thread) = std::thread::Builder::new()
+            .name("installs".into())
+            .spawn(move || {
+                let kept = connect(&socket, SHORT).and_then(|connection| {
+                    ask(
+                        &connection,
+                        &Request::Decide {
+                            id: grant.id.clone(),
+                            capability: grant.capability.clone(),
+                            granted: true,
+                            uid: None,
+                        },
+                    )
+                });
+                // Its answer is the decision: it is not told again as one of Settings'.
+                let kept = matches!(kept, Ok(Answer::Decided));
+                back.send(Done::Granted(grant, kept));
+            })
+        {
+            self.threads.push(thread);
+        }
+    }
+
+    /// The grants at registration the service answered since the last call, each with whether it
+    /// kept it.
+    pub fn take_grants(&mut self) -> Vec<(Grant, bool)> {
+        std::mem::take(&mut self.grants)
+    }
+
+    /// The applications with a process running in the background now: each client with the
+    /// `privacy` grant is told the account's applications again, which say so.
+    pub fn set_in_background(&mut self, ids: std::collections::BTreeSet<String>) {
+        *self
+            .back
+            .in_background
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = ids;
+    }
+
+    /// Tells every client with the `privacy` grant the account's applications and their
+    /// capabilities' decisions anew, unasked (serial 0): a decision made elsewhere, or what runs
+    /// in the background, changed (docs/adr/0060-login-items-and-background-activity.mdx).
+    pub fn tell_privacy(&mut self, scene: &Scene) {
+        for client in scene.privacy_watchers() {
+            let (socket, home, back) = (self.socket.clone(), self.home.clone(), self.back.clone());
+            if let Ok(thread) = std::thread::Builder::new()
+                .name("installs".into())
+                .spawn(move || flow(&socket, home.as_deref(), &back, client, 0, Ask::Privacy {}))
+            {
+                self.threads.push(thread);
+            }
+        }
     }
 
     /// Answers the store's request to open an application: whether it was started.
@@ -787,11 +898,17 @@ fn flow(
             }
             Ask::Privacy {} => match ask(&connection, &Request::List { uid: None })? {
                 Answer::Applications(listed) => {
+                    let running = back
+                        .in_background
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clone();
                     let applications: Vec<Value> = listed
                         .iter()
                         .map(|l| {
                             json!({"id": l.id, "name": name_of(&l.entry, &l.id),
-                                   "capabilities": l.capabilities})
+                                   "capabilities": l.capabilities,
+                                   "runningInBackground": running.contains(&l.id)})
                         })
                         .collect();
                     answer(json!({ "privacy": applications }));
@@ -811,8 +928,15 @@ fn flow(
                     uid: None,
                 },
             )? {
-                Answer::Decided => answer(json!({"decided": {
-                    "id": id, "capability": capability, "granted": granted}})),
+                Answer::Decided => {
+                    back.send(Done::Decided(Decision {
+                        id: id.clone(),
+                        capability: capability.clone(),
+                        granted,
+                    }));
+                    answer(json!({"decided": {
+                        "id": id, "capability": capability, "granted": granted}}))
+                }
                 other => answer(to_json(&other)),
             },
         }

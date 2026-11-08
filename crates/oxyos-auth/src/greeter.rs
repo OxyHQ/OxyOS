@@ -169,11 +169,12 @@ fn seqpacket() -> io::Result<OwnedFd> {
 /// One packet, `None` once the peer has closed. A packet too long for any message is an error.
 fn receive(fd: BorrowedFd<'_>) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
     let mut packet = Zeroizing::new(vec![0u8; MAX_PACKET + 1]);
-    let (length, _) = rustix::net::recv(fd, &mut packet[..], RecvFlags::DONTWAIT)?;
-    if length == 0 {
+    let Some(received) = oxyos_seqpacket::receive(fd, &mut packet[..], false, RecvFlags::DONTWAIT)?
+    else {
         return Ok(None);
-    }
-    if length > MAX_PACKET {
+    };
+    let length = received.length;
+    if length > MAX_PACKET || received.truncated {
         return Err(invalid("a packet too long"));
     }
     packet.truncate(length);
