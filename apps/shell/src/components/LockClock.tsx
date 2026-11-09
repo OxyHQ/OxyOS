@@ -9,6 +9,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { Text } from "@oxy.so/bloom/typography";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
 import type { MaskedProps } from "../platform";
 import { lockDate, lockTime } from "../clock";
 import { useShellLocale } from "../useShellMessages";
@@ -83,8 +84,8 @@ function Glyph({ char }: { char: string }) {
 
 /**
  * A line of the clock in the material of a Mac's lock screen: the wallpaper (`blurTarget`) seen
- * through its glyphs, blurred and lightened. Where the platform masks no views, the glyphs are
- * drawn white.
+ * through its glyphs, blurred and lightened. Where the platform masks no views, or with Reduce
+ * transparency on (nothing seen through them, as a Mac's clock is then), the glyphs are drawn white.
  */
 function Material({
   Masked,
@@ -135,6 +136,8 @@ export function LockClock({
   blurTarget: RefObject<ComponentRef<typeof View> | null>;
 }) {
   const locale = useShellLocale();
+  // Reduced transparency: no material, the glyphs white.
+  const material = useReducedTransparency() ? undefined : Masked;
   const day = lockDate(now, locale);
   const time = lockTime(now, locale);
   const shown = useSharedValue(0);
@@ -148,12 +151,12 @@ export function LockClock({
   return (
     <Animated.View style={[{ alignSelf: "stretch" }, arriving]}>
       <View testID="shell-lock-date" accessible accessibilityRole="text" accessibilityLabel={day}>
-        <Material Masked={Masked} blurTarget={blurTarget} height={DATE_LINE}>
+        <Material Masked={material} blurTarget={blurTarget} height={DATE_LINE}>
           <Text style={glyphStyle(DATE_SIZE, DATE_LINE)}>{day}</Text>
         </Material>
       </View>
       <View testID="shell-lock-time" accessible accessibilityRole="text" accessibilityLabel={time.said}>
-        <Material Masked={Masked} blurTarget={blurTarget} height={TIME_LINE}>
+        <Material Masked={material} blurTarget={blurTarget} height={TIME_LINE}>
           {[...time.shown].map((char, index) => (
             <Glyph key={index} char={char} />
           ))}

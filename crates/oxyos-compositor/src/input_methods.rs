@@ -200,8 +200,13 @@ pub fn for_session(
     compositor: &mut Compositor,
     settings: &Settings,
     runtime_dir: &std::path::Path,
+    safe_mode: bool,
 ) -> Option<InputMethods> {
-    let prefix = std::env::var_os("OXYOS_INPUT_METHODS").unwrap_or_else(|| INSTALLED.into());
+    // In Safe Mode the engine is the image's, whatever the environment names
+    // (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+    let prefix = std::env::var_os("OXYOS_INPUT_METHODS")
+        .filter(|_| !safe_mode)
+        .unwrap_or_else(|| INSTALLED.into());
     let Some(engine) = Engine::at(&prefix) else {
         eprintln!(
             "[input methods] no engine at {}: layouts only",

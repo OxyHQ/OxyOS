@@ -801,6 +801,38 @@ fn a_banner_surface_is_at_its_outputs_top_right_corner_above_every_window_and_pa
     }
 }
 
+/// A notification at the right edge is a banner, which slides in (ADR 0011); one with no edge is a
+/// hardware key's bezel over the whole output (ADR 0025), which shows where it is at once.
+#[test]
+fn a_banner_arrives_as_a_notification_and_an_edgeless_one_as_a_bezel() {
+    use crate::scene::appearances::Kind;
+    let mut h = Harness::new();
+    for (surface, edge, size, kind) in [
+        (
+            60,
+            PanelEdge::Right,
+            Size::new(380, 120),
+            Kind::Notification,
+        ),
+        (61, PanelEdge::None, Size::new(1920, 1080), Kind::Bezel),
+    ] {
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface,
+                kind: ShellKind::Notification,
+                edge,
+                output: 1,
+                size,
+                exclusive: 0,
+            },
+        )
+        .unwrap();
+        h.present(key(SHELL, surface));
+        assert_eq!(h.scene.appearance_kind(key(SHELL, surface)), Some(kind));
+    }
+}
+
 #[test]
 fn do_not_disturb_from_the_control_center_goes_the_preferences_way() {
     let mut h = Harness::new();
@@ -1014,4 +1046,150 @@ fn the_sessions_own_notification_is_a_system_applications_and_replaces_by_identi
         field(&shell[&second], NotificationField::Body, 0),
         Some("5% battery remaining.")
     );
+}
+
+/// The session's own notification about an application (docs/adr/0061-crashes-and-resetting-an-
+/// application.mdx: it quit unexpectedly): shown as the application's, with its actions; pressed,
+/// the program running the compositor is told, once, and the application nothing; only the session
+/// and the shell withdraw it.
+#[test]
+fn the_sessions_own_notification_about_an_application_is_the_programs_to_act_on() {
+    let mut h = Harness::new();
+    h.scene.set_application(APP, ALLO);
+    h.clear_log();
+    let quit = "oxyos.quit-unexpectedly";
+    let number = h
+        .scene
+        .post_session_notification(
+            ALLO,
+            quit,
+            "Allo quit unexpectedly",
+            "",
+            &[("reopen", "Reopen"), ("report", "Report…")],
+        )
+        .unwrap();
+    h.pump();
+    let shell = told(&to(&h.log, SHELL));
+    let shown = &shell[&number];
+    assert_eq!(field(shown, NotificationField::Application, 0), Some(ALLO));
+    assert_eq!(
+        field(shown, NotificationField::Title, 0),
+        Some("Allo quit unexpectedly")
+    );
+    assert_eq!(
+        field(shown, NotificationField::ActionLabel, 1),
+        Some("Reopen")
+    );
+    assert_eq!(
+        field(shown, NotificationField::ActionLabel, 2),
+        Some("Report…")
+    );
+    assert_eq!(banner(shown), Some(true));
+    assert!(
+        told(&to(&h.log, APP)).is_empty(),
+        "the application is told nothing"
+    );
+    // The application withdrawing all of its own leaves it.
+    h.clear_log();
+    h.request(APP, Request::WithdrawNotification { notification: 0 })
+        .unwrap();
+    assert!(told(&to(&h.log, SHELL)).is_empty());
+    // An action pressed: the program is told, once; the application is given no response and is
+    // started for nothing.
+    let serial = shell_press(&mut h);
+    activate(&mut h, number, 2, serial);
+    assert_eq!(
+        h.scene.take_session_activations(),
+        [SessionActivation {
+            application: ALLO.into(),
+            identifier: quit.into(),
+            action: Some("report".into()),
+        }]
+    );
+    assert!(h.scene.take_session_activations().is_empty());
+    assert!(responses(&to(&h.log, APP)).is_empty());
+    assert!(h.scene.take_notification_launches().is_empty());
+    assert!(told(&to(&h.log, SHELL))[&number].removed);
+    // Another, pressed itself; and the session's withdrawing hers, the application's own staying
+    // until the application is reset.
+    let again = h
+        .scene
+        .post_session_notification(ALLO, quit, "Allo quit unexpectedly", "", &[])
+        .unwrap();
+    let serial = shell_press(&mut h);
+    activate(&mut h, again, 0, serial);
+    assert_eq!(
+        h.scene.take_session_activations(),
+        [SessionActivation {
+            application: ALLO.into(),
+            identifier: quit.into(),
+            action: None,
+        }]
+    );
+    let (own, _) = hello(&mut h, APP, 1);
+    let theirs = h
+        .scene
+        .post_session_notification(ALLO, quit, "Allo quit unexpectedly", "", &[])
+        .unwrap();
+    h.clear_log();
+    h.scene.withdraw_application_notifications(ALLO);
+    h.pump();
+    let gone = told(&to(&h.log, SHELL));
+    assert!(gone[&own].removed && !gone.contains_key(&theirs));
+    h.clear_log();
+    h.scene.withdraw_session_notification(ALLO, quit);
+    h.pump();
+    assert!(told(&to(&h.log, SHELL))[&theirs].removed);
+}
+
+#[test]
+fn the_sessions_own_notification_that_opens_a_url_opens_it_as_the_shells_once() {
+    let mut h = Harness::new();
+    // Settings runs: pressing the notification does not activate it nor give it a response.
+    h.scene.set_application(APP, "so.oxy.settings");
+    h.toplevel(APP, 1, 400, 300);
+    let number = h
+        .scene
+        .post_system_notification_opening(
+            "so.oxy.settings",
+            "background-item:so.oxy.allo",
+            "Background Items Added",
+            "“Allo” added an item that can run in the background.",
+            true,
+            "oxyos-settings://login-items",
+        )
+        .unwrap();
+    h.pump();
+    // A press the shell never received opens nothing.
+    activate(&mut h, number, 0, 999);
+    assert!(h.scene.take_url_requests().is_empty());
+    let serial = shell_press(&mut h);
+    activate(&mut h, number, 0, serial);
+    h.pump();
+    let opened = h.scene.take_url_requests();
+    assert_eq!(opened.len(), 1);
+    assert_eq!(
+        (
+            opened[0].client,
+            opened[0].serial,
+            opened[0].url.as_str(),
+            opened[0].with_input
+        ),
+        (SHELL, 0, "oxyos-settings://login-items", true)
+    );
+    assert!(!to(&h.log, APP)
+        .iter()
+        .any(|event| matches!(event, Event::NotificationResponse { .. })));
+    assert!(h.scene.take_notification_launches().is_empty());
+    // It went, as any notification pressed: pressed again, nothing more.
+    assert!(told(&to(&h.log, SHELL))[&number].removed);
+    activate(&mut h, number, 0, serial);
+    assert!(h.scene.take_url_requests().is_empty());
+    // Its answer is no request's: the shell is told nothing.
+    h.clear_log();
+    h.scene.launched(SHELL, 0, true);
+    h.pump();
+    assert!(!to(&h.log, SHELL)
+        .iter()
+        .any(|event| matches!(event, Event::LaunchResult { .. })));
 }

@@ -29,6 +29,14 @@ class Clipboard {
   // Copies `text` with the serial of the input that asked for it. False if it could not be
   // sent (the compositor may still refuse it: a stale serial, or focus lost).
   bool copy(OxyOSClient* client, uint64_t serial, const std::string& text);
+  // Copies `text` marked sensitive (docs/adr/0007-clipboard.mdx, decision 6: `x-oxyos-sensitive`,
+  // which clipboard managers keep none of), and clears it after kSensitiveFor if it is still this
+  // client's copy (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): a password or a
+  // code copied from the keychain. False if it could not be sent.
+  bool copySensitive(OxyOSClient* client, uint64_t serial, const std::string& text);
+  // Clears a sensitive copy whose time is up. True if it did.
+  bool expire(OxyOSClient* client);
+
   // Pastes the clipboard's text with the serial of the input that asked for it: `done` receives
   // it when it has arrived whole, and an empty string if the clipboard holds no text or the
   // paste is refused or fails (the failure is logged).
@@ -39,12 +47,14 @@ class Clipboard {
   bool deliver();
   // The pipes of the pastes on their way, readable when more has arrived.
   std::vector<int> fds() const;
-  // When the first paste on its way runs out of time (kTimeout), if any is.
+  // When the first paste on its way runs out of time (kTimeout), or a sensitive copy is cleared,
+  // if either is to come.
   std::optional<std::chrono::steady_clock::time_point> nextDeadline() const;
 
   // A paste's limits: content beyond them is dropped and the paste fails.
   static constexpr size_t kMaxBytes = 16 * 1024 * 1024;
   static constexpr std::chrono::seconds kTimeout{5};
+  static constexpr std::chrono::seconds kSensitiveFor{90};
 
  private:
   struct Paste {
@@ -62,6 +72,8 @@ class Clipboard {
   void settled();
   std::function<void()> changed_;
   std::vector<Paste> pastes_;
+  // When the sensitive copy last made is cleared, while one is to be.
+  std::optional<std::chrono::steady_clock::time_point> sensitiveUntil_;
 };
 
 }  // namespace oxyos
