@@ -212,14 +212,16 @@
         "in_shell": {
           "texts": [
             "Backups of ada-laptop",
-            "Accounts: Ada Lovelace and Bea Ramos",
-            "November 7, 2026 at 4:30 PM"
+            "Accounts: Ada Lovelace and Bea Ramos"
           ],
           "absent": [
             "That password doesn't open any of the backups there."
           ],
           "never": [
             "played backup password"
+          ],
+          "texts_matching": [
+            "November 7, 2026(,| at) 4:30 PM"
           ]
         }
       }
