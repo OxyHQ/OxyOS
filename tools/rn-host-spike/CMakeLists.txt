@@ -181,6 +181,10 @@ foreach(target ${all_targets})
   endif()
 endforeach()
 add_library(reactnative SHARED ${reactnative_OBJECTS})
+# Everything above is third-party (React Native, Hermes, folly and the rest): its headers are system
+# headers to the targets that use them, so the warnings asked of the host's own sources below never
+# stop at a third-party header. (Their own builds keep React Native's flags.)
+set_target_properties(${all_targets} reactnative PROPERTIES SYSTEM ON)
 target_link_libraries(reactnative PUBLIC ${reactnative_LINKS} hermes-engine::hermesvm folly_runtime glog fmt
   double-conversion yogacore atomic)
 
@@ -309,23 +313,23 @@ add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-
   reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp platform-modules.cpp ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
   gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${PLATFORM_SPEC_INCLUDE})
-target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
+target_include_directories(oxyos-bloom-host SYSTEM PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS
   "-include;${CMAKE_CURRENT_SOURCE_DIR}/reanimated-compat.h")
 # react-native-gesture-handler's runtime bindings (`_setGestureStateSync` and the rest), built
 # unchanged; the UI runtime is found through react-native-worklets, as RNGH builds it with.
-target_include_directories(oxyos-bloom-host PRIVATE ${GESTURE_HANDLER_DIR}/shared/runtime)
+target_include_directories(oxyos-bloom-host SYSTEM PRIVATE ${GESTURE_HANDLER_DIR}/shared/runtime)
 set_source_files_properties(${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp PROPERTIES
   COMPILE_OPTIONS "-DRNGH_USE_WORKLETS=1;-include;functional")
 # The OxyOS display protocol client: the workspace's Rust crates behind a C ABI
 # (crates/oxyos-client-ffi), linked statically.
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../crates/oxyos-client-ffi/include)
-target_include_directories(oxyos-bloom-host PRIVATE ${SVG_DIR}/common/cpp ${SVG_CODEGEN_DIR})
+target_include_directories(oxyos-bloom-host SYSTEM PRIVATE ${SVG_DIR}/common/cpp ${SVG_CODEGEN_DIR})
 target_link_libraries(oxyos-bloom-host reactnative rrc_unimplementedview rrc_modal ${OXYOS_CLIENT_LIB} gcc_s util rt pthread m dl)
 # Word boundaries in text inputs come from ICU's word break iterator, as on Android; the system ICU
 # Hermes already links.
-target_include_directories(oxyos-bloom-host PRIVATE ${ICU_SYSROOT}/include)
+target_include_directories(oxyos-bloom-host SYSTEM PRIVATE ${ICU_SYSROOT}/include)
 target_link_libraries(oxyos-bloom-host ${ICU_SYSROOT}/lib/${CMAKE_LIBRARY_ARCHITECTURE}/libicuuc.so)
 target_compile_options(oxyos-bloom-host PRIVATE -std=c++20 -fexceptions -frtti -DFOLLY_NO_CONFIG=1 -DHERMES_V1_ENABLED=1)
 
@@ -407,3 +411,23 @@ if(NOT OXYOS_SANITIZE)
     COMMAND_ERROR_IS_FATAL ANY)")
 endif()
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/runtime.json DESTINATION .)
+
+# ---- Warnings on the host's own sources ---------------------------------------------------------
+# Every .cpp here is OxyOS's own (third-party code is built from its own directories above, its
+# headers system headers to these): -Wall -Wextra, errors (OXYOS_WARNINGS_AS_ERRORS, on by default,
+# so the merge queue's gate build enforces them; GitHub CI does not build the host). React Native's
+# targets already pass -Wall -Werror -Wpedantic to what links them; this adds -Wextra and covers
+# the sources that link no React Native target (skia-check.cpp).
+option(OXYOS_WARNINGS_AS_ERRORS "Fail the build on a warning in the host's own sources" ON)
+set(OXYOS_WARNINGS -Wall -Wextra)
+if(OXYOS_WARNINGS_AS_ERRORS)
+  list(APPEND OXYOS_WARNINGS -Werror)
+else()
+  list(APPEND OXYOS_WARNINGS -Wno-error)
+endif()
+file(GLOB OXYOS_OWN_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+set_property(SOURCE ${OXYOS_OWN_SOURCES} APPEND PROPERTY COMPILE_OPTIONS ${OXYOS_WARNINGS})
+# text.cpp and TextLayoutManager.cpp are compiled into React Native's text layout target, made in
+# its own directory.
+set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/text.cpp ${CMAKE_CURRENT_SOURCE_DIR}/TextLayoutManager.cpp
+  TARGET_DIRECTORY react_renderer_textlayoutmanager APPEND PROPERTY COMPILE_OPTIONS ${OXYOS_WARNINGS})
