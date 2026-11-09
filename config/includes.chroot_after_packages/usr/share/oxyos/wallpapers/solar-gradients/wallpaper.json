@@ -1,0 +1,203 @@
+{
+  "automatic": "sun",
+  "category": "dynamic",
+  "name": {
+    "en": "Solar Gradients",
+    "es": "Solar Gradients"
+  },
+  "preview": "midday",
+  "variants": [
+    {
+      "file": "night.jpg",
+      "id": "night",
+      "name": {
+        "en": "Night",
+        "es": "Noche"
+      },
+      "sun": {
+        "azimuth": 260.59,
+        "elevation": -87.61
+      }
+    },
+    {
+      "file": "before-dawn.jpg",
+      "id": "before-dawn",
+      "name": {
+        "en": "Before dawn",
+        "es": "Antes del alba"
+      },
+      "sun": {
+        "azimuth": 90.2,
+        "elevation": -17.11
+      }
+    },
+    {
+      "file": "dawn.jpg",
+      "id": "dawn",
+      "name": {
+        "en": "Dawn",
+        "es": "Alba"
+      },
+      "sun": {
+        "azimuth": 90.18,
+        "elevation": -11.11
+      }
+    },
+    {
+      "file": "first-light.jpg",
+      "id": "first-light",
+      "name": {
+        "en": "First light",
+        "es": "Primera luz"
+      },
+      "sun": {
+        "azimuth": 90.18,
+        "elevation": -5.36
+      }
+    },
+    {
+      "file": "sunrise.jpg",
+      "id": "sunrise",
+      "name": {
+        "en": "Sunrise",
+        "es": "Amanecer"
+      },
+      "sun": {
+        "azimuth": 90.17,
+        "elevation": 0.19
+      }
+    },
+    {
+      "file": "early-morning.jpg",
+      "id": "early-morning",
+      "name": {
+        "en": "Early morning",
+        "es": "Primera hora"
+      },
+      "sun": {
+        "azimuth": 90.16,
+        "elevation": 6.04
+      }
+    },
+    {
+      "file": "morning.jpg",
+      "id": "morning",
+      "name": {
+        "en": "Morning",
+        "es": "Mañana"
+      },
+      "sun": {
+        "azimuth": 90.16,
+        "elevation": 11.98
+      }
+    },
+    {
+      "file": "late-morning.jpg",
+      "id": "late-morning",
+      "name": {
+        "en": "Late morning",
+        "es": "Media mañana"
+      },
+      "sun": {
+        "azimuth": 90.16,
+        "elevation": 18.45
+      }
+    },
+    {
+      "file": "midday.jpg",
+      "id": "midday",
+      "name": {
+        "en": "Midday",
+        "es": "Mediodía"
+      },
+      "sun": {
+        "azimuth": 92.55,
+        "elevation": 88.42
+      }
+    },
+    {
+      "file": "afternoon.jpg",
+      "id": "afternoon",
+      "name": {
+        "en": "Afternoon",
+        "es": "Tarde"
+      },
+      "sun": {
+        "azimuth": 270.01,
+        "elevation": 18.36
+      }
+    },
+    {
+      "file": "late-afternoon.jpg",
+      "id": "late-afternoon",
+      "name": {
+        "en": "Late afternoon",
+        "es": "Última hora de la tarde"
+      },
+      "sun": {
+        "azimuth": 270.02,
+        "elevation": 12.14
+      }
+    },
+    {
+      "file": "golden-hour.jpg",
+      "id": "golden-hour",
+      "name": {
+        "en": "Golden hour",
+        "es": "Hora dorada"
+      },
+      "sun": {
+        "azimuth": 270.02,
+        "elevation": 6.45
+      }
+    },
+    {
+      "file": "sunset.jpg",
+      "id": "sunset",
+      "name": {
+        "en": "Sunset",
+        "es": "Puesta de sol"
+      },
+      "sun": {
+        "azimuth": 270.03,
+        "elevation": 0.75
+      }
+    },
+    {
+      "file": "dusk.jpg",
+      "id": "dusk",
+      "name": {
+        "en": "Dusk",
+        "es": "Anochecer"
+      },
+      "sun": {
+        "azimuth": 270.04,
+        "elevation": -5.45
+      }
+    },
+    {
+      "file": "twilight.jpg",
+      "id": "twilight",
+      "name": {
+        "en": "Twilight",
+        "es": "Crepúsculo"
+      },
+      "sun": {
+        "azimuth": 270.04,
+        "elevation": -11.2
+      }
+    },
+    {
+      "file": "nightfall.jpg",
+      "id": "nightfall",
+      "name": {
+        "en": "Nightfall",
+        "es": "Caída de la noche"
+      },
+      "sun": {
+        "azimuth": 270.05,
+        "elevation": -17.7
+      }
+    }
+  ]
+}

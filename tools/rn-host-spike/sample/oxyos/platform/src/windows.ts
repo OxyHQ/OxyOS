@@ -45,6 +45,15 @@ export interface MenuEntry {
   shortcut: string;
 }
 /** A key the window received, before the focused view. */
+/** The modifiers held, as the compositor tells them when they change (protocol version 38, a Mac's
+    `flagsChanged:`). */
+export interface Modifiers {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+}
+
 export interface KeyEvent {
   key: string;
   code: string;
@@ -86,8 +95,12 @@ export function createWindows(
   // Keys: the host asks one listener, which asks each of the window's in turn until one takes it.
   const keyListeners = new Set<(event: KeyEvent) => boolean | void>();
   const keysAvailable = Boolean(keyboard?.getConstants()?.available);
+  const modifierListeners = new Set<(modifiers: Modifiers) => void>();
   if (keysAvailable && keyboard) {
     keyboard.setListener((event) => [...keyListeners].some((listener) => listener(event) === true));
+    events.addListener('OxyOSModifiersChanged', (modifiers: Modifiers) => {
+      for (const listener of [...modifierListeners]) listener(modifiers);
+    });
   }
 
   // The first responder's state: what the focused text input can do now, null while none has focus.
@@ -138,6 +151,14 @@ export function createWindows(
         keyListeners.add(listener);
         return () => {
           keyListeners.delete(listener);
+        };
+      },
+      /** The modifiers held as they change (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+          Option going down or up told at once, with no key or move after it. */
+      onModifiers(listener: (modifiers: Modifiers) => void): () => void {
+        modifierListeners.add(listener);
+        return () => {
+          modifierListeners.delete(listener);
         };
       },
     },

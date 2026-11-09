@@ -7,6 +7,8 @@ import { AppIcon } from "../apps";
 import type { ShellApplication, ShellNotification } from "../model";
 import { ago, applicationOf, spoken } from "../notifications";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 export const BANNER_WIDTH = 360;
 
@@ -42,6 +44,7 @@ export const NotificationCard = memo(function NotificationCard({
   onHeld?: (held: boolean) => void;
   testID: string;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const words = messages.notifications;
   const { name, app } = applicationOf(notification, applications);
@@ -67,7 +70,7 @@ export const NotificationCard = memo(function NotificationCard({
       className="overflow-hidden rounded-[18px] border border-white/70"
       style={{
         width: BANNER_WIDTH,
-        backgroundColor: "#f5f7fbf2",
+        backgroundColor: glass("#f5f7fbf2", reduced),
         boxShadow: "0 12px 40px #0b183a33, 0 0 0 .5px #0b183a1f",
       }}
     >

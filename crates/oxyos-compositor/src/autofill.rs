@@ -16,6 +16,15 @@
 //! - **The shell's list.** What the scene tells a shell to draw is told as the session's vocabulary
 //!   (`SystemText` serial 0, `{"autofill": {...}}`, `{"autofill": null}` to hide it); the shell's
 //!   press on an item is `{"chooseAutofill": {"index"}}`, citing the press.
+//! - **Saving** (decision 5, "ask to save"). An application's request to save a login reaches the
+//!   program as a [`SaveAsk`] from its [`SaveConfirmations`] (the session's: the accounts' service
+//!   on a registrar connection of its own). It is asked of the person in a system sheet the shell
+//!   draws (`{"kind": "save-password", "id", "username", "domain"?}`: the application's desktop
+//!   entry id, which the shell names, and the username; never the password), for the
+//!   application's client, so the sheet goes, answered no, if the application does. It is shown
+//!   only while the application's window is the key window and the session unlocked; otherwise
+//!   the answer is no at once. Only the shell's press, citing an input, answers yes (the scene's
+//!   sheets); a request withdrawn takes its sheet away.
 
 use crate::Compositor;
 use oxyos_compositor_core::scene::{AutofillItem, AutofillKind, AutofillList, SystemRequest};
@@ -199,6 +208,48 @@ impl AutofillProvider for ThreadedProvider {
     }
 }
 
+/// An application's request to save a login, or its end, as the program's saves source tells it.
+#[derive(Clone, PartialEq, Eq)]
+pub enum SaveAsk {
+    /// Ask the person whether to save `username` (and `domain`) for `desktop_entry_id`.
+    Confirm {
+        id: String,
+        desktop_entry_id: String,
+        username: String,
+        domain: Option<String>,
+    },
+    /// The request ended unanswered: its sheet goes.
+    Withdrawn { id: String },
+}
+
+impl std::fmt::Debug for SaveAsk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Confirm {
+                id,
+                desktop_entry_id,
+                ..
+            } => f
+                .debug_struct("Confirm")
+                .field("id", id)
+                .field("desktop_entry_id", desktop_entry_id)
+                .finish_non_exhaustive(),
+            Self::Withdrawn { id } => f.debug_struct("Withdrawn").field("id", id).finish(),
+        }
+    }
+}
+
+/// Where requests to save come from, and where the person's answers go: the session's accounts'
+/// service, or a fixture's. Like the provider, it never makes the compositor wait: one whose
+/// requests arrive on another thread wakes the turn through a descriptor among the compositor's
+/// wakers.
+pub trait SaveConfirmations {
+    /// What arrived since the last call, in order.
+    fn take(&mut self) -> Vec<SaveAsk>;
+    /// The person's answer to the request `id` (no: also the sheet that could not be shown).
+    fn decide(&mut self, id: &str, save: bool);
+}
+
 /// What an item of the list shown fills when picked.
 enum Entry {
     Login { reference: String },
@@ -266,6 +317,9 @@ pub struct Autofill {
     next_id: u64,
     asked: HashMap<u64, Asked>,
     offer: Option<Offer>,
+    saves: Option<Box<dyn SaveConfirmations>>,
+    /// The sheets shown for requests to save: the scene's sheet, the request's id.
+    save_sheets: Vec<(u32, String)>,
 }
 
 impl Autofill {
@@ -275,7 +329,15 @@ impl Autofill {
             next_id: 0,
             asked: HashMap::new(),
             offer: None,
+            saves: None,
+            save_sheets: Vec::new(),
         }
+    }
+
+    /// Asks the person, in the shell's sheet, each request to save that `saves` brings.
+    pub fn with_saves(mut self, saves: Box<dyn SaveConfirmations>) -> Self {
+        self.saves = Some(saves);
+        self
     }
 
     fn ask(&mut self, asked: Asked, ask: Ask) {
@@ -351,7 +413,59 @@ impl Autofill {
             scene.system_text(shell, 0, &list_text(list.as_ref()));
             told = true;
         }
+        told |= self.serve_saves(scene);
         told
+    }
+
+    /// The requests to save that arrived, shown or answered no; the sheets the person answered,
+    /// told. Whether any sheet was shown or taken away.
+    fn serve_saves(&mut self, scene: &mut Scene) -> bool {
+        let Some(saves) = self.saves.as_mut() else {
+            return false;
+        };
+        let before = scene.sheets_waiting();
+        for ask in saves.take() {
+            match ask {
+                SaveAsk::Confirm {
+                    id,
+                    desktop_entry_id,
+                    username,
+                    domain,
+                } => match save_asker(scene, &desktop_entry_id) {
+                    Some(client) => {
+                        let mut sheet = json!({
+                            "kind": "save-password",
+                            "id": desktop_entry_id,
+                            "username": username,
+                        });
+                        if let Some(domain) = domain {
+                            sheet["domain"] = json!(domain);
+                        }
+                        match scene.show_sheet(Some(client), &sheet.to_string()) {
+                            Some(shown) => self.save_sheets.push((shown, id)),
+                            None => saves.decide(&id, false),
+                        }
+                    }
+                    None => saves.decide(&id, false),
+                },
+                SaveAsk::Withdrawn { id } => {
+                    if let Some(at) = self.save_sheets.iter().position(|(_, held)| *held == id) {
+                        let (sheet, _) = self.save_sheets.remove(at);
+                        scene.dismiss_sheet(sheet);
+                    }
+                }
+            }
+        }
+        // The person's answers (an application gone answered no).
+        self.save_sheets
+            .retain(|(sheet, id)| match scene.take_sheet_answer(*sheet) {
+                Some(accepted) => {
+                    saves.decide(id, accepted);
+                    false
+                }
+                None => true,
+            });
+        before != scene.sheets_waiting()
     }
 
     fn choose(&mut self, scene: &mut Scene, request: &SystemRequest) -> Result<(), &'static str> {
@@ -460,6 +574,16 @@ impl Autofill {
             (Asked::Fill(_), _) => false,
         }
     }
+}
+
+/// The client a request to save of `desktop_entry_id` is asked for: the application's, if its
+/// window is the key window and the session is unlocked.
+fn save_asker(scene: &Scene, desktop_entry_id: &str) -> Option<oxyos_compositor_core::ClientId> {
+    if scene.is_locked() {
+        return None;
+    }
+    let key = scene.active_window()?;
+    (scene.application(key.client) == Some(desktop_entry_id)).then_some(key.client)
 }
 
 #[cfg(test)]
@@ -875,5 +999,260 @@ mod tests {
                 (true, "password-of-item-2".to_string())
             ]
         );
+    }
+
+    /// The program's saves source for these tests: what each test brings, and the answers given.
+    #[derive(Default)]
+    struct Saving {
+        arriving: Vec<SaveAsk>,
+        decided: Vec<(String, bool)>,
+    }
+
+    struct TestSaves(Rc<RefCell<Saving>>);
+
+    impl SaveConfirmations for TestSaves {
+        fn take(&mut self) -> Vec<SaveAsk> {
+            std::mem::take(&mut self.0.borrow_mut().arriving)
+        }
+
+        fn decide(&mut self, id: &str, save: bool) {
+            self.0.borrow_mut().decided.push((id.to_owned(), save));
+        }
+    }
+
+    fn with_saves(scene: &mut Scene) -> (Autofill, Rc<RefCell<Saving>>) {
+        let saving = Rc::new(RefCell::new(Saving::default()));
+        let autofill = Autofill::new(Box::new(TestProvider(Rc::default())))
+            .with_saves(Box::new(TestSaves(saving.clone())));
+        scene.drain_events();
+        (autofill, saving)
+    }
+
+    fn confirm(id: &str, application: &str) -> SaveAsk {
+        SaveAsk::Confirm {
+            id: id.into(),
+            desktop_entry_id: application.into(),
+            username: "bea@example.com".into(),
+            domain: Some("example.com".into()),
+        }
+    }
+
+    /// The sheets the shell was sent (their numbers and texts) and those taken away.
+    fn sheets_told(scene: &mut Scene) -> (Vec<(u32, serde_json::Value)>, Vec<u32>) {
+        let (mut shown, mut gone, mut current) = (Vec::new(), Vec::new(), String::new());
+        for (client, event) in scene.drain_events() {
+            match (client, event) {
+                (
+                    SHELL,
+                    Event::SheetText {
+                        sheet, text, last, ..
+                    },
+                ) => {
+                    current.push_str(text.as_str());
+                    if last {
+                        let text = std::mem::take(&mut current);
+                        shown.push((sheet, serde_json::from_str(&text).unwrap()));
+                    }
+                }
+                (SHELL, Event::SheetDismissed { sheet }) => gone.push(sheet),
+                _ => {}
+            }
+        }
+        (shown, gone)
+    }
+
+    /// A press on the shell's panel: an input the shell received, which its answer cites.
+    fn shell_press(scene: &mut Scene) -> u64 {
+        scene.pointer_motion(640, 700);
+        scene.pointer_button(0x110, true);
+        let serial = scene
+            .drain_events()
+            .into_iter()
+            .find_map(|(client, event)| match (client, event) {
+                (
+                    SHELL,
+                    Event::Pointer {
+                        kind: oxyos_protocol::PointerKind::Press,
+                        serial,
+                        ..
+                    },
+                ) => Some(serial),
+                _ => None,
+            })
+            .expect("the shell's press");
+        scene.pointer_button(0x110, false);
+        scene.drain_events();
+        serial
+    }
+
+    #[test]
+    fn a_save_is_asked_in_the_shells_sheet_and_the_persons_answer_told() {
+        let (mut scene, _, _) = scene(TextContentType::None);
+        let (mut autofill, saving) = with_saves(&mut scene);
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("7", "so.example.mail"));
+        assert!(autofill.serve_scene(&mut scene));
+        let (shown, _) = sheets_told(&mut scene);
+        assert_eq!(shown.len(), 1);
+        let (sheet, text) = &shown[0];
+        assert_eq!(
+            *text,
+            json!({"kind": "save-password", "id": "so.example.mail",
+                   "username": "bea@example.com", "domain": "example.com"})
+        );
+        // The application never sees it.
+        assert!(saving.borrow().decided.is_empty());
+        // The shell's yes, citing no input of its own, is nothing; citing its press, the answer.
+        scene
+            .handle(
+                SHELL,
+                Request::SheetAnswer {
+                    sheet: *sheet,
+                    accepted: true,
+                    serial: 0,
+                },
+            )
+            .unwrap();
+        autofill.serve_scene(&mut scene);
+        assert!(saving.borrow().decided.is_empty());
+        let press = shell_press(&mut scene);
+        scene
+            .handle(
+                SHELL,
+                Request::SheetAnswer {
+                    sheet: *sheet,
+                    accepted: true,
+                    serial: press,
+                },
+            )
+            .unwrap();
+        autofill.serve_scene(&mut scene);
+        assert_eq!(saving.borrow().decided, [("7".to_string(), true)]);
+        // Not Now.
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("8", "so.example.mail"));
+        autofill.serve_scene(&mut scene);
+        let (shown, _) = sheets_told(&mut scene);
+        scene
+            .handle(
+                SHELL,
+                Request::SheetAnswer {
+                    sheet: shown[0].0,
+                    accepted: false,
+                    serial: 0,
+                },
+            )
+            .unwrap();
+        autofill.serve_scene(&mut scene);
+        assert_eq!(
+            saving.borrow().decided.last(),
+            Some(&("8".to_string(), false))
+        );
+        assert_eq!(scene.sheets_waiting(), 0);
+    }
+
+    #[test]
+    fn a_save_is_never_asked_for_an_application_whose_window_is_not_the_key_window() {
+        let (mut scene, _, _) = scene(TextContentType::None);
+        let (mut autofill, saving) = with_saves(&mut scene);
+        // Another application's request, while this one's window is the key window.
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("1", "so.example.other"));
+        autofill.serve_scene(&mut scene);
+        assert_eq!(saving.borrow().decided, [("1".to_string(), false)]);
+        assert!(sheets_told(&mut scene).0.is_empty());
+        // Another application's window becomes the key window: this one's is not any more.
+        const OTHER: ClientId = 2;
+        scene.connect(OTHER, Grants::default()).unwrap();
+        scene.set_application(OTHER, "so.example.other");
+        scene
+            .handle(
+                OTHER,
+                Request::CreateToplevel {
+                    surface: 1,
+                    size: Size::new(300, 200),
+                },
+            )
+            .unwrap();
+        present(
+            &mut scene,
+            SurfaceKey {
+                client: OTHER,
+                id: 1,
+            },
+        );
+        scene.activate(SurfaceKey {
+            client: OTHER,
+            id: 1,
+        });
+        scene.drain_events();
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("2", "so.example.mail"));
+        autofill.serve_scene(&mut scene);
+        assert_eq!(
+            saving.borrow().decided.last(),
+            Some(&("2".to_string(), false))
+        );
+        assert!(sheets_told(&mut scene).0.is_empty());
+    }
+
+    #[test]
+    fn a_save_is_never_asked_while_locked() {
+        let (mut scene, _, _) = scene(TextContentType::None);
+        let (mut autofill, saving) = with_saves(&mut scene);
+        scene.lock();
+        scene.drain_events();
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("3", "so.example.mail"));
+        autofill.serve_scene(&mut scene);
+        assert_eq!(saving.borrow().decided, [("3".to_string(), false)]);
+        assert!(sheets_told(&mut scene).0.is_empty());
+    }
+
+    #[test]
+    fn a_withdrawn_request_takes_its_sheet_away_and_an_application_gone_answers_no() {
+        let (mut scene, _, _) = scene(TextContentType::None);
+        let (mut autofill, saving) = with_saves(&mut scene);
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("4", "so.example.mail"));
+        autofill.serve_scene(&mut scene);
+        let (shown, _) = sheets_told(&mut scene);
+        saving
+            .borrow_mut()
+            .arriving
+            .push(SaveAsk::Withdrawn { id: "4".into() });
+        autofill.serve_scene(&mut scene);
+        assert_eq!(sheets_told(&mut scene).1, [shown[0].0]);
+        assert!(saving.borrow().decided.is_empty());
+        // Asked again, then the application goes: its sheet goes, answered no.
+        saving
+            .borrow_mut()
+            .arriving
+            .push(confirm("5", "so.example.mail"));
+        autofill.serve_scene(&mut scene);
+        assert_eq!(sheets_told(&mut scene).0.len(), 1);
+        scene.disconnect(APP);
+        autofill.serve_scene(&mut scene);
+        assert_eq!(saving.borrow().decided, [("5".to_string(), false)]);
+        assert_eq!(scene.sheets_waiting(), 0);
+    }
+
+    #[test]
+    fn a_saves_debug_shows_no_username() {
+        let shown = format!("{:?}", confirm("1", "so.example.mail"));
+        assert!(!shown.contains("bea"));
+        assert!(!shown.contains("example.com"));
     }
 }

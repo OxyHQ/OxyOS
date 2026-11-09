@@ -2,7 +2,10 @@
 //! bus of the test's own (`dbus-daemon`), never the system's: what the client reads, and what the
 //! daemon holds after each call.
 
-use oxyos_networks::{EthernetState, Failure, NetworkManager, Plan, Secret, Security, WifiState};
+use oxyos_networks::{
+    EthernetState, Failure, KeptBecause, LinkQuality, NetworkManager, Plan, PrivateAddress, Rejoin,
+    SavedKind, Secret, Security, WifiState, ROTATING_STABLE_ID,
+};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -429,4 +432,327 @@ fn no_daemon_is_unavailable() {
     let _ = bus.kill();
     let _ = bus.wait();
     let _ = std::fs::remove_dir_all(directory);
+}
+
+/// The played Wi-Fi device's own address.
+const PERMANENT: &str = "F4:A4:75:12:34:56";
+
+/// Whether an address is one of the daemon's making: locally administered, unicast.
+fn private(address: &str) -> bool {
+    let first = u8::from_str_radix(&address[..2], 16).unwrap();
+    first & 0x02 != 0 && first & 0x01 == 0
+}
+
+fn joined_address(manager: &NetworkManager) -> String {
+    manager
+        .state()
+        .unwrap()
+        .wifi
+        .details
+        .unwrap()
+        .hardware_address
+}
+
+#[test]
+fn a_new_network_joins_with_a_fixed_private_address_and_each_mode_is_the_daemons() {
+    let daemon = daemon("private", machine());
+    let manager = daemon.manager();
+    // A network joined before has none set: the hardware's address, the daemon's default.
+    let lukes = manager.state().unwrap().wifi.known[0].clone();
+    assert_eq!(lukes.private_address, PrivateAddress::Off);
+    assert_eq!(joined_address(&manager), PERMANENT);
+    // A new one is joined with a fixed private address of the daemon's making, the address shown.
+    manager.join("Café Libre", None).unwrap();
+    let held = daemon.held();
+    let added = &held["connections"][1];
+    assert_eq!(
+        (added["assigned"].as_str(), added["stable_id"].is_null()),
+        (Some("stable"), true)
+    );
+    let fixed = held["address"].as_str().unwrap().to_string();
+    assert!(private(&fixed) && fixed != PERMANENT, "{fixed}");
+    assert_eq!(joined_address(&manager), fixed);
+    let cafe = manager
+        .state()
+        .unwrap()
+        .wifi
+        .known
+        .into_iter()
+        .find(|k| k.ssid == "Café Libre")
+        .unwrap();
+    assert_eq!(cafe.private_address, PrivateAddress::Fixed);
+    // Rotating, on the network joined: set, and joined again with another address.
+    let attempts = held["attempts"].as_array().unwrap().len();
+    assert_eq!(
+        manager.set_private_address(&cafe.id, PrivateAddress::Rotating),
+        Ok(Rejoin::Rejoined)
+    );
+    let held = daemon.held();
+    assert_eq!(
+        held["attempts"].as_array().unwrap().len(),
+        attempts + 1,
+        "joined again"
+    );
+    assert_eq!(
+        (
+            held["connections"][1]["assigned"].as_str(),
+            held["connections"][1]["stable_id"].as_str()
+        ),
+        (Some("stable"), Some(ROTATING_STABLE_ID))
+    );
+    let rotating = held["address"].as_str().unwrap().to_string();
+    assert!(private(&rotating) && rotating != fixed);
+    // The same address while the computer runs; another after it starts again.
+    manager.set_wifi(false).unwrap();
+    until(|| manager.state().unwrap().wifi.state == WifiState::Off);
+    manager.set_wifi(true).unwrap();
+    until(|| manager.state().unwrap().wifi.state == WifiState::Disconnected);
+    manager.join("Café Libre", None).unwrap();
+    assert_eq!(daemon.held()["address"], rotating.as_str());
+    daemon.act(json!({"restart": {}}));
+    until(|| daemon.held()["address"] == rotating.as_str());
+    manager.set_wifi(false).unwrap();
+    until(|| manager.state().unwrap().wifi.state == WifiState::Off);
+    manager.set_wifi(true).unwrap();
+    until(|| manager.state().unwrap().wifi.state == WifiState::Disconnected);
+    manager.join("Café Libre", None).unwrap();
+    let after_restart = daemon.held()["address"].as_str().unwrap().to_string();
+    assert!(private(&after_restart) && after_restart != rotating);
+    // Fixed again: the address it had, whatever the boot.
+    assert_eq!(
+        manager.set_private_address(&cafe.id, PrivateAddress::Fixed),
+        Ok(Rejoin::Rejoined)
+    );
+    assert_eq!(daemon.held()["address"], fixed.as_str());
+    assert!(
+        daemon.held()["connections"][1]["stable_id"].is_null(),
+        "the daemon's own id"
+    );
+    // Off: the hardware's own.
+    assert_eq!(
+        manager.set_private_address(&cafe.id, PrivateAddress::Off),
+        Ok(Rejoin::Rejoined)
+    );
+    assert_eq!(daemon.held()["connections"][1]["assigned"], "permanent");
+    assert_eq!(joined_address(&manager), PERMANENT);
+    // Not the network joined: set, nothing joined again.
+    let attempts = daemon.held()["attempts"].as_array().unwrap().len();
+    assert_eq!(
+        manager.set_private_address(&lukes.id, PrivateAddress::Rotating),
+        Ok(Rejoin::NotJoined)
+    );
+    assert_eq!(
+        daemon.held()["attempts"].as_array().unwrap().len(),
+        attempts
+    );
+    assert_eq!(
+        daemon.held()["connections"][0]["stable_id"],
+        ROTATING_STABLE_ID
+    );
+    // Its password kept: an update that carries no secrets keeps them.
+    assert_eq!(daemon.held()["connections"][0]["psk"], "correct horse");
+    assert_eq!(
+        manager.set_private_address("no-such-id", PrivateAddress::Off),
+        Err(Failure::NotFound)
+    );
+    assert_eq!(
+        manager.set_private_address(&lukes.id, PrivateAddress::Other),
+        Err(Failure::Unsupported)
+    );
+}
+
+#[test]
+fn a_private_address_for_every_user_needs_an_administrator() {
+    let mut spec = machine();
+    spec["deny_system"] = json!(true);
+    let daemon = daemon("private-refused", spec);
+    let manager = daemon.manager();
+    let lukes = manager.state().unwrap().wifi.known[0].clone();
+    assert_eq!(
+        manager.set_private_address(&lukes.id, PrivateAddress::Fixed),
+        Err(Failure::NotPermitted)
+    );
+    assert!(
+        daemon.held()["connections"][0]["assigned"].is_null(),
+        "unchanged"
+    );
+}
+
+#[test]
+fn forgetting_the_network_joined_leaves_it_and_its_password_goes() {
+    let daemon = daemon("forget-joined", machine());
+    let manager = daemon.manager();
+    let id = manager.state().unwrap().wifi.known[0].id.clone();
+    manager.forget(&id).unwrap();
+    until(|| manager.state().unwrap().wifi.state == WifiState::Disconnected);
+    let held = daemon.held();
+    assert!(held["connections"].as_array().unwrap().is_empty());
+    assert!(held["active"].is_null() && held["joined_with"].is_null());
+    assert!(
+        !held.to_string().contains("correct horse"),
+        "its password gone: {held}"
+    );
+}
+
+fn saved_machine(deny_system: bool) -> Value {
+    let mut spec = machine();
+    spec["deny_system"] = json!(deny_system);
+    spec["connections"] = json!([
+        {"ssid": "LukeSkyRouter", "password": "correct horse"},
+        {"ssid": "Vecinos", "password": "hunter22!", "permissions": ["user:someone:"]},
+        {"type": "vpn", "name": "Work VPN"},
+        {"type": "wireguard", "name": "wg-home"},
+        {"type": "ethernet", "name": "Office static"},
+        {"type": "ethernet", "name": "Wired connection 1", "flags": 2}
+    ]);
+    spec
+}
+
+#[test]
+fn resetting_removes_what_the_person_may_and_says_what_it_keeps() {
+    let daemon = daemon("reset", saved_machine(false));
+    let manager = daemon.manager();
+    let plan = manager.reset_plan().unwrap();
+    let names = |saved: &[oxyos_networks::Saved]| -> Vec<(SavedKind, String)> {
+        saved.iter().map(|s| (s.kind, s.name.clone())).collect()
+    };
+    assert_eq!(
+        names(&plan.removed),
+        [
+            (SavedKind::Wifi, "LukeSkyRouter".into()),
+            (SavedKind::Wifi, "Vecinos".into()),
+            (SavedKind::Vpn, "Work VPN".into()),
+            (SavedKind::Vpn, "wg-home".into()),
+        ]
+    );
+    // Ethernet's configuration someone made is kept; the daemon's own is not even counted.
+    assert_eq!(plan.kept.len(), 1);
+    assert_eq!(
+        (plan.kept[0].saved.name.as_str(), plan.kept[0].because),
+        ("Office static", KeptBecause::Ethernet)
+    );
+    // Asking changes nothing.
+    assert_eq!(daemon.held()["connections"].as_array().unwrap().len(), 6);
+    let done = manager.reset().unwrap();
+    assert_eq!(done.removed, plan.removed);
+    assert_eq!(done.kept, plan.kept);
+    let held = daemon.held();
+    let left: Vec<&str> = held["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(left, ["Office static", "Wired connection 1"]);
+    assert!(!held.to_string().contains("correct horse") && !held.to_string().contains("hunter22!"));
+    until(|| manager.state().unwrap().wifi.state == WifiState::Disconnected);
+    assert!(manager.state().unwrap().wifi.known.is_empty());
+}
+
+#[test]
+fn resetting_keeps_what_needs_an_administrator() {
+    let daemon = daemon("reset-refused", saved_machine(true));
+    let manager = daemon.manager();
+    let plan = manager.reset_plan().unwrap();
+    // The person's own network goes; those for every user need an administrator.
+    assert_eq!(plan.removed.len(), 1);
+    assert_eq!(plan.removed[0].name, "Vecinos");
+    let kept: Vec<(&str, KeptBecause)> = plan
+        .kept
+        .iter()
+        .map(|k| (k.saved.name.as_str(), k.because))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            ("LukeSkyRouter", KeptBecause::NotPermitted),
+            ("Work VPN", KeptBecause::NotPermitted),
+            ("wg-home", KeptBecause::NotPermitted),
+            ("Office static", KeptBecause::Ethernet),
+        ]
+    );
+    let done = manager.reset().unwrap();
+    assert_eq!(done.removed.len(), 1);
+    assert_eq!(daemon.held()["connections"].as_array().unwrap().len(), 5);
+}
+
+#[test]
+fn diagnostics_read_the_link_as_the_daemon_has_it() {
+    let mut spec = machine();
+    spec["access_points"][0] = json!({
+        "ssid": "LukeSkyRouter", "strength": 73, "security": "wpa", "password": "correct horse",
+        "frequency": 5180, "bssid": "A0:B1:C2:D3:E4:F5", "rate": 866, "max_rate": 1201, "width": 80
+    });
+    spec["connectivity"] = json!({"check": true, "state": 4});
+    let joined = daemon("survey", spec);
+    let manager = joined.manager();
+    let survey = manager.survey().unwrap();
+    let link = survey.link.unwrap();
+    assert_eq!(
+        (
+            link.ssid.as_str(),
+            link.bssid.as_str(),
+            link.interface.as_str()
+        ),
+        ("LukeSkyRouter", "A0:B1:C2:D3:E4:F5", "wlp0s20f3")
+    );
+    assert_eq!((link.signal, link.quality), (73, LinkQuality::Good));
+    assert_eq!(
+        (link.frequency, link.band, link.channel, link.width),
+        (5180, Some("5"), Some(36), Some(80))
+    );
+    assert_eq!((link.tx_rate, link.max_rate), (Some(866), Some(1201)));
+    assert_eq!(link.security, Security::Wpa);
+    assert_eq!(
+        (link.address.as_str(), link.permanent_address.as_str()),
+        (PERMANENT, PERMANENT)
+    );
+    assert_eq!(link.private_address, PrivateAddress::Off);
+    assert_eq!(
+        (survey.connectivity.checked, survey.connectivity.state),
+        (true, "full")
+    );
+    assert_eq!(
+        joined.held()["connectivity_checks"],
+        1,
+        "the daemon's check, run as asked"
+    );
+    assert_eq!(survey.router, Some("192.168.8.1".parse().unwrap()));
+    assert_eq!(survey.dns, ["192.168.8.1"]);
+    // No check configured: not checked, whatever the daemon assumes; nothing run.
+    let mut spec = machine();
+    spec["active"] = Value::Null;
+    let quiet = daemon("survey-none", spec);
+    let survey = quiet.manager().survey().unwrap();
+    assert!(survey.link.is_none() && survey.router.is_none());
+    assert_eq!(
+        (survey.connectivity.checked, survey.connectivity.state),
+        (false, "unknown")
+    );
+    assert_eq!(quiet.held()["connectivity_checks"], 0);
+}
+
+#[test]
+fn a_network_that_admits_only_the_hardwares_address_is_set_but_not_joined_again() {
+    let mut spec = machine();
+    spec["access_points"][0]["admits"] = json!([PERMANENT]);
+    spec["access_points"][1]["admits"] = json!([PERMANENT]);
+    let daemon = daemon("private-filtered", spec);
+    let manager = daemon.manager();
+    let lukes = manager.state().unwrap().wifi.known[0].clone();
+    // Fixed: set, and joining again with it fails, said as such; the setting stays.
+    assert_eq!(
+        manager.set_private_address(&lukes.id, PrivateAddress::Fixed),
+        Ok(Rejoin::Failed(Failure::Failed))
+    );
+    assert_eq!(daemon.held()["connections"][0]["assigned"], "stable");
+    until(|| manager.state().unwrap().wifi.state == WifiState::Disconnected);
+    // Off joins again with the hardware's address, which it admits.
+    assert_eq!(
+        manager.set_private_address(&lukes.id, PrivateAddress::Off),
+        Ok(Rejoin::NotJoined),
+        "not joined now"
+    );
+    manager.join("LukeSkyRouter", None).unwrap();
+    assert_eq!(daemon.held()["address"], PERMANENT);
 }

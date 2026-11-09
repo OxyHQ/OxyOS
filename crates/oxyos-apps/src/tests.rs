@@ -440,7 +440,9 @@ fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_onl
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         let exited = launcher.reap();
-        if exited.iter().any(|(pid, _)| *pid == sleeping) {
+        if let Some(ended) = exited.iter().find(|exited| exited.pid == sleeping) {
+            // Killed by the person's force quit: it did not quit unexpectedly.
+            assert!(ended.asked && !ended.abnormal());
             break;
         }
         assert!(std::time::Instant::now() < deadline, "it was not ended");
@@ -849,6 +851,36 @@ fn a_system_application_is_the_policys_entry_and_no_one_elses() {
 }
 
 #[test]
+fn a_missing_policy_entry_reads_as_missing_and_is_listed_once_it_is_there() {
+    let system = Directory::new("system-missing", &[]);
+    let policy = Policy::parse(&policy_of(
+        "so.oxy.settings",
+        &system.0.canonicalize().unwrap(),
+        Path::new("/bin/sh"),
+        r#""settings""#,
+    ))
+    .unwrap();
+    let trusted = as_if_root(&system.0);
+    // Not there (a deploy between removing and installing it): said missing, not anyone's.
+    let (apps, skipped) = registry(&[], &[], &policy, None, &trusted);
+    assert!(apps.is_empty(), "{apps:?}");
+    assert_eq!(skipped.len(), 1, "{skipped:?}");
+    assert!(skipped[0].contains("is not there"), "{skipped:?}");
+    assert!(!skipped[0].contains("administrator"), "{skipped:?}");
+    // Its directory is followed: the entry appearing there wakes the watch, and is listed.
+    let mut watch = Watch::new(sources(&[], &policy, None)).unwrap();
+    assert!(!watch.changed());
+    std::fs::write(system.0.join("so.oxy.settings.desktop"), SETTINGS).unwrap();
+    assert!(watch.changed());
+    let (apps, skipped) = registry(&[], &[], &policy, None, &trusted);
+    assert!(skipped.is_empty(), "{skipped:?}");
+    assert_eq!(
+        apps.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        ["so.oxy.settings"]
+    );
+}
+
+#[test]
 fn the_file_chooser_is_the_policy_s_file_manager_told_what_to_show() {
     let shell = Path::new("/bin/sh").canonicalize().unwrap();
     let out = std::env::temp_dir().join(format!("oxyos-apps-chooser-{}", std::process::id()));
@@ -1192,6 +1224,42 @@ fn an_applications_directories_are_its_own_under_the_base_directories() {
             "so.oxy.dropsea"
         ),
         Some(PathBuf::from("/h/.cache/oxyos/apps/so.oxy.dropsea"))
+    );
+}
+
+#[test]
+fn an_applications_own_data_is_its_data_and_cache_directories_and_nothing_else() {
+    // The one definition Storage measures, uninstalling removes and resetting clears.
+    if let Some(own) = OwnData::of("so.oxy.dropsea") {
+        assert_eq!(Some(own.data.clone()), data_directory("so.oxy.dropsea"));
+        assert_eq!(Some(own.caches.clone()), cache_directory("so.oxy.dropsea"));
+        assert_eq!(
+            own.directories(),
+            [own.data.as_path(), own.caches.as_path()]
+        );
+        assert_ne!(own.data, own.caches);
+    }
+    for id in ["", "..", "a/b", ".hidden"] {
+        assert_eq!(OwnData::of(id), None, "{id}");
+    }
+}
+
+#[test]
+fn an_item_is_revealed_selected_in_its_folder_by_the_file_managers_url() {
+    // As the shell's Spotlight writes it (`spotlight.ts`): encodeURIComponent's encoding.
+    assert_eq!(
+        reveal_url("file:///home/ana/Pictures/Beach%20Day.jpg"),
+        "dropsea://files?uri=file%3A%2F%2F%2Fhome%2Fana%2FPictures\
+         &select=file%3A%2F%2F%2Fhome%2Fana%2FPictures%2FBeach%2520Day.jpg"
+    );
+    // A folder is shown in the folder above it.
+    assert_eq!(
+        reveal_url("file:///home/ana/Old/"),
+        "dropsea://files?uri=file%3A%2F%2F%2Fhome%2Fana&select=file%3A%2F%2F%2Fhome%2Fana%2FOld%2F"
+    );
+    assert_eq!(
+        reveal_url("file:///etc"),
+        "dropsea://files?uri=file%3A%2F%2F%2F&select=file%3A%2F%2F%2Fetc"
     );
 }
 
@@ -1622,7 +1690,7 @@ fn an_installed_application_is_the_install_services_and_comes_between() {
     assert_eq!(
         reaped
             .iter()
-            .map(|(p, l)| (*p, l.id.as_str()))
+            .map(|exited| (exited.pid, exited.launched.id.as_str()))
             .collect::<Vec<_>>(),
         [(pid, "so.oxy.inbox")]
     );
@@ -1781,4 +1849,240 @@ fn the_languages_of_a_tag() {
     assert_eq!(languages_of_tag("es-ES-u-hc-h23"), ["es_ES", "es"]);
     assert_eq!(languages_of_tag("sr-Latn-RS"), ["sr_RS", "sr"]);
     assert_eq!(languages_of_tag("es"), ["es"]);
+}
+
+// ---- how a process ended, and an application's own data (docs/adr/0061) ----------------------
+
+/// Waits for `launcher` to reap the process `pid`.
+fn reaped(launcher: &mut Launcher, pid: u32) -> Exited {
+    reaped_all(launcher, &[pid]).remove(0)
+}
+
+/// Waits for `launcher` to reap each of `pids`; how each ended, in their order.
+fn reaped_all(launcher: &mut Launcher, pids: &[u32]) -> Vec<Exited> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut exited: Vec<Exited> = Vec::new();
+    while !pids.iter().all(|pid| exited.iter().any(|e| e.pid == *pid)) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{pids:?} did not exit"
+        );
+        exited.extend(launcher.reap());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    pids.iter()
+        .map(|pid| exited.iter().find(|e| e.pid == *pid).cloned().unwrap())
+        .collect()
+}
+
+fn exits_runtime() -> Runtime {
+    Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (960, 600),
+        env: Vec::new(),
+    }
+}
+
+#[test]
+fn an_exit_the_session_did_not_ask_for_and_that_failed_is_abnormal_with_its_report() {
+    let entry = |name: &str, script: &str| {
+        format!("[Desktop Entry]\nType=Application\nName={name}\nExec=/bin/sh -c \"{script}\"\n")
+    };
+    let clean = entry("Clean", "exit 0");
+    let failing = entry("Failing", "exit 3");
+    let faulting = entry("Faulting", "kill -SEGV $$");
+    // What the Bloom host does as a JavaScript error ends it: its report, then a status of its own.
+    let reporting = entry(
+        "Reporting",
+        "echo 'Fatal JavaScript error: boom' >> $OXYOS_CRASH_REPORT; exit 70",
+    );
+    let long = entry(
+        "Long",
+        "yes 0123456789abcde | head -c 40000 >> $OXYOS_CRASH_REPORT; exit 1",
+    );
+    let sleeper = "[Desktop Entry]\nType=Application\nName=Sleeper\nExec=/bin/sleep 30\n";
+    let dir = Directory::new(
+        "exits",
+        &[
+            ("so.oxy.clean.desktop", clean.as_str()),
+            ("so.oxy.failing.desktop", failing.as_str()),
+            ("so.oxy.faulting.desktop", faulting.as_str()),
+            ("so.oxy.reporting.desktop", reporting.as_str()),
+            ("so.oxy.long.desktop", long.as_str()),
+            ("so.oxy.sleeper.desktop", sleeper),
+        ],
+    );
+    let reports = dir.0.join("reports");
+    let mut launcher = Launcher::new(exits_runtime(), vec![dir.0.clone()], vec![])
+        .with_crash_reports(reports.clone())
+        .unwrap();
+    // The folder is the user's alone.
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(&reports).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    let pid = launcher.launch("so.oxy.clean").unwrap();
+    let exited = reaped(&mut launcher, pid);
+    assert!(!exited.abnormal() && !exited.asked && exited.report.is_none());
+    let pid = launcher.launch("so.oxy.failing").unwrap();
+    let exited = reaped(&mut launcher, pid);
+    assert!(exited.abnormal());
+    assert_eq!(exited.status.and_then(|s| s.code()), Some(3));
+    let pid = launcher.launch("so.oxy.faulting").unwrap();
+    let exited = reaped(&mut launcher, pid);
+    use std::os::unix::process::ExitStatusExt;
+    assert!(exited.abnormal());
+    assert_eq!(exited.status.and_then(|s| s.signal()), Some(11));
+    assert_eq!(exited.launched.id, "so.oxy.faulting");
+    let pid = launcher.launch("so.oxy.reporting").unwrap();
+    let exited = reaped(&mut launcher, pid);
+    assert!(exited.abnormal());
+    assert_eq!(
+        exited.report.as_deref(),
+        Some("Fatal JavaScript error: boom")
+    );
+    // A report past the bound is cut, and says so.
+    let pid = launcher.launch("so.oxy.long").unwrap();
+    let report = reaped(&mut launcher, pid).report.unwrap();
+    assert!(report.starts_with("0123456789abcde\n0123456789abcde\n"));
+    assert!(report.ends_with("\n[the rest was cut]"));
+    // What was read is the bound's, its trailing white space trimmed.
+    let read = report.len() - "\n[the rest was cut]".len();
+    assert!((REPORT_BYTES - 1..=REPORT_BYTES).contains(&read), "{read}");
+    // Each report file is gone once read: nothing is left behind.
+    assert_eq!(std::fs::read_dir(&reports).unwrap().count(), 0);
+    // Ended at the session's request (a quit, a force quit): never abnormal, whatever the signal.
+    let first = launcher.launch("so.oxy.sleeper").unwrap();
+    let second = launcher.launch("so.oxy.sleeper").unwrap();
+    assert!(launcher.runs("so.oxy.sleeper"));
+    let mut asked = launcher.quit("so.oxy.sleeper");
+    asked.sort_unstable();
+    let mut both = vec![first, second];
+    both.sort_unstable();
+    assert_eq!(
+        asked, both,
+        "every process of the application, by its launch record"
+    );
+    for exited in reaped_all(&mut launcher, &both) {
+        assert!(exited.asked && !exited.abnormal());
+        assert_eq!(exited.status.and_then(|s| s.signal()), Some(15));
+    }
+    assert!(!launcher.runs("so.oxy.sleeper"));
+    let pid = launcher.launch("so.oxy.sleeper").unwrap();
+    assert!(!launcher.kill(std::process::id()), "only what it started");
+    assert!(launcher.kill(pid));
+    assert!(!reaped(&mut launcher, pid).abnormal());
+    // Held while it is reset: nothing starts it, however asked.
+    launcher.hold("so.oxy.sleeper");
+    assert!(launcher.launch("so.oxy.sleeper").is_err());
+    launcher.release("so.oxy.sleeper");
+    let pid = launcher.launch("so.oxy.sleeper").unwrap();
+    launcher.end(std::time::Duration::from_secs(2));
+    assert!(launcher.reap().iter().all(|exited| exited.pid != pid));
+}
+
+/// An application's own data under `root`: its data and cache directories, as a session's base
+/// directories would hold them.
+fn own_data_in(root: &Path, id: &str) -> OwnData {
+    OwnData {
+        data: root.join("data/oxyos/apps").join(id),
+        caches: root.join("cache/oxyos/apps").join(id),
+    }
+}
+
+#[test]
+fn erasing_sets_an_applications_own_directories_aside_and_nothing_else() {
+    let dir = Directory::new("erase", &[]);
+    let own = own_data_in(&dir.0, "so.oxy.mention");
+    let other = own_data_in(&dir.0, "so.oxy.allo");
+    for directory in [&own.data, &own.caches, &other.data] {
+        std::fs::create_dir_all(directory.join("deep")).unwrap();
+        std::fs::write(directory.join("deep/file"), "kept?").unwrap();
+    }
+    std::fs::write(own.data.join(oxyos_app_storage_file()), "{not json").unwrap();
+    // The person's documents, linked from inside the application's folder: never followed.
+    let documents = dir.0.join("Documents");
+    std::fs::create_dir_all(&documents).unwrap();
+    std::fs::write(documents.join("letter.txt"), "mine").unwrap();
+    std::os::unix::fs::symlink(&documents, own.data.join("documents")).unwrap();
+    let aside = own.set_aside().unwrap();
+    // At once, the application has none of its data; the other's is as it was.
+    assert!(!own.data.exists() && !own.caches.exists());
+    assert_eq!(
+        std::fs::read_to_string(other.data.join("deep/file")).unwrap(),
+        "kept?"
+    );
+    assert_eq!(aside.0.len(), 2);
+    for moved in &aside.0 {
+        assert_eq!(moved.parent().unwrap().file_name().unwrap(), data::ERASING);
+        assert!(moved.exists());
+    }
+    aside.delete().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(documents.join("letter.txt")).unwrap(),
+        "mine"
+    );
+    // Nothing is left aside, nor the folders it was set aside in.
+    for base in ["data", "cache"] {
+        assert!(!dir.0.join(base).join("oxyos/apps/.erasing").exists());
+    }
+    // Nothing to erase is no error, and sets nothing aside.
+    assert_eq!(own.set_aside().unwrap(), data::SetAside::default());
+}
+
+/// AsyncStorage's file (`oxyos-app-storage`), as an application keeps it in its data directory.
+fn oxyos_app_storage_file() -> &'static str {
+    "async-storage.json"
+}
+
+#[test]
+fn an_erasure_a_crash_interrupted_is_finished_at_the_next_start_and_a_link_is_never_followed() {
+    let dir = Directory::new("sweep", &[]);
+    let own = own_data_in(&dir.0, "so.oxy.mention");
+    std::fs::create_dir_all(&own.data).unwrap();
+    std::fs::write(own.data.join("state"), "x").unwrap();
+    // Set aside, and the session ended before it was deleted.
+    let aside = own.set_aside().unwrap();
+    assert!(aside.0[0].exists());
+    let bases = [
+        dir.0.join("data/oxyos/apps"),
+        dir.0.join("cache/oxyos/apps"),
+    ];
+    data::sweep(&bases).unwrap();
+    assert!(!dir.0.join("data/oxyos/apps/.erasing").exists());
+    // A `.erasing` that is a link to the person's folder: only the link goes, never what it names,
+    // and nothing is set aside into it.
+    let documents = dir.0.join("Documents");
+    std::fs::create_dir_all(&documents).unwrap();
+    std::fs::write(documents.join("letter.txt"), "mine").unwrap();
+    std::os::unix::fs::symlink(&documents, dir.0.join("data/oxyos/apps/.erasing")).unwrap();
+    std::fs::create_dir_all(&own.data).unwrap();
+    assert!(own.set_aside().is_err());
+    assert!(own.data.exists(), "its data stays where it is");
+    data::sweep(&bases).unwrap();
+    assert!(std::fs::symlink_metadata(dir.0.join("data/oxyos/apps/.erasing")).is_err());
+    assert_eq!(
+        std::fs::read_to_string(documents.join("letter.txt")).unwrap(),
+        "mine"
+    );
+}
+
+#[test]
+fn an_applications_own_data_is_its_data_and_cache_directories() {
+    // The process's own base directories: whatever they are, its own data is the two it is given.
+    let own = OwnData::of("so.oxy.mention");
+    assert_eq!(
+        own.as_ref().map(|own| own.data.clone()),
+        data_directory("so.oxy.mention")
+    );
+    assert_eq!(
+        own.as_ref().map(|own| own.caches.clone()),
+        cache_directory("so.oxy.mention")
+    );
+    assert_eq!(OwnData::of("../x"), None);
+    assert_eq!(OwnData::of(".erasing"), None, "never an id");
 }
