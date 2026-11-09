@@ -8,7 +8,7 @@
       "ToastAndroid: unavailable",
       "Vibration: unavailable",
       "PermissionsAndroid: unavailable",
-      "Linking.openURL: rejected: OxyOS has no application that opens https links yet",
+      "Linking.openURL: rejected: OxyOS did not open https://oxy.so: OxyOS opens a URL only for something the person did",
       "Share: unavailable",
       "AccessibilityInfo.getRecommendedTimeoutMillis: ok 1000",
       "AccessibilityInfo.isScreenReaderEnabled: ok false",

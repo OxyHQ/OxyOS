@@ -44,7 +44,8 @@ fn service(
 
 fn signed_in(revision: u64) -> Value {
     json!({"snapshot": {"status": "signed_in", "revision": revision, "online": true,
-        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}}})
+        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+            "languages": ["es-ES", "en-GB"]}}})
 }
 
 #[test]
@@ -66,7 +67,8 @@ fn a_snapshot_is_the_services_rebuilt_and_strict() {
     assert_eq!(
         serde_json::to_value(&snapshot).unwrap(),
         json!({"status": "signed_in", "revision": 3, "online": true,
-            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}})
+            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+                "languages": ["es-ES", "en-GB"]}})
     );
     assert!(snapshot_at(&socket).is_err(), "signed in names an account");
     assert!(
@@ -282,6 +284,46 @@ fn an_erase_is_answered_or_refused_with_its_reason_and_wait() {
 }
 
 #[test]
+fn a_save_is_answered_saved_not_saved_or_refused() {
+    let (socket, dir) = socket_path("session");
+    let shapes = [
+        json!({"saved": {}}),
+        json!({"notSaved": {}}),
+        json!({"refused": {"reason": "locked"}}),
+        json!("removed"),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |_| {
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let save = |domain: Option<&str>| {
+        save_password_at(
+            &socket,
+            Secret::new("ada"),
+            Secret::new("made-up-pass"),
+            domain.map(str::to_owned),
+        )
+        .map(|answer| serde_json::to_value(answer).unwrap())
+    };
+    assert_eq!(save(Some("dropsea.net")), Ok(json!({"saved": {}})));
+    assert_eq!(save(None), Ok(json!({"notSaved": {}})));
+    assert_eq!(save(None), Ok(json!({"refused": {"reason": "locked"}})));
+    let failed = save(None).unwrap_err();
+    assert!(!failed.to_string().contains("made-up-pass"));
+    assert_eq!(
+        served.join().unwrap(),
+        [
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass", "domain": "dropsea.net"}}),
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass"}}),
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass"}}),
+            json!({"savePassword": {"username": "ada", "password": "made-up-pass"}}),
+        ]
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn the_platform_is_the_services() {
     let (socket, dir) = socket_path("accountd");
     let answers = std::sync::Mutex::new(
@@ -361,7 +403,7 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert!(
         enrollment.second_factor(&Secret::new("123456")).is_err(),
@@ -380,12 +422,12 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
 fn a_refused_setup_ends_it() {
     let (socket, dir) = socket_path("accountd");
     let served = service(&socket, 1, |message| {
-        // An account without a password: only its PIN is sent, and Oxy cannot set it up yet.
+        // A sign-in by the QR: only its PIN is sent (refused here as the service refuses one it lacks).
         assert_eq!(
             message.clone(),
             json!({"enroll": {"deviceId": "d", "deviceSecret": "s", "accountId": "a", "pin": "4829"}})
         );
-        vec![json!({"refused": {"reason": "passwordRequired"}})]
+        vec![json!({"refused": {"reason": "pinRequired"}})]
     });
     let mut enrollment = Enrollment::connect(&socket).unwrap();
     let answer = enrollment
@@ -400,7 +442,7 @@ fn a_refused_setup_ends_it() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&answer).unwrap(),
-        json!({"refused": {"reason": "passwordRequired", "retryAfterSeconds": null}})
+        json!({"refused": {"reason": "pinRequired", "retryAfterSeconds": null}})
     );
     assert!(enrollment.second_factor(&Secret::new("1")).is_err());
     served.join().unwrap();
@@ -493,4 +535,248 @@ fn the_local_sign_in_is_read_and_changed_on_the_session_socket() {
         json!({"setPasswordSignIn": {"enabled": false, "password": "hunter22"}})
     );
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn settings_keychain_requests_go_rebuilt_and_only_settings_ones() {
+    let (socket, dir) = socket_path("session");
+    let shapes = [
+        json!({"keychainItems": [{"itemId": "i1", "type": "login", "title": "Example",
+            "username": "bea@example.com", "domains": ["example.com"], "hasCode": false,
+            "modifiedAt": "2026-11-08T10:00:00.000Z"}]}),
+        json!({"refused": {"reason": "throttled", "retryAfter": 30}}),
+        json!({"refused": {"reason": "wrongPassword", "retryAfter": 30}}),
+        // Not the keychain's: a token, a snapshot, AutoFill's credential.
+        json!({"token": null}),
+        json!({"autofillCredential": {"username": "bea@example.com", "password": "fixture-secret"}}),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |_| {
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let ask = |request: Value| {
+        keychain_at(&socket, &Secret::new(request.to_string()))
+            .map(|json| serde_json::from_slice::<Value>(&json).unwrap())
+    };
+    assert_eq!(
+        ask(json!({"keychainList": {}})),
+        Ok(
+            json!({"keychainItems": [{"itemId": "i1", "type": "login", "title": "Example",
+            "username": "bea@example.com", "domains": ["example.com"], "hasCode": false,
+            "modifiedAt": "2026-11-08T10:00:00.000Z"}]})
+        )
+    );
+    assert_eq!(
+        ask(json!({"keychainVerify": {"password": "fixture-password"}})),
+        Ok(json!({"refused": {"reason": "throttled", "retryAfter": 30}}))
+    );
+    // A wait is said only when throttled.
+    assert_eq!(
+        ask(json!({"keychainVerify": {"password": "fixture-password"}})),
+        Ok(json!({"refused": {"reason": "wrongPassword"}}))
+    );
+    for _ in 0..2 {
+        let failed = ask(json!({"keychainGenerate": {}})).unwrap_err();
+        assert!(!failed.to_string().contains("fixture-secret"));
+    }
+    served.join().unwrap();
+    // Never sent: the registrar's requests, any other, and what is no request at all.
+    for request in [
+        json!({"autofillGenerate": {}}),
+        json!({"autofillFill": {"desktopEntryId": "so.oxy.dropsea", "ref": "r", "field": "password"}}),
+        json!({"keychainLock": {}}),
+        json!({"eraseAll": {"password": "fixture-password"}}),
+        json!("snapshot"),
+        json!({"keychainVerify": {}}),
+    ] {
+        let refused = ask(request).unwrap_err();
+        assert!(matches!(refused, SessionError::Failed(_)), "{refused:?}");
+        assert!(!refused.to_string().contains("fixture-password"));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
+    let (socket, dir) = socket_path("accountd");
+    let served = service(&socket, 1, |message| {
+        if message.get("enroll").is_some() {
+            vec![
+                json!({"progress": "securing"}),
+                json!({"progress": "verifying"}),
+                json!({"progress": "preparing"}),
+                json!({"progress": "signingIn"}),
+                json!({"failed": {"reason": "unreachable"}}),
+            ]
+        } else {
+            vec![
+                json!({"progress": "preparing"}),
+                json!({"progress": "signingIn"}),
+                json!({"progress": "finishing"}),
+                json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "uid": 1001,
+                "profile": {"id": "a1", "username": "nate", "displayName": null, "avatar": null}}}),
+            ]
+        }
+    });
+    let mut enrollment = Enrollment::connect(&socket).unwrap();
+    assert!(enrollment.retry().is_err(), "nothing sent yet");
+    let told = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let told = told.clone();
+        enrollment.on_progress(Box::new(move |stage| {
+            told.borrow_mut()
+                .push(stage_name(stage).to_str().unwrap().to_owned())
+        }));
+    }
+    enrollment.set_appearance(Appearance::Dark);
+    let failed = enrollment
+        .enroll(
+            "d",
+            &Secret::new("s"),
+            "a",
+            None,
+            Some(&Secret::new("4829")),
+        )
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        serde_json::from_str::<Value>(&failed).unwrap(),
+        json!({"failed": {"reason": "unreachable"}})
+    );
+    assert_eq!(
+        *told.borrow(),
+        ["securing", "verifying", "preparing", "signingIn"]
+    );
+    let enrolled = enrollment.retry().unwrap().to_owned();
+    assert_eq!(
+        serde_json::from_str::<Value>(&enrolled).unwrap(),
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
+    );
+    assert_eq!(told.borrow()[4..], ["preparing", "signingIn", "finishing"]);
+    assert!(
+        enrollment.retry().is_err(),
+        "an ended setup sends nothing more"
+    );
+    let received = served.join().unwrap();
+    assert_eq!(
+        received[0],
+        json!({"enroll": {"deviceId": "d", "deviceSecret": "s", "accountId": "a", "pin": "4829", "appearance": "dark"}})
+    );
+    assert_eq!(received[1], json!("retry"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn the_setups_c_abi_takes_a_progress_function_an_appearance_and_a_retry() {
+    let header: String = include_str!("../../include/oxyos_client.h")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for declared in [
+        "typedef void (*OxyOSAccountEnrollmentProgressFn)(void* context, const char* stage);",
+        "int oxyos_account_enrollment_on_progress(OxyOSAccountEnrollment* enrollment, OxyOSAccountEnrollmentProgressFn progress, void* context);",
+        "int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);",
+        "int64_t oxyos_account_enrollment_retry(OxyOSAccountEnrollment* enrollment, char* out, size_t capacity);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(
+        *mut OxyOSAccountEnrollment,
+        OxyOSAccountEnrollmentProgressFn,
+        *mut c_void,
+    ) -> c_int = oxyos_account_enrollment_on_progress;
+    let _: unsafe extern "C" fn(*mut OxyOSAccountEnrollment, *const c_char) -> c_int =
+        oxyos_account_enrollment_set_appearance;
+    let _: unsafe extern "C" fn(*mut OxyOSAccountEnrollment, *mut c_char, usize) -> i64 =
+        oxyos_account_enrollment_retry;
+    // Null setups are refused, never read; an appearance that is not one sets nothing.
+    // SAFETY: null is the case under test.
+    unsafe {
+        assert_eq!(
+            oxyos_account_enrollment_set_appearance(std::ptr::null_mut(), c"dark".as_ptr()),
+            crate::OXYOS_ERROR
+        );
+        assert_eq!(
+            oxyos_account_enrollment_on_progress(std::ptr::null_mut(), None, std::ptr::null_mut()),
+            crate::OXYOS_ERROR
+        );
+    }
+}
+
+#[test]
+fn a_wait_oxy_asks_of_a_setup_is_told_and_its_answer_waited_for() {
+    let (socket, dir) = socket_path("accountd");
+    let served = service(&socket, 1, |_| {
+        vec![
+            json!({"progress": "signingIn"}),
+            json!({"waiting": {"retryAfterSeconds": 2}}),
+            json!({"progress": "finishing"}),
+            json!({"progress": "confirming"}),
+            json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "uid": 1001,
+            "profile": {"id": "a1", "username": "nate", "displayName": null, "avatar": null}}}),
+        ]
+    });
+    let mut enrollment = Enrollment::connect(&socket).unwrap();
+    let told = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    {
+        let stages = told.clone();
+        enrollment.on_progress(Box::new(move |stage| {
+            stages
+                .borrow_mut()
+                .push(stage_name(stage).to_str().unwrap().to_owned())
+        }));
+        let waits = told.clone();
+        enrollment.on_waiting(Box::new(move |seconds| {
+            waits.borrow_mut().push(format!("waiting {seconds}"))
+        }));
+    }
+    let enrolled = enrollment
+        .enroll(
+            "d",
+            &Secret::new("s"),
+            "a",
+            None,
+            Some(&Secret::new("4829")),
+        )
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        serde_json::from_str::<Value>(&enrolled).unwrap(),
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
+    );
+    assert_eq!(
+        *told.borrow(),
+        ["signingIn", "waiting 2", "finishing", "confirming"]
+    );
+    served.join().unwrap();
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn the_setups_c_abi_takes_a_waiting_function() {
+    let header: String = include_str!("../../include/oxyos_client.h")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    for declared in [
+        "typedef void (*OxyOSAccountEnrollmentWaitingFn)(void* context, uint64_t retry_after_seconds);",
+        "int oxyos_account_enrollment_on_waiting(OxyOSAccountEnrollment* enrollment, OxyOSAccountEnrollmentWaitingFn waiting, void* context);",
+    ] {
+        assert!(header.contains(declared), "{declared} is not in oxyos_client.h");
+    }
+    let _: unsafe extern "C" fn(
+        *mut OxyOSAccountEnrollment,
+        OxyOSAccountEnrollmentWaitingFn,
+        *mut c_void,
+    ) -> c_int = oxyos_account_enrollment_on_waiting;
+    // SAFETY: null is the case under test.
+    unsafe {
+        assert_eq!(
+            oxyos_account_enrollment_on_waiting(std::ptr::null_mut(), None, std::ptr::null_mut()),
+            crate::OXYOS_ERROR
+        );
+    }
 }

@@ -13,14 +13,17 @@ mod keychain;
 #[cfg(feature = "local")]
 mod pin;
 mod platform;
+#[cfg(feature = "local")]
+mod qr;
+mod restart;
 mod session;
 mod setup;
 mod store;
 mod users;
 
 use crate::api::{
-    ApiError, AppToken, Attestation, DeviceCredential, OxyApi, PlatformClient, Profile, SignInStep,
-    SignedIn,
+    ApiError, AppToken, Attestation, DeviceCredential, OxyApi, PlatformClient, Profile,
+    RedemptionKey, SignInStep, SignedIn, Windows,
 };
 use crate::users::{UnixUser, Users, UsersError};
 use crate::{AccountId, Secret, UserName};
@@ -31,6 +34,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 pub(crate) const ACCOUNT: &str = "0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e";
 pub(crate) const OTHER_ACCOUNT: &str = "64f7c2a1b8e9d3f4a1c2b3d4";
@@ -96,8 +100,30 @@ pub(crate) enum Call {
     Profile,
     Password,
     SecondFactor,
+    PlatformDevice,
+    Confirm,
     AppToken,
     SignOut,
+}
+
+/// What goes wrong with the next redemption on its way to Oxy or back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Hiccup {
+    /// It never reaches Oxy.
+    Unreachable,
+    /// Oxy fails for a moment (503) before redeeming anything.
+    Unavailable,
+    /// Oxy redeems it, and its answer is lost on the way back.
+    AnswerLost,
+}
+
+/// A redemption Oxy made (ADR 0058 R7): the proof it spent, the key it was made with, and the
+/// platform credential it issued last.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Redemption {
+    pub(crate) proof: String,
+    pub(crate) key: String,
+    pub(crate) issued: String,
 }
 
 /// Oxy, as its contracts describe it, for one account on one device.
@@ -128,6 +154,36 @@ pub(crate) struct FakeApi {
     pub(crate) minted: Mutex<Vec<Attestation>>,
     /// The platform clients sign-ins named.
     pub(crate) platforms: Mutex<Vec<Option<PlatformClient>>>,
+    /// What goes wrong with each next redemption, in order.
+    pub(crate) hiccups: Mutex<std::collections::VecDeque<Hiccup>>,
+    /// The redemptions made, each repeatable with its key.
+    pub(crate) redemptions: Mutex<Vec<Redemption>>,
+    /// The keys redemptions were asked with, in order.
+    pub(crate) keys: Mutex<Vec<String>>,
+    /// Platform credentials issued and not confirmed yet (R8), each with the live one it replaces
+    /// once confirmed: they prove nothing.
+    pub(crate) pending: Mutex<Vec<(String, Option<String>)>>,
+    /// What goes wrong with each next confirmation, in order.
+    pub(crate) confirm_hiccups: Mutex<std::collections::VecDeque<Hiccup>>,
+    /// The next redemptions are rate-limited, each with this `Retry-After` and, once the proof is
+    /// known (the account's budget, R9), the window left.
+    pub(crate) limited: Mutex<std::collections::VecDeque<(Option<u64>, Option<Duration>)>>,
+    /// The windows a redemption's answer tells (R9), counted from the answer; none: told nothing.
+    pub(crate) windows_told: Mutex<(Option<Duration>, Option<Duration>)>,
+    /// The display name `/users/me` says the account has now (changed on Oxy, say).
+    pub(crate) display_name: Mutex<Option<String>>,
+    /// The avatar `/users/me` says the account has now, and the avatars whose pictures were read.
+    pub(crate) avatar: Mutex<Option<String>>,
+    pub(crate) pictures_asked: Mutex<Vec<String>>,
+    /// Oxy's cloud cannot be reached (its API may be).
+    pub(crate) pictures_offline: std::sync::atomic::AtomicBool,
+}
+
+/// The picture the fake cloud serves for `avatar`: a PNG's signature, then its id.
+pub(crate) fn fake_picture(avatar: &str) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    bytes.extend_from_slice(avatar.as_bytes());
+    bytes
 }
 
 impl Default for FakeApi {
@@ -147,6 +203,17 @@ impl Default for FakeApi {
             token_life: 300,
             minted: Mutex::new(Vec::new()),
             platforms: Mutex::new(Vec::new()),
+            hiccups: Mutex::new(std::collections::VecDeque::new()),
+            redemptions: Mutex::new(Vec::new()),
+            keys: Mutex::new(Vec::new()),
+            pending: Mutex::new(Vec::new()),
+            confirm_hiccups: Mutex::new(std::collections::VecDeque::new()),
+            limited: Mutex::new(std::collections::VecDeque::new()),
+            windows_told: Mutex::new((None, None)),
+            display_name: Mutex::new(Some("Ada Lovelace".into())),
+            avatar: Mutex::new(Some("avatar-file-1".into())),
+            pictures_asked: Mutex::new(Vec::new()),
+            pictures_offline: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -179,27 +246,127 @@ impl FakeApi {
                 .any(|secret| secret == device.device_secret.expose())
     }
 
-    pub(crate) fn revoke(&self) {
-        self.revoked.store(true, Ordering::SeqCst);
+    /// The device's live holder secrets.
+    pub(crate) fn live(&self) -> Vec<String> {
+        self.secrets.lock().unwrap().clone()
     }
 
-    /// A sign-in completed: naming the platform's client, it retires the proof and issues the
-    /// platform credential; otherwise another holder secret beside the others.
-    fn signed_in(&self, device: &DeviceCredential, platform: Option<&PlatformClient>) -> SignedIn {
-        let (user, device_id) = self.signs_in.unwrap_or((ACCOUNT, DEVICE));
-        assert!(self.proven(device), "a sign-in carries the device's proof");
-        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
-        let mut secrets = self.secrets.lock().unwrap();
-        if platform.is_some() {
-            secrets.retain(|secret| secret != device.device_secret.expose());
+    /// The next redemptions go wrong so, in order.
+    pub(crate) fn hiccup(&self, hiccups: &[Hiccup]) {
+        self.hiccups.lock().unwrap().extend(hiccups.iter().copied());
+    }
+
+    /// The proof redeemed for `platform`, or redeemed again with the key it was redeemed with:
+    /// the platform credential it issues, the one a redemption before issued revoked.
+    fn redeem(&self, device: &DeviceCredential, key: &RedemptionKey) -> Option<SignedIn> {
+        if !self.on_device.contains(&ACCOUNT) {
+            return None;
         }
-        secrets.push(issued.clone());
+        if self.proven(device) {
+            // The proof is spent at once (R6): nothing for the new credential to replace.
+            self.secrets
+                .lock()
+                .unwrap()
+                .retain(|secret| secret != device.device_secret.expose());
+            let signed_in = self.issue();
+            self.redemptions.lock().unwrap().push(Redemption {
+                proof: device.device_secret.expose().into(),
+                key: key.expose().into(),
+                issued: signed_in.device_secret.as_ref()?.expose().into(),
+            });
+            return Some(signed_in);
+        }
+        let mut redemptions = self.redemptions.lock().unwrap();
+        let redemption = redemptions.iter_mut().find(|redemption| {
+            device.device_id == DEVICE
+                && redemption.proof == device.device_secret.expose()
+                && redemption.key == key.expose()
+        })?;
+        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
+        // The credential the attempt before issued is revoked, confirmed or not (R7).
+        self.secrets
+            .lock()
+            .unwrap()
+            .retain(|secret| *secret != redemption.issued);
+        let mut pending = self.pending.lock().unwrap();
+        pending.retain(|(secret, _)| *secret != redemption.issued);
+        pending.push((issued.clone(), None));
+        redemption.issued = issued.clone();
+        Some(SignedIn {
+            user_id: ACCOUNT.into(),
+            device_id: DEVICE.into(),
+            device_secret: Some(Secret::new(issued)),
+            windows: self.told(),
+        })
+    }
+
+    /// A platform credential issued pending (R8), nothing replaced: the redemption's.
+    fn issue(&self) -> SignedIn {
+        let (user, device_id) = self.signs_in.unwrap_or((ACCOUNT, DEVICE));
+        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
+        self.pending.lock().unwrap().push((issued.clone(), None));
         SignedIn {
             user_id: user.into(),
             device_id: device_id.into(),
             device_secret: Some(Secret::new(issued)),
+            windows: self.told(),
         }
     }
+
+    /// The windows a redemption's answer tells, counted from now.
+    fn told(&self) -> Windows {
+        let (redemption, confirm) = *self.windows_told.lock().unwrap();
+        Windows {
+            redemption: redemption.map(told_end),
+            confirm: confirm.map(told_end),
+        }
+    }
+
+    /// The pending credentials expire (their ten minutes passed).
+    pub(crate) fn expire(&self) {
+        self.pending.lock().unwrap().clear();
+    }
+
+    /// Whether `secret` was issued and is still pending.
+    pub(crate) fn is_pending(&self, secret: &str) -> bool {
+        self.pending
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(pending, _)| pending == secret)
+    }
+
+    pub(crate) fn revoke(&self) {
+        self.revoked.store(true, Ordering::SeqCst);
+    }
+
+    /// A sign-in completed: naming the platform's client, it issues the platform credential
+    /// pending (R8), which retires the proof once confirmed; otherwise another holder secret
+    /// beside the others.
+    fn signed_in(&self, device: &DeviceCredential, platform: Option<&PlatformClient>) -> SignedIn {
+        let (user, device_id) = self.signs_in.unwrap_or((ACCOUNT, DEVICE));
+        assert!(self.proven(device), "a sign-in carries the device's proof");
+        let issued = platform_secret(self.issued.fetch_add(1, Ordering::SeqCst) + 1);
+        if platform.is_some() {
+            self.pending
+                .lock()
+                .unwrap()
+                .push((issued.clone(), Some(device.device_secret.expose().into())));
+        } else {
+            self.secrets.lock().unwrap().push(issued.clone());
+        }
+        SignedIn {
+            user_id: user.into(),
+            device_id: device_id.into(),
+            device_secret: Some(Secret::new(issued)),
+            windows: Windows::default(),
+        }
+    }
+}
+
+/// A window Oxy tells with `left` to go, as this machine measures it from now.
+pub(crate) fn told_end(left: Duration) -> std::time::Instant {
+    crate::api::window_end(std::time::Instant::now(), left.as_secs())
 }
 
 impl OxyApi for FakeApi {
@@ -230,8 +397,9 @@ impl OxyApi for FakeApi {
         Ok(Profile {
             id: self.profile_id.unwrap_or(id).into(),
             username: Some(USERNAME.into()),
-            display_name: Some("Ada Lovelace".into()),
-            avatar: Some("avatar-file-1".into()),
+            display_name: self.display_name.lock().unwrap().clone(),
+            avatar: self.avatar.lock().unwrap().clone(),
+            languages: Some(vec!["en-GB".into(), "es-ES".into()]),
         })
     }
 
@@ -247,6 +415,7 @@ impl OxyApi for FakeApi {
         if self.locked {
             return Err(ApiError::Locked {
                 retry_after: Some(900),
+                window: None,
             });
         }
         if identifier != USERNAME || password.expose() != self.password {
@@ -273,6 +442,90 @@ impl OxyApi for FakeApi {
             return Err(ApiError::SecondFactorInvalid);
         }
         Ok(self.signed_in(device, platform))
+    }
+
+    fn platform_device_sign_in(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+        key: &RedemptionKey,
+    ) -> Result<SignedIn, ApiError> {
+        self.call(Call::PlatformDevice)?;
+        self.keys.lock().unwrap().push(key.expose().into());
+        if let Some((retry_after, window)) = self.limited.lock().unwrap().pop_front() {
+            return Err(ApiError::Locked {
+                retry_after,
+                window: window.map(told_end),
+            });
+        }
+        let hiccup = self.hiccups.lock().unwrap().pop_front();
+        match hiccup {
+            Some(Hiccup::Unreachable) => {
+                return Err(ApiError::Offline("connection timed out".into()))
+            }
+            Some(Hiccup::Unavailable) => {
+                return Err(ApiError::Refused {
+                    status: 503,
+                    code: None,
+                })
+            }
+            _ => {}
+        }
+        self.platforms.lock().unwrap().push(Some(platform.clone()));
+        if self.locked {
+            return Err(ApiError::Locked {
+                retry_after: Some(900),
+                window: None,
+            });
+        }
+        // Redeemable once (the proof is the handed-over secret, still live), or again with the
+        // key it was redeemed with.
+        let signed_in = self
+            .redeem(device, key)
+            .ok_or(ApiError::InvalidDeviceSecret)?;
+        match hiccup {
+            Some(Hiccup::AnswerLost) => Err(ApiError::Offline("connection reset".into())),
+            _ => Ok(signed_in),
+        }
+    }
+
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError> {
+        self.call(Call::Confirm)?;
+        let hiccup = self.confirm_hiccups.lock().unwrap().pop_front();
+        if hiccup == Some(Hiccup::Unreachable) {
+            return Err(ApiError::Offline("connection timed out".into()));
+        }
+        if hiccup == Some(Hiccup::Unavailable) {
+            return Err(ApiError::Refused {
+                status: 503,
+                code: None,
+            });
+        }
+        let secret = credential.device_secret.expose();
+        if credential.device_id != DEVICE {
+            return Err(ApiError::InvalidDeviceSecret);
+        }
+        let mut pending = self.pending.lock().unwrap();
+        if let Some(index) = pending.iter().position(|(issued, _)| issued == secret) {
+            let (issued, replaces) = pending.remove(index);
+            let mut secrets = self.secrets.lock().unwrap();
+            if let Some(replaces) = replaces {
+                secrets.retain(|live| *live != replaces);
+            }
+            secrets.push(issued);
+        } else if !self
+            .secrets
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|live| live == secret)
+        {
+            return Err(ApiError::InvalidDeviceSecret);
+        }
+        match hiccup {
+            Some(Hiccup::AnswerLost) => Err(ApiError::Offline("connection reset".into())),
+            _ => Ok(()),
+        }
     }
 
     fn mint_app_token(
@@ -309,6 +562,14 @@ impl OxyApi for FakeApi {
         })
     }
 
+    fn picture(&self, avatar: &str) -> Result<Vec<u8>, ApiError> {
+        self.pictures_asked.lock().unwrap().push(avatar.to_owned());
+        if self.pictures_offline.load(Ordering::SeqCst) {
+            return Err(ApiError::Offline("the cloud cannot be reached".into()));
+        }
+        Ok(fake_picture(avatar))
+    }
+
     fn sign_out_device(&self, token: &Secret) -> Result<(), ApiError> {
         self.call(Call::SignOut)?;
         assert!(token.expose().starts_with("token-for-"));
@@ -327,6 +588,7 @@ pub(crate) enum UserStep {
     Lock,
     EndSessions,
     MakeAdministrator,
+    SeedHome,
 }
 
 /// The machine's users, in memory: each user's entry and verifier (the password itself, as a
@@ -342,6 +604,13 @@ pub(crate) struct FakeUsers {
     /// The administrators' group's members.
     pub(crate) administrators: Mutex<BTreeSet<String>>,
     pub(crate) steps: Mutex<Vec<UserStep>>,
+    /// The files written into homes, by path.
+    pub(crate) seeded: Mutex<BTreeMap<PathBuf, String>>,
+    /// Each user's full name (GECOS), as last written, and how many times one was written.
+    pub(crate) full_names: Mutex<BTreeMap<String, String>>,
+    pub(crate) full_name_writes: Mutex<usize>,
+    /// Writing a full name fails.
+    pub(crate) full_name_fails: std::sync::atomic::AtomicBool,
 }
 
 impl FakeUsers {
@@ -385,6 +654,11 @@ impl FakeUsers {
 
     pub(crate) fn steps(&self) -> Vec<UserStep> {
         self.steps.lock().unwrap().clone()
+    }
+
+    /// `name`'s full name (GECOS), as last written.
+    pub(crate) fn full_name(&self, name: &str) -> Option<String> {
+        self.full_names.lock().unwrap().get(name).cloned()
     }
 
     /// Whether `name` is in the administrators' group.
@@ -434,8 +708,13 @@ impl Users for FakeUsers {
 
     fn remove(&self, name: &UserName) -> Result<(), UsersError> {
         self.step(UserStep::Remove)?;
-        // userdel takes the user out of its groups.
+        // userdel takes the user out of its groups, and its home with it.
         self.administrators.lock().unwrap().remove(name.as_str());
+        let home = PathBuf::from(format!("/home/{name}"));
+        self.seeded
+            .lock()
+            .unwrap()
+            .retain(|path, _| !path.starts_with(&home));
         match self.users.lock().unwrap().remove(name.as_str()) {
             Some(_) => Ok(()),
             None => Err(UsersError::Missing),
@@ -457,6 +736,26 @@ impl Users for FakeUsers {
         Ok(())
     }
 
+    fn set_full_name(&self, name: &UserName, full_name: &str) -> Result<bool, UsersError> {
+        if self
+            .full_name_fails
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(UsersError::Failed("usermod failed".into()));
+        }
+        if !self.users.lock().unwrap().contains_key(name.as_str()) {
+            return Err(UsersError::Missing);
+        }
+        let wanted = crate::users::gecos_full_name(full_name);
+        let mut names = self.full_names.lock().unwrap();
+        if names.get(name.as_str()) == Some(&wanted) {
+            return Ok(false);
+        }
+        names.insert(name.as_str().into(), wanted);
+        *self.full_name_writes.lock().unwrap() += 1;
+        Ok(true)
+    }
+
     fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError> {
         Ok(self.administrators.lock().unwrap().contains(name.as_str()))
     }
@@ -470,6 +769,24 @@ impl Users for FakeUsers {
             .lock()
             .unwrap()
             .insert(name.as_str().into());
+        Ok(())
+    }
+
+    fn seed_home(&self, user: &UnixUser, file: &Path, contents: &[u8]) -> Result<(), UsersError> {
+        self.step(UserStep::SeedHome)?;
+        if !self
+            .users
+            .lock()
+            .unwrap()
+            .values()
+            .any(|(made, _)| made == user)
+        {
+            return Err(UsersError::Missing);
+        }
+        self.seeded.lock().unwrap().insert(
+            user.home.join(file),
+            String::from_utf8(contents.to_vec()).unwrap(),
+        );
         Ok(())
     }
 }

@@ -10,13 +10,16 @@ import { DEFAULT_USER_PICTURE } from "./default-user-picture";
 export function UserPicture({
   picture,
   size = 64,
+  testID,
 }: {
   /** The picture's file, as the platform gives it (`file://...`). */
   picture?: string | null;
   size?: number;
+  testID?: string;
 }) {
   return (
     <Box
+      testID={testID}
       className="items-center justify-center overflow-hidden"
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
