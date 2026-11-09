@@ -171,7 +171,7 @@ pub const MAX_SECURE_REGIONS: usize = 32;
 /// The longest path of a screenshot told to the shell (`ScreenshotSaved`, ADR 0024), in bytes.
 pub const MAX_SCREENSHOT_PATH_BYTES: usize = 4096;
 /// A whole level of a control (`ControlLevel`, `SetControlLevel`, ADR 0025): 65536 is all of it.
-pub const FULL_LEVEL: u32 = 65_536;
+pub use oxyos_session_types::FULL_LEVEL;
 /// Largest accepted surface or buffer dimension, in either logical or physical pixels.
 pub const MAX_DIMENSION: u32 = 16_384;
 /// Largest absolute logical coordinate accepted in geometry.

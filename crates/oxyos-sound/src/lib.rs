@@ -12,7 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-pub use oxyos_protocol::SystemSound;
+pub use oxyos_session_types::SystemSound;
 
 mod pipewire_player;
 pub use pipewire_player::PipeWire;

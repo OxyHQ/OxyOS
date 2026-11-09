@@ -19,8 +19,8 @@
 //! Levels are 0 to [`FULL_LEVEL`]; the keys move them in sixteen steps, as a Mac's do, or a
 //! quarter of one with Shift and Alt ([`stepped`]).
 
-use oxyos_protocol::{BatteryState, BluetoothState, WifiState};
-pub use oxyos_protocol::{Control, FULL_LEVEL};
+use oxyos_session_types::{BatteryState, BluetoothState, WifiState};
+pub use oxyos_session_types::{Control, FULL_LEVEL};
 use std::io::{self, Read, Write};
 use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
