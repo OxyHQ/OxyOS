@@ -88,6 +88,26 @@ fn the_charts_say_the_charge_at_each_bins_end_and_nothing_where_no_session_ran()
 }
 
 #[test]
+fn a_session_that_began_on_a_bins_edge_is_charted_at_once() {
+    // Started at noon and charted that same second: the bins end at noon, the last holds it.
+    let records = vec![
+        at(NOON, Event::Session(true)),
+        at(NOON, Event::Display(true)),
+        at(NOON, Event::Battery(64, Charge::Discharging)),
+    ];
+    let charts = history::charts(&records, NOON);
+    assert_eq!(charts.day.end, NOON);
+    assert_eq!(charts.day.levels[95], Some(64));
+    assert!(charts.day.levels[..95].iter().all(Option::is_none));
+    assert_eq!(charts.days.levels[239], Some(64));
+    // A second later the same, in the bin that begins at noon.
+    let charts = history::charts(&records, NOON + 1);
+    assert_eq!(charts.day.end, NOON + 900);
+    assert_eq!(charts.day.levels[95], Some(64));
+    assert!(charts.day.levels[..95].iter().all(Option::is_none));
+}
+
+#[test]
 fn the_display_off_asleep_or_a_session_that_ended_unseen_is_no_use_of_the_screen() {
     let start = NOON - 4 * HOUR;
     let records = vec![
@@ -305,6 +325,73 @@ fn an_application_uses_significant_energy_at_a_fifth_of_a_core_over_a_minute() {
     assert!(!allo.running && !allo.significant && allo.cpu == 60.5);
 }
 
+#[test]
+fn a_drm_clients_memory_is_its_regions_total_once_per_client() {
+    let proc = scratch("proc-drm-memory");
+    process(&proc, 77, (1, 1, 0, 0), 10, &[]);
+    let directory = proc.join("77");
+    // One client open twice (counted once) holding 12 MiB in system memory and 4096 KiB in the
+    // device's; a driver from before the totals says only `drm-memory-*`.
+    for (fd, client, text) in [
+        (
+            5,
+            21,
+            "drm-total-system0:\t12 MiB\ndrm-total-local0:\t4096 KiB\ndrm-shared-system0:\t2 MiB\n",
+        ),
+        (
+            6,
+            21,
+            "drm-total-system0:\t12 MiB\ndrm-total-local0:\t4096 KiB\n",
+        ),
+        (9, 22, "drm-memory-vram:\t1024 KiB\n"),
+    ] {
+        std::os::unix::fs::symlink(
+            "/dev/dri/renderD128",
+            directory.join("fd").join(fd.to_string()),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.join("fdinfo").join(fd.to_string()),
+            format!("drm-pdev:\t0000:00:02.0\ndrm-client-id:\t{client}\ndrm-engine-render:\t5 ns\n{text}"),
+        )
+        .unwrap();
+    }
+    let reader = Proc {
+        root: &proc,
+        ticks: 100,
+    };
+    let drm = reader.drm(77, &mut Default::default());
+    assert_eq!(drm.busy_ns, 10);
+    assert_eq!(drm.memory, (12 << 20) + (4096 << 10) + (1024 << 10));
+}
+
+#[test]
+fn an_applications_average_covers_twelve_hours_or_since_it_began() {
+    let running = vec![Running {
+        pid: 10,
+        id: "so.oxy.inbox".into(),
+        name: "Inbox".into(),
+    }];
+    let hour = Duration::from_secs(3600);
+    let mut meter = Meter::default();
+    // Started an hour before its first sample, having used 36 s by then: a hundredth of a core.
+    meter.sample(hour * 2, &running, &[read(10, 36.0, 0.0, 3600)]);
+    let average = |meter: &Meter, at| meter.report(at)[0].average;
+    assert!((average(&meter, hour * 2) - 0.01).abs() < 1e-9);
+    // Sampled every hour for a day, using 360 s an hour (a tenth of a core) from the fourth on.
+    let mut used = 36.0;
+    for n in 3..=26 {
+        used += if n >= 4 { 360.0 } else { 0.0 };
+        meter.sample(
+            hour * n,
+            &running,
+            &[read(10, used, 0.0, 3600 * (n as u64 - 1))],
+        );
+    }
+    // The last twelve hours: a tenth of a core, whatever came before.
+    assert!((average(&meter, hour * 26) - 0.1).abs() < 1e-9);
+}
+
 // ---- Low Power Mode's signal ----
 
 #[test]
@@ -392,6 +479,7 @@ fn upower_says_the_batterys_health_and_limits_its_charge_through_sysfs() {
         details.charge_limit,
         Some(upower::ChargeLimit {
             enabled: false,
+            kept: false,
             end: Some(80),
             start: Some(75)
         })
@@ -449,6 +537,110 @@ fn oxyos_controls_free_read(bus: &zbus::blocking::Connection) -> (f64, u32, bool
         root.get_property("OnBattery").unwrap(),
         device.get_property("WarningLevel").unwrap(),
     )
+}
+
+/// The charge limit across a reboot, a battery taken out and put back, and a wake, over UPower
+/// played as 1.90.9 keeps it (docs/adr/0057-battery-and-energy.mdx, decision 2, amended): its
+/// choice in its state directory, written again when it starts and when the battery appears,
+/// never when the machine wakes; and the battery's own thresholds, which firmware may forget.
+#[test]
+fn the_charge_limit_survives_a_reboot_and_a_forgotten_one_is_never_claimed() {
+    let directory = scratch("upower-reboot");
+    let sysfs = directory.join("BAT0");
+    let state = directory.join("upower");
+    std::fs::create_dir_all(&sysfs).unwrap();
+    std::fs::create_dir_all(&state).unwrap();
+    // The hardware as a power cycle leaves it: charging full.
+    let forget = || {
+        std::fs::write(sysfs.join("charge_control_start_threshold"), "0").unwrap();
+        std::fs::write(sysfs.join("charge_control_end_threshold"), "100").unwrap();
+    };
+    let read = |name: &str| std::fs::read_to_string(sysfs.join(name)).unwrap();
+    let held = || {
+        (
+            read("charge_control_start_threshold"),
+            read("charge_control_end_threshold"),
+        )
+    };
+    let limited = || ("75".to_string(), "80".to_string());
+    let machine = || {
+        let mut machine = thinkpad(&sysfs);
+        machine.state_dir = Some(state.clone());
+        machine
+    };
+    let limit = |bus: &zbus::blocking::Connection| {
+        upower::details(bus).unwrap().unwrap().charge_limit.unwrap()
+    };
+    forget();
+    let (address, _bus) = private_bus(&directory);
+    let played = Played::serve(&address, machine()).unwrap();
+    let bus = connect(Some(&address)).unwrap();
+    assert!(!limit(&bus).enabled);
+    upower::set_charge_limit(&bus, true).unwrap();
+    // UPower kept the choice, then wrote the thresholds.
+    assert_eq!(
+        std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(),
+        "1"
+    );
+    assert_eq!(held(), limited());
+    assert!(limit(&bus).enabled);
+
+    // A reboot: UPower stops, the hardware is power cycled and forgets, UPower starts again from
+    // its state and writes the thresholds again.
+    drop(played);
+    forget();
+    let played = Played::serve(&address, machine()).unwrap();
+    assert_eq!(held(), limited());
+    let after = limit(&bus);
+    assert!(after.enabled && after.kept, "{after:?}");
+
+    // The battery taken out and put back: UPower writes them again as it appears.
+    played.act(&serde_json::json!({"present": false})).unwrap();
+    assert_eq!(upower::details(&bus).unwrap(), None);
+    forget();
+    played.act(&serde_json::json!({"present": true})).unwrap();
+    assert_eq!(held(), limited());
+    assert!(limit(&bus).enabled);
+
+    // The machine wakes with firmware that forgot them: UPower writes nothing then and still says
+    // on; what is in effect is said, not UPower's choice.
+    forget();
+    let forgotten = limit(&bus);
+    assert!(forgotten.kept && !forgotten.enabled, "{forgotten:?}");
+    // The session keeps UPower's own choice in effect, through UPower: written again, once.
+    assert_eq!(upower::keep_charge_limit(&bus), Ok(true));
+    assert_eq!(held(), limited());
+    assert!(limit(&bus).enabled);
+    assert_eq!(upower::keep_charge_limit(&bus), Ok(false));
+    // Since UPower started again: that one call alone.
+    assert_eq!(
+        played.describe()["calls"],
+        serde_json::json!(["EnableChargeThreshold true"])
+    );
+
+    // Off, kept off across a reboot: nothing written when UPower starts.
+    upower::set_charge_limit(&bus, false).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(state.join("charging-threshold-status")).unwrap(),
+        "0"
+    );
+    drop(played);
+    forget();
+    let played = Played::serve(&address, machine()).unwrap();
+    assert_eq!(held(), ("0".to_string(), "100".to_string()));
+    assert!(!limit(&bus).kept);
+    assert_eq!(upower::keep_charge_limit(&bus), Ok(false));
+    drop(played);
+
+    // polkit refusing: the forgotten limit stays unclaimed.
+    std::fs::write(state.join("charging-threshold-status"), "1").unwrap();
+    let mut refusing = machine();
+    refusing.deny = vec!["charge_limit".into()];
+    let played = Played::serve(&address, refusing).unwrap();
+    forget();
+    assert_eq!(upower::keep_charge_limit(&bus), Err(Failure::NotPermitted));
+    assert!(!limit(&bus).enabled);
+    drop(played);
 }
 
 #[test]
@@ -609,6 +801,90 @@ fn the_machine_sleeps_through_logind_unless_it_may_not() {
     let bus = connect(Some(&address)).unwrap();
     assert_eq!(sleep::suspend(&bus), Err(Failure::NotPermitted));
     assert_eq!(played.describe()["suspends"], 0);
+}
+
+#[test]
+fn the_machine_restarts_and_shuts_down_through_logind_only_when_it_says_yes() {
+    use crate::ending::{self, End, PowerKey};
+    let directory = scratch("ending");
+    let (address, _bus) = private_bus(&directory);
+    let played = Played::serve(&address, thinkpad(&directory)).unwrap();
+    let bus = connect(Some(&address)).unwrap();
+    assert_eq!(ending::can(&bus, End::Restart), Ok(()));
+    ending::end(&bus, End::Restart).unwrap();
+    ending::end(&bus, End::ShutDown).unwrap();
+    let told = played.describe();
+    assert_eq!(told["reboots"], 1);
+    assert_eq!(told["power_offs"], 1);
+    // Never interactive: polkit decides without a prompt.
+    assert_eq!(
+        told["calls"],
+        serde_json::json!(["Reboot false", "PowerOff false"])
+    );
+    // logind's default for the power key, and its inhibitor held while its descriptor is open.
+    assert_eq!(ending::handle_power_key(&bus).unwrap(), "poweroff");
+    let held = ending::hold_power_key(&bus).unwrap();
+    assert_eq!(
+        played.describe()["inhibitors"],
+        serde_json::json!(["handle-power-key"])
+    );
+    drop(held);
+    until(|| played.describe()["inhibitors"] == serde_json::json!([]));
+    drop(played);
+    // Another person's session open: `challenge`, refused without calling, as `no` and `na` are.
+    for (can, failure) in [
+        ("challenge", Failure::NotPermitted),
+        ("no", Failure::NotPermitted),
+        ("na", Failure::Unsupported),
+    ] {
+        let directory = scratch(&format!("ending-{can}"));
+        let (address, _bus) = private_bus(&directory);
+        let mut machine = thinkpad(&directory);
+        machine.can_power_off = can.into();
+        machine.can_reboot = can.into();
+        machine.handle_power_key = "suspend".into();
+        let played = Played::serve(&address, machine).unwrap();
+        let bus = connect(Some(&address)).unwrap();
+        assert_eq!(ending::end(&bus, End::ShutDown), Err(failure));
+        assert_eq!(ending::end(&bus, End::Restart), Err(failure));
+        assert_eq!(played.describe()["calls"], serde_json::json!([]));
+        assert_eq!(
+            PowerKey::of(&ending::handle_power_key(&bus).unwrap()),
+            PowerKey::Sleep
+        );
+    }
+    // polkit refusing the user is said the same way.
+    let directory = scratch("ending-denied");
+    let (address, _bus) = private_bus(&directory);
+    let mut machine = thinkpad(&directory);
+    machine.deny = vec!["power_off".into()];
+    let _played = Played::serve(&address, machine).unwrap();
+    let bus = connect(Some(&address)).unwrap();
+    assert_eq!(ending::end(&bus, End::ShutDown), Err(Failure::NotPermitted));
+    // Nobody there: unavailable.
+    let directory = scratch("ending-nobody");
+    let (address, _bus) = private_bus(&directory);
+    let bus = connect(Some(&address)).unwrap();
+    assert_eq!(ending::end(&bus, End::ShutDown), Err(Failure::Unavailable));
+}
+
+#[test]
+fn the_power_key_follows_loginds_policy_never_an_abrupt_power_off() {
+    use crate::ending::PowerKey;
+    for policy in ["poweroff", "reboot", "halt", "kexec", "factory-reset", ""] {
+        assert_eq!(PowerKey::of(policy), PowerKey::Ask, "{policy}");
+    }
+    for policy in [
+        "suspend",
+        "hibernate",
+        "hybrid-sleep",
+        "suspend-then-hibernate",
+        "sleep",
+    ] {
+        assert_eq!(PowerKey::of(policy), PowerKey::Sleep, "{policy}");
+    }
+    assert_eq!(PowerKey::of("lock"), PowerKey::Lock);
+    assert_eq!(PowerKey::of("ignore"), PowerKey::Ignore);
 }
 
 #[test]

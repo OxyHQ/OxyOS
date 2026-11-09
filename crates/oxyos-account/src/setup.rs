@@ -24,9 +24,10 @@
 //! the store's `ADMINISTRATOR_MADE`), and last the verifier. A failure
 //! undoes what this setup did: a new user is removed with its home (and so leaves the
 //! administrators' group), an enrolled account's file is put back as it was. The
-//! verifier is the last step, so a user whose setup failed was never one a password opens. A
-//! platform credential a failed setup was issued is ended online, as is the one an account set up
-//! again replaces (each is a device of its own): best effort, said if it fails.
+//! verifier is the last step, so a user whose setup failed was never one a password opens. The
+//! platform credential an account set up again replaces is ended online (each is a device of its
+//! own), and so is one a setup was issued and never finished with (below): best effort, said if it
+//! fails.
 //!
 //! Without the network the first step fails, and nothing is done: a first setup never succeeds
 //! offline.
@@ -36,32 +37,147 @@
 //! account's `.local` file, written with the account's file and undone with it. An account set up
 //! again without a PIN keeps the one it had, its wrong attempts forgotten: Oxy was just asked.
 //!
-//! **An account without a password** cannot be set up yet: the platform credential is issued only
-//! by the platform's own password sign-in (Oxy ADR 0058, 2.1), and Oxy has no other way for a
-//! platform to prove the setup client's credential and be issued its own. Such a setup is refused
-//! [`SetupError::PasswordRequired`] before anything is asked of Oxy or changed here; the PIN alone
-//! will set it up once Oxy has that way.
+//! **A sign-in by the QR** (a Commons approval, no password involved; Oxy ADR 0058's device-proof
+//! route): the setup carries a PIN and no password. Oxy redeems the setup client's credential, the
+//! one the QR's claim issued it, once and within ten minutes of the claim, for the platform
+//! credential (`POST /session/device/platform`), retiring it in the same transaction. The PIN is
+//! the account's local credential: no password is asked, offered or made, the user's verifier stays
+//! locked (an enrolled account set up again keeps the one it had), and its password does not sign
+//! in here until Settings turns it on. A setup with neither a password nor a PIN is refused
+//! [`SetupError::PinRequired`] before Oxy is asked.
+//!
+//! **The QR is scanned once** (2026-11-08: a setup on a real machine redeemed the proof, then
+//! `useradd` failed, the platform credential was ended, and the retry found the proof spent). A
+//! transient failure never costs a second scan:
+//!
+//! - Everything on the machine that can fail before Oxy issues the credential is done first: the
+//!   request checked, the PIN's verifier made, the account checked online (once per setup: it
+//!   spends nothing), the account's user made with its home. The redemption is the last step that
+//!   asks Oxy; if it fails, the user just made is removed and the proof is unspent.
+//! - The redemption is made with a [`RedemptionKey`] of this setup's, which only this service
+//!   holds (Oxy ADR 0058 R7). A failure on the way (unreachable, a timeout, a 5xx) is asked again
+//!   with the same key ([`RETRY_DELAYS`]): Oxy answers a repeated redemption afresh, the credential
+//!   it issued before revoked. Still failing: [`SetupError::Offline`], try again. Oxy refusing the
+//!   proof, or a repetition (`invalid_grant`): [`SetupError::CredentialRefused`], sign in again.
+//! - **Oxy asking the redemption to wait** (a 429, its `Retry-After`) is waited and told
+//!   ([`Event::Waiting`]), then asked again with the same key, unless the wait would outlast the
+//!   QR's window as Oxy last told it (ADR 0058 R9: `redemptionWindow`, its seconds measured on
+//!   this machine's monotonic clock from the answer's arrival, less a margin for the way back,
+//!   [`crate::api::Windows`]); then it is [`SetupError::CredentialRefused`]. Before any answer
+//!   told a window, no window decides: the wait is waited (at most [`MAX_WAITS`] of them). The
+//!   setup never counts the window from its own start, which is later than the claim.
+//! - The confirmation is asked again only while the window Oxy told for it (`confirmWindow`)
+//!   lasts; a retry of the person's asks once more all the same (a credential confirmed, its
+//!   answer lost, is confirmed whatever the hour).
+//! - A platform credential the machine then cannot take (its file, its verifier, its
+//!   administrator, a new home's preferences) is kept by the [`Attempt`], in memory alone, and
+//!   [`Setup::advance`] sets the machine up with it again without asking Oxy.
+//! - **Every platform credential is pending until the machine confirms it** (Oxy ADR 0058 R8; the
+//!   platform client says `confirms: true`): it mints nothing and expires with the QR's window (a
+//!   password's sign-in's, ten minutes after it), and the credential it replaces works until then.
+//!   The machine takes the account first, then confirms (`POST /session/device/platform/confirm`,
+//!   asked again while it fails on its way), then the setup is done. Oxy unreachable for it:
+//!   [`SetupError::Offline`], the setup kept, a retry only confirms again. Oxy refusing it (it
+//!   expired): the machine's setup undone, [`SetupError::CredentialRefused`]. So an answer lost on
+//!   its way never leaves a credential live that nobody holds, and a setup abandoned before its
+//!   confirmation ends nothing online ([`Setup::abandon`]). The administrator a setup made is
+//!   recorded once it is confirmed (or kept).
+//!
+//! The password's sign-in keeps an issued credential, and confirms it, the same way. Its user is
+//! made after the sign-in: a wrong password or an authenticator's code asked for leaves no user
+//! made and removed again.
+//!
+//! **Progress**: each step is told as it starts ([`Event::Started`], in this order, any skipped
+//! where it has nothing to do): `securing` (the PIN's verifier), `verifying` (Oxy checks the
+//! credential and names the account), `preparing` (the account's user and home, or the enrolled
+//! one found), `signingIn` (Oxy issues the platform credential), `finishing` (the account's file,
+//! its local sign-in, its administrator, its verifier), `confirming` (Oxy confirms the platform
+//! credential). A step is a name and a wait a number of seconds: never a secret, and nothing the
+//! answer does not say.
+//!
+//! **A new home's appearance**: a setup that made the account's user (not one set up again) seeds
+//! the new home's preferences with the appearance the setup assistant asked for
+//! (`oxyos_preferences`), as the skeleton seeds a home: before any session exists, the user's,
+//! removed with the home if the setup is undone. The session is the file's one writer once it
+//! runs.
 
 use crate::api::{
-    ApiError, DeviceCredential, OxyApi, PlatformClient, Profile, SignInStep, SignedIn,
+    ApiError, DeviceCredential, OxyApi, PlatformClient, Profile, RedemptionKey, SignInStep,
+    SignedIn, Windows,
 };
 use crate::id::{AccountId, InvalidAccountId, UserName};
 use crate::pin::{usable_pin, LocalSignIn, PinRecord};
 use crate::secret::Secret;
 use crate::store::{Enrollment, Store, ADMINISTRATOR_MADE};
-use crate::users::{verifier_password, Users, UsersError};
+use crate::users::{verifier_password, UnixUser, Users, UsersError};
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::path::Path;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// What the setup client hands over: the SDK's credential, the account it signed in, the
-/// account's password (none: the account has none) and the PIN chosen for this computer, if any.
+/// account's password (none: the account has none), the PIN chosen for this computer, if any, and
+/// the appearance a new account's home starts with, if one was chosen.
 #[derive(Debug)]
 pub struct Request {
     pub credential: DeviceCredential,
     pub account: String,
     pub password: Option<Secret>,
     pub pin: Option<Secret>,
+    pub appearance: Option<Appearance>,
 }
+
+/// The appearance the setup assistant asks for, as the preferences name it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Appearance {
+    Light,
+    Dark,
+    Auto,
+}
+
+impl Appearance {
+    pub fn name(self) -> &'static str {
+        match self {
+            Appearance::Light => "light",
+            Appearance::Dark => "dark",
+            Appearance::Auto => "auto",
+        }
+    }
+}
+
+/// A setup's step, reported as it starts (see the module's doc for what each is).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Stage {
+    Securing,
+    Verifying,
+    Preparing,
+    SigningIn,
+    Finishing,
+    /// Oxy confirms the platform credential the machine now holds (Oxy ADR 0058 R8).
+    Confirming,
+}
+
+/// What a setup tells while it runs, before its answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Event {
+    /// A step started.
+    Started(Stage),
+    /// Oxy asked the redemption to wait this many seconds (a 429); it is asked again after.
+    Waiting(u64),
+}
+
+/// How long a redemption Oxy rate-limited waits when Oxy did not say.
+pub const DEFAULT_WAIT: Duration = Duration::from_secs(30);
+
+/// The most waits a redemption makes before it gives up (Oxy's window bounds them too, once told).
+pub const MAX_WAITS: usize = 10;
+
+/// How long a setup waits before asking Oxy's redemption again after a failure on the way: the
+/// redemption is asked once and then once after each of these.
+pub const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(5)];
 
 /// An enrolled account, as the setup client is told of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,24 +188,93 @@ pub struct Enrolled {
     pub profile: Profile,
 }
 
-/// A setup waiting for the authenticator's code. Its secrets are overwritten when it is dropped.
+/// One setup across its conversation's turns (`crate::ipc`): what was handed over, checked; the
+/// key its redemption is made with; the authenticator's challenge while its code is asked for;
+/// and the platform credential a sign-in issued that the machine could not take yet. In memory
+/// alone, never logged; its secrets are overwritten when it is dropped. A platform credential it
+/// still holds when its conversation ends without success is ended online ([`Setup::abandon`]).
 #[derive(Debug)]
-pub struct Pending {
+pub struct Attempt {
     account: AccountId,
+    /// The credential handed over: the setup client's, the QR's proof.
     credential: DeviceCredential,
-    password: Secret,
-    /// The PIN's verifier, made before Oxy was asked.
+    password: Option<Secret>,
+    /// The PIN given, until its verifier is made.
+    pin_given: Option<Secret>,
+    /// The PIN's verifier, made before Oxy is asked, once.
     pin: Option<String>,
-    profile: Profile,
-    challenge: Secret,
-    platform: PlatformClient,
+    appearance: Option<Appearance>,
+    key: RedemptionKey,
+    /// The account as Oxy named it, once it has: checked once per setup.
+    profile: Option<Profile>,
+    /// The authenticator's challenge: its code is asked for.
+    challenge: Option<Secret>,
+    /// The platform credential a sign-in issued, which the machine has not taken yet.
+    held: Option<DeviceCredential>,
+    /// The machine set up with its platform credential, which Oxy has not confirmed yet.
+    committed: Option<Box<Committed>>,
+    /// The QR's windows as Oxy last told them (ADR 0058 R9): none until an answer did.
+    windows: Windows,
 }
+
+/// A setup the machine took, waiting for Oxy to confirm its platform credential: what undoes it
+/// if Oxy will not.
+#[derive(Debug)]
+struct Committed {
+    enrolled: Enrolled,
+    credential: DeviceCredential,
+    /// The credential an account set up again had: ended online once the new one is confirmed.
+    replaced: Option<DeviceCredential>,
+    /// Whether the setup made the account the machine's administrator.
+    administrator: bool,
+    undo: Undo,
+}
+
+/// What undoes a setup the machine took.
+#[derive(Debug)]
+enum Undo {
+    /// The user this setup made, removed with its home and its files.
+    Made,
+    /// The enrolled account's file and local sign-in, put back as they were.
+    Enrolled {
+        previous: Box<Enrollment>,
+        previous_local: Option<LocalSignIn>,
+    },
+}
+
+impl Attempt {
+    /// Whether the authenticator's code is asked for.
+    pub fn second_factor_asked(&self) -> bool {
+        self.challenge.is_some()
+    }
+
+    /// Whether it holds a platform credential the machine has not taken yet.
+    pub fn holds_credential(&self) -> bool {
+        self.held.is_some()
+    }
+
+    /// Whether the machine took the account and waits for Oxy to confirm its credential.
+    pub fn awaits_confirmation(&self) -> bool {
+        self.committed.is_some()
+    }
+}
+
+/// A setup waiting for the authenticator's code: [`Setup::second_factor`] with it.
+pub type Pending = Attempt;
 
 #[derive(Debug)]
 pub enum Progress {
     Enrolled(Enrolled),
     /// The account has an authenticator: [`Setup::second_factor`] with its code.
-    SecondFactor(Pending),
+    SecondFactor(Box<Pending>),
+}
+
+/// Where a setup's turn left it.
+#[derive(Debug)]
+pub enum Step {
+    Enrolled(Enrolled),
+    /// The account has an authenticator: [`Setup::second_factor_of`] with its code.
+    SecondFactor,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -102,10 +287,10 @@ pub enum SetupError {
     UnusablePassword,
     /// Not 4 to 16 digits, or the account's password itself.
     UnusablePin,
-    /// The account has no password, and the platform credential is issued only by the platform's
-    /// password sign-in: Oxy has no way yet to set up an account with a PIN alone.
-    PasswordRequired,
-    /// Oxy cannot be reached: setup needs the network.
+    /// No password and no PIN: an account set up by its QR needs a PIN, its one local credential.
+    PinRequired,
+    /// Oxy cannot be reached, or failed for a moment (a timeout, a 5xx): setup needs the network.
+    /// Nothing was spent that cannot be asked for again: the same setup may try again.
     Offline,
     /// Oxy does not know the device credential.
     CredentialRefused,
@@ -126,7 +311,8 @@ pub enum SetupError {
     /// The machine holds a user of the account's name that is not the enrolled account's, or an
     /// enrolled account whose user is gone. Nothing is changed: an administrator decides.
     Conflict(String),
-    /// The machine could not be changed; what this setup did was undone.
+    /// The machine could not be changed; what this setup did was undone. A sign-in it made is kept
+    /// by its [`Attempt`]: the same setup may try again.
     Failed(String),
     /// The machine could not be changed, and undoing it failed too.
     RollbackFailed { error: String, rollback: String },
@@ -145,10 +331,9 @@ impl fmt::Display for SetupError {
             SetupError::UnusablePin => {
                 f.write_str("a PIN is 4 to 16 digits, and not the account's password")
             }
-            SetupError::PasswordRequired => f.write_str(
-                "an account without a password cannot be set up yet: Oxy issues the platform \
-                 credential only to the platform's password sign-in",
-            ),
+            SetupError::PinRequired => {
+                f.write_str("an account set up without its password needs a PIN")
+            }
             SetupError::Offline => f.write_str("setting up an account needs the network"),
             SetupError::CredentialRefused => f.write_str("Oxy does not know the device credential"),
             SetupError::AccountNotOnDevice => {
@@ -187,7 +372,11 @@ impl From<ApiError> for SetupError {
             ApiError::AccountNotOnDevice => SetupError::AccountNotOnDevice,
             ApiError::InvalidCredentials => SetupError::WrongPassword,
             ApiError::SecondFactorInvalid => SetupError::SecondFactorInvalid,
-            ApiError::Locked { retry_after } => SetupError::Locked { retry_after },
+            ApiError::Locked { retry_after, .. } => SetupError::Locked { retry_after },
+            // Oxy failing for a moment is no answer about the account: as unreachable.
+            ApiError::Refused {
+                status: 500..=599, ..
+            } => SetupError::Offline,
             other => SetupError::Oxy(other.to_string()),
         }
     }
@@ -201,6 +390,13 @@ enum Local {
     Enrolled(Box<Enrollment>),
 }
 
+/// The machine made ready for an account before its credential is taken: a new account's user
+/// made by this setup (its home with it), or an enrolled account's user found as enrolled.
+enum Prepared {
+    Made(UnixUser),
+    Enrolled(Box<Enrollment>),
+}
+
 pub struct Setup<A, U> {
     api: A,
     users: U,
@@ -211,6 +407,10 @@ pub struct Setup<A, U> {
     /// One change to the machine's accounts (a setup, a credential rotated or forgotten) at a
     /// time.
     machine: Mutex<()>,
+    /// The pauses before a redemption or a confirmation that failed on its way is asked again.
+    retry_delays: Vec<Duration>,
+    /// How a setup waits (the tests' own does not).
+    sleep: fn(Duration),
 }
 
 impl<A: OxyApi, U: Users> Setup<A, U> {
@@ -221,7 +421,22 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             store,
             platform: None,
             machine: Mutex::new(()),
+            retry_delays: RETRY_DELAYS.to_vec(),
+            sleep: std::thread::sleep,
         }
+    }
+
+    /// A setup waits with `sleep` (the tests' own, which does not).
+    pub fn with_sleep(mut self, sleep: fn(Duration)) -> Self {
+        self.sleep = sleep;
+        self
+    }
+
+    /// A redemption that failed on its way is asked again after each of `delays` (the tests'
+    /// own, without waiting).
+    pub fn with_retry_delays(mut self, delays: Vec<Duration>) -> Self {
+        self.retry_delays = delays;
+        self
     }
 
     /// Setups name OxyOS's public client `client`.
@@ -246,120 +461,427 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         &self.users
     }
 
-    /// Sets the account up, or asks for its authenticator's code.
+    /// Sets the account up, or asks for its authenticator's code: a setup of its own, which a
+    /// failure ends (a platform credential it was issued ended online with it). The setup
+    /// client's conversation, which may try again, uses [`Setup::start`] and [`Setup::advance`].
     pub fn enroll(&self, request: Request) -> Result<Progress, SetupError> {
-        let platform = self.platform.clone().ok_or(SetupError::NotConfigured)?;
-        let account = AccountId::parse(&request.account)
-            .map_err(|InvalidAccountId| SetupError::InvalidAccount)?;
-        let Some(password) = request.password else {
-            return Err(SetupError::PasswordRequired);
-        };
-        if !verifier_password(&password) {
-            return Err(SetupError::UnusablePassword);
-        }
-        let pin = match &request.pin {
-            None => None,
-            Some(pin) if !usable_pin(pin) || pin.expose() == password.expose() => {
-                return Err(SetupError::UnusablePin)
+        let mut attempt = self.start(request)?;
+        match self.advance(&mut attempt, &mut |_| {}) {
+            Ok(Step::Enrolled(enrolled)) => Ok(Progress::Enrolled(enrolled)),
+            Ok(Step::SecondFactor) => Ok(Progress::SecondFactor(Box::new(attempt))),
+            Err(error) => {
+                self.abandon(&mut attempt);
+                Err(error)
             }
-            Some(pin) => Some(pin_verifier(pin)?),
-        };
-        // A machine that could not take the account is found out before Oxy is asked.
-        {
-            let _machine = self.lock();
-            self.local(&account)?;
-        }
-        let profile = {
-            let token = self.api.mint_token(&request.credential, &account)?;
-            self.api.profile(&token)?
-        };
-        if profile.id != account.as_str() {
-            return Err(SetupError::AccountMismatch);
-        }
-        let username = profile.username.clone().ok_or(SetupError::NoUsername)?;
-        match self.api.sign_in_password(
-            &username,
-            &password,
-            &request.credential,
-            Some(&platform),
-        )? {
-            SignInStep::SignedIn(signed_in) => self
-                .finish(
-                    &account,
-                    &request.credential,
-                    &password,
-                    pin.as_deref(),
-                    profile,
-                    signed_in,
-                )
-                .map(Progress::Enrolled),
-            SignInStep::SecondFactor { challenge } => Ok(Progress::SecondFactor(Pending {
-                account,
-                credential: request.credential,
-                password,
-                pin,
-                profile,
-                challenge,
-                platform,
-            })),
         }
     }
 
     /// The authenticator's code for a setup that asked for it. A wrong code leaves `pending` to
-    /// try another.
-    pub fn second_factor(&self, pending: &Pending, code: &Secret) -> Result<Enrolled, SetupError> {
-        let signed_in = self.api.second_factor(
-            &pending.challenge,
-            code,
-            &pending.credential,
-            Some(&pending.platform),
-        )?;
-        self.finish(
-            &pending.account,
-            &pending.credential,
-            &pending.password,
-            pending.pin.as_deref(),
-            pending.profile.clone(),
-            signed_in,
-        )
+    /// try another; any other failure ends it, as [`Setup::enroll`]'s does.
+    pub fn second_factor(
+        &self,
+        pending: &mut Pending,
+        code: &Secret,
+    ) -> Result<Enrolled, SetupError> {
+        let result = self.second_factor_of(pending, code, &mut |_| {});
+        if matches!(&result, Err(error) if *error != SetupError::SecondFactorInvalid) {
+            self.abandon(pending);
+        }
+        result
     }
 
-    /// The sign-in done: the platform credential it issued kept, or ended online if the machine
-    /// could not take it; the credential an account set up again had, ended online.
-    fn finish(
+    /// A setup, checked before anything is asked of Oxy or done on the machine: OxyOS's client
+    /// configured, the account's id, the password and the PIN usable (a setup without a password,
+    /// the QR's, needs a PIN), and its redemption's key made.
+    pub fn start(&self, request: Request) -> Result<Attempt, SetupError> {
+        if self.platform.is_none() {
+            return Err(SetupError::NotConfigured);
+        }
+        let account = AccountId::parse(&request.account)
+            .map_err(|InvalidAccountId| SetupError::InvalidAccount)?;
+        match (&request.password, &request.pin) {
+            (Some(password), _) if !verifier_password(password) => {
+                return Err(SetupError::UnusablePassword)
+            }
+            (None, None) => return Err(SetupError::PinRequired),
+            (password, Some(pin))
+                if !usable_pin(pin)
+                    || password
+                        .as_ref()
+                        .is_some_and(|password| password.expose() == pin.expose()) =>
+            {
+                return Err(SetupError::UnusablePin)
+            }
+            _ => {}
+        }
+        let key = RedemptionKey::new().map_err(|error| SetupError::Failed(error.to_string()))?;
+        Ok(Attempt {
+            account,
+            credential: request.credential,
+            password: request.password,
+            pin_given: request.pin,
+            pin: None,
+            appearance: request.appearance,
+            key,
+            profile: None,
+            challenge: None,
+            held: None,
+            committed: None,
+            windows: Windows::default(),
+        })
+    }
+
+    /// Sets the account up, reporting each [`Stage`] as it starts, or asks for its
+    /// authenticator's code. Again after a failure: with the platform credential the attempt holds,
+    /// if it holds one (nothing is asked of Oxy), else from the start.
+    pub fn advance(
         &self,
-        account: &AccountId,
-        handed_over: &DeviceCredential,
-        password: &Secret,
-        pin: Option<&str>,
+        attempt: &mut Attempt,
+        progress: &mut dyn FnMut(Event),
+    ) -> Result<Step, SetupError> {
+        let platform = self.platform.clone().ok_or(SetupError::NotConfigured)?;
+        if let Some(pin) = attempt.pin_given.take() {
+            progress(Event::Started(Stage::Securing));
+            attempt.pin = Some(pin_verifier(&pin)?);
+        }
+        if attempt.committed.is_some() {
+            return self.confirm(attempt, progress).map(Step::Enrolled);
+        }
+        if attempt.held.is_some() {
+            return self.take(attempt, None, progress).map(Step::Enrolled);
+        }
+        attempt.challenge = None;
+        // A machine that could not take the account is found out before Oxy is asked.
+        {
+            let _machine = self.lock();
+            self.local(&attempt.account)?;
+        }
+        // Once: a retry may follow a redemption that reached Oxy (its answer lost), which retired
+        // the credential the check mints with. The redemption checks the account again itself.
+        let profile = match attempt.profile.clone() {
+            Some(profile) => profile,
+            None => {
+                progress(Event::Started(Stage::Verifying));
+                let profile = {
+                    let token = self.api.mint_token(&attempt.credential, &attempt.account)?;
+                    self.api.profile(&token)?
+                };
+                if profile.id != attempt.account.as_str() {
+                    return Err(SetupError::AccountMismatch);
+                }
+                attempt.profile = Some(profile.clone());
+                profile
+            }
+        };
+        let Some(password) = &attempt.password else {
+            // The QR's: the user made before the proof is spent, removed if it is not.
+            let prepared = self.prepare(&attempt.account, progress)?;
+            progress(Event::Started(Stage::SigningIn));
+            let signed_in = match self.redeem(attempt, &platform, progress) {
+                Ok(signed_in) => signed_in,
+                Err(error) => return Err(self.unprepare(&attempt.account, prepared, error.into())),
+            };
+            return self
+                .issued(attempt, Some(prepared), profile, signed_in, progress)
+                .map(Step::Enrolled);
+        };
+        let username = profile.username.clone().ok_or(SetupError::NoUsername)?;
+        progress(Event::Started(Stage::SigningIn));
+        match self.api.sign_in_password(
+            &username,
+            password,
+            &attempt.credential,
+            Some(&platform),
+        )? {
+            SignInStep::SignedIn(signed_in) => self
+                .issued(attempt, None, profile, signed_in, progress)
+                .map(Step::Enrolled),
+            SignInStep::SecondFactor { challenge } => {
+                attempt.challenge = Some(challenge);
+                Ok(Step::SecondFactor)
+            }
+        }
+    }
+
+    /// The authenticator's code for a setup that asked for it. A wrong code, or Oxy unreachable,
+    /// leaves the challenge to try another (or the same) code.
+    pub fn second_factor_of(
+        &self,
+        attempt: &mut Attempt,
+        code: &Secret,
+        progress: &mut dyn FnMut(Event),
+    ) -> Result<Enrolled, SetupError> {
+        let platform = self.platform.clone().ok_or(SetupError::NotConfigured)?;
+        let (Some(challenge), Some(profile)) = (&attempt.challenge, &attempt.profile) else {
+            return Err(SetupError::SecondFactorInvalid);
+        };
+        progress(Event::Started(Stage::SigningIn));
+        let signed_in =
+            self.api
+                .second_factor(challenge, code, &attempt.credential, Some(&platform))?;
+        let profile = profile.clone();
+        attempt.challenge = None;
+        self.issued(attempt, None, profile, signed_in, progress)
+    }
+
+    /// What a setup that did not finish leaves. A platform credential it was issued and the
+    /// machine never took is pending at Oxy: it mints nothing and expires with the QR's window, so
+    /// nothing is ended online. A setup the machine took whose confirmation never came back is
+    /// kept: if Oxy confirmed it (its answer lost), the account works; if not, its credential
+    /// expires and the account is one Oxy signed out, set up again online. Its conversation calls
+    /// it when it ends without success.
+    pub fn abandon(&self, attempt: &mut Attempt) {
+        attempt.held = None;
+        if let Some(committed) = attempt.committed.take() {
+            if committed.administrator {
+                self.administered(&committed.enrolled.user);
+            }
+        }
+    }
+
+    /// The QR's redemption, asked again with the same key while it fails on its way, and after
+    /// the wait Oxy asks for while that wait ends within the QR's window; past it, the proof is
+    /// as good as refused.
+    fn redeem(
+        &self,
+        attempt: &mut Attempt,
+        platform: &PlatformClient,
+        progress: &mut dyn FnMut(Event),
+    ) -> Result<SignedIn, ApiError> {
+        let mut delays = self.retry_delays.iter();
+        let mut waits = 0;
+        loop {
+            match self
+                .api
+                .platform_device_sign_in(&attempt.credential, platform, &attempt.key)
+            {
+                Err(error) if on_the_way(&error) => match delays.next() {
+                    Some(delay) => (self.sleep)(*delay),
+                    None => return Err(error),
+                },
+                Err(ApiError::Locked {
+                    retry_after,
+                    window,
+                }) => {
+                    if window.is_some() {
+                        attempt.windows.redemption = window;
+                    }
+                    let wait = retry_after
+                        .map(Duration::from_secs)
+                        .unwrap_or(DEFAULT_WAIT)
+                        .max(Duration::from_secs(1));
+                    waits += 1;
+                    // Only the window Oxy told decides: before one was told, the wait is waited.
+                    let outlasts = attempt
+                        .windows
+                        .redemption
+                        .is_some_and(|end| Instant::now() + wait >= end);
+                    if waits > MAX_WAITS || outlasts {
+                        return Err(ApiError::InvalidDeviceSecret);
+                    }
+                    progress(Event::Waiting(wait.as_secs()));
+                    (self.sleep)(wait);
+                }
+                Ok(signed_in) => {
+                    let told = signed_in.windows;
+                    attempt.windows = Windows {
+                        redemption: told.redemption.or(attempt.windows.redemption),
+                        confirm: told.confirm.or(attempt.windows.confirm),
+                    };
+                    return Ok(signed_in);
+                }
+                answered => return answered,
+            }
+        }
+    }
+
+    /// A sign-in done: the platform credential it issued kept by `attempt`, then taken by the
+    /// machine ([`Setup::take`]).
+    fn issued(
+        &self,
+        attempt: &mut Attempt,
+        prepared: Option<Prepared>,
         profile: Profile,
         signed_in: SignedIn,
+        progress: &mut dyn FnMut(Event),
     ) -> Result<Enrolled, SetupError> {
-        if signed_in.user_id != account.as_str() || signed_in.device_id != handed_over.device_id {
+        if signed_in.user_id != attempt.account.as_str()
+            || signed_in.device_id != attempt.credential.device_id
+        {
             // Not this device's sign-in: whatever it issued is not the machine's to end.
-            return Err(SetupError::AccountMismatch);
+            let error = SetupError::AccountMismatch;
+            return Err(match prepared {
+                Some(prepared) => self.unprepare(&attempt.account, prepared, error),
+                None => error,
+            });
         }
         let Some(secret) = signed_in.device_secret else {
-            return Err(SetupError::Oxy(
-                "the sign-in issued no platform credential".into(),
-            ));
+            let error = SetupError::Oxy("the sign-in issued no platform credential".into());
+            return Err(match prepared {
+                Some(prepared) => self.unprepare(&attempt.account, prepared, error),
+                None => error,
+            });
         };
-        let credential = DeviceCredential {
+        attempt.profile = Some(profile);
+        attempt.held = Some(DeviceCredential {
             device_id: signed_in.device_id,
             device_secret: secret,
+        });
+        self.take(attempt, prepared, progress)
+    }
+
+    /// The machine takes the account with the platform credential `attempt` holds: its user
+    /// (`prepared`, or prepared now), its file, its local sign-in, its administrator, its
+    /// verifier. Taken, the credential is the account's file's, and the one an account set up
+    /// again had is ended online; not taken, `attempt` keeps it.
+    fn take(
+        &self,
+        attempt: &mut Attempt,
+        prepared: Option<Prepared>,
+        progress: &mut dyn FnMut(Event),
+    ) -> Result<Enrolled, SetupError> {
+        let (Some(credential), Some(profile)) = (&attempt.held, &attempt.profile) else {
+            return Err(SetupError::Failed(
+                "no platform credential to set up with".into(),
+            ));
         };
-        match self.commit(account, &credential, password, pin, profile) {
-            Ok((enrolled, replaced)) => {
-                if let Some(replaced) = replaced.filter(|old| old.device_id != credential.device_id)
-                {
-                    self.end_online(&replaced, account);
+        let prepared = match prepared {
+            Some(prepared) => prepared,
+            None => self.prepare(&attempt.account, progress)?,
+        };
+        progress(Event::Started(Stage::Finishing));
+        let (enrolled, replaced, administrator, undo) = self.commit(
+            &attempt.account,
+            prepared,
+            credential,
+            attempt.password.as_ref(),
+            attempt.pin.as_deref(),
+            profile.clone(),
+            attempt.appearance,
+        )?;
+        let credential = attempt.held.take().expect("held, as checked");
+        attempt.committed = Some(Box::new(Committed {
+            enrolled,
+            credential,
+            replaced,
+            administrator,
+            undo,
+        }));
+        self.confirm(attempt, progress)
+    }
+
+    /// Oxy confirms the platform credential the machine took (R8), asked again while that fails
+    /// on its way. Confirmed, the setup is done: the credential an account set up again had is
+    /// ended online. Not reachable, the setup is kept for a retry, which confirms again. Refused
+    /// (the credential expired), the machine's setup is undone: sign in again.
+    fn confirm(
+        &self,
+        attempt: &mut Attempt,
+        progress: &mut dyn FnMut(Event),
+    ) -> Result<Enrolled, SetupError> {
+        let Some(committed) = attempt.committed.as_ref() else {
+            return Err(SetupError::Failed("no setup to confirm".into()));
+        };
+        progress(Event::Started(Stage::Confirming));
+        let mut delays = self.retry_delays.iter();
+        let confirm_by = attempt.windows.confirm;
+        let confirmed = loop {
+            match self.api.confirm_platform_credential(&committed.credential) {
+                Err(error) if on_the_way(&error) || matches!(error, ApiError::Locked { .. }) => {
+                    // Asked again only while the confirmation's window Oxy told lasts; a retry
+                    // of the person's asks once more all the same, since a credential confirmed
+                    // (its answer lost) is confirmed whatever the hour.
+                    let delay = delays.next().filter(|delay| {
+                        confirm_by.is_none_or(|end| Instant::now() + **delay < end)
+                    });
+                    match delay {
+                        Some(delay) => (self.sleep)(*delay),
+                        None => break Err(error),
+                    }
                 }
-                Ok(enrolled)
+                answered => break answered,
+            }
+        };
+        match confirmed {
+            Ok(()) => {
+                let committed = attempt.committed.take().expect("committed, as checked");
+                if committed.administrator {
+                    self.administered(&committed.enrolled.user);
+                }
+                if let Some(replaced) = committed
+                    .replaced
+                    .filter(|old| old.device_id != committed.credential.device_id)
+                {
+                    self.end_online(&replaced, &attempt.account);
+                }
+                // Its picture, as the login screen and its session show it from now on.
+                self.picture_user(&committed.enrolled.user, &committed.enrolled.profile);
+                Ok(committed.enrolled)
+            }
+            Err(error) if on_the_way(&error) || matches!(error, ApiError::Locked { .. }) => {
+                Err(SetupError::Offline)
             }
             Err(error) => {
-                self.end_online(&credential, account);
-                Err(error)
+                let committed = attempt.committed.take().expect("committed, as checked");
+                let refused = match error {
+                    ApiError::InvalidDeviceSecret | ApiError::AccountNotOnDevice => {
+                        SetupError::CredentialRefused
+                    }
+                    other => SetupError::from(other),
+                };
+                Err(self.uncommit(&attempt.account, committed, refused))
             }
+        }
+    }
+
+    /// Undoes a setup the machine took whose credential Oxy will not confirm, after `error`: the
+    /// user it made removed, or the enrolled account's file put back, if the file still holds
+    /// that credential.
+    fn uncommit(
+        &self,
+        account: &AccountId,
+        committed: Box<Committed>,
+        error: SetupError,
+    ) -> SetupError {
+        let _machine = self.lock();
+        let user = account.user_name();
+        let ours = self
+            .store
+            .get(account)
+            .ok()
+            .flatten()
+            .is_some_and(|stored| stored.credential.as_ref() == Some(&committed.credential));
+        if !ours {
+            return error;
+        }
+        let undone = match committed.undo {
+            Undo::Made => {
+                let removed = match self.users.remove(&user) {
+                    Ok(()) | Err(UsersError::Missing) => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                };
+                removed.and(self.store.remove(&user).map_err(|e| e.to_string()))
+            }
+            Undo::Enrolled {
+                previous,
+                previous_local,
+            } => {
+                let local_back = match &previous_local {
+                    Some(local) => self.store.put_local(&user, local),
+                    None => Ok(()),
+                };
+                self.store
+                    .put(&previous)
+                    .and(local_back)
+                    .map_err(|e| e.to_string())
+            }
+        };
+        match undone {
+            Ok(()) => error,
+            Err(rollback) => SetupError::RollbackFailed {
+                error: error.to_string(),
+                rollback,
+            },
         }
     }
 
@@ -420,6 +942,18 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             }
         }
         Ok(false)
+    }
+
+    /// The user's verifier set to `password`; without one, left as it is (a new user's is locked,
+    /// an enrolled account's stays the one it had).
+    fn verify(&self, user: &UserName, password: Option<&Secret>) -> Result<(), String> {
+        match password {
+            Some(password) => self
+                .users
+                .set_verifier(user, password)
+                .map_err(|error| error.to_string()),
+            None => Ok(()),
+        }
     }
 
     /// Makes `user`, whose file was just written, the machine's first administrator, if it has
@@ -485,6 +1019,70 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         Ok(Some(first.user.clone()))
     }
 
+    /// The user's full name (passwd's GECOS) made what the person is called ([`Profile::name`]),
+    /// as the system's own tools then show it. Best effort, under the machine's lock the caller
+    /// holds: a name not written changes nothing else, and is written again when the service
+    /// starts.
+    pub fn name_user(&self, user: &UserName, profile: &Profile) {
+        if let Err(error) = self
+            .users
+            .set_full_name(user, profile.name().unwrap_or_default())
+        {
+            eprintln!("oxyos-accountd: {user}: its full name is not written: {error}");
+        }
+    }
+
+    /// The account's picture made its avatar's (Oxy's cloud read where the machine does not have
+    /// it yet), or removed when it has none: whether it changed. Best effort, never under the
+    /// machine's lock while the cloud is asked: a picture not read is read at the next online
+    /// check, and until then the last one read is shown.
+    pub fn picture_user(&self, user: &UserName, profile: &Profile) -> bool {
+        let Some(avatar) = profile.avatar.as_deref().and_then(crate::api::avatar_id) else {
+            let had = self.store.picture(user, None).is_some();
+            let _machine = self.lock();
+            if let Err(error) = self.store.remove_pictures(user) {
+                eprintln!("oxyos-accountd: {user}: its picture cannot be removed: {error}");
+            }
+            return had;
+        };
+        if self.store.has_picture(user, avatar) {
+            return false;
+        }
+        let bytes = match self.api.picture(avatar) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                eprintln!("oxyos-accountd: {user}: its picture is not read: {error}");
+                return false;
+            }
+        };
+        let _machine = self.lock();
+        // Still enrolled: a removal while the cloud was asked leaves no picture behind.
+        if !matches!(self.store.enrollments(), Ok(all) if all.iter().any(|e| &e.user == user)) {
+            return false;
+        }
+        match self.store.put_picture(user, avatar, &bytes) {
+            Ok(_) => true,
+            Err(error) => {
+                eprintln!("oxyos-accountd: {user}: its picture is not kept: {error}");
+                false
+            }
+        }
+    }
+
+    /// Every enrolled account's user named as [`Setup::name_user`] names it: users set up before
+    /// their names were written, or whose name a write missed, are named when the service starts.
+    pub fn name_users(&self) -> Result<(), String> {
+        let _machine = self.lock();
+        for enrollment in self
+            .store
+            .enrollments()
+            .map_err(|error| error.to_string())?
+        {
+            self.name_user(&enrollment.user, &enrollment.profile);
+        }
+        Ok(())
+    }
+
     fn local(&self, account: &AccountId) -> Result<Local, SetupError> {
         let user = account.user_name();
         let enrollment = self
@@ -513,17 +1111,86 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         }
     }
 
-    /// The machine takes the account: its user, its file with `credential`, its verifier, its
-    /// local sign-in (`pin`, a PIN's verifier). The credential an enrolled account had before, if
-    /// any, is given back.
+    /// The account's user made (`useradd`, its home with it), or the enrolled account's found as
+    /// enrolled: the part of the machine's setup that can fail before the credential is taken.
+    fn prepare(
+        &self,
+        account: &AccountId,
+        progress: &mut dyn FnMut(Event),
+    ) -> Result<Prepared, SetupError> {
+        progress(Event::Started(Stage::Preparing));
+        let _machine = self.lock();
+        let user = account.user_name();
+        match self.local(account)? {
+            Local::Enrolled(enrollment) => Ok(Prepared::Enrolled(enrollment)),
+            Local::New => match self.users.create(&user) {
+                Ok(made) => Ok(Prepared::Made(made)),
+                Err(UsersError::Exists) => Err(SetupError::Conflict(format!(
+                    "a user {user} exists in another database"
+                ))),
+                // No user had the name a moment ago, under the lock: whatever useradd left of it
+                // is this setup's to remove.
+                Err(error) => {
+                    let error = error.to_string();
+                    Err(match self.users.remove(&user) {
+                        Ok(()) | Err(UsersError::Missing) => SetupError::Failed(error),
+                        Err(rollback) => SetupError::RollbackFailed {
+                            error,
+                            rollback: rollback.to_string(),
+                        },
+                    })
+                }
+            },
+        }
+    }
+
+    /// Undoes [`Setup::prepare`] after `error`: a user it made is removed with its home.
+    fn unprepare(&self, account: &AccountId, prepared: Prepared, error: SetupError) -> SetupError {
+        let Prepared::Made(_) = prepared else {
+            return error;
+        };
+        let _machine = self.lock();
+        match self.users.remove(&account.user_name()) {
+            Ok(()) | Err(UsersError::Missing) => error,
+            Err(rollback) => SetupError::RollbackFailed {
+                error: error.to_string(),
+                rollback: rollback.to_string(),
+            },
+        }
+    }
+
+    /// Seeds the home of `made`, a user this setup made, with the appearance chosen.
+    fn seed(&self, made: &UnixUser, appearance: Option<Appearance>) -> Result<(), String> {
+        let Some(appearance) = appearance else {
+            return Ok(());
+        };
+        let mut preferences = oxyos_preferences::Preferences::default();
+        preferences
+            .set("appearance", appearance.name())
+            .map_err(|_| "the appearance is not a preference".to_owned())?;
+        let file = oxyos_preferences::path(None, Some(&made.home))
+            .and_then(|path| path.strip_prefix(&made.home).ok().map(Path::to_owned))
+            .ok_or_else(|| "the preferences are not in the home".to_owned())?;
+        self.users
+            .seed_home(made, &file, preferences.to_text().as_bytes())
+            .map_err(|error| error.to_string())
+    }
+
+    /// The machine takes the account (`prepared` for it): its file with `credential`, its local
+    /// sign-in (`pin`, a PIN's verifier), a new home's preferences, its administrator, its
+    /// verifier. A failure undoes it, the user this setup made removed. The credential an enrolled
+    /// account had before, if any, is given back.
+    #[allow(clippy::too_many_arguments)]
     fn commit(
         &self,
         account: &AccountId,
+        prepared: Prepared,
         credential: &DeviceCredential,
-        password: &Secret,
+        password: Option<&Secret>,
         pin: Option<&str>,
         profile: Profile,
-    ) -> Result<(Enrolled, Option<DeviceCredential>), SetupError> {
+        appearance: Option<Appearance>,
+    ) -> Result<(Enrolled, Option<DeviceCredential>, bool, Undo), SetupError> {
         let _machine = self.lock();
         let user = account.user_name();
         // The password signs in again; the PIN given replaces the one it had, and one kept has its
@@ -543,7 +1210,11 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                         ..record
                     }),
             },
-            password: true,
+            // A password given signs in; without one, an enrolled account keeps what it had and a
+            // new one has the PIN alone.
+            password: password.is_some()
+                || previous_local.as_ref().is_some_and(|local| local.password)
+                    && self.store.get(account).ok().flatten().is_some(),
         };
         let enrollment = |uid| Enrollment {
             account: account.clone(),
@@ -557,29 +1228,25 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             password_changed: false,
         };
         let mut replaced = None;
-        let uid = match self.local(account)? {
-            Local::New => {
-                let made = match self.users.create(&user) {
-                    Ok(made) => made,
-                    Err(UsersError::Exists) => {
-                        return Err(SetupError::Conflict(format!(
-                            "a user {user} exists in another database"
-                        )))
-                    }
-                    // No user had the name a moment ago, under the lock: whatever useradd left
-                    // of it is this setup's to remove.
-                    Err(error) => {
-                        let error = error.to_string();
-                        return Err(match self.users.remove(&user) {
-                            Ok(()) | Err(UsersError::Missing) => SetupError::Failed(error),
-                            Err(rollback) => SetupError::RollbackFailed {
-                                error,
-                                rollback: rollback.to_string(),
-                            },
-                        });
-                    }
-                };
-                let undo = || {
+        let administrator;
+        let undo;
+        let uid = match prepared {
+            Prepared::Made(made) => {
+                // Still the user this setup made, with no account enrolled for it meanwhile.
+                let found = self
+                    .users
+                    .lookup(&user)
+                    .map_err(|error| SetupError::Failed(error.to_string()))?;
+                let enrolled = self
+                    .store
+                    .get(account)
+                    .map_err(|error| SetupError::Failed(error.to_string()))?;
+                if found.map(|found| found.uid) != Some(made.uid) || enrolled.is_some() {
+                    return Err(SetupError::Conflict(format!(
+                        "{user} changed while it was set up"
+                    )));
+                }
+                let remove_made = || {
                     let removed = self.users.remove(&user).map_err(|e| e.to_string());
                     let forgotten = self.store.remove(&user).map_err(|e| e.to_string());
                     removed.and(forgotten)
@@ -589,26 +1256,32 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                     .put(&enrollment(made.uid))
                     .and_then(|()| self.store.put_local(&user, &local))
                     .map_err(|error| error.to_string())
+                    .and_then(|()| self.seed(&made, appearance))
                     .and_then(|()| self.administer(&user))
-                    .and_then(|administrator| {
-                        self.users
-                            .set_verifier(&user, password)
-                            .map_err(|error| error.to_string())
-                            .map(|()| administrator)
-                    });
-                match done {
-                    Ok(true) => self.administered(&user),
-                    Ok(false) => {}
+                    .and_then(|administrator| self.verify(&user, password).map(|()| administrator));
+                // Recorded once Oxy confirms the credential: a setup undone made no administrator.
+                administrator = match done {
+                    Ok(made_administrator) => made_administrator,
                     Err(error) => {
-                        return Err(match undo() {
+                        return Err(match remove_made() {
                             Ok(()) => SetupError::Failed(error),
                             Err(rollback) => SetupError::RollbackFailed { error, rollback },
                         })
                     }
-                }
+                };
+                undo = Undo::Made;
                 made.uid
             }
-            Local::Enrolled(previous) => {
+            Prepared::Enrolled(prepared) => {
+                // As it is now: Settings or the platform may have changed it meanwhile.
+                let previous = match self.local(account)? {
+                    Local::Enrolled(previous) if previous.uid == prepared.uid => previous,
+                    _ => {
+                        return Err(SetupError::Conflict(format!(
+                            "{user} changed while it was set up"
+                        )))
+                    }
+                };
                 let uid = previous.uid;
                 self.store
                     .put(&enrollment(uid))
@@ -618,15 +1291,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                     .put_local(&user, &local)
                     .map_err(|error| error.to_string())
                     .and_then(|()| self.administer(&user))
-                    .and_then(|administrator| {
-                        self.users
-                            .set_verifier(&user, password)
-                            .map_err(|error| error.to_string())
-                            .map(|()| administrator)
-                    });
-                if let Ok(true) = done {
-                    self.administered(&user);
-                }
+                    .and_then(|administrator| self.verify(&user, password).map(|()| administrator));
                 if let Err(error) = done {
                     let local_back = match &previous_local {
                         Some(local) => self.store.put_local(&user, local),
@@ -640,10 +1305,19 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                         },
                     });
                 }
-                replaced = previous.credential;
+                administrator = done.unwrap_or(false);
+                replaced = previous.credential.as_ref().map(|old| DeviceCredential {
+                    device_id: old.device_id.clone(),
+                    device_secret: Secret::new(old.device_secret.expose()),
+                });
+                undo = Undo::Enrolled {
+                    previous,
+                    previous_local,
+                };
                 uid
             }
         };
+        self.name_user(&user, &profile);
         Ok((
             Enrolled {
                 account: account.clone(),
@@ -652,8 +1326,23 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 profile,
             },
             replaced,
+            administrator,
+            undo,
         ))
     }
+}
+
+/// Whether a request failed on its way, so that it may or may not have reached Oxy: unreachable,
+/// timed out, or a 5xx.
+fn on_the_way(error: &ApiError) -> bool {
+    matches!(
+        error,
+        ApiError::Offline(_)
+            | ApiError::Refused {
+                status: 500..=599,
+                ..
+            }
+    )
 }
 
 /// A PIN's verifier, made off the machine's lock (Argon2id takes a moment).

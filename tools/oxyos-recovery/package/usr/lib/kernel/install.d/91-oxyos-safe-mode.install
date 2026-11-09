@@ -1,0 +1,22 @@
+#!/bin/sh
+# OxyOS Safe Mode's boot entry for each kernel (docs/adr/0054-recovery-and-erasing.mdx, decision
+# 10). kernel-install runs it after Debian's 90-loaderentry.install wrote the kernel's own entry:
+# the recovery's program writes Safe Mode's beside it (the same kernel, initramfs and command line,
+# with oxyos.safe-mode=1), and removes it with the kernel. Only for systemd-boot's entries (the
+# "bls" layout); anything else is not OxyOS's boot.
+set -e
+
+COMMAND="$1"
+KERNEL_VERSION="$2"
+
+[ "$KERNEL_INSTALL_LAYOUT" = "bls" ] || exit 0
+[ -n "$KERNEL_INSTALL_BOOT_ROOT" ] || exit 0
+[ -n "$KERNEL_INSTALL_ENTRY_TOKEN" ] || exit 0
+
+case "$COMMAND" in
+    add|remove)
+        exec oxyos-recovery safe-mode-entry "$COMMAND" "$KERNEL_VERSION" \
+            --boot-root "$KERNEL_INSTALL_BOOT_ROOT" --entry-token "$KERNEL_INSTALL_ENTRY_TOKEN"
+        ;;
+esac
+exit 0

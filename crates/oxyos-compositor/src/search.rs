@@ -197,6 +197,9 @@ pub struct Search {
     /// The order to stop the thread that follows the applications, and the thread.
     stop: Arc<Stop>,
     following: Option<JoinHandle<()>>,
+    /// Applications reset (docs/adr/0061, decision 5) whose donated items the service is still to
+    /// forget: told as it starts.
+    forgotten: Vec<String>,
 }
 
 impl Drop for Search {
@@ -245,7 +248,22 @@ impl Search {
             woken,
             stop: Arc::new(Stop::new()?),
             following: None,
+            forgotten: Vec::new(),
         })
+    }
+
+    /// The application `id` was reset (docs/adr/0061-crashes-and-resetting-an-application.mdx,
+    /// decision 5): what it donated to the index is its own data, and the service forgets it, now
+    /// or as it next starts.
+    pub fn forget_application(&mut self, id: &str) {
+        let forget = json!({ "forget": { "application": id } });
+        match &self.running {
+            Some(running) => running.tell(&forget),
+            None if !self.forgotten.iter().any(|forgotten| forgotten == id) => {
+                self.forgotten.push(id.to_string())
+            }
+            None => {}
+        }
     }
 
     /// What wakes the compositor's turn when a thread has something (`Compositor::wakers`).
@@ -419,6 +437,11 @@ impl Search {
         self.tell_languages();
         self.applications = None;
         self.tell_applications();
+        if let Some(running) = &self.running {
+            for id in std::mem::take(&mut self.forgotten) {
+                running.tell(&json!({ "forget": { "application": id } }));
+            }
+        }
         for ask in std::mem::take(&mut self.held) {
             self.send(scene, ask);
         }

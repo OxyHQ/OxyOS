@@ -63,8 +63,9 @@ class OxyOSShellSurfaceProps final : public ViewProps {
   // Whether the windows its views show are moved into them (App Exposé, docs/adr/0045-app-expose.mdx):
   // drawn there alone while it shows, flying from where they are as it arrives and back as it goes.
   bool movesWindows{false};
-  // Which view a touchpad's swipe drives it is (docs/adr/0046-interactive-gestures.mdx): "" none,
-  // "mission-control" or "app-expose": the swipe draws it as far as the fingers have it.
+  // Which view a touchpad's gesture drives it is (docs/adr/0046-interactive-gestures.mdx): "" none,
+  // "mission-control" or "app-expose" (swiped up and down) or "launchpad" (the thumb and three
+  // fingers pinched): the gesture draws it as far as the fingers have it.
   std::string gesture;
 };
 

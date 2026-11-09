@@ -12,11 +12,18 @@
 //! submitted it), which the session takes only from the shell, only for a password sheet it is
 //! showing and never while locked, and hands to the daemon. A wrong one asks again, saying so;
 //! cancelling ends the join. Whoever asked to join learns only whether it joined.
+//!
+//! A known network's private Wi-Fi address is set (and the network joined again when it is the
+//! one joined), the network settings reset (what the person may remove of the daemon's saved
+//! connections, after Settings showed what goes) and Wi-Fi Diagnostics run, each only when asked
+//! (docs/adr/0038-networks.mdx, 8 November 2026).
 
 use crate::stop::{identity, Stop};
 use oxyos_compositor_core::scene::SystemRequest;
 use oxyos_compositor_core::{ClientId, Scene};
-use oxyos_networks::{Changes, Failure, Follow, Plan, Secret, State};
+use oxyos_networks::{
+    Changes, Failure, Follow, Plan, PrivateAddress, Probe, Rejoin, ResetPlan, Secret, State, Survey,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -37,6 +44,14 @@ pub trait Daemon {
     fn plan(&self, ssid: &str) -> Result<Plan, Failure>;
     /// Joins and waits until it is joined or given up.
     fn join(&self, ssid: &str, password: Option<&Secret>) -> Result<(), Failure>;
+    /// Sets a known network's private address, and joins it again when it is the one joined.
+    fn set_private_address(&self, id: &str, mode: PrivateAddress) -> Result<Rejoin, Failure>;
+    /// What resetting the network settings would remove and keep.
+    fn reset_plan(&self) -> Result<ResetPlan, Failure>;
+    /// Resets them: what was removed and what was kept.
+    fn reset(&self) -> Result<ResetPlan, Failure>;
+    /// What Wi-Fi Diagnostics read of the daemon.
+    fn survey(&self) -> Result<Survey, Failure>;
 }
 
 /// How the session reaches the daemon: a connection for each call, and the daemon followed.
@@ -49,6 +64,8 @@ pub trait Reach: Send + Sync {
     /// What to wait for to be made, when it cannot be followed, before it is tried again: the
     /// bus's socket. `None`: nothing to wait for; it is not tried again.
     fn socket(&self) -> Option<PathBuf>;
+    /// What Wi-Fi Diagnostics ask of the network beyond the daemon: the router, the resolver.
+    fn probe(&self) -> Arc<dyn Probe>;
 }
 
 impl Daemon for oxyos_networks::NetworkManager {
@@ -70,12 +87,26 @@ impl Daemon for oxyos_networks::NetworkManager {
     fn join(&self, ssid: &str, password: Option<&Secret>) -> Result<(), Failure> {
         oxyos_networks::NetworkManager::join(self, ssid, password)
     }
+    fn set_private_address(&self, id: &str, mode: PrivateAddress) -> Result<Rejoin, Failure> {
+        oxyos_networks::NetworkManager::set_private_address(self, id, mode)
+    }
+    fn reset_plan(&self) -> Result<ResetPlan, Failure> {
+        oxyos_networks::NetworkManager::reset_plan(self)
+    }
+    fn reset(&self) -> Result<ResetPlan, Failure> {
+        oxyos_networks::NetworkManager::reset(self)
+    }
+    fn survey(&self) -> Result<Survey, Failure> {
+        oxyos_networks::NetworkManager::survey(self)
+    }
 }
 
 /// NetworkManager on the system bus, or on the bus at `address` (the development compositor's
-/// played daemon).
+/// played daemon), and the network behind it as Wi-Fi Diagnostics probe it (the machine's own,
+/// or the played daemon's played network).
 pub struct Bus {
     pub address: Option<String>,
+    pub probe: Arc<dyn Probe>,
 }
 
 impl Reach for Bus {
@@ -97,6 +128,10 @@ impl Reach for Bus {
     fn socket(&self) -> Option<PathBuf> {
         oxyos_networks::bus_socket(self.address.as_deref())
     }
+
+    fn probe(&self) -> Arc<dyn Probe> {
+        self.probe.clone()
+    }
 }
 
 /// What a client asks, read strictly.
@@ -115,10 +150,29 @@ enum Ask {
     Wifi { enabled: bool },
     /// The shell alone, with an input: the password typed into a password sheet.
     Password { sheet: u32, password: String },
+    /// With an input: a known network's private Wi-Fi address.
+    PrivateAddress { id: String, mode: PrivateAddress },
+    /// What resetting the network settings would remove and keep.
+    NetworkResetPreview {},
+    /// With an input: reset them.
+    NetworkReset {},
+    /// With an input (it sends to the router and asks the resolver): Wi-Fi Diagnostics, once.
+    WifiDiagnostics {},
 }
 
 /// The vocabulary's names: a request naming one of them is this part's.
-const ASKS: [&str; 6] = ["networks", "scan", "join", "forget", "wifi", "password"];
+const ASKS: [&str; 10] = [
+    "networks",
+    "scan",
+    "join",
+    "forget",
+    "wifi",
+    "password",
+    "privateAddress",
+    "networkResetPreview",
+    "networkReset",
+    "wifiDiagnostics",
+];
 
 fn ours(text: &str) -> bool {
     serde_json::from_str::<HashMap<String, serde::de::IgnoredAny>>(text)
@@ -213,9 +267,16 @@ impl Networks {
         })
     }
 
-    /// NetworkManager on the system bus, or at `address`.
+    /// NetworkManager on the system bus, or at `address`, the machine's network probed by
+    /// diagnostics.
     pub fn on_bus(address: Option<String>) -> io::Result<Self> {
-        Self::new(Arc::new(Bus { address }))
+        Self::on_bus_probed(address, Arc::new(oxyos_networks::SystemProbe))
+    }
+
+    /// NetworkManager at `address`, diagnostics probing the network through `probe` (the
+    /// development compositor's played network).
+    pub fn on_bus_probed(address: Option<String>, probe: Arc<dyn Probe>) -> io::Result<Self> {
+        Self::new(Arc::new(Bus { address, probe }))
     }
 
     /// What wakes the compositor's turn when a thread is done (`Compositor::wakers`).
@@ -386,7 +447,10 @@ impl Networks {
             refuse(scene, "notPermitted");
             return;
         }
-        let changes = !matches!(ask, Ask::Networks {} | Ask::Scan {});
+        let changes = !matches!(
+            ask,
+            Ask::Networks {} | Ask::Scan {} | Ask::NetworkResetPreview {}
+        );
         if changes && !request.with_input {
             refuse(scene, "needsInput");
             return;
@@ -477,6 +541,67 @@ impl Networks {
                 }
                 answer(back, text.to_string());
             }),
+            Ask::PrivateAddress { id, mode } => self.spawn(move |daemon, back| {
+                // Set, it says whether the network joined was joined again, or why it was not.
+                let text = match daemon.set_private_address(&id, mode) {
+                    Ok(Rejoin::NotJoined) => {
+                        json!({"privateAddress": {"mode": mode.name(), "rejoined": false}})
+                    }
+                    Ok(Rejoin::Rejoined) => {
+                        json!({"privateAddress": {"mode": mode.name(), "rejoined": true}})
+                    }
+                    Ok(Rejoin::Failed(failure)) => json!({"privateAddress": {
+                        "mode": mode.name(), "rejoined": false, "rejoinFailed": failure.reason(),
+                    }}),
+                    Err(failure) => failed(failure),
+                };
+                if let Ok(state) = daemon.state() {
+                    back.send(Done::State(Box::new(state)));
+                }
+                answer(back, text.to_string());
+            }),
+            Ask::NetworkResetPreview {} => self.spawn(move |daemon, back| {
+                let text = match daemon.reset_plan() {
+                    Ok(plan) => json!({ "networkResetPreview": plan }),
+                    Err(failure) => failed(failure),
+                };
+                answer(back, text.to_string());
+            }),
+            Ask::NetworkReset {} => {
+                // Not while a join is under way: it would add back what is being removed.
+                if self.joining.is_some() {
+                    scene.system_text(client, serial, &failed_text("busy"));
+                    return;
+                }
+                self.spawn(move |daemon, back| {
+                    let text = match daemon.reset() {
+                        Ok(done) => json!({ "networkReset": done }),
+                        Err(failure) => failed(failure),
+                    };
+                    if let Ok(state) = daemon.state() {
+                        back.send(Done::State(Box::new(state)));
+                    }
+                    answer(back, text.to_string());
+                })
+            }
+            Ask::WifiDiagnostics {} => {
+                let reach = self.reach.clone();
+                self.spawn(move |daemon, back| {
+                    let text = match daemon.survey() {
+                        Ok(survey) => {
+                            let probe = reach.probe();
+                            let found = oxyos_networks::diagnose(
+                                &survey,
+                                probe.as_ref(),
+                                oxyos_networks::DIAGNOSTIC_NAME,
+                            );
+                            json!({ "wifiDiagnostics": found })
+                        }
+                        Err(failure) => failed(failure),
+                    };
+                    answer(back, text.to_string());
+                })
+            }
             Ask::Join { ssid } => {
                 if self.joining.is_some() {
                     scene.system_text(client, serial, &failed_text("busy"));
@@ -564,6 +689,18 @@ impl Daemon for Absent {
         Err(Failure::Unavailable)
     }
     fn join(&self, _: &str, _: Option<&Secret>) -> Result<(), Failure> {
+        Err(Failure::Unavailable)
+    }
+    fn set_private_address(&self, _: &str, _: PrivateAddress) -> Result<Rejoin, Failure> {
+        Err(Failure::Unavailable)
+    }
+    fn reset_plan(&self) -> Result<ResetPlan, Failure> {
+        Err(Failure::Unavailable)
+    }
+    fn reset(&self) -> Result<ResetPlan, Failure> {
+        Err(Failure::Unavailable)
+    }
+    fn survey(&self) -> Result<Survey, Failure> {
         Err(Failure::Unavailable)
     }
 }

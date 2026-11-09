@@ -46,11 +46,8 @@
     {
       "name": "Bloquear pantalla: the lock screen shows the same wallpaper, dimmed",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "expect": {
         "shell": {
