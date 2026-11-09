@@ -19,6 +19,7 @@ fn request(password: Option<&str>, pin: Option<&str>) -> Request {
         account: ACCOUNT.into(),
         password: password.map(Secret::new),
         pin: pin.map(Secret::new),
+        appearance: None,
     }
 }
 
@@ -76,7 +77,7 @@ fn a_pin_given_at_setup_becomes_its_verifier_and_is_listed() {
     // Oxy saw the password, as before, and never the PIN.
     assert_eq!(
         setup.api().calls(),
-        vec![Call::Mint, Call::Profile, Call::Password]
+        vec![Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     let local = setup.store().local(&name()).unwrap();
     assert!(local.password);
@@ -99,11 +100,58 @@ fn a_pin_given_at_setup_becomes_its_verifier_and_is_listed() {
 }
 
 #[test]
-fn an_account_without_a_password_is_refused_before_oxy_is_asked() {
+fn a_qr_sign_in_is_set_up_with_its_pin_alone_by_the_device_proof_route() {
+    let (setup, _dir) = setup();
+    match setup.enroll(request(None, Some(PIN))).unwrap() {
+        Progress::Enrolled(enrolled) => assert_eq!(enrolled.account, account()),
+        other => panic!("{other:?}"),
+    }
+    // No password was asked of Oxy: the handed-over credential redeemed for the platform's.
+    assert_eq!(
+        setup.api().calls(),
+        vec![
+            Call::Mint,
+            Call::Profile,
+            Call::PlatformDevice,
+            Call::Confirm
+        ]
+    );
+    assert_eq!(
+        *setup.api().platforms.lock().unwrap(),
+        [Some(platform_client())]
+    );
+    let stored = setup.store().get(&account()).unwrap().unwrap();
+    assert_eq!(
+        stored.credential.unwrap().device_secret.expose(),
+        platform_secret(1)
+    );
+    assert!(!setup
+        .api()
+        .secrets
+        .lock()
+        .unwrap()
+        .contains(&DEVICE_SECRET.to_string()));
+    // The PIN is its one local credential: no verifier was set, and the password signs nothing in.
+    assert_eq!(setup.users().verifier(&name()), None);
+    assert!(!setup.users().steps().contains(&UserStep::SetVerifier));
+    let local = setup.store().local(&name()).unwrap();
+    assert!(!local.password);
+    assert!(crate::pin::verify_pin(&local.pin.unwrap().verifier, &Secret::new(PIN)).unwrap());
+    let (listed, _) = setup.store().list().unwrap();
+    assert_eq!(listed[0].pin, PinState::Set);
+    assert!(!listed[0].password);
+}
+
+#[test]
+fn a_qr_sign_in_without_a_pin_is_refused_before_oxy_is_asked() {
     let (setup, _dir) = setup();
     assert_eq!(
-        setup.enroll(request(None, Some(PIN))).unwrap_err(),
-        SetupError::PasswordRequired
+        setup.enroll(request(None, None)).unwrap_err(),
+        SetupError::PinRequired
+    );
+    assert_eq!(
+        setup.enroll(request(None, Some("12"))).unwrap_err(),
+        SetupError::UnusablePin
     );
     assert!(setup.api().calls().is_empty());
     assert!(setup.users().names().is_empty());
@@ -113,6 +161,37 @@ fn an_account_without_a_password_is_refused_before_oxy_is_asked() {
             .count(),
         0
     );
+}
+
+#[test]
+fn a_proof_oxy_will_not_redeem_leaves_nothing() {
+    let (setup, _dir) = setup();
+    let mut stale = request(None, Some(PIN));
+    stale.credential.device_secret = Secret::new("a secret no claim issued");
+    assert_eq!(
+        setup.enroll(stale).unwrap_err(),
+        SetupError::CredentialRefused
+    );
+    assert!(setup.users().names().is_empty());
+    assert_eq!(
+        std::fs::read_dir(setup.store().directory())
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_qr_setup_again_keeps_the_password_the_account_had() {
+    let (setup, _dir) = setup();
+    setup.enroll(request(Some(PASSWORD), None)).unwrap();
+    let mut again = request(None, Some(PIN));
+    again.credential.device_secret = Secret::new(OTHER_DEVICE_SECRET);
+    setup.enroll(again).unwrap();
+    let local = setup.store().local(&name()).unwrap();
+    assert!(local.password, "its password still signs in");
+    assert_eq!(setup.users().verifier(&name()).as_deref(), Some(PASSWORD));
+    assert_eq!(local.pin_state(), PinState::Set);
 }
 
 #[test]

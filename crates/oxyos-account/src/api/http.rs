@@ -11,29 +11,66 @@ use zeroize::Zeroizing;
 /// The longest answer read; Oxy's are a few kilobytes.
 const MAX_ANSWER: u64 = 256 * 1024;
 
+/// Oxy's cloud, where files are served publicly (the SDK's `OXY_CLOUD_URL`): an avatar's image.
+pub const OXY_CLOUD: &str = "https://cloud.oxy.so";
+
+/// How long a picture may take: it is never waited for by anyone.
+const PICTURE_TIMEOUT: Duration = Duration::from_secs(20);
+
 pub struct HttpApi {
     pub(crate) agent: Agent,
     pub(crate) base: String,
+    /// Oxy's cloud ([`OXY_CLOUD`]) and the agent its pictures are read with, which follows the
+    /// cloud's redirects to the file (over HTTPS alone when the cloud is HTTPS).
+    pub(crate) cloud: String,
+    pub(crate) pictures: Agent,
+}
+
+/// `base` as a base URL of Oxy's: HTTPS, or plain HTTP to this machine alone (a development
+/// server); no query, fragment or user. Whether it is HTTPS.
+fn base_url(base: &str) -> Result<bool, String> {
+    let url = url::Url::parse(base).map_err(|error| format!("{base}: {error}"))?;
+    let loopback = match url.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(name)) => name == "localhost",
+        None => false,
+    };
+    let https = match url.scheme() {
+        "https" => true,
+        "http" if loopback => false,
+        _ => return Err(format!("{base}: Oxy is reached over HTTPS")),
+    };
+    if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
+        return Err(format!("{base}: a base URL has no query, fragment or user"));
+    }
+    Ok(https)
+}
+
+fn pictures_agent(https: bool) -> Agent {
+    Agent::config_builder()
+        .http_status_as_error(false)
+        // The cloud answers a file's URL with a redirect to where it is kept.
+        .max_redirects(3)
+        .https_only(https)
+        .timeout_global(Some(PICTURE_TIMEOUT))
+        .timeout_resolve(Some(Duration::from_secs(10)))
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .user_agent("oxyos-accountd")
+        .tls_config(
+            TlsConfig::builder()
+                .root_certs(RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .build()
+        .into()
 }
 
 impl HttpApi {
-    /// The API at `base`: HTTPS, or plain HTTP to this machine alone (a development server).
+    /// The API at `base`: HTTPS, or plain HTTP to this machine alone (a development server). Its
+    /// pictures from [`OXY_CLOUD`], unless [`HttpApi::with_cloud`] names another.
     pub fn new(base: &str) -> Result<Self, String> {
-        let url = url::Url::parse(base).map_err(|error| format!("{base}: {error}"))?;
-        let loopback = match url.host() {
-            Some(url::Host::Ipv4(address)) => address.is_loopback(),
-            Some(url::Host::Ipv6(address)) => address.is_loopback(),
-            Some(url::Host::Domain(name)) => name == "localhost",
-            None => false,
-        };
-        match url.scheme() {
-            "https" => {}
-            "http" if loopback => {}
-            _ => return Err(format!("{base}: Oxy's API is reached over HTTPS")),
-        }
-        if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
-            return Err(format!("{base}: a base URL has no query, fragment or user"));
-        }
+        base_url(base)?;
         let agent = Agent::config_builder()
             // A refusal is an answer: its status and code say what it was.
             .http_status_as_error(false)
@@ -54,7 +91,39 @@ impl HttpApi {
         Ok(Self {
             agent,
             base: base.trim_end_matches('/').to_owned(),
+            cloud: OXY_CLOUD.to_owned(),
+            pictures: pictures_agent(true),
         })
+    }
+
+    /// Pictures from the cloud at `cloud` (a development server's), as [`HttpApi::new`] takes a
+    /// base.
+    pub fn with_cloud(mut self, cloud: &str) -> Result<Self, String> {
+        let https = base_url(cloud)?;
+        self.cloud = cloud.trim_end_matches('/').to_owned();
+        self.pictures = pictures_agent(https);
+        Ok(self)
+    }
+
+    /// A picture's bytes at `url`: none when the cloud has no such file (404).
+    fn picture_at(&self, url: &str) -> Result<Option<Vec<u8>>, ApiError> {
+        let mut response = self
+            .pictures
+            .get(url)
+            .header("Accept", "image/*")
+            .call()
+            .map_err(transport)?;
+        match response.status().as_u16() {
+            200..=299 => response
+                .body_mut()
+                .with_config()
+                .limit(MAX_PICTURE_BYTES)
+                .read_to_vec()
+                .map(Some)
+                .map_err(|error| ApiError::Unexpected(format!("the picture: {error}"))),
+            404 => Ok(None),
+            status => Err(ApiError::Refused { status, code: None }),
+        }
     }
 
     fn post(&self, path: &str, body: &impl Serialize) -> Result<Answer, ApiError> {
@@ -100,12 +169,15 @@ pub(crate) struct Answer {
     pub(crate) status: u16,
     pub(crate) retry_after: Option<u64>,
     pub(crate) body: Zeroizing<Vec<u8>>,
+    /// When it arrived, on the monotonic clock: what the windows it tells are measured from.
+    pub(crate) arrived: std::time::Instant,
 }
 
 pub(crate) fn answer(
     result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<Answer, ApiError> {
     let mut response = result.map_err(transport)?;
+    let arrived = std::time::Instant::now();
     let status = response.status().as_u16();
     let retry_after = response
         .headers()
@@ -122,6 +194,7 @@ pub(crate) fn answer(
         status,
         retry_after,
         body: Zeroizing::new(body),
+        arrived,
     })
 }
 
@@ -138,13 +211,28 @@ fn transport(error: ureq::Error) -> ApiError {
 
 /// An error answer: `{error: code, message}` (an `ApiError`'s `toJSON`), or `{error: {code}}`.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ErrorBody {
     error: Option<serde_json::Value>,
+    /// The QR's window, told beside a rate limit once Oxy knew the proof (R9).
+    redemption_window: Option<WindowAnswer>,
+}
+
+/// A window as Oxy tells it (R9): only its seconds are read, measured from the answer's arrival;
+/// its `expiresAt` is for logs and people, and this machine's clock is never asked.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowAnswer {
+    expires_in_seconds: u64,
 }
 
 pub(crate) fn refusal(answer: &Answer) -> ApiError {
-    let code = serde_json::from_slice::<ErrorBody>(&answer.body)
-        .ok()
+    let body = serde_json::from_slice::<ErrorBody>(&answer.body).ok();
+    let window = body
+        .as_ref()
+        .and_then(|body| body.redemption_window.as_ref())
+        .map(|window| window_end(answer.arrived, window.expires_in_seconds));
+    let code = body
         .and_then(|body| body.error)
         .and_then(|error| match error {
             serde_json::Value::String(code) => Some(code),
@@ -157,6 +245,7 @@ pub(crate) fn refusal(answer: &Answer) -> ApiError {
     match (answer.status, code.as_deref()) {
         (429, _) | (_, Some("SIGNIN_LOCKED")) => ApiError::Locked {
             retry_after: answer.retry_after,
+            window,
         },
         (_, Some("invalid_device_secret")) => ApiError::InvalidDeviceSecret,
         (_, Some("account_not_on_device" | "no_active_session")) => ApiError::AccountNotOnDevice,
@@ -242,6 +331,22 @@ struct Me {
     username: Option<String>,
     name: Option<serde_json::Value>,
     avatar: Option<String>,
+    languages: Option<serde_json::Value>,
+}
+
+/// The account's languages, primary first: the array's non-empty strings, none if it has none.
+fn languages(languages: Option<serde_json::Value>) -> Option<Vec<String>> {
+    let serde_json::Value::Array(items) = languages? else {
+        return None;
+    };
+    let languages: Vec<String> = items
+        .into_iter()
+        .filter_map(|item| match item {
+            serde_json::Value::String(text) if !text.trim().is_empty() => Some(text.trim().into()),
+            _ => None,
+        })
+        .collect();
+    (!languages.is_empty()).then_some(languages)
 }
 
 /// The account's name: a string, or `{full}` or `{first, last}`.
@@ -294,6 +399,14 @@ struct PasswordRequest<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct PlatformDeviceRequest<'a> {
+    device: Proof<'a>,
+    platform_client: &'a PlatformClient,
+    redemption_key: &'a RedemptionKey,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SecondFactorRequest<'a> {
     challenge_id: &'a Secret,
     code: &'a Secret,
@@ -313,6 +426,8 @@ struct SignInAnswer {
     device_id: Option<String>,
     device_secret: Option<Secret>,
     user: Option<SignInUser>,
+    redemption_window: Option<WindowAnswer>,
+    confirm_window: Option<WindowAnswer>,
 }
 
 #[derive(Deserialize)]
@@ -320,12 +435,20 @@ struct SignInUser {
     id: String,
 }
 
-fn signed_in(answer: SignInAnswer) -> Result<SignedIn, ApiError> {
+fn signed_in(answer: SignInAnswer, arrived: std::time::Instant) -> Result<SignedIn, ApiError> {
+    let end = |window: Option<WindowAnswer>| {
+        window.map(|window| window_end(arrived, window.expires_in_seconds))
+    };
+    let windows = Windows {
+        redemption: end(answer.redemption_window),
+        confirm: end(answer.confirm_window),
+    };
     match (answer.device_id, answer.user) {
         (Some(device_id), Some(user)) => Ok(SignedIn {
             user_id: user.id,
             device_id,
             device_secret: answer.device_secret.filter(|secret| !secret.is_empty()),
+            windows,
         }),
         _ => Err(ApiError::Unexpected(
             "a sign-in without its account or device".into(),
@@ -334,6 +457,24 @@ fn signed_in(answer: SignInAnswer) -> Result<SignedIn, ApiError> {
 }
 
 impl OxyApi for HttpApi {
+    fn picture(&self, avatar: &str) -> Result<Vec<u8>, ApiError> {
+        let id = avatar_id(avatar)
+            .ok_or_else(|| ApiError::Unexpected("not an avatar's file id".into()))?;
+        // Its thumbnail, as Oxy's apps show an avatar; the image itself where it has none.
+        let bytes = match self.picture_at(&format!("{}/{id}?variant=thumb", self.cloud))? {
+            Some(bytes) => bytes,
+            None => self
+                .picture_at(&format!("{}/{id}", self.cloud))?
+                .ok_or(ApiError::Refused {
+                    status: 404,
+                    code: None,
+                })?,
+        };
+        picture_kind(&bytes)
+            .ok_or_else(|| ApiError::Unexpected("the picture is not an image".into()))?;
+        Ok(bytes)
+    }
+
     fn mint_token(
         &self,
         credential: &DeviceCredential,
@@ -358,6 +499,7 @@ impl OxyApi for HttpApi {
             username: me.username.filter(|name| !name.trim().is_empty()),
             display_name: display_name(me.name),
             avatar: me.avatar.filter(|avatar| !avatar.is_empty()),
+            languages: languages(me.languages),
         })
     }
 
@@ -386,7 +528,7 @@ impl OxyApi for HttpApi {
                 )),
             };
         }
-        signed_in(step).map(SignInStep::SignedIn)
+        signed_in(step, answer.arrived).map(SignInStep::SignedIn)
     }
 
     fn second_factor(
@@ -405,7 +547,41 @@ impl OxyApi for HttpApi {
                 platform_client: platform,
             },
         )?;
-        signed_in(parse(&answer)?)
+        signed_in(parse(&answer)?, answer.arrived)
+    }
+
+    fn platform_device_sign_in(
+        &self,
+        device: &DeviceCredential,
+        platform: &PlatformClient,
+        key: &RedemptionKey,
+    ) -> Result<SignedIn, ApiError> {
+        let answer = self.post(
+            "/session/device/platform",
+            &PlatformDeviceRequest {
+                device: device.into(),
+                platform_client: platform,
+                redemption_key: key,
+            },
+        )?;
+        match parse::<SignInAnswer>(&answer) {
+            Ok(step) => signed_in(step, answer.arrived),
+            // One answer for every proof that cannot be redeemed (replayed without its key or with
+            // another, stale, another client's, an account no longer on the device, a wrong
+            // secret): never told apart.
+            Err(ApiError::Refused { status: 401, .. }) => Err(ApiError::InvalidDeviceSecret),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError> {
+        let answer = self.post("/session/device/platform/confirm", &Proof::from(credential))?;
+        match answer.status {
+            200 => Ok(()),
+            // One answer for every credential that cannot be confirmed: never told apart.
+            401 => Err(ApiError::InvalidDeviceSecret),
+            _ => Err(refusal(&answer)),
+        }
     }
 
     fn mint_app_token(

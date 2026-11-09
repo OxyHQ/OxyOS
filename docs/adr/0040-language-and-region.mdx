@@ -32,7 +32,7 @@ A Mac has one answer, at the root: System Settings › General › Language & Re
 
    Why not the alternatives:
    - **`LANG` alone** is read when a process starts. Changing it means a new session, and glibc only formats in locales generated on the machine.
-   - **The Oxy account's languages** are the Oxy applications' choice (`oxy` ADR 0022). They need the account's API to be read and changed, the login screen has no account yet, and a Mac keeps the system's language apart from the Apple ID's. An Oxy application signed in still follows its account, as oxy ADR 0022 decides.
+   - **The Oxy account's languages** are the account's (`oxy` ADR 0022): what Oxy's applications speak on the web and on phones. They need the account's API to be read and changed, the login screen has no account yet, and a Mac keeps the system's language apart from the Apple ID's. *Amended 9 November 2026:* on OxyOS an Oxy application speaks the system's language, as a Mac's applications speak the system's preferred languages, signed in or not: the platform's session host names it in every snapshot (`preferredLanguages`, `oxy` ADR 0058 R11, decision 4), and the account's languages neither decide nor delay it. Following the account had made Dropsea's window blank until the token and the account's profile came over the network (6 to 15 s on the ThinkPad), then speak the fallback when the account named no language.
 
 2. **The session's locale is one BCP 47 tag.** It is the language, the region and, only when the person chose one, the hour cycle as a Unicode extension: `es-ES`, `en-US`, `en-ES` (English, formatted for Spain), `es-MX-u-hc-h12`. `oxyos_preferences::session_locale` computes it from the preferences and the environment. The login screen has no person's preferences: its tag is the system's alone.
 
@@ -42,6 +42,7 @@ A Mac has one answer, at the root: System Settings › General › Language & Re
    - **`Intl`'s default locale.** `Intl.DateTimeFormat().resolvedOptions().locale`, every `toLocale*String()` without a locale, and Bloom's own default (`runtimeLocale`) are the session's, with its hour cycle.
    - **React Native's `I18nManager`:** `localeIdentifier` as Android gives it (`es_ES`), left to right for both languages.
    - **expo-localization:** `getLocales()` (the tag, language, region, separators, measurement system, temperature unit) and `getCalendars()` (Gregorian, `uses24hourClock`, the region's first weekday, the time zone). On a change, the host sends `onLocaleSettingsChanged` and `onCalendarSettingsChanged`, as Android does, so `useLocales()` and `useCalendars()` render again.
+   - **The Oxy SDK** (applications the session launched): the session host's snapshot (`sample/oxyos/session-host.js`, [ADR 0020](./0020-oxy-account-login), decision 6) names the tag, its Unicode extensions left out, as `preferredLanguages` (`oxy` ADR 0058 R11), and a new snapshot of the same revision when it changes. The SDK speaks it from the application's first render and never waits for the account.
 
    The host also provides `Intl.PluralRules` (ICU4X's CLDR plural rules), so plurals go through `Intl` as numbers and dates do.
 

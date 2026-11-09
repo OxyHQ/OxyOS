@@ -7,6 +7,8 @@ import type { ShellApplication, ShellNotifications } from "../model";
 import { groupNotifications } from "../notifications";
 import { BANNER_WIDTH, NotificationCard } from "./NotificationBanner";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 /**
  * The Notification Center (docs/adr/0026-notifications.mdx), opened from the top bar's clock as a
@@ -29,6 +31,7 @@ export const NotificationCenter = memo(function NotificationCenter({
   top: number;
   close: () => void;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const words = messages.notifications;
   const groups = groupNotifications(
@@ -55,7 +58,7 @@ export const NotificationCenter = memo(function NotificationCenter({
           right: 12,
           bottom: 12,
           width: BANNER_WIDTH + 24,
-          backgroundColor: "#e9edf4d9",
+          backgroundColor: glass("#e9edf4d9", reduced),
           boxShadow: "0 22px 70px #0b183a40, 0 0 0 .5px #0b183a1f",
         }}
       >

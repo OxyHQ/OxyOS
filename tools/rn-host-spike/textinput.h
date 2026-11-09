@@ -89,6 +89,10 @@ class TextEditing {
   // with it, the text arriving later (nothing if the clipboard holds none).
   struct ClipboardAccess {
     std::function<void(uint64_t serial, const std::string& text)> copy;
+    // A copy marked sensitive (docs/adr/0007-clipboard.mdx, decision 6), cleared after 90 seconds:
+    // the text of a field that says it holds a password or a code, shown in it (a secure one never
+    // copies).
+    std::function<void(uint64_t serial, const std::string& text)> copySensitive;
     std::function<void(uint64_t serial, std::function<void(std::string)> done)> paste;
     // Whether the clipboard holds text: Paste in the context menu is enabled only then.
     std::function<bool()> hasText;

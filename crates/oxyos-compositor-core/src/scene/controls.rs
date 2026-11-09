@@ -164,6 +164,10 @@ impl Scene {
     /// Whether a key from the keyboard is one of the system's hardware keys: then nobody else
     /// sees it, press or release, and a press is handed to the program.
     pub(super) fn hardware_key(&mut self, code: u32, pressed: bool) -> bool {
+        // The power key, the session's (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+        if self.power_key(code, pressed) {
+            return true;
+        }
         let Some(key) = HardwareKey::from_code(code) else {
             return false;
         };

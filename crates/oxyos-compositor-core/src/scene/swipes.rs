@@ -19,6 +19,13 @@
 //!
 //! With Reduce Motion nothing follows the fingers: once they lift, a swipe that would have gone
 //! through opens, closes or changes desktop at once, and the compositor crossfades it.
+//!
+//! Which fingers make which gesture is the person's (Settings › Trackpad › More Gestures, the
+//! 8 November 2026 amendment of docs/adr/0046-interactive-gestures.mdx, `TrackpadGestures`):
+//! each swipe three fingers (and four, as on a Mac), four alone, or off; and the thumb and three
+//! fingers pinched open Launchpad, and spread close it, the same way as the swipes: the shell told
+//! `Search` (the launcher, which Super alone opens) to open or close it, the compositor drawing
+//! Launchpad's surfaces as far as the fingers have pinched (`GestureOverlay::Launchpad`).
 
 use super::{DismissReason, GesturePhase, OutputId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{GestureOverlay, ShortcutIntent, SystemShortcut};
@@ -48,6 +55,49 @@ const STOPPED_NS: u64 = 40_000_000;
 /// (`RUBBER` its coefficient).
 const PAST_THE_END: f64 = 0.15;
 const RUBBER: f64 = 0.55;
+/// How far the fingers pinch to take Launchpad from closed to open: the natural logarithm of how
+/// much closer they come, half (to about 60 % of their spread when they began; spread back to
+/// about 165 % to close it), counted on a logarithm so that pinching in and spreading out are the
+/// same way along.
+pub const PINCH_DISTANCE: f64 = 0.5;
+/// How far they pinch, on the same logarithm, before the pinch is in or out (about 5 %).
+pub const PINCH_LOCK: f64 = 0.05;
+/// A pinch's flick, in its progress a second: the same share of the way a second as a swipe's
+/// (`FLICK` over `OVERLAY_DISTANCE`).
+pub const PINCH_FLICK: f64 = FLICK / OVERLAY_DISTANCE;
+
+/// The trackpad's gestures as the person chose them (Settings › Trackpad › More Gestures,
+/// docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026): for each swipe, the fewest
+/// fingers that make it, or none (off). Three takes four fingers too, as a Mac's trackpad does;
+/// four leaves three to nothing. `launchpad`: three or more fingers pinched (the thumb and three,
+/// as libinput counts them: four, or three when it takes the thumb for resting) are Launchpad's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrackpadGestures {
+    /// Mission Control, swiped up.
+    pub mission_control: Option<u8>,
+    /// App Exposé, swiped down.
+    pub app_expose: Option<u8>,
+    /// The desktops, swiped across.
+    pub desktops: Option<u8>,
+    pub launchpad: bool,
+}
+
+impl Default for TrackpadGestures {
+    /// As a Mac's trackpad ships them, App Exposé's swipe kept on as OxyOS has had it (ADR 0045).
+    fn default() -> Self {
+        Self {
+            mission_control: Some(3),
+            app_expose: Some(3),
+            desktops: Some(3),
+            launchpad: true,
+        }
+    }
+}
+
+/// Whether `fingers` make the gesture whose fewest are `fewest` (none: it is off).
+fn takes(fewest: Option<u8>, fingers: u8) -> bool {
+    fewest.is_some_and(|fewest| fingers >= fewest)
+}
 
 /// How far a swipe has gone: from `base` (where what it drives was when the fingers began),
 /// `travelled` logical pixels toward 1 over `distance`, and the fingers' recent motion, by when
@@ -213,6 +263,11 @@ pub(super) struct Swipe {
     /// When the fingers began, by their device's time: the way they went before the axis was
     /// chosen took them from then, not no time at all.
     began: u64,
+    /// How many fingers swipe.
+    fingers: u8,
+    /// A pinch's (Launchpad's) spread at its last step, over its spread when it began; none for a
+    /// swipe.
+    pinched: Option<f64>,
 }
 
 impl Scene {
@@ -236,6 +291,16 @@ impl Scene {
             .filter(|&index| index < self.workspaces.count && index != self.workspaces.active);
     }
 
+    /// The trackpad's gestures the person chose (Settings › Trackpad › More Gestures): from the
+    /// next swipe or pinch on.
+    pub fn set_trackpad_gestures(&mut self, gestures: TrackpadGestures) {
+        self.trackpad_gestures = gestures;
+    }
+
+    pub fn trackpad_gestures(&self) -> TrackpadGestures {
+        self.trackpad_gestures
+    }
+
     /// Which of the shell's views a swipe drives `surface` is (`SetGestureOverlay`), if any.
     pub fn gesture_overlay(&self, surface: SurfaceKey) -> GestureOverlay {
         self.window_views
@@ -243,16 +308,22 @@ impl Scene {
             .map_or(GestureOverlay::None, |views| views.gesture)
     }
 
-    /// Mission Control or App Exposé, if the shell `client` shows either on `output`: one of its
-    /// shell surfaces there that says it is (`SetGestureOverlay`) is shown.
+    /// Mission Control, App Exposé or Launchpad, those of them `which` says, if the shell `client`
+    /// shows one on `output`: one of its shell surfaces there that says it is
+    /// (`SetGestureOverlay`) is shown.
     fn gesture_overlay_shown(
         &self,
         client: super::ClientId,
         output: OutputId,
+        which: impl Fn(GestureOverlay) -> bool,
     ) -> Option<GestureOverlay> {
         self.window_views
             .iter()
-            .filter(|(key, views)| key.client == client && views.gesture != GestureOverlay::None)
+            .filter(|(key, views)| {
+                key.client == client
+                    && views.gesture != GestureOverlay::None
+                    && which(views.gesture)
+            })
             .filter(|(key, _)| {
                 self.nodes.get(key).is_some_and(
                     |node| matches!(node.role, Role::Shell { output: on, .. } if on == output),
@@ -315,6 +386,7 @@ impl Scene {
                     going: fingers >= 3 && !self.locked && !self.capturing(),
                     follows: !self.reduce_motion(),
                     began: time,
+                    fingers,
                     ..Swipe::default()
                 };
                 return;
@@ -339,11 +411,14 @@ impl Scene {
             if across.hypot(along) < AXIS_LOCK {
                 return;
             }
-            let began = self.swipe.began;
+            let (began, fingers) = (self.swipe.began, self.swipe.fingers);
+            // Up, down or across, if the person's choice for it takes these fingers.
             let act = if along.abs() >= across.abs() {
-                self.overlay_act(along < 0.0, began)
-            } else {
+                self.overlay_act(along < 0.0, began, fingers)
+            } else if takes(self.trackpad_gestures.desktops, fingers) {
                 self.spaces_act(began)
+            } else {
+                Act::Nothing
             };
             self.swipe_gestures += 1;
             self.swipe.gesture = self.swipe_gestures;
@@ -385,9 +460,10 @@ impl Scene {
         self.drive_swipe(None);
     }
 
-    /// The swipe's fingers chose up (`up`) or down: what that does on the display under the
+    /// The swipe's `fingers` chose up (`up`) or down: what that does on the display under the
     /// pointer, the shell showing it told to open it if it opens; its way counted from `began`.
-    fn overlay_act(&mut self, up: bool, began: u64) -> Act {
+    /// Nothing unless the person's choice for what it opens or closes takes those fingers.
+    fn overlay_act(&mut self, up: bool, began: u64, fingers: u8) -> Act {
         let output = self
             .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
             .map(|output| output.id)
@@ -396,9 +472,15 @@ impl Scene {
             return Act::Nothing;
         };
         // Caught while a swipe's motion takes Mission Control or App Exposé (`swipe_from`): the
-        // fingers drive it either way from where it is drawn, open or closing.
-        let moving = self.swipe_rest.openness.map(|(overlay, _)| overlay);
-        let shown = moving.or_else(|| self.gesture_overlay_shown(client, output));
+        // fingers drive it either way from where it is drawn, open or closing. Launchpad, a
+        // pinch's, is none of a swipe's: up over it opens Mission Control, as before it was told.
+        let swiped = |overlay| overlay != GestureOverlay::Launchpad;
+        let moving = self
+            .swipe_rest
+            .openness
+            .map(|(overlay, _)| overlay)
+            .filter(|overlay| swiped(*overlay));
+        let shown = moving.or_else(|| self.gesture_overlay_shown(client, output, swiped));
         let (overlay, opening) = match (shown, up) {
             (Some(overlay @ GestureOverlay::MissionControl), true)
             | (Some(overlay @ GestureOverlay::AppExpose), false)
@@ -415,6 +497,16 @@ impl Scene {
             (Some(GestureOverlay::AppExpose), true) => (GestureOverlay::AppExpose, false),
             _ => return Act::Nothing,
         };
+        // Its own swipe, opening or back, as the person chose its fingers: Mission Control's up and
+        // back down, App Exposé's down and back up.
+        let chosen = match overlay {
+            GestureOverlay::MissionControl => self.trackpad_gestures.mission_control,
+            GestureOverlay::AppExpose => self.trackpad_gestures.app_expose,
+            _ => None,
+        };
+        if !takes(chosen, fingers) {
+            return Act::Nothing;
+        }
         // From where the compositor draws it if a swipe's motion still takes it, as the fingers
         // catch it; else from closed, or open.
         let base = match self.swipe_rest.openness {
@@ -442,9 +534,11 @@ impl Scene {
             .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
             .map(|output| output.id)
             .unwrap_or_else(|| self.shortcut_output());
-        let shown = self
-            .shortcut_shell(output)
-            .and_then(|client| self.gesture_overlay_shown(client, output));
+        let shown = self.shortcut_shell(output).and_then(|client| {
+            self.gesture_overlay_shown(client, output, |overlay| {
+                overlay != GestureOverlay::Launchpad
+            })
+        });
         if shown.is_some() {
             return Act::Nothing;
         }
@@ -517,10 +611,15 @@ impl Scene {
             }) => {
                 let openness = tracker.progress().clamp(0.0, 1.0);
                 let velocity = tracker.velocity(time);
+                let flick = if overlay == GestureOverlay::Launchpad {
+                    PINCH_FLICK
+                } else {
+                    FLICK / OVERLAY_DISTANCE
+                };
                 let open = if cancelled {
                     !opening
                 } else {
-                    release_target(openness, velocity, FLICK / OVERLAY_DISTANCE, 0.0, 1.0) == 1.0
+                    release_target(openness, velocity, flick, 0.0, 1.0) == 1.0
                 };
                 let shortcut = shortcut_of(overlay);
                 match (opening, open) {
@@ -578,6 +677,146 @@ impl Scene {
     }
 }
 
+impl Scene {
+    /// Whether a pinch of `fingers` beginning now is the system's, Launchpad's: three or more
+    /// (the thumb and three fingers, as libinput counts them), the person's choice on, the
+    /// session unlocked and no screenshot interface open. Otherwise it is the application's, as
+    /// two fingers' always are.
+    pub(super) fn pinch_is_launchpads(&self, fingers: u8) -> bool {
+        fingers >= 3 && self.trackpad_gestures.launchpad && !self.locked && !self.capturing()
+    }
+
+    /// Whether the pinch going on is Launchpad's.
+    pub(super) fn pinching_launchpad(&self) -> bool {
+        self.swipe.pinched.is_some()
+    }
+
+    /// The thumb and three fingers pinching (`pinch_is_launchpads`), their spread `scale` over
+    /// their spread when they began: in, they open Launchpad on the display under the pointer,
+    /// the shell showing it told at once (`Search`, `Open`) and the compositor drawing it as far
+    /// as they have pinched; spread over Launchpad, they close it as far as they go. Once they have
+    /// pinched `PINCH_LOCK` the pinch is in or out for good, and what it does is decided; spread
+    /// over nothing (a Mac's Show Desktop, which OxyOS does not have) or pinched in over Launchpad,
+    /// it does nothing. Lifted, it goes on or back as a swipe does (`release_target`). It reaches
+    /// no application.
+    pub(super) fn launchpad_pinch(&mut self, phase: GesturePhase, fingers: u8, scale: f64) {
+        self.not_super_alone();
+        let time = self.input_time_ns;
+        match phase {
+            GesturePhase::Begin => {
+                self.swipe = Swipe {
+                    going: !self.locked && !self.capturing(),
+                    follows: !self.reduce_motion(),
+                    began: time,
+                    fingers,
+                    pinched: Some(1.0),
+                    ..Swipe::default()
+                };
+                return;
+            }
+            GesturePhase::Update => {}
+            GesturePhase::End | GesturePhase::Cancel => {
+                let swipe = std::mem::take(&mut self.swipe);
+                if swipe.going && !self.locked {
+                    self.release_swipe(swipe, phase == GesturePhase::Cancel, time);
+                }
+                return;
+            }
+        }
+        if !self.swipe.going || self.locked || scale <= 0.0 {
+            return;
+        }
+        // How much closer the fingers came since their last step, on a logarithm: in is toward
+        // open, out toward closed, the same way along either way.
+        let last = self.swipe.pinched.unwrap_or(1.0);
+        let inward = (last / scale).ln();
+        self.swipe.pinched = Some(scale);
+        self.swipe.moved.1 += inward;
+        if self.swipe.act.is_none() {
+            let pinched = self.swipe.moved.1;
+            if pinched.abs() < PINCH_LOCK {
+                return;
+            }
+            let act = self.launchpad_act(pinched > 0.0, self.swipe.began);
+            self.swipe_gestures += 1;
+            self.swipe.gesture = self.swipe_gestures;
+            // What went before it was in or out counts, from when the fingers began.
+            let act = match act {
+                Act::Overlay {
+                    client,
+                    output,
+                    overlay,
+                    opening,
+                    mut tracker,
+                } => {
+                    tracker.moved(pinched, time);
+                    Act::Overlay {
+                        client,
+                        output,
+                        overlay,
+                        opening,
+                        tracker,
+                    }
+                }
+                act => act,
+            };
+            self.swipe.act = Some(act);
+        } else if let Some(Act::Overlay { tracker, .. }) = self.swipe.act.as_mut() {
+            tracker.moved(inward, time);
+        }
+        self.drive_swipe(None);
+    }
+
+    /// The pinch is in (`inward`) or out: what that does on the display under the pointer, the
+    /// shell showing it told to open Launchpad if it opens; its way counted from `began`.
+    fn launchpad_act(&mut self, inward: bool, began: u64) -> Act {
+        let output = self
+            .output_at(i64::from(self.pointer.0), i64::from(self.pointer.1))
+            .map(|output| output.id)
+            .unwrap_or_else(|| self.shortcut_output());
+        let Some(client) = self.shortcut_shell(output) else {
+            return Act::Nothing;
+        };
+        let launchpad = |overlay| overlay == GestureOverlay::Launchpad;
+        // Caught while a pinch's motion takes it: either way from where it is drawn.
+        let moving = self
+            .swipe_rest
+            .openness
+            .filter(|(overlay, _)| launchpad(*overlay));
+        let shown = moving.is_some()
+            || self
+                .gesture_overlay_shown(client, output, launchpad)
+                .is_some();
+        let opening = match (shown, inward) {
+            (true, true) if moving.is_some() => true,
+            (false, true) => true,
+            (true, false) => false,
+            _ => return Act::Nothing,
+        };
+        let base = match moving {
+            Some((_, openness)) => openness,
+            None if opening => 0.0,
+            None => 1.0,
+        };
+        self.dismiss_grab(DismissReason::OutsidePress);
+        if opening && self.swipe.follows {
+            self.tell_shortcut_intent(
+                client,
+                output,
+                shortcut_of(GestureOverlay::Launchpad),
+                ShortcutIntent::Open,
+            );
+        }
+        Act::Overlay {
+            client,
+            output,
+            overlay: GestureOverlay::Launchpad,
+            opening,
+            tracker: Tracker::new(base, PINCH_DISTANCE, began),
+        }
+    }
+}
+
 /// The way along the swipe that opens `overlay`: up for Mission Control, down for App Exposé.
 fn toward_open(overlay: GestureOverlay, (_, dy): (f64, f64)) -> f64 {
     match overlay {
@@ -586,9 +825,12 @@ fn toward_open(overlay: GestureOverlay, (_, dy): (f64, f64)) -> f64 {
     }
 }
 
+/// What the shell is told for `overlay`: Launchpad is the launcher, which Super alone opens
+/// (`Search`).
 fn shortcut_of(overlay: GestureOverlay) -> SystemShortcut {
     match overlay {
         GestureOverlay::AppExpose => SystemShortcut::AppExpose,
+        GestureOverlay::Launchpad => SystemShortcut::Search,
         _ => SystemShortcut::MissionControl,
     }
 }

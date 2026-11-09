@@ -31,6 +31,11 @@ std::vector<facebook::react::Tag> focusables(const ViewTree& tree, facebook::rea
 // Whether a view is focusable as `focusables` counts it (wherever it is).
 bool focusable(const ViewTree& tree, facebook::react::Tag tag);
 
+// Whether a view is a stop of the keyboard's by its own props (enabled, focusable, reached by
+// assistive technologies), whatever its size and what it is in: one not laid out or shown yet (a
+// dialog's control as the dialog comes in) is focusable once it is.
+bool focusableOnceShown(const ViewTree& tree, facebook::react::Tag tag);
+
 // Whether a view is an editable text input (focused through the text editing, textinput.h).
 bool editableInput(const ViewTree& tree, facebook::react::Tag tag);
 

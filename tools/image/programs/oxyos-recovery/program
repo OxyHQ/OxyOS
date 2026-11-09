@@ -6,5 +6,5 @@ CRATE="oxyos-recovery-tool"
 BINARIES="oxyos-recovery:usr/sbin/oxyos-recovery"
 # The package's other files, laid out as installed.
 FILES="tools/oxyos-recovery/package"
-DEPENDS="systemd, systemd-repart, systemd-boot, systemd-cryptsetup, cryptsetup-bin, cryptsetup-initramfs, shim-signed, efibootmgr, e2fsprogs, dosfstools, util-linux, network-manager, plymouth"
-DESCRIPTION="OxyOS's installer, recovery and erase (docs/adr/0054-recovery-and-erasing.mdx)"
+DEPENDS="systemd, systemd-repart, systemd-boot, systemd-cryptsetup, cryptsetup-bin, cryptsetup-initramfs, shim-signed, efibootmgr, e2fsprogs, dosfstools, util-linux, network-manager, plymouth, restic, rclone, passwd, libudev1"
+DESCRIPTION="OxyOS's installer, recovery, erase and restore from a backup (docs/adr/0054-recovery-and-erasing.mdx, docs/adr/0059-backups.mdx)"

@@ -18,13 +18,41 @@ const EV_ABS: u16 = 3;
 /// millimetres, so a touchpad needs its resolution).
 const PAD: (i32, i32) = (4000, 2400);
 const PAD_RESOLUTION: i32 = 40;
+/// How many fingers the touchpad tracks, each in a multitouch slot: four, the thumb and three
+/// fingers of Launchpad's pinch and the four of a swipe (ADR 0046).
+const PAD_SLOTS: i32 = 4;
 /// One wheel notch in REL_WHEEL_HI_RES units; libinput turns a notch into 15 logical pixels.
 const NOTCH: i32 = 120;
 const PIXELS_PER_NOTCH: i32 = 15;
 /// How far libinput scrolls for each millimetre two fingers move on this touchpad, in logical
 /// pixels: its motion normalized to 1000 dpi (39.37 units a millimetre), slowed as it slows a
 /// touchpad's scroll. Measured: libinput 1.28 scrolls 6.84 for a frame of 26 units (0.65 mm).
+/// A swipe's unaccelerated motion is slowed alike (ADR 0046's distances are in it): 3.94 for a
+/// frame of three fingers moving 15 units (0.375 mm).
 const SCROLL_PIXELS_PER_MM: f64 = 10.52;
+
+fn abs(code: AbsoluteAxisCode, value: i32) -> InputEvent {
+    InputEvent::new(EV_ABS, code.0, value)
+}
+
+fn key(code: KeyCode, down: bool) -> InputEvent {
+    InputEvent::new(EV_KEY, code.0, i32::from(down))
+}
+
+/// The touchpad's fingers at `points`, each in its slot, the first also the single-touch axes.
+fn place(points: &[(i32, i32)]) -> Vec<InputEvent> {
+    let mut events = Vec::new();
+    for (slot, (x, y)) in points.iter().enumerate() {
+        events.push(abs(AbsoluteAxisCode::ABS_MT_SLOT, slot as i32));
+        events.push(abs(AbsoluteAxisCode::ABS_MT_POSITION_X, *x));
+        events.push(abs(AbsoluteAxisCode::ABS_MT_POSITION_Y, *y));
+    }
+    if let Some(&(x, y)) = points.first() {
+        events.push(abs(AbsoluteAxisCode::ABS_X, x));
+        events.push(abs(AbsoluteAxisCode::ABS_Y, y));
+    }
+    events
+}
 
 pub struct Devices {
     keyboard: VirtualDevice,
@@ -65,7 +93,7 @@ impl Devices {
             .with_absolute_axis(&axis(AbsoluteAxisCode::ABS_Y, display.1))?
             .with_relative_axes(&wheel)?
             .build()?;
-        // A clickpad (as a laptop's) taking up to three fingers, each in a multitouch slot.
+        // A clickpad (as a laptop's) taking up to four fingers, each in a multitouch slot.
         let mut pad_keys = AttributeSet::<KeyCode>::new();
         for key in [
             KeyCode::BTN_LEFT,
@@ -73,6 +101,7 @@ impl Devices {
             KeyCode::BTN_TOOL_FINGER,
             KeyCode::BTN_TOOL_DOUBLETAP,
             KeyCode::BTN_TOOL_TRIPLETAP,
+            KeyCode::BTN_TOOL_QUADTAP,
         ] {
             pad_keys.insert(key);
         }
@@ -92,7 +121,7 @@ impl Devices {
             .with_absolute_axis(&pad_axis(AbsoluteAxisCode::ABS_MT_POSITION_Y, PAD.1))?
             .with_absolute_axis(&UinputAbsSetup::new(
                 AbsoluteAxisCode::ABS_MT_SLOT,
-                AbsInfo::new(0, 0, 2, 0, 0, 0),
+                AbsInfo::new(0, 0, PAD_SLOTS - 1, 0, 0, 0),
             ))?
             .with_absolute_axis(&UinputAbsSetup::new(
                 AbsoluteAxisCode::ABS_MT_TRACKING_ID,
@@ -176,71 +205,130 @@ impl Devices {
         Ok(())
     }
 
-    /// Pinches on the touchpad: two fingers 20 mm apart in its middle spread to `percent` of that
-    /// and turn `degrees` clockwise, steadily over 30 frames 10 ms apart, then lift; `sent` is
-    /// called after each frame. libinput tells the pinch from a scroll by itself, and reports it
-    /// from when it recognizes it.
-    pub fn pinch(&mut self, percent: i32, degrees: i32, mut sent: impl FnMut()) -> io::Result<()> {
+    /// Pinches on the touchpad: `fingers` (two to four) 20 mm from their middle, in the pad's
+    /// middle, spread to `percent` of that and turn `degrees` clockwise around it, steadily over
+    /// 30 frames 10 ms apart, then lift; `sent` is called after each frame. Two are opposite each
+    /// other; three or four are the thumb below and the other fingers above it, as a hand pinches
+    /// Launchpad (ADR 0046). libinput tells the pinch from a scroll or a swipe by itself, counts
+    /// its fingers, and reports it from when it recognizes it.
+    pub fn pinch(
+        &mut self,
+        fingers: u8,
+        percent: i32,
+        degrees: i32,
+        mut sent: impl FnMut(),
+    ) -> io::Result<()> {
         const FRAMES: i32 = 30;
-        let abs = |code: AbsoluteAxisCode, value| InputEvent::new(EV_ABS, code.0, value);
-        let key = |code: KeyCode, down: bool| InputEvent::new(EV_KEY, code.0, i32::from(down));
-        let fingers = |frame: i32| {
+        let fingers = usize::from(fingers.clamp(2, PAD_SLOTS as u8));
+        // Where each finger is around the middle, in degrees clockwise from the right: two
+        // opposite; the thumb at the bottom and the others spread over the top.
+        let around: &[f64] = match fingers {
+            2 => &[180.0, 0.0],
+            3 => &[110.0, 210.0, 330.0],
+            _ => &[110.0, 200.0, 270.0, 340.0],
+        };
+        let centre = (f64::from(PAD.0) / 2.0, f64::from(PAD.1) / 2.0);
+        let points = |frame: i32| -> Vec<(i32, i32)> {
             let done = f64::from(frame) / f64::from(FRAMES);
-            let half = f64::from(10 * PAD_RESOLUTION) * (f64::from(percent) / 100.0).powf(done);
-            let angle = (f64::from(degrees) * done).to_radians();
-            let (dx, dy) = (half * angle.cos(), half * angle.sin());
-            let centre = (f64::from(PAD.0) / 2.0, f64::from(PAD.1) / 2.0);
-            [
-                (
-                    (centre.0 - dx).round() as i32,
-                    (centre.1 - dy).round() as i32,
-                ),
-                (
-                    (centre.0 + dx).round() as i32,
-                    (centre.1 + dy).round() as i32,
-                ),
-            ]
+            let reach = f64::from(10 * PAD_RESOLUTION) * (f64::from(percent) / 100.0).powf(done);
+            let turned = f64::from(degrees) * done;
+            around
+                .iter()
+                .map(|angle| {
+                    let angle = (angle + turned).to_radians();
+                    (
+                        (centre.0 + reach * angle.cos()).round() as i32,
+                        (centre.1 + reach * angle.sin()).round() as i32,
+                    )
+                })
+                .collect()
         };
-        let place = |points: [(i32, i32); 2]| {
-            let mut events = Vec::new();
-            for (slot, (x, y)) in points.iter().enumerate() {
-                events.push(abs(AbsoluteAxisCode::ABS_MT_SLOT, slot as i32));
-                events.push(abs(AbsoluteAxisCode::ABS_MT_POSITION_X, *x));
-                events.push(abs(AbsoluteAxisCode::ABS_MT_POSITION_Y, *y));
-            }
-            events.push(abs(AbsoluteAxisCode::ABS_X, points[0].0));
-            events.push(abs(AbsoluteAxisCode::ABS_Y, points[0].1));
-            events
-        };
-        let mut down = vec![
-            abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
-            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, 1),
-            abs(AbsoluteAxisCode::ABS_MT_SLOT, 1),
-            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, 2),
-        ];
-        down.extend(place(fingers(0)));
-        down.extend([
-            key(KeyCode::BTN_TOUCH, true),
-            key(KeyCode::BTN_TOOL_DOUBLETAP, true),
-        ]);
-        self.touchpad.emit(&down)?;
+        self.touch(&points(0), true)?;
         sent();
         for frame in 1..=FRAMES {
             std::thread::sleep(Duration::from_millis(10));
-            self.touchpad.emit(&place(fingers(frame)))?;
+            self.touchpad.emit(&place(&points(frame)))?;
             sent();
         }
         std::thread::sleep(Duration::from_millis(10));
-        self.touchpad.emit(&[
-            abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
-            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, -1),
-            abs(AbsoluteAxisCode::ABS_MT_SLOT, 1),
-            abs(AbsoluteAxisCode::ABS_MT_TRACKING_ID, -1),
-            key(KeyCode::BTN_TOUCH, false),
-            key(KeyCode::BTN_TOOL_DOUBLETAP, false),
-        ])?;
+        self.touch(&points(FRAMES), false)?;
         sent();
         Ok(())
+    }
+
+    /// Swipes `fingers` (three or four) on the touchpad, 15 mm apart in a row across its middle:
+    /// together by as far as libinput moves a swipe (dx, dy) logical pixels for (its unaccelerated
+    /// motion, slowed as a scroll is, `SCROLL_PIXELS_PER_MM`), steadily over `frames` frames, `hz` a second; then they
+    /// rest 100 ms, so that nothing is flicked, and lift. `sent` is called after each frame.
+    /// libinput tells the swipe from a pinch by itself, counts its fingers, and reports it from
+    /// when it recognizes it.
+    pub fn swipe(
+        &mut self,
+        fingers: u8,
+        (dx, dy): (i32, i32),
+        frames: u32,
+        hz: u32,
+        mut sent: impl FnMut(),
+    ) -> io::Result<()> {
+        let fingers = i32::from(fingers.clamp(1, PAD_SLOTS as u8));
+        let unit = f64::from(PAD_RESOLUTION) / SCROLL_PIXELS_PER_MM;
+        let travel = (f64::from(dx) * unit, f64::from(dy) * unit);
+        let frames = frames.max(1);
+        // The row's middle where the whole swipe stays on the pad's middle.
+        let start = (
+            f64::from(PAD.0) / 2.0 - travel.0 / 2.0,
+            f64::from(PAD.1) / 2.0 - travel.1 / 2.0,
+        );
+        let apart = f64::from(15 * PAD_RESOLUTION);
+        let points = |frame: u32| -> Vec<(i32, i32)> {
+            let done = f64::from(frame) / f64::from(frames);
+            (0..fingers)
+                .map(|finger| {
+                    let offset = (f64::from(finger) - f64::from(fingers - 1) / 2.0) * apart;
+                    (
+                        (start.0 + offset + travel.0 * done).round() as i32,
+                        (start.1 + travel.1 * done).round() as i32,
+                    )
+                })
+                .collect()
+        };
+        let interval = Duration::from_secs(1) / hz.max(1);
+        self.touch(&points(0), true)?;
+        sent();
+        for frame in 1..=frames {
+            std::thread::sleep(interval);
+            self.touchpad.emit(&place(&points(frame)))?;
+            sent();
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        self.touch(&points(frames), false)?;
+        sent();
+        Ok(())
+    }
+
+    /// Puts fingers down at `points` (`down`), each in its slot, or lifts them all, with the tool
+    /// that says how many they are.
+    fn touch(&mut self, points: &[(i32, i32)], down: bool) -> io::Result<()> {
+        let tool = match points.len() {
+            1 => KeyCode::BTN_TOOL_FINGER,
+            2 => KeyCode::BTN_TOOL_DOUBLETAP,
+            3 => KeyCode::BTN_TOOL_TRIPLETAP,
+            _ => KeyCode::BTN_TOOL_QUADTAP,
+        };
+        let mut events = Vec::new();
+        for slot in 0..points.len() {
+            events.push(abs(AbsoluteAxisCode::ABS_MT_SLOT, slot as i32));
+            events.push(abs(
+                AbsoluteAxisCode::ABS_MT_TRACKING_ID,
+                if down { slot as i32 + 1 } else { -1 },
+            ));
+        }
+        if down {
+            events.extend(place(points));
+        }
+        events.push(key(KeyCode::BTN_TOUCH, down));
+        events.push(key(tool, down));
+        self.touchpad.emit(&events)
     }
 
     /// Scrolls with two fingers on the touchpad, 20 mm apart across its middle: both move down
@@ -336,7 +424,7 @@ mod tests {
     //! uinput::tests::a_run_reads_its_own_devices_and_never_another_runs` (CI's verify job does).
 
     use super::Devices;
-    use oxyos_input::{Action, Input, Layout, ScrollSource};
+    use oxyos_input::{Action, GesturePhase, Input, Layout, ScrollSource};
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
@@ -431,5 +519,94 @@ mod tests {
             });
             assert!(typed, "{:?}", actions[other]);
         }
+    }
+    /// A swipe libinput read: its fingers, and how far it went (dx, dy).
+    type Swiped = (u32, f64, f64);
+    /// A pinch libinput read: its fingers, and its last scale.
+    type Pinched = (u32, f64);
+
+    /// The swipes and pinches libinput reads from the virtual touchpad, each as it began and
+    /// went.
+    fn gestures(actions: &[Action]) -> (Vec<Swiped>, Vec<Pinched>) {
+        let (mut swipes, mut pinches) = (Vec::new(), Vec::new());
+        for action in actions {
+            match *action {
+                Action::Swipe {
+                    phase: GesturePhase::Begin,
+                    fingers,
+                    ..
+                } => swipes.push((fingers, 0.0, 0.0)),
+                Action::Swipe { dx, dy, .. } => {
+                    if let Some(last) = swipes.last_mut() {
+                        last.1 += dx;
+                        last.2 += dy;
+                    }
+                }
+                Action::Pinch {
+                    phase: GesturePhase::Begin,
+                    fingers,
+                    ..
+                } => pinches.push((fingers, 1.0)),
+                Action::Pinch { scale, .. } => {
+                    if let Some(last) = pinches.last_mut() {
+                        last.1 = scale;
+                    }
+                }
+                _ => {}
+            }
+        }
+        (swipes, pinches)
+    }
+
+    #[test]
+    #[ignore]
+    fn libinput_counts_the_virtual_touchpads_swipes_and_pinches_of_three_and_four_fingers() {
+        // The scenarios of More Gestures (docs/adr/0046-interactive-gestures.mdx, amended 8
+        // November 2026) swipe and pinch through libinput: it must see three and four fingers, a
+        // swipe as far as the step asks, and the thumb and three fingers as a pinch.
+        let (mut devices, input) = start();
+        let mut inputs = [input];
+        let mut actions: [Vec<Action>; 1] = Default::default();
+        devices
+            .swipe(3, (0, -360), 24, 60, || read(&mut inputs, &mut actions))
+            .unwrap();
+        devices
+            .swipe(4, (-400, 0), 24, 60, || read(&mut inputs, &mut actions))
+            .unwrap();
+        devices
+            .pinch(4, 50, 0, || read(&mut inputs, &mut actions))
+            .unwrap();
+        devices
+            .pinch(2, 150, 0, || read(&mut inputs, &mut actions))
+            .unwrap();
+        let settled = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < settled {
+            std::thread::sleep(Duration::from_millis(10));
+            read(&mut inputs, &mut actions);
+        }
+        let (swipes, pinches) = gestures(&actions[0]);
+        // Each swipe its fingers, and most of its way: libinput keeps the first millimetres to
+        // tell a swipe from a pinch (and a pinch's first spread likewise, below).
+        assert_eq!(swipes.len(), 2, "{:?}", actions[0]);
+        let (fingers, dx, dy) = swipes[0];
+        assert_eq!(fingers, 3);
+        assert!(
+            dx.abs() < 1.0 && (-360.0..-240.0).contains(&dy),
+            "{:?}",
+            swipes[0]
+        );
+        let (fingers, dx, dy) = swipes[1];
+        assert_eq!(fingers, 4);
+        assert!(
+            dy.abs() < 1.0 && (-400.0..-270.0).contains(&dx),
+            "{:?}",
+            swipes[1]
+        );
+        // The thumb and three fingers pinched in, then two spread.
+        assert_eq!(pinches.len(), 2, "{:?}", actions[0]);
+        assert_eq!(pinches[0].0, 4);
+        assert!((0.45..0.85).contains(&pinches[0].1), "{:?}", pinches[0]);
+        assert_eq!(pinches[1].0, 2);
+        assert!((1.15..1.55).contains(&pinches[1].1), "{:?}", pinches[1]);
     }
 }

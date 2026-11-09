@@ -23,8 +23,15 @@ use std::time::Duration;
 pub const SIGNIFICANT: f64 = 0.2;
 /// The shortest window a use is averaged over, but since an application started.
 pub const WINDOW: Duration = Duration::from_secs(60);
-/// The samples kept per application.
-const KEPT: usize = 32;
+/// The samples kept per application: a minute's at Activity Monitor's pace of one every two seconds
+/// (docs/adr/0063-activity-monitor.mdx), and more.
+const KEPT: usize = 64;
+/// The span an application's average energy covers, as a Mac's *12 hr Power*.
+pub const AVERAGE: Duration = Duration::from_secs(12 * 60 * 60);
+/// How far apart the checkpoints the average is taken from are, at least.
+const CHECKPOINT: Duration = Duration::from_secs(60 * 60);
+/// The checkpoints kept per application: twelve hours' and the one before.
+const CHECKPOINTS: usize = 14;
 /// Processes followed below a launched one, at most.
 const MAX_TREE: usize = 512;
 
@@ -53,6 +60,30 @@ impl Usage {
             gpu_ns: self.gpu_ns.saturating_sub(before.gpu_ns),
         }
     }
+}
+
+/// A process's DRM clients: their engines' busy time and the memory they hold.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Drm {
+    pub busy_ns: u64,
+    /// Bytes.
+    pub memory: u64,
+}
+
+/// A drm-usage-stats amount (`1024 KiB`, `12 MiB`, `4096`: bytes without a unit) in bytes.
+fn bytes(value: &str) -> u64 {
+    let (amount, unit) = value.split_once(' ').unwrap_or((value, ""));
+    let Ok(amount) = amount.trim().parse::<u64>() else {
+        return 0;
+    };
+    let scale = match unit.trim() {
+        "" => 1,
+        "KiB" => 1 << 10,
+        "MiB" => 1 << 20,
+        "GiB" => 1 << 30,
+        _ => return 0,
+    };
+    amount.saturating_mul(scale)
 }
 
 /// A process's `stat` fields after its name: its state is the first (`stat`'s third field).
@@ -109,11 +140,20 @@ impl Proc<'_> {
 
     /// A process's GPU busy time, each DRM client once (`seen`).
     fn gpu(&self, pid: u32, seen: &mut HashSet<(String, String)>) -> u64 {
+        self.drm(pid, seen).busy_ns
+    }
+
+    /// What a process's DRM clients say of themselves (the kernel's drm-usage-stats, in
+    /// `/proc/PID/fdinfo/FD` of each descriptor of a DRM device): their engines' busy time and the
+    /// memory they hold, each client once (`seen`: `drm-pdev` and `drm-client-id`) however many
+    /// descriptors name it. Activity Monitor's GPU columns read it too, so the GPU is counted one
+    /// way (docs/adr/0063-activity-monitor.mdx).
+    pub fn drm(&self, pid: u32, seen: &mut HashSet<(String, String)>) -> Drm {
         let directory = self.root.join(pid.to_string());
+        let mut drm = Drm::default();
         let Ok(entries) = std::fs::read_dir(directory.join("fd")) else {
-            return 0;
+            return drm;
         };
-        let mut ns = 0;
         for entry in entries.flatten() {
             // Only a DRM device's descriptor has a DRM client's fdinfo.
             let Ok(target) = std::fs::read_link(entry.path()) else {
@@ -128,7 +168,7 @@ impl Proc<'_> {
                 continue;
             };
             let mut client = (String::new(), String::new());
-            let mut engines = 0u64;
+            let (mut engines, mut memory, mut legacy) = (0u64, 0u64, 0u64);
             for line in text.lines() {
                 let Some((key, value)) = line.split_once(':') else {
                     continue;
@@ -147,14 +187,20 @@ impl Proc<'_> {
                             engines += n;
                         }
                     }
+                    // Every region's memory (`drm-total-system0`, `drm-total-local0`); a driver
+                    // from before them says `drm-memory-<region>`, counted only where it says no
+                    // total, as perf.py counts it.
+                    _ if key.starts_with("drm-total-") => memory += bytes(value),
+                    _ if key.starts_with("drm-memory-") => legacy += bytes(value),
                     _ => {}
                 }
             }
             if client.1.is_empty() || seen.insert(client) {
-                ns += engines;
+                drm.busy_ns += engines;
+                drm.memory += if memory > 0 { memory } else { legacy };
             }
         }
-        ns
+        drm
     }
 
     /// The time the process `pid` and every process below it used, and how long ago it started
@@ -215,6 +261,10 @@ struct App {
     running: BTreeMap<u32, Duration>,
     /// Its whole use at each sample (when, by the meter's clock).
     samples: VecDeque<(Duration, Usage)>,
+    /// Its whole use at most once an hour (when, by the meter's clock), for its average.
+    checkpoints: VecDeque<(Duration, Usage)>,
+    /// When its first process started, by the meter's clock, as its first sample said.
+    began: Option<Duration>,
 }
 
 impl App {
@@ -238,6 +288,9 @@ pub struct Energy {
     pub recent: f64,
     pub significant: bool,
     pub running: bool,
+    /// Its use over the last twelve hours ([`AVERAGE`]), or since it began when that was later, in
+    /// shares of one core: a Mac's *12 hr Power*.
+    pub average: f64,
 }
 
 /// The applications' use, sampled.
@@ -258,6 +311,9 @@ impl Meter {
             };
             let app = self.apps.entry(process.id.clone()).or_default();
             app.name.clone_from(&process.name);
+            if app.began.is_none() {
+                app.began = Some(at.saturating_sub(read.age));
+            }
             app.processes.insert(read.pid, read.usage);
             app.running.insert(read.pid, read.age);
         }
@@ -269,6 +325,16 @@ impl Meter {
             }
             while app.samples.len() > KEPT {
                 app.samples.pop_front();
+            }
+            if app
+                .checkpoints
+                .back()
+                .is_none_or(|(then, _)| at.saturating_sub(*then) >= CHECKPOINT)
+            {
+                app.checkpoints.push_back((at, total));
+            }
+            while app.checkpoints.len() > CHECKPOINTS {
+                app.checkpoints.pop_front();
             }
         }
     }
@@ -290,6 +356,7 @@ impl Meter {
                     recent,
                     significant: running && recent >= SIGNIFICANT,
                     running,
+                    average: average(app, at),
                 }
             })
             .collect();
@@ -329,6 +396,30 @@ fn recent(app: &App, at: Duration) -> f64 {
         return 0.0;
     }
     used as f64 / 1e9 / age.as_secs_f64()
+}
+
+/// An application's use over the last [`AVERAGE`]: since the newest checkpoint at least that old,
+/// or, with none, since it began (its use is all its processes' since they started). Samples
+/// come with the battery's changes and as the person asks, so the span is the shortest the
+/// samples allow that covers twelve hours.
+fn average(app: &App, at: Duration) -> f64 {
+    let total = app.total();
+    if let Some(&(then, before)) = app
+        .checkpoints
+        .iter()
+        .rev()
+        .find(|(then, _)| at.saturating_sub(*then) >= AVERAGE)
+    {
+        let seconds = at.saturating_sub(then).as_secs_f64();
+        return total.since(before).total() as f64 / 1e9 / seconds;
+    }
+    let seconds = app
+        .began
+        .map_or(0.0, |began| at.saturating_sub(began).as_secs_f64());
+    if seconds <= 0.0 {
+        return 0.0;
+    }
+    total.total() as f64 / 1e9 / seconds
 }
 
 /// Reads what `running` use now through `proc`.
