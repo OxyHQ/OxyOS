@@ -30,7 +30,7 @@ import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
-import { localSignInFrom, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
+import { localSignInAfter, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
 import { sessionUserFrom } from '../../../apps/shell/src/session-user';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
@@ -687,17 +687,18 @@ function SessionShell() {
   const user = React.useMemo(() => sessionUserFrom(accountSnapshot), [accountSnapshot]);
   const capsLock = !!state?.capsLock;
   // The account's PIN (ADR 0020 decision 2), asked of the accounts' service as the session locks
-  // and after each answer (a PIN locked out on the way): which field the lock screen shows. Not
-  // read, it shows the password's, as before.
-  const [local, setLocal] = React.useState<LocalSignIn>({ pin: undefined, password: true });
+  // and after each answer (a PIN locked out on the way): which field the lock screen shows. Until
+  // the first answer, the password's; a failed read keeps what was said last, and with nothing
+  // said yet offers both (`localSignInAfter`).
+  const [local, setLocal] = React.useState<LocalSignIn>();
   const answerId = shell.authentication?.id;
   React.useEffect(() => {
     if (!locked || !accountSession) return undefined;
     let current = true;
     accountSession
       .localSignIn()
-      .then((told) => current && setLocal(localSignInFrom(told)))
-      .catch(() => current && setLocal({ pin: undefined, password: true }));
+      .then((told) => current && setLocal((known) => localSignInAfter(known, told)))
+      .catch(() => current && setLocal((known) => localSignInAfter(known, undefined)));
     return () => {
       current = false;
     };
@@ -709,8 +710,8 @@ function SessionShell() {
       capsLock,
       lockSession: shell.lockSession,
       authenticate: shell.authenticate,
-      pin: local.pin,
-      password: local.password,
+      pin: local?.pin,
+      password: local?.password ?? true,
       authenticatePin: (pin: string) => shell.authenticatePin(pin),
       answer: shell.authentication ?? undefined,
     }),
