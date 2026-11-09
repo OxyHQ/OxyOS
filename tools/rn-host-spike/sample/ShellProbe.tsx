@@ -4,7 +4,7 @@
  * shell (`--shell`) they are panels and an overlay of their own (docs/adr/0009-session-shell.mdx).
  */
 import * as React from 'react';
-import { TurboModuleRegistry } from 'react-native';
+import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
@@ -36,6 +36,7 @@ import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
 import { localSignInFrom, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
+import { sessionUserFrom } from '../../../apps/shell/src/session-user';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
@@ -322,8 +323,28 @@ function ProbeShell({
 }
 
 /** In a window (`--window`): every region in place. */
-/** The machine's Oxy session, for the account's local sign-in (ADR 0020 decision 2). */
-const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown> }>('OxyOSAccountSession');
+/** The machine's Oxy session: who the session is for (its snapshot, followed: the lock screen and
+    the menu bar name the person by it, docs/adr/0020-oxy-account-login.mdx decision 1) and the
+    account's local sign-in (decision 2). */
+const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown>; subscribe?(): boolean }>(
+  'OxyOSAccountSession',
+);
+
+/** The session's snapshot as the accounts' service last told it (`OxyOSAccountSessionChanged`),
+    followed from the shell's start on the connection the host keeps; null until told, and once the
+    service went away. Asked without blocking: the subscription answers it at once. */
+function useAccountSnapshot(): unknown {
+  const [snapshot, setSnapshot] = React.useState<unknown>(null);
+  React.useEffect(() => {
+    if (!accountSession?.subscribe) return undefined;
+    const subscription = DeviceEventEmitter.addListener('OxyOSAccountSessionChanged', (told: unknown) =>
+      setSnapshot(told ?? null),
+    );
+    accountSession.subscribe();
+    return () => subscription.remove();
+  }, []);
+  return snapshot;
+}
 
 export default function ShellProbe() {
   return (
@@ -651,7 +672,14 @@ function SessionShell() {
   }, [listsTold]);
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
   const locked = !!state?.locked;
-  const user = state?.user;
+  // Whom the session is for: the account's display name and username, else the full name the
+  // system keeps (passwd's GECOS, written from the same profile); never the Unix user's name.
+  const accountSnapshot = useAccountSnapshot();
+  const systemFullName = state?.user?.fullName;
+  const user = React.useMemo(
+    () => sessionUserFrom(accountSnapshot, systemFullName),
+    [accountSnapshot, systemFullName],
+  );
   const capsLock = !!state?.capsLock;
   // The account's PIN (ADR 0020 decision 2), asked of the accounts' service as the session locks
   // and after each answer (a PIN locked out on the way): which field the lock screen shows. Not
@@ -672,7 +700,7 @@ function SessionShell() {
   const lock: ShellLock = React.useMemo(
     () => ({
       locked,
-      user: user ?? { name: '' },
+      user,
       capsLock,
       lockSession: shell.lockSession,
       authenticate: shell.authenticate,

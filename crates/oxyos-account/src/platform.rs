@@ -1081,6 +1081,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         if let Ok(true) = self.rewrite(enrollment, credential, |stored| {
             stored.profile = profile.clone()
         }) {
+            // A name changed on Oxy is the person's name here too: the user's full name, and
+            // every snapshot's subscriber (the lock screen, the menu bar, Settings) told.
+            if profile.name() != enrollment.profile.name() {
+                let _machine = self.setup.lock_machine();
+                self.setup.name_user(&enrollment.user, profile);
+            }
             self.changed(enrollment);
         }
     }

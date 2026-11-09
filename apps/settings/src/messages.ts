@@ -1373,6 +1373,8 @@ const en = {
     title: "Erase All Content and Settings",
     whatIntro: "This erases:",
     accountItem: "And its files, apps and settings on this computer",
+    /** An account Oxy names nothing (neither a name nor a username): never its user's name. */
+    unnamedAccount: "Oxy Account",
     signsOut: "Signed out of this computer",
     signedOutAlready: "Already signed out of this computer",
     cannotSignOut:
@@ -2420,6 +2422,7 @@ const es: Messages = {
     title: "Borrar contenidos y ajustes",
     whatIntro: "Se borrará:",
     accountItem: "Y sus archivos, apps y ajustes en este ordenador",
+    unnamedAccount: "Cuenta de Oxy",
     signsOut: "Se cerrará su sesión en este ordenador",
     signedOutAlready: "Su sesión en este ordenador ya está cerrada",
     cannotSignOut:

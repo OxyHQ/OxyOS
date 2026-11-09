@@ -1017,6 +1017,33 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
         Ok(Some(first.user.clone()))
     }
 
+    /// The user's full name (passwd's GECOS) made what the person is called ([`Profile::name`]),
+    /// as the system's own tools then show it. Best effort, under the machine's lock the caller
+    /// holds: a name not written changes nothing else, and is written again when the service
+    /// starts.
+    pub fn name_user(&self, user: &UserName, profile: &Profile) {
+        if let Err(error) = self
+            .users
+            .set_full_name(user, profile.name().unwrap_or_default())
+        {
+            eprintln!("oxyos-accountd: {user}: its full name is not written: {error}");
+        }
+    }
+
+    /// Every enrolled account's user named as [`Setup::name_user`] names it: users set up before
+    /// their names were written, or whose name a write missed, are named when the service starts.
+    pub fn name_users(&self) -> Result<(), String> {
+        let _machine = self.lock();
+        for enrollment in self
+            .store
+            .enrollments()
+            .map_err(|error| error.to_string())?
+        {
+            self.name_user(&enrollment.user, &enrollment.profile);
+        }
+        Ok(())
+    }
+
     fn local(&self, account: &AccountId) -> Result<Local, SetupError> {
         let user = account.user_name();
         let enrollment = self
@@ -1251,6 +1278,7 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 uid
             }
         };
+        self.name_user(&user, &profile);
         Ok((
             Enrolled {
                 account: account.clone(),
