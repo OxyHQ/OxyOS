@@ -30,6 +30,7 @@ import type {
   ShellEnergyApp,
   ShellInputMethod,
   ShellAutofill,
+  ShellControl,
   ShellLock,
   ShellMenu,
   ShellMenuItem,
@@ -502,6 +503,26 @@ function SessionShell() {
   const powerState = useFollowed(power.state) as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
   // The backup service's state as the session tells it (ADR 0059): the menu bar's backup item.
   const backupTold = useFollowed(backup.state);
+  // Each thing done twice has one owner (docs/adr/0058-the-platform-api.mdx, decision 7): the
+  // sound's volume and mute are the platform's `audio`, which the session hands to the same
+  // controls as the keys, so the bezel and the top bar follow; Wi-Fi is `network`'s. The display's
+  // and the keyboard's brightness are the shell's own. Made once, so a level's card that did not
+  // change renders nothing when another's level does.
+  const setControlLevel = React.useCallback(
+    (control: ShellControl, level: number) =>
+      control === 'output' || control === 'input'
+        ? void audio.setVolume(control, level).catch(() => {})
+        : shell.setControlLevel(control, level),
+    [shell.setControlLevel],
+  );
+  const setControlMuted = React.useCallback(
+    (control: ShellControl, muted: boolean) =>
+      control === 'output' || control === 'input'
+        ? void audio.setMuted(control, muted).catch(() => {})
+        : shell.setControlMuted(control, muted),
+    [shell.setControlMuted],
+  );
+  const setWifiEnabled = React.useCallback((enabled: boolean) => void network.setWifi(enabled).catch(() => {}), []);
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -748,19 +769,9 @@ function SessionShell() {
       network: told?.network ?? undefined,
       bluetooth: told?.bluetooth ?? undefined,
       bezel,
-      // Each thing done twice has one owner (docs/adr/0058-the-platform-api.mdx, decision 7): the
-      // sound's volume and mute are the platform's `audio`, which the session hands to the same
-      // controls as the keys, so the bezel and the top bar follow; Wi-Fi is `network`'s. The
-      // display's and the keyboard's brightness are the shell's own.
-      setLevel: (control, level) =>
-        control === 'output' || control === 'input'
-          ? void audio.setVolume(control, level).catch(() => {})
-          : shell.setControlLevel(control, level),
-      setMuted: (control, muted) =>
-        control === 'output' || control === 'input'
-          ? void audio.setMuted(control, muted).catch(() => {})
-          : shell.setControlMuted(control, muted),
-      setWifi: (enabled) => void network.setWifi(enabled).catch(() => {}),
+      setLevel: setControlLevel,
+      setMuted: setControlMuted,
+      setWifi: setWifiEnabled,
       setDark: shell.setAppearance,
       refresh: shell.refreshControls,
       // Wi-Fi's networks (ADR 0038): the session scans and joins, asking a password or saying what
@@ -799,7 +810,7 @@ function SessionShell() {
         shell.openUrl('oxyos-settings://bluetooth');
       },
     };
-  }, [told, bezel, networks, sound, bluetoothDevices, act]);
+  }, [told, bezel, networks, sound, bluetoothDevices, act, setControlLevel, setControlMuted, setWifiEnabled]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;
