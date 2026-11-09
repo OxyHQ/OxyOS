@@ -122,7 +122,8 @@ fn the_mints_refusals_are_told_apart() {
             .mint_token(&credential(), &account())
             .unwrap_err(),
         ApiError::Locked {
-            retry_after: Some(42)
+            retry_after: Some(42),
+            window: None,
         }
     );
 }
@@ -142,11 +143,40 @@ fn the_profile_is_read_with_the_token() {
             username: Some("ada".into()),
             display_name: Some("Ada Lovelace".into()),
             avatar: Some("file-9".into()),
+            languages: None,
         }
     );
     let request = request.join().unwrap();
     assert_eq!(request.line, "GET /users/me HTTP/1.1");
     assert_eq!(request.header("authorization"), Some("Bearer token-1"));
+}
+
+#[test]
+fn the_profile_keeps_the_accounts_languages_primary_first() {
+    let profile = |languages: &str| {
+        let (base, request) = server(
+            200,
+            "",
+            &format!(
+                r#"{{"data":{{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"{languages}}}}}"#
+            ),
+        );
+        let profile = api(&base).profile(&Secret::new("token-1")).unwrap();
+        request.join().unwrap();
+        profile.languages
+    };
+    let both = Some(vec!["es-ES".to_owned(), "en-GB".to_owned()]);
+    assert_eq!(profile(r#","languages":["es-ES","en-GB"]"#), both);
+    // Only its non-empty strings.
+    assert_eq!(
+        profile(r#","languages":["es-ES",""," ",7,null,"en-GB"]"#),
+        both
+    );
+    // None when it names none, or not as a list.
+    assert_eq!(profile(""), None);
+    assert_eq!(profile(r#","languages":null"#), None);
+    assert_eq!(profile(r#","languages":[""]"#), None);
+    assert_eq!(profile(r#","languages":"es-ES""#), None);
 }
 
 #[test]
@@ -174,6 +204,7 @@ fn the_password_is_checked_on_the_same_device_naming_the_platform() {
             user_id: ACCOUNT.into(),
             device_id: DEVICE.into(),
             device_secret: Some(Secret::new("platform-secret-1")),
+            windows: crate::api::Windows::default(),
         }
     );
     let request = request.join().unwrap();
@@ -357,6 +388,7 @@ fn the_sign_ins_refusals_are_told_apart() {
             r#"{"error":"SIGNIN_LOCKED","message":"x","details":{"retryAfterSeconds":900}}"#,
             ApiError::Locked {
                 retry_after: Some(900),
+                window: None,
             },
         ),
         (
@@ -458,6 +490,7 @@ fn a_qr_sign_in_is_redeemed_by_its_device_proof_alone_naming_the_platform() {
             user_id: ACCOUNT.into(),
             device_id: DEVICE.into(),
             device_secret: Some(Secret::new("platform-secret-1")),
+            windows: crate::api::Windows::default(),
         }
     );
     let request = request.join().unwrap();
@@ -497,7 +530,8 @@ fn a_proof_that_cannot_be_redeemed_is_one_refusal_and_a_limit_says_when() {
     assert_eq!(
         api(&base).platform_device_sign_in(&credential(), &platform_client(), &key),
         Err(ApiError::Locked {
-            retry_after: Some(120)
+            retry_after: Some(120),
+            window: None,
         })
     );
     request.join().unwrap();
@@ -536,4 +570,55 @@ fn a_platform_credential_is_confirmed_by_itself_and_one_refusal_says_it_cannot_b
         Err(ApiError::Refused { status: 503, .. })
     ));
     request.join().unwrap();
+}
+
+#[test]
+fn the_windows_oxy_tells_are_measured_from_their_answer_never_from_a_clock() {
+    // Oxy's `expiresAt` says a time long past (another machine's clock, or this one's wrong):
+    // only the seconds count, from the answer's arrival.
+    let (base, request) = server(
+        200,
+        "",
+        r#"{"sessionId":"s-1","deviceId":"device-1","deviceSecret":"platform-secret-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e"},"redemptionWindow":{"expiresAt":"2000-01-01T00:00:00.000Z","expiresInSeconds":300},"confirmWindow":{"expiresAt":"2000-01-01T00:00:00.000Z","expiresInSeconds":120}}"#,
+    );
+    let before = std::time::Instant::now();
+    let signed_in = api(&base)
+        .platform_device_sign_in(
+            &credential(),
+            &platform_client(),
+            &RedemptionKey::new().unwrap(),
+        )
+        .unwrap();
+    let after = std::time::Instant::now();
+    request.join().unwrap();
+    let redemption = signed_in.windows.redemption.unwrap();
+    let confirm = signed_in.windows.confirm.unwrap();
+    // 300 s less the margin for the way back, from when the answer arrived.
+    assert!(redemption >= before + std::time::Duration::from_secs(298));
+    assert!(redemption <= after + std::time::Duration::from_secs(298));
+    assert!(confirm >= before + std::time::Duration::from_secs(118));
+    assert!(confirm <= after + std::time::Duration::from_secs(118));
+    // The account's 429 tells it too; a refusal that tells none leaves none.
+    let (base, request) = server(
+        429,
+        "Retry-After: 60\r\n",
+        r#"{"error":"RATE_LIMITED","message":"Too many attempts","redemptionWindow":{"expiresAt":"2099-01-01T00:00:00.000Z","expiresInSeconds":200}}"#,
+    );
+    let refused = api(&base)
+        .platform_device_sign_in(
+            &credential(),
+            &platform_client(),
+            &RedemptionKey::new().unwrap(),
+        )
+        .unwrap_err();
+    request.join().unwrap();
+    let ApiError::Locked {
+        retry_after: Some(60),
+        window: Some(window),
+    } = refused
+    else {
+        panic!("{refused:?}");
+    };
+    assert!(window <= std::time::Instant::now() + std::time::Duration::from_secs(198));
+    assert!(window > std::time::Instant::now() + std::time::Duration::from_secs(190));
 }

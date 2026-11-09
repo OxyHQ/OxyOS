@@ -8,9 +8,11 @@ import {
   pageOf,
   pagesFor,
   pinOptional,
+  secondsLeft,
   platformFrom,
   stageFrom,
   usablePin,
+  waitFrom,
 } from "../src/setup.ts";
 import { loginMessages } from "../src/messages.ts";
 
@@ -31,7 +33,11 @@ const code = { id: "a", name: "Ada", hasPassword: true, via: "other" as const };
 const codeNoPassword = { id: "a", name: "Ada", hasPassword: false, via: "other" as const };
 
 test("each answer of the accounts' service leads somewhere, a failure to its way forward", () => {
-  assert.deepEqual(afterEnroll(qr, { enrolled: { accountId: "a", user: "oxy-a" } }), { next: "enrolled", user: "oxy-a" });
+  assert.deepEqual(afterEnroll(qr, { enrolled: { accountId: "a", user: "oxy-a", name: "Ada" } }), {
+    next: "enrolled",
+    user: "oxy-a",
+    name: "Ada",
+  });
   assert.deepEqual(afterEnroll(code, "secondFactorRequired"), { next: "secondFactor", invalid: false });
   assert.deepEqual(afterEnroll(code, { refused: { reason: "secondFactorInvalid" } }), { next: "secondFactor", invalid: true });
   // The password asked once: refused, asked again; throttled, its wait said.
@@ -93,6 +99,7 @@ test("Back goes to the page before, past the sign-in gives it up, and never whil
 test("a stage is one the service names, else none", () => {
   assert.equal(stageFrom("preparing"), "preparing");
   assert.equal(stageFrom("starting"), "starting");
+  assert.equal(stageFrom("confirming"), "confirming", "the credential confirmed with Oxy, the service's last");
   assert.equal(stageFrom("redeeming"), null);
   assert.equal(stageFrom(3), null);
 });
@@ -104,8 +111,12 @@ test("a PIN is four to sixteen digits, as the accounts' service takes one", () =
 
 test("an answer that is not one is a failure", () => {
   assert.equal(enrollAnswerFrom("secondFactorRequired"), "secondFactorRequired");
+  // Named as the person is; a service that names nobody gives no name, never the user's.
+  assert.deepEqual(enrollAnswerFrom({ enrolled: { accountId: "a", user: "oxy-a", name: " Ada Lovelace " } }), {
+    enrolled: { accountId: "a", user: "oxy-a", name: "Ada Lovelace" },
+  });
   assert.deepEqual(enrollAnswerFrom({ enrolled: { accountId: "a", user: "oxy-a", uid: 1001 } }), {
-    enrolled: { accountId: "a", user: "oxy-a" },
+    enrolled: { accountId: "a", user: "oxy-a", name: "" },
   });
   assert.deepEqual(enrollAnswerFrom({ refused: { reason: "locked", retryAfterSeconds: 60 } }), {
     refused: { reason: "locked", retryAfterSeconds: 60 },
@@ -137,4 +148,26 @@ test("a QR sets a PIN alone, a typed password is taken, and only a sign-in that 
   assert.equal(pinOptional(account("other", true)), true);
   assert.equal(asksPassword(account("other", false)), false);
   assert.equal(pinOptional(account("other", false)), false);
+});
+
+test("a wait Oxy asks for is a time it ends, inside the QR's ten minutes, else none", () => {
+  assert.equal(waitFrom(12, 1_000), 13_000);
+  assert.equal(waitFrom(2.2, 0), 3_000, "rounded up: never sooner than asked");
+  assert.equal(waitFrom(0, 5), 5);
+  for (const told of [-1, 601, Number.NaN, Infinity, "12", null, undefined]) assert.equal(waitFrom(told, 0), null, String(told));
+});
+
+test("the seconds left are whole and never zero while it lasts", () => {
+  assert.equal(secondsLeft(13_000, 1_000), 12);
+  assert.equal(secondsLeft(13_000, 12_100), 1);
+  assert.equal(secondsLeft(13_000, 13_500), 1);
+});
+
+test("a wait is said calmly, in both languages", () => {
+  assert.equal(loginMessages("en").setup.waiting(12), "Oxy is busy right now. Setup goes on by itself in 12 seconds.");
+  assert.equal(loginMessages("en").setup.waiting(1), "Oxy is busy right now. Setup goes on by itself in 1 second.");
+  assert.equal(
+    loginMessages("es").setup.waiting(12),
+    "Oxy está ocupado ahora mismo. La configuración seguirá sola en 12 segundos.",
+  );
 });

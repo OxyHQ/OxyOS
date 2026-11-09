@@ -69,11 +69,36 @@ export const APPEARANCES: readonly Appearance[] = ["light", "dark", "auto"];
 /**
  * The stages the accounts' service reports as it sets the account up, in its order (any skipped
  * where it has nothing to do: `securing`, the PIN's verifier, without a PIN; a retry with what the
- * service kept starts at `preparing`), and the last, the login screen's own: the new account's
- * desktop opening, signed in with what was just chosen.
+ * service kept starts at `preparing`, or at `confirming` when only Oxy's confirmation of the
+ * credential was missing, oxy ADR 0058 R8), and the last, the login screen's own: the new
+ * account's desktop opening, signed in with what was just chosen.
  */
-export const SETUP_STAGES = ["securing", "verifying", "preparing", "signingIn", "finishing", "starting"] as const;
+export const SETUP_STAGES = [
+  "securing",
+  "verifying",
+  "preparing",
+  "signingIn",
+  "finishing",
+  "confirming",
+  "starting",
+] as const;
 export type SetupStage = (typeof SETUP_STAGES)[number];
+
+/** The longest wait the screen takes as one: the QR's sign-in is good for ten minutes, and the
+    service never waits past it (it says to sign in again instead). */
+export const MAX_WAIT_SECONDS = 600;
+
+/** A wait the accounts' service told (`{"waiting": {"retryAfterSeconds"}}`), as the time it ends;
+    null for anything that is not one. */
+export function waitFrom(told: unknown, now: number): number | null {
+  if (typeof told !== "number" || !Number.isFinite(told) || told < 0 || told > MAX_WAIT_SECONDS) return null;
+  return now + Math.ceil(told) * 1000;
+}
+
+/** The whole seconds left of a wait, as it is said: never below one while it lasts. */
+export function secondsLeft(until: number, now: number): number {
+  return Math.max(1, Math.ceil((until - now) / 1000));
+}
 
 /** A stage as the platform reports it: anything else is none (the progress does not move). */
 export function stageFrom(told: unknown): SetupStage | null {
@@ -94,7 +119,9 @@ export type SetupProblem = "unreachable" | "machine" | "expired" | "failed";
 
 /** The accounts' service's answer to a setup's turn, or why it could not be asked. */
 export type EnrollAnswer =
-  | { enrolled: { accountId: string; user: string } }
+  /** Set up: the account's id, its Unix user (what the login program signs in; never shown) and
+      what the person is called (the profile's display name, else its username; empty: none). */
+  | { enrolled: { accountId: string; user: string; name: string } }
   | "secondFactorRequired"
   | { refused: { reason: string; retryAfterSeconds?: number | null } }
   | { failed: { reason: string } };
@@ -115,8 +142,16 @@ export type SetupStep =
       was not taken. */
   | { step: "pin"; account: SignedInAccount; first?: string; problem?: "mismatch" | "unusable" }
   | { step: "appearance"; account: SignedInAccount }
-  /** The accounts' service at work: the stage it last reported, or why it stopped. */
-  | { step: "settingUp"; account: SignedInAccount; stage: SetupStage | null; problem?: SetupProblem }
+  /** The accounts' service at work: the stage it last reported, or why it stopped. `waitUntil`:
+      Oxy asked the service to wait before asking again (a 429 on the redemption, oxy ADR 0058),
+      the time (ms since the epoch) it goes on by itself; nothing has failed. */
+  | {
+      step: "settingUp";
+      account: SignedInAccount;
+      stage: SetupStage | null;
+      problem?: SetupProblem;
+      waitUntil?: number;
+    }
   | { step: "secondFactor"; account: SignedInAccount; invalid: boolean }
   /** Set up: the new account signing in with what was chosen; `accepted` once the login program
       took it, its desktop taking the screen. */
@@ -199,7 +234,7 @@ export function backFrom(step: SetupStep, first: boolean): SetupStep | "close" |
 
 /** Where an answer of the accounts' service leads the setup of `account`. */
 export type AfterEnroll =
-  | { next: "enrolled"; user: string }
+  | { next: "enrolled"; user: string; name: string }
   | { next: "secondFactor"; invalid: boolean }
   /** The password again (only an account that is asked it): `wait` seconds before another try. */
   | { next: "password"; problem: "incorrect" | "throttled" | "unusable"; wait: number }
@@ -210,7 +245,7 @@ export type AfterEnroll =
 /** Where an answer of the accounts' service leads the setup of `account`. */
 export function afterEnroll(account: SignedInAccount, answer: EnrollAnswer): AfterEnroll {
   if (answer === "secondFactorRequired") return { next: "secondFactor", invalid: false };
-  if ("enrolled" in answer) return { next: "enrolled", user: answer.enrolled.user };
+  if ("enrolled" in answer) return { next: "enrolled", user: answer.enrolled.user, name: answer.enrolled.name };
   const reason = "failed" in answer ? answer.failed.reason : answer.refused.reason;
   // A password the setup sent without asking (typed in the sign-in) that Oxy refuses is a
   // sign-in to do again: the password field is only for an account that was asked it.
@@ -253,7 +288,8 @@ export function enrollAnswerFrom(told: unknown): EnrollAnswer {
     const answer = told as Record<string, Record<string, unknown> | undefined>;
     const enrolled = answer.enrolled;
     if (enrolled && typeof enrolled.accountId === "string" && typeof enrolled.user === "string" && enrolled.user) {
-      return { enrolled: { accountId: enrolled.accountId, user: enrolled.user } };
+      const name = typeof enrolled.name === "string" ? enrolled.name.trim() : "";
+      return { enrolled: { accountId: enrolled.accountId, user: enrolled.user, name } };
     }
     const refused = answer.refused;
     if (refused && typeof refused.reason === "string") {

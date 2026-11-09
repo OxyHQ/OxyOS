@@ -4268,6 +4268,73 @@ fn the_clipboard_is_read_and_replaced_only_by_the_user_s_own_actions() {
 }
 
 #[test]
+fn a_sensitive_copy_is_cleared_by_its_owner_with_no_input() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    // A plain copy needs an input of the owner's to be cleared.
+    copy(&mut h, APP, 1);
+    h.clear_log();
+    h.request(APP, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert!(clipboard_events(&h, APP).is_empty());
+    // One marked sensitive (a password copied from the keychain) is cleared on no input, as its
+    // owner clears it after a while.
+    let serial = type_key(&mut h);
+    for request in [
+        Request::ClipboardOffer { offer: 2, serial },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(super::SENSITIVE_TYPE),
+        },
+        Request::ClipboardCommit { offer: 2 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    h.clear_log();
+    // By its owner alone.
+    h.request(OTHER, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert!(clipboard_events(&h, APP).is_empty());
+    h.request(APP, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert_eq!(clipboard_events(&h, APP), [Event::ClipboardEmpty {}]);
+}
+
+#[test]
+fn a_sensitive_copy_goes_with_the_lock_and_a_plain_one_stays() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    copy(&mut h, APP, 1);
+    h.scene.lock();
+    h.scene.unlock();
+    assert!(h.scene.clipboard().is_some());
+    let serial = type_key(&mut h);
+    for request in [
+        Request::ClipboardOffer { offer: 2, serial },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(super::SENSITIVE_TYPE),
+        },
+        Request::ClipboardCommit { offer: 2 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    assert!(h.scene.clipboard().is_some());
+    h.scene.lock();
+    assert!(h.scene.clipboard().is_none());
+    h.scene.unlock();
+    assert!(h.scene.clipboard().is_none());
+}
+
+#[test]
 fn the_clipboard_empties_when_its_owner_clears_it_or_goes() {
     let mut h = Harness::new();
     let (app, other) = two_windows(&mut h);
@@ -7049,6 +7116,57 @@ fn the_screen_readers_keys_reach_it_alone() {
     assert!(commands(&events).is_empty());
     assert!(keys_to(&events, APP).contains(&(RIGHT, false)));
     assert!(keys_to(&events, APP).contains(&(SPACE, true)));
+}
+
+#[test]
+fn with_a_screen_reader_plain_arrows_reach_the_focused_surface_once_each_in_order() {
+    // VoiceOver's arrows are its own only with its modifiers; so are the reader's: the arrows
+    // alone, before, between and after its chords, are the focused surface's, each press and
+    // release once and in the order typed, and the reader is sent its commands alone.
+    const UP: u32 = 103;
+    const DOWN: u32 = 108;
+    let mut h = Harness::new();
+    h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    let tap = |h: &mut Harness, key: u32| {
+        h.scene.keyboard(key, true, None);
+        h.scene.keyboard(key, false, None);
+    };
+    tap(&mut h, DOWN);
+    tap(&mut h, UP);
+    chord(&mut h, RIGHT, CTRL);
+    tap(&mut h, DOWN);
+    tap(&mut h, LEFT);
+    chord(&mut h, LEFT, CTRL);
+    tap(&mut h, RIGHT);
+    // A press held across the reader's chord: its release is the surface's too.
+    h.scene.keyboard(DOWN, true, None);
+    chord(&mut h, RIGHT, CTRL);
+    h.scene.keyboard(DOWN, false, None);
+    let events = logged(&mut h);
+    assert_eq!(
+        commands(&events),
+        [
+            ReaderCommand::Next,
+            ReaderCommand::Previous,
+            ReaderCommand::Next
+        ]
+    );
+    let modifiers = [(CTRL, true), (ALT, true), (ALT, false), (CTRL, false)];
+    let expected = [
+        &[(DOWN, true), (DOWN, false), (UP, true), (UP, false)][..],
+        &modifiers,
+        &[(DOWN, true), (DOWN, false), (LEFT, true), (LEFT, false)],
+        &modifiers,
+        &[(RIGHT, true), (RIGHT, false), (DOWN, true)],
+        &modifiers,
+        &[(DOWN, false)],
+    ]
+    .concat();
+    assert_eq!(keys_to(&events, APP), expected);
+    assert_eq!(h.scene.focus(), Some(window));
 }
 
 #[test]

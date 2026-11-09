@@ -44,7 +44,8 @@ fn service(
 
 fn signed_in(revision: u64) -> Value {
     json!({"snapshot": {"status": "signed_in", "revision": revision, "online": true,
-        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}}})
+        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+            "languages": ["es-ES", "en-GB"]}}})
 }
 
 #[test]
@@ -66,7 +67,8 @@ fn a_snapshot_is_the_services_rebuilt_and_strict() {
     assert_eq!(
         serde_json::to_value(&snapshot).unwrap(),
         json!({"status": "signed_in", "revision": 3, "online": true,
-            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}})
+            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+                "languages": ["es-ES", "en-GB"]}})
     );
     assert!(snapshot_at(&socket).is_err(), "signed in names an account");
     assert!(
@@ -401,7 +403,7 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert!(
         enrollment.second_factor(&Secret::new("123456")).is_err(),
@@ -536,6 +538,66 @@ fn the_local_sign_in_is_read_and_changed_on_the_session_socket() {
 }
 
 #[test]
+fn settings_keychain_requests_go_rebuilt_and_only_settings_ones() {
+    let (socket, dir) = socket_path("session");
+    let shapes = [
+        json!({"keychainItems": [{"itemId": "i1", "type": "login", "title": "Example",
+            "username": "bea@example.com", "domains": ["example.com"], "hasCode": false,
+            "modifiedAt": "2026-11-08T10:00:00.000Z"}]}),
+        json!({"refused": {"reason": "throttled", "retryAfter": 30}}),
+        json!({"refused": {"reason": "wrongPassword", "retryAfter": 30}}),
+        // Not the keychain's: a token, a snapshot, AutoFill's credential.
+        json!({"token": null}),
+        json!({"autofillCredential": {"username": "bea@example.com", "password": "fixture-secret"}}),
+    ];
+    let count = shapes.len();
+    let answers = std::sync::Mutex::new(shapes.into_iter());
+    let served = service(&socket, count, move |_| {
+        vec![answers.lock().unwrap().next().unwrap()]
+    });
+    let ask = |request: Value| {
+        keychain_at(&socket, &Secret::new(request.to_string()))
+            .map(|json| serde_json::from_slice::<Value>(&json).unwrap())
+    };
+    assert_eq!(
+        ask(json!({"keychainList": {}})),
+        Ok(
+            json!({"keychainItems": [{"itemId": "i1", "type": "login", "title": "Example",
+            "username": "bea@example.com", "domains": ["example.com"], "hasCode": false,
+            "modifiedAt": "2026-11-08T10:00:00.000Z"}]})
+        )
+    );
+    assert_eq!(
+        ask(json!({"keychainVerify": {"password": "fixture-password"}})),
+        Ok(json!({"refused": {"reason": "throttled", "retryAfter": 30}}))
+    );
+    // A wait is said only when throttled.
+    assert_eq!(
+        ask(json!({"keychainVerify": {"password": "fixture-password"}})),
+        Ok(json!({"refused": {"reason": "wrongPassword"}}))
+    );
+    for _ in 0..2 {
+        let failed = ask(json!({"keychainGenerate": {}})).unwrap_err();
+        assert!(!failed.to_string().contains("fixture-secret"));
+    }
+    served.join().unwrap();
+    // Never sent: the registrar's requests, any other, and what is no request at all.
+    for request in [
+        json!({"autofillGenerate": {}}),
+        json!({"autofillFill": {"desktopEntryId": "so.oxy.dropsea", "ref": "r", "field": "password"}}),
+        json!({"keychainLock": {}}),
+        json!({"eraseAll": {"password": "fixture-password"}}),
+        json!("snapshot"),
+        json!({"keychainVerify": {}}),
+    ] {
+        let refused = ask(request).unwrap_err();
+        assert!(matches!(refused, SessionError::Failed(_)), "{refused:?}");
+        assert!(!refused.to_string().contains("fixture-password"));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
     let (socket, dir) = socket_path("accountd");
     let served = service(&socket, 1, |message| {
@@ -589,7 +651,7 @@ fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
     let enrolled = enrollment.retry().unwrap().to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert_eq!(told.borrow()[4..], ["preparing", "signingIn", "finishing"]);
     assert!(
@@ -682,7 +744,7 @@ fn a_wait_oxy_asks_of_a_setup_is_told_and_its_answer_waited_for() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert_eq!(
         *told.borrow(),

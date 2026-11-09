@@ -20,6 +20,10 @@ export const ACCOUNT_SETTINGS_URL = 'oxyos-settings://oxy-account';
 const REASONS = new Set(['boot', 'preflight', 'response-401']);
 const ACTIONS = new Set(['sign_in', 'switch_account', 'sign_out', 'manage_account']);
 
+/** The account's languages (locales, primary first), kept only as a list of strings. */
+const isLanguages = (languages) => Array.isArray(languages)
+  && languages.every((language) => typeof language === 'string');
+
 /** A snapshot of the service's, kept only if it is one; anything else is none. */
 function snapshotOf(told) {
   if (typeof told !== 'object' || told === null) return null;
@@ -34,6 +38,7 @@ function snapshotOf(told) {
       handle: account.handle,
       ...(typeof account.displayName === 'string' ? { displayName: account.displayName } : {}),
       ...(typeof account.avatar === 'string' ? { avatar: account.avatar } : {}),
+      ...(isLanguages(account.languages) ? { languages: Object.freeze([...account.languages]) } : {}),
     });
   }
   if ((status === 'signed_in') !== (kept !== null)) return null;

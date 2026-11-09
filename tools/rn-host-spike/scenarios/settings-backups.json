@@ -1,0 +1,518 @@
+{
+  "about": "Settings › General › Backups as a Mac's Time Machine pane (docs/adr/0059-backups.mdx, decision 9), Settings granted `settings`, over the development backup service on the run's own folders (oxyos-offscreen --play-backup: two played disks, “Backup Disk” and “Archive”, backing up the run's home, Debian's restic paced to 1 MiB/s so a backup is seen running). Backups in the sidebar once the session told the service's state; the page with no disk says what backups are and offers Add Backup Disk…. Its sheet lists the disks connected and Network Share…; Backup Disk chosen, the backup password typed twice (Set Up Disk enabled only then): the service keeps the destination and backs up at once, the page showing the progress and Skip This Backup, which stops it (no backup kept). Back Up Now: one backup, the page saying the latest backup today and the space used. Options…: Pictures excluded through the system's folder chooser (sample/FileChooserFixture.tsx), kept by the service; Back Up Automatically off, kept by the service; Show Backups in menu bar off, kept in the preferences file, and the shell's item gone. The destination removed, after a confirmation: the service holds none. Each step checks what the service holds.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings"
+    ]
+  },
+  "file_chooser": "FileChooserFixture",
+  "home": {
+    "items": {
+      "Documents/": "",
+      "Documents/notes.txt": "the shopping list",
+      "Pictures/a.png": "an image",
+      "Pictures/b b.png": "another image"
+    }
+  },
+  "backup": {
+    "disks": [
+      {
+        "uuid": "4f2a-77c1-9e0b",
+        "label": "Backup Disk"
+      },
+      {
+        "uuid": "b31c-0d5e",
+        "label": "Archive"
+      }
+    ],
+    "files": {
+      "Movies/trip.mov": 16000000
+    },
+    "pace": 1024
+  },
+  "steps": [
+    {
+      "name": "Settings, once the session told it the backup service's state: Backups in its sidebar; the shell shows no backup item without a destination",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Backups"
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Backups"
+            }
+          ]
+        },
+        "backup": {
+          "destinations": [],
+          "administrator": true,
+          "automatic": true
+        }
+      }
+    },
+    {
+      "name": "Backups: no disk yet, what backups are, Add Backup Disk…",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Backups"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Backup Disks",
+          "Add Backup Disk…"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Add Backup Disk…"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Add Backup Disk…: the disks connected, and Network Share…",
+      "do": [
+        "press_named",
+        "Add Backup Disk…"
+      ],
+      "expect": {
+        "texts": [
+          "Add Backup Disk",
+          "Archive",
+          "Backup Disk",
+          "Network Share…"
+        ]
+      }
+    },
+    {
+      "name": "Backup Disk chosen: its backup password, typed twice",
+      "do": [
+        "press_named",
+        "Backup Disk, ext4"
+      ],
+      "expect": {
+        "texts": [
+          "Encrypt Backups",
+          "At least 8 characters."
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Set Up Disk",
+              "state": [
+                "disabled"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The password typed",
+      "do": [
+        "type",
+        "correct horse"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Tab to the second field",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Typed again: Set Up Disk enabled",
+      "do": [
+        "type",
+        "correct horse"
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Button",
+              "name": "Set Up Disk",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Set Up Disk: the service keeps the destination",
+      "do": [
+        "press_named",
+        "Set Up Disk"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Kept, and backed up at once",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "running": {
+              "phase": "backingUp"
+            }
+          },
+          "ms": 30000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "backup": {
+          "destinations": [
+            {
+              "name": "Backup Disk",
+              "kind": "disk",
+              "available": true
+            }
+          ],
+          "running": {
+            "phase": "backingUp",
+            "asked": false
+          }
+        }
+      }
+    },
+    {
+      "name": "The page shows the backup's progress and Skip This Backup; the shell its item",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Backup Disk",
+          "Skip This Backup"
+        ],
+        "texts_matching": [
+          "^Backing up: [0-9.]+ (bytes|KB|MB) of [0-9.]+ MB"
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Backups"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Skip This Backup: stopped",
+      "do": [
+        "press_named",
+        "Skip This Backup"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "No backup kept, no failure",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "running": null
+          },
+          "ms": 30000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "backup": {
+          "running": null,
+          "destinations": [
+            {
+              "backups": 0,
+              "lastFailure": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Back Up Now",
+      "do": [
+        "press_named",
+        "Back Up Now"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Backed up once",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "running": null,
+            "destinations": [
+              {
+                "backups": 1
+              }
+            ]
+          },
+          "ms": 90000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "backup": {
+          "destinations": [
+            {
+              "backups": 1,
+              "lastFailure": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The page: the latest backup, today, and the space it takes",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts_matching": [
+          "^Latest backup: Today, ",
+          " used, .* available$"
+        ],
+        "texts": [
+          "Back Up Now",
+          "Options…"
+        ]
+      }
+    },
+    {
+      "name": "Options…",
+      "do": [
+        "press_named",
+        "Options…"
+      ],
+      "expect": {
+        "texts": [
+          "Backup Options",
+          "Exclude from Backups",
+          "Back Up Automatically",
+          "Show Backups in menu bar"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Back Up Automatically",
+              "state": [
+                "checked"
+              ]
+            },
+            {
+              "role": "Switch",
+              "name": "Show Backups in menu bar",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "A folder to exclude, from the system's folder chooser",
+      "do": [
+        "press_named",
+        "Add a Folder to Exclude"
+      ],
+      "expect": {
+        "chooser": {
+          "focused": true
+        }
+      }
+    },
+    {
+      "name": "Pictures chosen: excluded, kept by the service",
+      "do": [
+        "press_named",
+        "Choose Pictures"
+      ],
+      "expect": {
+        "chooser": null,
+        "texts": [
+          "Pictures"
+        ]
+      }
+    },
+    {
+      "name": "The service keeps it",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "excluded": [
+              "{home}/Pictures"
+            ]
+          },
+          "ms": 10000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "backup": {
+          "excluded": [
+            "{home}/Pictures"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Back Up Automatically off: kept by the service",
+      "do": [
+        "press_output",
+        [
+          820,
+          369
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Back Up Automatically",
+              "state": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "The service keeps it",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "automatic": false
+          },
+          "ms": 10000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "backup": {
+          "automatic": false,
+          "nextBackup": null
+        }
+      }
+    },
+    {
+      "name": "Show Backups in menu bar off: the preference kept, the shell's item gone",
+      "do": [
+        "press_output",
+        [
+          820,
+          465
+        ]
+      ],
+      "expect": {
+        "preferences_file": {
+          "backup_in_menu_bar": "false"
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Backups"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Done",
+      "do": [
+        "press_named",
+        "Done"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Remove “Backup Disk”…: asked first",
+      "do": [
+        "press_named",
+        "Remove “Backup Disk”…"
+      ],
+      "expect": {
+        "texts": [
+          "Remove “Backup Disk”?"
+        ]
+      }
+    },
+    {
+      "name": "Removed: the service holds no destination; its backups stay on the disk",
+      "do": [
+        "press_named",
+        "Remove"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "The service holds none",
+      "do": [
+        "backup",
+        {
+          "until": {
+            "destinations": []
+          },
+          "ms": 10000
+        }
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "backup": {
+          "destinations": []
+        },
+        "texts": [
+          "Add Backup Disk…"
+        ]
+      }
+    }
+  ]
+}

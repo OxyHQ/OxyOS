@@ -34,6 +34,9 @@ export interface SessionState {
   network: Told<Json>;
   bluetooth: Told<Json>;
   power: Told<Json>;
+  /** Backups (docs/adr/0059-backups.mdx), as the session's answer carries them: `{backup: State}`,
+      or `{backup: null}` while the backup service is not there (null before the session said). */
+  backup: Told<{ backup: Json | null }>;
   inputSources: Told<Json>;
   sound: Told<Json>;
   /** The account's applications and their capabilities' decisions, and which run in the
@@ -75,24 +78,26 @@ const ASKED_BY = {
   inputSources: { inputSources: {} },
   sound: { sound: {} },
   power: { power: {} },
+  backup: { backup: {} },
 } as const;
-const FOLLOWED_KEYS = ['updateState', 'activity', ...Object.keys(ASKED_BY)] as (
+const FOLLOWED_KEYS = ['updateState', 'activity', ...Object.keys(ASKED_BY).filter((key) => key !== 'backup')] as (
   | 'updateState'
   | 'activity'
-  | keyof typeof ASKED_BY
+  | Exclude<keyof typeof ASKED_BY, 'backup'>
 )[];
 
 export function createSession(native: SystemModule | null | undefined, events: Events): Session {
   const waiting = new Map<number, { resolve: (answer: unknown) => void; onProgress?: (progress: unknown) => void }>();
   // Hoisted: the followed states ask through it as they are first followed.
   let request: (body: Json, options?: RequestOptions) => Promise<unknown>;
-  const asked = (key: keyof typeof ASKED_BY) => followed<Json>({ start: () => void request(ASKED_BY[key]) });
+  const asked = <T = Json>(key: keyof typeof ASKED_BY) => followed<T>({ start: () => void request(ASKED_BY[key]) });
   let activity = { view: 'cpu', followed: false };
   const state: SessionState = {
     updateState: followed(),
     network: asked('network'),
     bluetooth: asked('bluetooth'),
     power: asked('power'),
+    backup: asked<{ backup: Json | null }>('backup'),
     inputSources: asked('inputSources'),
     sound: asked('sound'),
     privacy: followed(),
@@ -119,6 +124,8 @@ export function createSession(native: SystemModule | null | undefined, events: E
     for (const key of FOLLOWED_KEYS) {
       if (told[key]) state[key].tell(told[key] as Json);
     }
+    // Null is a state of its own: no backup service.
+    if ('backup' in told) state.backup.tell({ backup: (told.backup as Json | null) ?? null });
     if (Array.isArray(told.privacy)) state.privacy.tell(told.privacy as Json[]);
   };
 

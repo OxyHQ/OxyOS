@@ -4,19 +4,21 @@
  * shell (`--shell`) they are panels and an overlay of their own (docs/adr/0009-session-shell.mdx).
  */
 import * as React from 'react';
-import { TurboModuleRegistry } from 'react-native';
+import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import {
+  backup as backupApi,
   bluetooth,
   autofill as autofillApi,
   inputSources,
   network,
   power,
   sound as soundApi,
+  useBackupState,
   useBluetoothState,
   useAutofillState,
   useInputSourcesState,
@@ -27,15 +29,18 @@ import {
 } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
+import { backupStateOf } from '../../../apps/shell/src/backup';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
 import { localSignInFrom, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
+import { sessionUserFrom } from '../../../apps/shell/src/session-user';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
+  ShellBackupMenu,
   ShellBatteryMenu,
   ShellEnergyApp,
   ShellInputMethod,
@@ -258,6 +263,7 @@ function ProbeShell({
   screenshots,
   inputMethod,
   battery,
+  backup,
   autofill,
 }: {
   /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
@@ -286,6 +292,8 @@ function ProbeShell({
   inputMethod?: ShellInputMethod;
   /** The battery's menu (ADR 0057), once the session told the battery and energy. */
   battery?: ShellBatteryMenu;
+  /** The menu bar's backup item (ADR 0059), once the session told the backup service's state. */
+  backup?: ShellBackupMenu;
 }) {
   // The same wallpaper while it draws the same: the wallpaper and what blurs it render again only
   // when it changes.
@@ -308,14 +316,35 @@ function ProbeShell({
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      backup={backup}
       autofill={autofill}
     />
   );
 }
 
 /** In a window (`--window`): every region in place. */
-/** The machine's Oxy session, for the account's local sign-in (ADR 0020 decision 2). */
-const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown> }>('OxyOSAccountSession');
+/** The machine's Oxy session: who the session is for (its snapshot, followed: the lock screen and
+    the menu bar name the person by it, docs/adr/0020-oxy-account-login.mdx decision 1) and the
+    account's local sign-in (decision 2). */
+const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown>; subscribe?(): boolean }>(
+  'OxyOSAccountSession',
+);
+
+/** The session's snapshot as the accounts' service last told it (`OxyOSAccountSessionChanged`),
+    followed from the shell's start on the connection the host keeps; null until told, and once the
+    service went away. Asked without blocking: the subscription answers it at once. */
+function useAccountSnapshot(): unknown {
+  const [snapshot, setSnapshot] = React.useState<unknown>(null);
+  React.useEffect(() => {
+    if (!accountSession?.subscribe) return undefined;
+    const subscription = DeviceEventEmitter.addListener('OxyOSAccountSessionChanged', (told: unknown) =>
+      setSnapshot(told ?? null),
+    );
+    accountSession.subscribe();
+    return () => subscription.remove();
+  }, []);
+  return snapshot;
+}
 
 export default function ShellProbe() {
   return (
@@ -439,7 +468,7 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode, resetApplication } = useSystemSheets();
+  const { sheets, answer, answerPassword, answerCode, answerPasskey, resetApplication } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -450,6 +479,8 @@ function SessionShell() {
   const sources = useInputSourcesState();
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
   const powerState = usePowerState() as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
+  // The backup service's state as the session tells it (ADR 0059): the menu bar's backup item.
+  const backupTold = useBackupState();
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -641,7 +672,14 @@ function SessionShell() {
   }, [listsTold]);
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
   const locked = !!state?.locked;
-  const user = state?.user;
+  // Whom the session is for: the account's display name and username, else the full name the
+  // system keeps (passwd's GECOS, written from the same profile); never the Unix user's name.
+  const accountSnapshot = useAccountSnapshot();
+  const systemFullName = state?.user?.fullName;
+  const user = React.useMemo(
+    () => sessionUserFrom(accountSnapshot, systemFullName),
+    [accountSnapshot, systemFullName],
+  );
   const capsLock = !!state?.capsLock;
   // The account's PIN (ADR 0020 decision 2), asked of the accounts' service as the session locks
   // and after each answer (a PIN locked out on the way): which field the lock screen shows. Not
@@ -662,7 +700,7 @@ function SessionShell() {
   const lock: ShellLock = React.useMemo(
     () => ({
       locked,
-      user: user ?? { name: '' },
+      user,
       capsLock,
       lockSession: shell.lockSession,
       authenticate: shell.authenticate,
@@ -814,6 +852,30 @@ function SessionShell() {
     [!!powerState, showPercentage, lowPower, shell.openUrl],
   );
 
+  // The menu bar's backup item (ADR 0059): the state as the session tells it, read strictly; Back
+  // Up Now and Skip This Backup asked of the session citing the press, Browse Backups opening
+  // Dropsea's, Open Backups Settings… Settings at its Backups page.
+  const backupMenu: ShellBackupMenu | undefined = React.useMemo(() => {
+    const state = backupStateOf((backupTold as { backup?: unknown } | null)?.backup);
+    return state
+      ? {
+          state,
+          backUpNow: () => {
+            backupApi.backUpNow();
+          },
+          skip: () => {
+            backupApi.stop();
+          },
+          browse: () => {
+            shell.openUrl('dropsea://backups');
+          },
+          openSettings: () => {
+            shell.openUrl('oxyos-settings://backups');
+          },
+        }
+      : undefined;
+  }, [backupTold, shell.openUrl]);
+
   // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
   // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
   const autofillTold = useAutofillState();
@@ -840,6 +902,8 @@ function SessionShell() {
       answerPassword: (password: string) => answerPassword(first.sheet, password),
       // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
       answerCode: (code: string) => answerCode(first.sheet, code),
+      // A passkey sheet's answer (ADR 0050): to the session alone.
+      answerPasskey: (choice: number | undefined, password: string) => answerPasskey(first.sheet, choice, password),
       // An application that quit (docs/adr/0061): Reset… asks the session to reset it.
       act: (action: string) => {
         if (action === 'reset' && firstText.kind === 'crash') resetApplication(first.sheet, firstText.id);
@@ -847,7 +911,7 @@ function SessionShell() {
       // Its report copied, at the person's press, as any application copies (ADR 0007).
       copy: (text: string) => clipboard?.setString(text) ?? false,
     };
-  }, [first, registry, answer, answerPassword, answerCode, resetApplication]);
+  }, [first, registry, answer, answerPassword, answerCode, answerPasskey, resetApplication]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell
@@ -865,6 +929,7 @@ function SessionShell() {
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      backup={backupMenu}
       autofill={autofill}
     />
   );

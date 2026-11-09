@@ -24,6 +24,7 @@
 use super::fail;
 use oxyos_account::erase::{ErasePreview, Erasing};
 use oxyos_account::ipc::{self, Connection};
+use oxyos_account::keychain;
 use oxyos_account::platform;
 pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
 use oxyos_account::session;
@@ -319,6 +320,86 @@ pub fn erase_all_at(socket: &Path, password: Secret) -> Result<EraseAnswer, Sess
     }
 }
 
+/// How long a keychain request may take: a write, a join, an approval or a removal asks Oxy (each
+/// call within the service's HTTP bounds, a conflict written twice), a verification runs Argon2id.
+const KEYCHAIN_WAIT: Duration = Duration::from_secs(120);
+
+/// Whether `request` is one of Settings' keychain requests ([ADR 0050](../../docs/adr/0050-keychain-autofill-and-passkeys.mdx),
+/// decision 8): the keychain's, never the registrar's (AutoFill, the lock) nor anything else.
+fn settings_keychain_request(request: &session::Request) -> bool {
+    keychain::is_keychain_request(request) && !keychain::is_registrar_request(request)
+}
+
+/// Whether `answer` is one the keychain gives Settings, or a refusal.
+fn keychain_answer(answer: &session::Answer) -> bool {
+    use session::Answer as A;
+    matches!(
+        answer,
+        A::Refused { .. }
+            | A::KeychainStatus(_)
+            | A::KeychainRecoveryKey { .. }
+            | A::KeychainEnrollment(_)
+            | A::KeychainEnrollments(_)
+            | A::KeychainApproved
+            | A::KeychainDenied
+            | A::KeychainMembers(_)
+            | A::KeychainMemberRemoved
+            | A::KeychainVerified
+            | A::KeychainItems(_)
+            | A::KeychainItem(_)
+            | A::KeychainSaved { .. }
+            | A::KeychainDeleted
+            | A::KeychainAudit(_)
+            | A::KeychainLeft
+            | A::KeychainCode(_)
+            | A::GeneratedPassword(_)
+    )
+}
+
+/// One of Settings' keychain requests, `request` (its JSON, as the service reads it), and the
+/// service's answer as JSON, read in the service's own types and written rebuilt: an answer of the
+/// keychain's or a refusal (`{"refused": {"reason", "retryAfter"?}}`, `retryAfter` only when
+/// throttled), never anything else. The request and the answer hold secrets (a password, an item,
+/// a recovery key, a code): each is kept in a buffer overwritten when dropped, and none appears in
+/// an error.
+pub fn keychain_at(socket: &Path, request: &Secret) -> Result<Zeroizing<Vec<u8>>, SessionError> {
+    let request: session::Request = serde_json::from_str(request.expose())
+        .map_err(|_| SessionError::Failed("not a keychain request".into()))?;
+    if !settings_keychain_request(&request) {
+        return Err(SessionError::Failed(
+            "not one of Settings' keychain requests".into(),
+        ));
+    }
+    let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
+    connection
+        .set_timeout(KEYCHAIN_WAIT)
+        .map_err(|error| failed(socket, error))?;
+    connection
+        .send(&request)
+        .map_err(|error| failed(socket, error))?;
+    let answer = match connection.receive::<session::Answer>() {
+        Ok(Some(Some(answer))) if keychain_answer(&answer) => answer,
+        Ok(Some(_)) => return Err(failed(socket, "not an answer of the keychain's")),
+        Ok(None) => return Err(failed(socket, "it closed the connection")),
+        Err(error) => return Err(failed(socket, error)),
+    };
+    let answer = match answer {
+        session::Answer::Refused {
+            reason,
+            retry_after,
+        } => session::Answer::Refused {
+            reason,
+            retry_after: retry_after.filter(|_| reason == session::Reason::Throttled),
+        },
+        other => other,
+    };
+    // Room for the longest message the service sends, so the buffer is never moved and left behind.
+    let mut json = Zeroizing::new(Vec::with_capacity(ipc::MAX_MESSAGE));
+    serde_json::to_writer(&mut *json, &answer)
+        .map_err(|_| SessionError::Failed("the answer could not be written".into()))?;
+    Ok(json)
+}
+
 /// What a request to save came to: saved on the person's yes, not saved (their no, no answer in
 /// time, the sheet not shown), or refused with the service's reason.
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -455,10 +536,19 @@ pub fn platform_at(socket: &Path) -> Result<Platform, SessionError> {
 fn enroll_json(answer: &ipc::Answer) -> Option<(String, bool)> {
     let (json, continues) = match answer {
         ipc::Answer::SecondFactorRequired => (serde_json::json!("secondFactorRequired"), true),
+        // Named as every screen names the person (the profile's display name, else its username):
+        // the user is what the login program signs in, never a name to show.
         ipc::Answer::Enrolled {
-            account_id, user, ..
+            account_id,
+            user,
+            profile,
+            ..
         } => (
-            serde_json::json!({"enrolled": {"accountId": account_id, "user": user}}),
+            serde_json::json!({"enrolled": {
+                "accountId": account_id,
+                "user": user,
+                "name": profile.name().unwrap_or_default(),
+            }}),
             false,
         ),
         ipc::Answer::Refused {
@@ -888,6 +978,42 @@ pub unsafe extern "C" fn oxyos_account_session_change_local(
     }
 }
 
+/// One of Settings' keychain requests (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision
+/// 8): `request` is its JSON as the service reads it (`{"keychainList": {}}`, `{"keychainReveal":
+/// {"itemId"}}` …; secret: copied into a buffer this library overwrites, the caller overwrites its
+/// own). Settings alone may ask (the service refuses anyone else `notPermitted`); the registrar's
+/// requests (AutoFill, the lock) are not sent. Blocks while the service answers, which may ask Oxy:
+/// call it off the interface's thread. The answer as JSON, rebuilt: one of the keychain's answers,
+/// or {"refused": {"reason", "retryAfter"? (seconds, when throttled)}}. It may hold secrets (an
+/// item, a recovery key, a code): overwrite `out` once handed on. Its length (larger than
+/// `capacity`: nothing written, and the answer is lost: give OXYOS_ACCOUNT_MESSAGE_MAX bytes), or
+/// OXYOS_ERROR (`oxyos_last_error`: not a request of Settings', or the service could not be asked
+/// or answered something else; never a secret).
+///
+/// # Safety
+/// `request` is a NUL-terminated string valid for the call; `out` points to `capacity` writable
+/// bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_keychain(
+    request: *const c_char,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let Some(request) = (unsafe { secret_arg(request) }) else {
+        return i64::from(fail("a keychain request as JSON"));
+    };
+    match keychain_at(&session_socket(), &request) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(&json, out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
 /// Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
 /// decision 5): `username` and `password` (NUL-terminated UTF-8; the password secret, copied into a
 /// buffer this library overwrites: the caller overwrites its own) and the website it is for
@@ -1073,7 +1199,8 @@ unsafe fn answered(result: Result<&str, SessionError>, out: *mut c_char, capacit
 
 /// Sends the setup (`enroll`): the device credential the SDK's sign-in obtained, the account's
 /// id and its password, each NUL-terminated UTF-8; the service's answer as JSON:
-/// `{"enrolled": {"accountId", "user"}}`, `"secondFactorRequired"` (answer with
+/// `{"enrolled": {"accountId", "user", "name"}}` (`name`: what the person is called, empty when the
+/// account has no name), `"secondFactorRequired"` (answer with
 /// `_second_factor`), `{"failed": {"reason": "unreachable" | "localFailure"}}` (the sign-in kept:
 /// `_retry`) or `{"refused": {"reason", "retryAfterSeconds"}}`. Blocks while the service sets the
 /// account up, telling its steps to `_on_progress`'s function. The secrets are copied into buffers this library overwrites; the caller
@@ -1311,6 +1438,8 @@ pub unsafe extern "C" fn oxyos_account_enrollment_free(enrollment: *mut OxyOSAcc
         drop(unsafe { Box::from_raw(enrollment) });
     }
 }
+
+pub mod passkeys;
 
 #[cfg(test)]
 mod tests;

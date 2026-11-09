@@ -297,6 +297,62 @@ class ARunSeesOnlyItsOwnProcesses(unittest.TestCase):
                              capture_output=True, text=True, timeout=30)
         self.assertEqual((run.returncode, run.stdout.strip()), (3, "0"), run.stderr)
 
+class LaunchToContent(unittest.TestCase):
+    """`content_ms_max`: from the host's `main` to the first frame showing every one of the step's
+    texts, across its surfaces, a closed popup's left out."""
+
+    MS = 1_000_000
+
+    def report(self, *frames):
+        lines = [{"t": 5 * self.MS, "kind": "stage", "name": "main"}]
+        for at, surface, texts in frames:
+            lines.append({"t": (5 + at) * self.MS, "kind": "frame", "surface": surface, "texts": texts})
+        return lines
+
+    def check(self, report, budget=1500, texts=("notas.txt", "3 elementos")):
+        failures = []
+        step = {"name": "launch", "do": ["wait", 2500], "expect": {"texts": list(texts), "content_ms_max": budget}}
+        result = {"t_settled": max(line["t"] for line in report)}
+        regress.check_step(0, step, result, report, 0, failures)
+        return result.get("content_ms"), failures
+
+    def test_its_listing_within_the_budget(self):
+        shown, failures = self.check(self.report((40, 1, []), (284, 1, ["Inicio", "notas.txt", "3 elementos"])))
+        self.assertEqual((shown, failures), (284.0, []))
+
+    def test_every_text_counts_on_any_surface(self):
+        shown, failures = self.check(self.report((100, 1, ["notas.txt"]), (200, 1, ["notas.txt"]),
+                                                 (300, 2, ["3 elementos"])))
+        self.assertEqual((shown, failures), (300.0, []))
+
+    def test_a_late_listing_fails(self):
+        shown, failures = self.check(self.report((40, 1, []), (5200, 1, ["notas.txt", "3 elementos"])))
+        self.assertEqual(shown, 5200.0)
+        self.assertIn("over the 1500 ms budget", failures[0])
+
+    def test_a_blank_window_fails(self):
+        shown, failures = self.check(self.report((40, 1, []), (2600, 1, [])))
+        self.assertIsNone(shown)
+        self.assertTrue(any("never all shown" in failure for failure in failures))
+
+    def test_a_closed_popups_text_is_not_shown(self):
+        report = self.report((100, 2, ["3 elementos"]), (150, 1, []))
+        report.append({"t": 200 * self.MS, "kind": "popup", "event": "close", "surface": 2})
+        report += self.report((300, 1, ["notas.txt"]))[1:]
+        self.assertIsNone(regress.content_shown_ms(report, ["notas.txt", "3 elementos"]))
+
+    def test_under_collect_it_is_measured_not_held(self):
+        regress.COLLECT = True
+        try:
+            shown, failures = self.check(self.report((5200, 1, ["notas.txt", "3 elementos"])))
+        finally:
+            regress.COLLECT = False
+        self.assertEqual((shown, failures), (5200.0, []))
+
+    def test_a_budget_with_no_texts_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.check(self.report((40, 1, ["notas.txt"])), texts=())
+
 
 if __name__ == "__main__":
     unittest.main()

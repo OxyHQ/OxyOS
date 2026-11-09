@@ -74,7 +74,8 @@
 //!                                                                     and the connection ends
 //!   ```
 //!
-//!   `name` is what the screen calls the account (its display name, else its username), and
+//!   `name` is what the screen calls the account (its display name, else its username; empty
+//!   when it has neither, never its `user`, an identifier no screen shows), and
 //!   `picture` a file of the pictures' directory; `state` is `ready`, or `signInAgain` for an
 //!   account Oxy signed out, which is set up again online; `pin` is `none`, `set` or `locked`
 //!   (too many wrong PINs), and `password` whether the password signs in on this computer: which

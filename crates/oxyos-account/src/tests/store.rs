@@ -14,6 +14,7 @@ fn enrollment() -> Enrollment {
             username: Some("ada".into()),
             display_name: Some("Ada Lovelace".into()),
             avatar: None,
+            languages: Some(vec!["en-GB".into(), "es-ES".into()]),
         },
         credential: Some(credential()),
         password_changed: false,
@@ -165,6 +166,10 @@ fn the_login_screen_is_listed_each_account_without_its_credential() {
     assert_eq!(listed[0].name, "ada");
     assert_eq!(broken.len(), 1);
     assert!(broken[0].starts_with("oxy-other"));
+    // With neither, no name: the user's (`oxy-…`) is an identifier, never shown as one.
+    nameless.profile.username = None;
+    store.put(&nameless).unwrap();
+    assert_eq!(store.list().unwrap().0[0].name, "");
 }
 
 #[test]
@@ -216,6 +221,27 @@ fn the_flag_is_kept_and_a_version_1_file_is_read_as_ready() {
     let read = store.get(&account()).unwrap().unwrap();
     assert_eq!(read.state(), crate::store::State::Ready);
     assert!(!read.password_changed);
+    // Written before the platform kept the account's languages: none.
+    assert_eq!(read.profile.languages, None);
+    fs::write(
+        &file,
+        serde_json::json!({
+            "version": 2,
+            "accountId": account().as_str(),
+            "user": account().user_name().as_str(),
+            "uid": 1001,
+            "profile": {"id": account().as_str(), "username": "ada", "displayName": null,
+                "avatar": null},
+            "credential": {"deviceId": "device-1", "deviceSecret": DEVICE_SECRET},
+            "passwordChanged": false,
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        store.get(&account()).unwrap().unwrap().profile.languages,
+        None
+    );
     // A version 1 file without a credential is no account's.
     fs::write(
         &file,

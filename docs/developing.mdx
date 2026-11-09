@@ -125,8 +125,11 @@ tools/deploy/deploy.sh --stage-only        # build, test and stage; send nothing
 
 `tools/deploy/system-files.py` checks the manifest against the tree (the Scenarios check runs it too):
 each binary, unit, PAM service, sysusers and tmpfiles file of `tools/oxyos-session`, `tools/oxyos-login`
-and `tools/oxyos-accountd` must be in it, and each PAM file where its own header says it is installed,
-so a new one cannot be left out of a deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
+and `tools/oxyos-accountd` must be in it, and each PAM file where its own header says it is installed;
+and for Safe Mode on a converted machine ([ADR 0054](./adr/0054-recovery-and-erasing), decision 10) the
+recovery's program (`/usr/sbin/oxyos-recovery`), each kernel-install plugin of `tools/oxyos-recovery`
+and each polkit rule of `config/`, where the image installs them; so a new one cannot be left out of a
+deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
 is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
 `astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
 it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there,
@@ -134,8 +137,11 @@ installs the runtime, the system applications, their entries and policy, the inp
 sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
 (the one before kept as `.old`), the login, accounts and PIN stack (every file of
 `tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
-units, PAM services, sysusers, tmpfiles and the ptrace scope), Inbox and Allo as development packages
-in `~/oxyos-validation`,
+units, PAM services, sysusers, tmpfiles and the ptrace scope), Safe Mode's parts (the recovery's
+program, the kernel-install plugin, the polkit rule) and, where the machine boots systemd-boot with
+kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
+safe-mode-entry sync` with what `kernel-install inspect` says; run again, it changes nothing), Inbox and
+Allo as development packages in `~/oxyos-validation`,
 checks the one-GPU rule on the machine itself, and restarts the login screen only while nobody is
 signed in (or the development session, `probar.sh` on terminal 8). The test machine needs ssh by key,
 passwordless sudo and rustup's cargo.
@@ -146,7 +152,10 @@ The **Scenarios** check runs on self-hosted runners on a machine that also does 
 keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
 labelled `oxyos-merge` alone (two of them on seldon), so a merge never waits behind a pull request's
 run. `tools/gate/machine.sh`, run as root on a Debian trixie machine, prepares it, and running it
-again changes nothing that is already so:
+again changes nothing that is already so. Changed limits (`GATE_CPU_QUOTA`, `GATE_MEMORY_HIGH`,
+`GATE_MEMORY_MAX`, `GATE_RUN_MEMORY_MAX`) take effect as it runs: it writes them in the slices' units
+and gives them to every gate slice that runs now (`systemctl set-property --runtime`), since systemd
+applies a changed unit only to a slice it starts; it never restarts a slice or a runner:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what

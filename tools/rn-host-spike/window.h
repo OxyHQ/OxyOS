@@ -352,11 +352,17 @@ class Window {
 
   // The clipboard (clipboard.h): what it holds comes with the compositor's events.
   bool copyText(uint64_t serial, const std::string& text) { return clipboard_.copy(client_, serial, text); }
+  bool copySensitiveText(uint64_t serial, const std::string& text) {
+    return clipboard_.copySensitive(client_, serial, text);
+  }
   void pasteText(uint64_t serial, std::function<void(std::string)> done) {
     clipboard_.paste(client_, serial, std::move(done));
   }
   // Each turn: finishes pastes whose content arrived. True if any did.
-  bool deliverPastes() { return clipboard_.deliver(); }
+  bool deliverPastes() {
+    bool delivered = clipboard_.deliver();
+    return clipboard_.expire(client_) || delivered;
+  }
   // When a paste on its way runs out of time, if one is.
   std::optional<std::chrono::steady_clock::time_point> pasteDeadline() const { return clipboard_.nextDeadline(); }
   // What the host's loop waits on for this window: the compositor's connection, readable when an

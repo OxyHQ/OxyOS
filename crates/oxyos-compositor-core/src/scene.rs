@@ -327,6 +327,10 @@ struct ApplicationOutput {
     work_area: Rect,
 }
 
+/// The media type a copy is marked sensitive with (ADR 0007, decision 6): clipboard managers keep
+/// none of it, and its owner may clear it on no input (a password cleared after a while).
+pub const SENSITIVE_TYPE: &str = "x-oxyos-sensitive";
+
 /// What the clipboard holds: an offer its owner committed, and the name receivers know it by.
 #[derive(Clone, Debug)]
 struct Clipboard {
@@ -1619,8 +1623,16 @@ impl Scene {
                 Ok(())
             }
             Request::ClipboardClear { serial } => {
-                let owner = self.clipboard.as_ref().map(|clipboard| clipboard.owner);
-                if owner == Some(client) && self.recent_input(client, serial) {
+                // The owner empties it with an input of its own; a copy it marked sensitive (ADR
+                // 0007, decision 6: a password copied from the keychain) also without one, as it
+                // clears it after a while (ADR 0050 decision 8's 90 seconds) on no input at all.
+                let owned = self.clipboard.as_ref().filter(|held| held.owner == client);
+                let sensitive = owned.is_some_and(|held| {
+                    held.types
+                        .iter()
+                        .any(|mime| mime.as_str() == SENSITIVE_TYPE)
+                });
+                if owned.is_some() && (sensitive || self.recent_input(client, serial)) {
                     self.clipboard = None;
                     self.tell_clipboard();
                 }
@@ -3952,6 +3964,17 @@ impl Scene {
         }
         self.pointer_cancel();
         self.touch_cancel();
+        // A copy marked sensitive (ADR 0007 decision 6: a password or a code from the keychain)
+        // goes with the lock: the keychain locks with the session, and an unlock that does not
+        // open it (a PIN, ADR 0050) must not paste what was copied from it.
+        if self.clipboard.as_ref().is_some_and(|held| {
+            held.types
+                .iter()
+                .any(|mime| mime.as_str() == SENSITIVE_TYPE)
+        }) {
+            self.clipboard = None;
+            self.tell_clipboard();
+        }
         self.set_pointer_focus(None);
         self.set_focus(None);
         self.focus_next();
@@ -5036,7 +5059,15 @@ impl Scene {
                     // waits for its window to be activated, and never lowers it.
                     let sheet = self.is_sheet(key);
                     if activated || sheet && self.active == Some(self.root_of(key)) {
-                        self.activate(key);
+                        // A system sheet the person is answering keeps the keyboard (an
+                        // application asking for a passkey as it starts, its window mapped after
+                        // the sheet took the keys): the window comes to the top of its layer,
+                        // under the sheet, and has the keyboard once the sheet goes.
+                        if self.system_sheet_has_keyboard() {
+                            self.raise_in_layer(key);
+                        } else {
+                            self.activate(key);
+                        }
                     } else if !sheet {
                         self.lower_below_focus(key);
                     }

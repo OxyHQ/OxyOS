@@ -5,6 +5,7 @@
 // used, which the person confirms or not in a sheet only the system draws.
 import { errorOf, PlatformError } from './errors.ts';
 import type { CallOptions } from './frameworks.ts';
+import { createPasskeys, type PasskeyModule } from './passkeys.ts';
 
 /** The host's module (`OxyOSKeychain`), the runtime's own. */
 export interface KeychainModule {
@@ -25,14 +26,17 @@ export interface Credential {
 export type SaveResult = 'saved' | 'notSaved';
 
 /** The host modules the keychain framework is made of, by what each serves: `keychain`, the
-    host's `OxyOSKeychain` (saving), absent where the runtime has none. */
+    host's `OxyOSKeychain` (saving), and `passkeys`, the host's `OxyOSAccountSession` (its passkey
+    ceremonies); either absent where the runtime has none. */
 export interface KeychainModules {
   keychain?: KeychainModule | null;
+  passkeys?: PasskeyModule | null;
 }
 
 /**
  * ADR 0058's one `keychain` framework (credentials, AutoFill, passkeys), composed of its host
- * modules: `{ available, savePassword(credential, { signal }) }`.
+ * modules: `{ available, savePassword(credential, { signal }), passkeys: { available,
+ * create(options, { signal }), get(options, { signal }) } }`.
  */
 export function createKeychain(modules: KeychainModules = {}) {
   const module = modules.keychain ?? null;
@@ -87,7 +91,7 @@ export function createKeychain(modules: KeychainModules = {}) {
     throw new PlatformError('keychain', 'failed', 'noAnswer');
   }
 
-  return { available, savePassword };
+  return { available, savePassword, passkeys: createPasskeys(modules.passkeys ?? null) };
 }
 
 export type Keychain = ReturnType<typeof createKeychain>;

@@ -241,6 +241,15 @@ impl Entries {
     /// and flushed, then renamed, the directory flushed. Without the kernel's entry nothing is
     /// written. The file written.
     pub fn write_safe_mode(&self, token: &str, version: &str) -> io::Result<String> {
+        let entry = self.safe_mode_text(token, version)?;
+        let name = crate::layout::safe_mode_entry_name(version);
+        self.write_whole(&name, &entry)?;
+        Ok(name)
+    }
+
+    /// Safe Mode's entry for the kernel `version`, made from the kernel's own (`<token>-<version>`,
+    /// counted or not).
+    fn safe_mode_text(&self, token: &str, version: &str) -> io::Result<String> {
         let id = format!("{token}-{version}");
         let kernel = self
             .list()?
@@ -248,19 +257,64 @@ impl Entries {
             .find(|entry| entry.id == id)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {id}")))?;
         let text = fs::read_to_string(self.directory.join(&kernel.file_name))?;
-        let entry = crate::layout::safe_mode_entry(&text).ok_or_else(|| {
+        crate::layout::safe_mode_entry(&text).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("{} names no kernel or command line", kernel.file_name),
             )
-        })?;
-        let name = crate::layout::safe_mode_entry_name(version);
+        })
+    }
+
+    /// `text` as the entry `name`, whole or not at all: the `.new` file written and flushed, then
+    /// renamed, the directory flushed.
+    fn write_whole(&self, name: &str, text: &str) -> io::Result<()> {
         let new = self.directory.join(format!("{name}.new"));
-        fs::write(&new, entry)?;
+        fs::write(&new, text)?;
         fs::File::open(&new)?.sync_all()?;
-        fs::rename(&new, self.directory.join(&name))?;
-        self.flush()?;
-        Ok(name)
+        fs::rename(&new, self.directory.join(name))?;
+        self.flush()
+    }
+
+    /// Safe Mode's entries as the kernels' are (ADR 0054, decision 10): one for every kernel whose
+    /// entry kernel-install wrote (`<token>-<version>`, the version beginning with a digit, counted
+    /// or not), written when it is missing or differs from what the kernel's entry makes, and one
+    /// whose kernel's entry is gone removed. What a machine converted before Safe Mode, or one
+    /// whose plugin was not installed when its kernels were, is brought to; run again, it changes
+    /// nothing. The files written and the ones removed.
+    pub fn sync_safe_mode(&self, token: &str) -> io::Result<(Vec<String>, Vec<String>)> {
+        let prefix = format!("{token}-");
+        let entries = self.list()?;
+        let versions: Vec<&str> = entries
+            .iter()
+            .filter(|entry| !entry.is_safe_mode())
+            .filter_map(|entry| entry.id.strip_prefix(&prefix))
+            .filter(|version| version.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        let mut written = Vec::new();
+        for version in &versions {
+            let text = self.safe_mode_text(token, version)?;
+            let name = crate::layout::safe_mode_entry_name(version);
+            if fs::read_to_string(self.directory.join(&name))
+                .ok()
+                .as_deref()
+                != Some(&text)
+            {
+                self.write_whole(&name, &text)?;
+                written.push(name);
+            }
+        }
+        let mut removed = Vec::new();
+        for entry in entries.iter().filter(|entry| entry.is_safe_mode()) {
+            let version = &entry.id[crate::layout::SAFE_MODE_PREFIX.len()..];
+            if !versions.contains(&version) {
+                fs::remove_file(self.directory.join(&entry.file_name))?;
+                removed.push(entry.file_name.clone());
+            }
+        }
+        if !removed.is_empty() {
+            self.flush()?;
+        }
+        Ok((written, removed))
     }
 
     /// Removes Safe Mode's entry for the kernel `version`: whether it was there.

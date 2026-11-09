@@ -36,7 +36,9 @@ import {
   pagesFor,
   pinOptional,
   SETUP_STAGES,
+  secondsLeft,
   usablePin,
+  waitFrom,
   type Appearance,
   type EnrollAnswer,
   type SetupPlatform,
@@ -88,6 +90,14 @@ export type SetupAssistantFrameProps = {
 };
 
 /** What setting an account up asks of the accounts' service, through the platform. */
+/** What the accounts' service tells while it sets the account up, before its answer. */
+export type SetupProgress = {
+  /** Each stage as it starts. */
+  stage: (stage: SetupStage) => void;
+  /** Oxy asked it to wait (`retryAfterSeconds`) before asking again; it goes on by itself. */
+  waiting: (retryAfterSeconds: number) => void;
+};
+
 export type EnrollRequest = { password: string | null; pin: string | null; appearance: Appearance };
 
 /** Setting an account up (docs/adr/0020-oxy-account-login.mdx): the platform's. */
@@ -96,14 +106,14 @@ export type SetupActions = {
   platform: () => SetupPlatform | null;
   /** The SDK's assistant frame, with its sign-in. */
   Assistant: ComponentType<SetupAssistantFrameProps>;
-  /** Sets the account up with the credential the sign-in handed over, reporting each stage the
-      accounts' service reaches (`onStage`). */
-  enroll: (request: EnrollRequest, onStage: (stage: SetupStage) => void) => Promise<EnrollAnswer>;
+  /** Sets the account up with the credential the sign-in handed over, reporting what the
+      accounts' service tells as it goes (`progress`). */
+  enroll: (request: EnrollRequest, progress: SetupProgress) => Promise<EnrollAnswer>;
   /** The second factor the accounts' service asked for, on the same setup. */
-  secondFactor: (code: string, onStage: (stage: SetupStage) => void) => Promise<EnrollAnswer>;
+  secondFactor: (code: string, progress: SetupProgress) => Promise<EnrollAnswer>;
   /** The setup again after it failed (`unreachable`, `machine`), with what the accounts' service
       kept of it: the sign-in, never a new one. */
-  retry: (onStage: (stage: SetupStage) => void) => Promise<EnrollAnswer>;
+  retry: (progress: SetupProgress) => Promise<EnrollAnswer>;
   /** Ends the setup: what the platform held of it is forgotten. */
   end: () => void;
 };
@@ -149,6 +159,30 @@ function Message({ text, testID = "login-setup-message", tone = "quiet" }: { tex
       style={{ fontSize: 15, lineHeight: 22, color: tone === "problem" ? theme.colors.text : theme.colors.textSecondary }}
     >
       {text}
+    </Text>
+  );
+}
+
+/** Oxy asked for a moment: the seconds left, counted down, under the stages. Nothing failed and
+    nothing is asked of the person. Said once as it begins (its label stays what it first said,
+    so a reader does not repeat it each second). */
+function Waiting({ until }: { until: number }) {
+  const words = useLoginMessages().setup;
+  const theme = useTheme();
+  const [now, setNow] = useState(() => Date.now());
+  const [first] = useState(() => secondsLeft(until, Date.now()));
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  return (
+    <Text
+      testID="login-setup-waiting"
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={words.waiting(first)}
+      style={{ fontSize: 15, lineHeight: 22, color: theme.colors.textSecondary }}
+    >
+      {words.waiting(secondsLeft(until, now))}
     </Text>
   );
 }
@@ -260,6 +294,7 @@ export function SetupAssistant({
   /** The enrolled accounts: the new one's name, once it is listed. */
   accounts: Accounts;
   close?: () => void;
+  /** Set up but not signed in: the account's user (to choose it) and its name (empty: none). */
   enrolled: (user: string, name: string) => void;
   /** Where it begins: the welcome on a first account, else the connection's check. */
   initial?: SetupStep;
@@ -337,8 +372,16 @@ export function SetupAssistant({
     }
   };
 
-  const onStage = (stage: SetupStage) =>
-    setStep((now) => (now.step === "settingUp" ? { ...now, stage } : now));
+  // A stage ends any wait: the service went on.
+  const onStage: SetupProgress = {
+    stage: (stage) =>
+      setStep((now) => (now.step === "settingUp" ? { ...now, stage, waitUntil: undefined } : now)),
+    waiting: (retryAfterSeconds) => {
+      const until = waitFrom(retryAfterSeconds, Date.now());
+      if (until === null) return;
+      setStep((now) => (now.step === "settingUp" ? { ...now, waitUntil: until } : now));
+    },
+  };
 
   /** What an answer of the accounts' service leads to. */
   const settle = (account: SignedInAccount, told: EnrollAnswer) => {
@@ -347,6 +390,8 @@ export function SetupAssistant({
     switch (next.next) {
       case "enrolled": {
         const { pin, password } = draft.current;
+        // Named as the service enrolled it when the sign-in said nothing (the QR, a password).
+        account = { ...account, name: account.name || next.name };
         setStep({ step: "signingIn", account, user: next.user });
         latest.current.reloadAccounts?.();
         setup.end();
@@ -621,7 +666,12 @@ export function SetupAssistant({
               ? words.welcomeName(account.name || accounts?.find((one) => one.user === step.user)?.name || "")
               : words.settingUpTitle,
           description: step.step === "signingIn" ? undefined : words.settingUpDescription,
-          content: <Stages stage={stage} pin={withPin.current} />,
+          content: (
+            <View style={{ gap: 20 }}>
+              <Stages stage={stage} pin={withPin.current} />
+              {step.step === "settingUp" && step.waitUntil ? <Waiting key={step.waitUntil} until={step.waitUntil} /> : null}
+            </View>
+          ),
         };
       }
       break;

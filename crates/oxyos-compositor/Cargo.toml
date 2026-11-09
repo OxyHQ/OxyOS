@@ -36,7 +36,7 @@ oxyos-files = { path = "../oxyos-files", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # AutoFill's credentials overwritten when they go (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
-zeroize = "1"
+zeroize = { version = "1", features = ["serde"] }
 # Wi-Fi and networks through NetworkManager (docs/adr/0038-networks.mdx).
 oxyos-networks = { path = "../oxyos-networks" }
 # The applications the shell lists, which the session's search is told (docs/adr/0051-search.mdx).
@@ -50,6 +50,8 @@ async-channel = "2"
 oxyos-power = { path = "../oxyos-power" }
 # Activity Monitor's samplers: the machine's use and every process's (docs/adr/0063-activity-monitor.mdx).
 oxyos-activity = { path = "../oxyos-activity" }
+# The backup service's socket and its vocabulary (docs/adr/0059-backups.mdx).
+oxyos-backup = { path = "../oxyos-backup" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "fs"] }
 # Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): encoded as PNG (image-rs's png, as
 # oxyos-image decodes), named by the local time (jiff, as oxyos-solar finds the sun).
@@ -60,7 +62,7 @@ jiff = { version = "0.2", default-features = false, features = ["std", "tz-syste
 oxyos-client = { path = "../oxyos-client" }
 # Only cards that drive displays are opened (tests/scanout.rs).
 oxyos-gpu-device = { path = "../oxyos-gpu-device" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "pipe", "fs", "thread"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "pipe", "fs", "thread", "net"] }
 oxyos-ipc = { path = "../oxyos-ipc" }
 # Buffers of a display's own card, scanned out directly (tests/scanout.rs).
 drm = "0.15"

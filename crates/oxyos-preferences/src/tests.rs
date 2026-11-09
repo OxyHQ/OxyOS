@@ -665,3 +665,20 @@ fn low_power_mode_follows_the_power_source() {
         [(false, false), (true, true), (true, false), (false, true)]
     );
 }
+
+#[test]
+fn the_backup_item_is_in_the_menu_bar_by_default() {
+    // Shown once a backup destination exists, as a Mac's Time Machine item (ADR 0059, decision 10).
+    let mut preferences = Preferences::default();
+    assert!(preferences.backup_in_menu_bar);
+    preferences.set("backup_in_menu_bar", "false").unwrap();
+    assert_eq!(
+        preferences.get("backup_in_menu_bar").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        preferences.set("backup_in_menu_bar", "no"),
+        Err(Refused::BadValue)
+    );
+    assert!(!Preferences::parse("backup_in_menu_bar = false\n").backup_in_menu_bar);
+}

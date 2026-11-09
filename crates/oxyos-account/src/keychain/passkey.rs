@@ -258,3 +258,256 @@ impl rustix::fd::AsFd for PromptsClient {
         self.connection.as_fd()
     }
 }
+
+/// What the session's sheets' connection was told, or that it ended.
+pub type SheetEvent = Prompt;
+
+/// The waits before connecting again to a service that went or could not be reached; the last
+/// repeats.
+const RECONNECT: [std::time::Duration; 5] = [
+    std::time::Duration::from_secs(1),
+    std::time::Duration::from_secs(2),
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(10),
+    std::time::Duration::from_secs(30),
+];
+
+/// The person's answer, on its way to the service.
+enum Answered {
+    Confirm {
+        id: String,
+        choice: Option<usize>,
+        password: Option<Secret>,
+    },
+    Cancel {
+        id: String,
+    },
+}
+
+/// The session's prompts connection on a thread of its own, so the compositor's turn never waits
+/// for the service: what it is told arrives in [`PasskeySheets::take`] (`wake_fd` readable
+/// meanwhile), and the person's answers go back with [`PasskeySheets::confirm`] and
+/// [`PasskeySheets::cancel`]. An answer is sent only for a sheet asked on the connection open now;
+/// when the service goes, every sheet it asked is told done (it goes) and the thread connects
+/// again. A service that refuses the session (no registrar: a session the login program did not
+/// start) is said once and not asked again: no application's passkey is ever verified there.
+pub struct PasskeySheets {
+    events: std::sync::mpsc::Receiver<SheetEvent>,
+    answers: std::sync::mpsc::Sender<Answered>,
+    /// Readable while events wait (the compositor's waker).
+    woken: std::os::unix::net::UnixStream,
+    /// Wakes the thread for an answer; closed, it ends.
+    poke: std::os::unix::net::UnixStream,
+}
+
+impl PasskeySheets {
+    /// The sheets of the service at `socket`; `log` says what it could not do (never a name).
+    pub fn spawn(
+        socket: std::path::PathBuf,
+        log: impl Fn(&str) + Send + 'static,
+    ) -> io::Result<Self> {
+        let (events_in, events) = std::sync::mpsc::channel();
+        let (answers, answered) = std::sync::mpsc::channel();
+        let (woken, wake) = std::os::unix::net::UnixStream::pair()?;
+        woken.set_nonblocking(true)?;
+        let (poke, poked) = std::os::unix::net::UnixStream::pair()?;
+        poked.set_nonblocking(true)?;
+        std::thread::Builder::new()
+            .name("oxyos-passkey-sheets".into())
+            .spawn(move || sheets_thread(&socket, &events_in, &wake, &answered, &poked, &log))?;
+        Ok(Self {
+            events,
+            answers,
+            woken,
+            poke,
+        })
+    }
+
+    /// What wakes the compositor's turn when something arrived.
+    pub fn wake_fd(&self) -> io::Result<rustix::fd::OwnedFd> {
+        Ok(self.woken.try_clone()?.into())
+    }
+
+    /// What arrived since the last call, in order.
+    pub fn take(&self) -> Vec<SheetEvent> {
+        use std::io::Read;
+        let mut buffer = [0u8; 64];
+        while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
+        self.events.try_iter().collect()
+    }
+
+    /// The person confirmed `id` (the passkey chosen, and the password when it asks one).
+    pub fn confirm(&self, id: &str, choice: Option<usize>, password: Option<Secret>) {
+        self.send(Answered::Confirm {
+            id: id.to_owned(),
+            choice,
+            password,
+        });
+    }
+
+    /// The person cancelled `id`.
+    pub fn cancel(&self, id: &str) {
+        self.send(Answered::Cancel { id: id.to_owned() });
+    }
+
+    fn send(&self, answer: Answered) {
+        if self.answers.send(answer).is_ok() {
+            use std::io::Write;
+            let _ = (&self.poke).write(&[1]);
+        }
+    }
+}
+
+fn sheets_thread(
+    socket: &Path,
+    events: &std::sync::mpsc::Sender<SheetEvent>,
+    wake: &std::os::unix::net::UnixStream,
+    answered: &std::sync::mpsc::Receiver<Answered>,
+    poked: &std::os::unix::net::UnixStream,
+    log: &dyn Fn(&str),
+) {
+    use rustix::event::{poll, PollFd, PollFlags};
+    use std::io::{Read, Write};
+    let tell = |event: SheetEvent| {
+        let _ = events.send(event);
+        let _ = (&*wake).write(&[1]);
+    };
+    let mut attempts = 0usize;
+    let mut said = false;
+    loop {
+        let client = match PromptsClient::connect(socket) {
+            Ok(client) => {
+                said = false;
+                attempts = 0;
+                client
+            }
+            Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+                log(&format!(
+                    "the accounts' service shows this session no passkey sheets: {error}"
+                ));
+                return;
+            }
+            Err(error) => {
+                if !std::mem::replace(&mut said, true) {
+                    log(&format!(
+                        "the accounts' service at {}: {error}; no passkey is verified until it answers",
+                        socket.display()
+                    ));
+                }
+                if !wait(poked, RECONNECT[attempts.min(RECONNECT.len() - 1)]) {
+                    return;
+                }
+                attempts += 1;
+                continue;
+            }
+        };
+        // The sheets asked on this connection and not yet done.
+        let mut open: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Answers to sheets of an earlier connection are dropped.
+        while answered.try_recv().is_ok() {}
+        let ended: io::Error = loop {
+            let mut fds = [
+                PollFd::new(&client, PollFlags::IN),
+                PollFd::new(poked, PollFlags::IN),
+            ];
+            match poll(&mut fds, None) {
+                Ok(_) => {}
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(error) => break io::Error::from(error),
+            }
+            let (message, poke) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
+            if poke {
+                let mut bytes = [0u8; 64];
+                // The session let go: it is ending.
+                if let Ok(0) = (&*poked).read(&mut bytes) {
+                    return;
+                }
+                while matches!((&*poked).read(&mut bytes), Ok(read) if read > 0) {}
+                let mut sent = Ok(());
+                for answer in answered.try_iter() {
+                    sent = sent.and(match answer {
+                        Answered::Confirm {
+                            id,
+                            choice,
+                            password,
+                        } if open.contains(&id) => client.confirm(&id, choice, password),
+                        Answered::Cancel { id } if open.contains(&id) => client.cancel(&id),
+                        _ => Ok(()),
+                    });
+                }
+                if let Err(error) = sent {
+                    break error;
+                }
+            }
+            if !message {
+                continue;
+            }
+            match client.next() {
+                Ok(Some(prompt)) => {
+                    match &prompt {
+                        Prompt::ConfirmPasskey(confirm) => {
+                            open.insert(confirm.id.clone());
+                        }
+                        Prompt::PasskeyDone { id } => {
+                            if !open.remove(id) {
+                                continue;
+                            }
+                        }
+                        Prompt::PasskeyRetry { id, .. } => {
+                            if !open.contains(id) {
+                                continue;
+                            }
+                        }
+                    }
+                    tell(prompt);
+                }
+                Ok(None) => {
+                    break io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "the service closed the connection",
+                    )
+                }
+                Err(error) => break error,
+            }
+        };
+        // The service went, and with it what it asked: those sheets go.
+        for id in open.drain() {
+            tell(Prompt::PasskeyDone { id });
+        }
+        log(&format!("the passkey sheets' connection ended: {ended}"));
+        if !wait(poked, RECONNECT[0]) {
+            return;
+        }
+    }
+}
+
+/// Waits `wait`, or until the session lets go (false). Answers poked meanwhile are for sheets of
+/// a connection that went: dropped when the next one opens.
+fn wait(poked: &std::os::unix::net::UnixStream, wait: std::time::Duration) -> bool {
+    use rustix::event::{poll, PollFd, PollFlags};
+    use std::io::Read;
+    let until = std::time::Instant::now() + wait;
+    loop {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return true;
+        }
+        let timeout = rustix::time::Timespec {
+            tv_sec: left.as_secs() as i64,
+            tv_nsec: i64::from(left.subsec_nanos()),
+        };
+        let mut fds = [PollFd::new(poked, PollFlags::IN)];
+        match poll(&mut fds, Some(&timeout)) {
+            Ok(0) => return true,
+            Ok(_) => {
+                let mut bytes = [0u8; 64];
+                match (&*poked).read(&mut bytes) {
+                    Ok(0) => return false,
+                    _ => continue,
+                }
+            }
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(_) => return true,
+        }
+    }
+}

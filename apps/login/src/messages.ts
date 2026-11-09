@@ -9,6 +9,8 @@ import type { Language } from "../../shell/src/messages";
 
 const en = {
   accounts: "Accounts",
+  /** An account Oxy names nothing (neither a name nor a username): its user is never a name. */
+  unnamedAccount: "Oxy Account",
   addAccount: "Add Account",
   unreadable: "The accounts on this computer can't be read.",
   setup: {
@@ -58,10 +60,13 @@ const en = {
       preparing: "Creating your home folder",
       signingIn: "Connecting this computer to your account",
       finishing: "Finishing up",
+      confirming: "Confirming this computer with Oxy",
       starting: "Opening your desktop",
     },
     stageDone: "done",
     stageNow: "in progress",
+    waiting: (seconds: number) =>
+      `Oxy is busy right now. Setup goes on by itself in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
     problemTitle: "Your Account Isn't Set Up Yet",
     unreachable:
       "Oxy couldn't be reached. Your sign-in, PIN and choices are kept: check the connection, then try again.",
@@ -75,7 +80,7 @@ const en = {
     secondFactorInvalid: "That code isn't right. Wait for a new one, then try again.",
     code: "Code",
     welcomeName: (name: string) => (name ? `Welcome, ${name}` : "Welcome"),
-    added: (name: string) => `${name} was added to this computer`,
+    added: (name: string) => (name ? `${name} was added to this computer` : "The account was added to this computer"),
     step: (title: string, current: number, total: number) => `${title}, step ${current} of ${total}`,
   },
   pinLocked: "Too many incorrect PINs. Sign in with Oxy to create a new one.",
@@ -87,6 +92,7 @@ export type LoginMessages = typeof en;
 
 const es: LoginMessages = {
   accounts: "Cuentas",
+  unnamedAccount: "Cuenta de Oxy",
   addAccount: "Añadir cuenta",
   unreadable: "No se pueden leer las cuentas de este ordenador.",
   setup: {
@@ -142,10 +148,13 @@ const es: LoginMessages = {
       preparing: "Creando tu carpeta personal",
       signingIn: "Conectando este ordenador con tu cuenta",
       finishing: "Terminando",
+      confirming: "Confirmando este ordenador con Oxy",
       starting: "Abriendo tu escritorio",
     },
     stageDone: "hecho",
     stageNow: "en curso",
+    waiting: (seconds: number) =>
+      `Oxy está ocupado ahora mismo. La configuración seguirá sola en ${seconds} ${seconds === 1 ? "segundo" : "segundos"}.`,
     problemTitle: "Tu cuenta aún no está configurada",
     unreachable:
       "No se ha podido contactar con Oxy. Tu inicio de sesión, tu PIN y tus elecciones se conservan: revisa la conexión y vuelve a intentarlo.",
@@ -160,7 +169,7 @@ const es: LoginMessages = {
     secondFactorInvalid: "Ese código no es correcto. Espera a uno nuevo y vuelve a intentarlo.",
     code: "Código",
     welcomeName: (name: string) => (name ? `Te damos la bienvenida, ${name}` : "Te damos la bienvenida"),
-    added: (name: string) => `Se ha añadido ${name} a este ordenador`,
+    added: (name: string) => (name ? `Se ha añadido ${name} a este ordenador` : "Se ha añadido la cuenta a este ordenador"),
     step: (title: string, current: number, total: number) => `${title}, paso ${current} de ${total}`,
   },
   pinLocked: "Demasiados PIN incorrectos. Inicia sesión con Oxy para crear uno nuevo.",

@@ -149,6 +149,9 @@ pub struct SnapshotAccount {
     pub display_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
+    /// The account's languages, primary first, as the platform last read them online.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub languages: Option<Vec<String>>,
 }
 
 /// An application's token, as it is handed to the application.
@@ -506,6 +509,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 handle: profile.username.clone().unwrap_or_default(),
                 display_name: profile.display_name.clone(),
                 avatar: profile.avatar.clone(),
+                languages: profile.languages.clone(),
             }),
             online,
         }
@@ -1077,6 +1081,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         if let Ok(true) = self.rewrite(enrollment, credential, |stored| {
             stored.profile = profile.clone()
         }) {
+            // A name changed on Oxy is the person's name here too: the user's full name, and
+            // every snapshot's subscriber (the lock screen, the menu bar, Settings) told.
+            if profile.name() != enrollment.profile.name() {
+                let _machine = self.setup.lock_machine();
+                self.setup.name_user(&enrollment.user, profile);
+            }
             self.changed(enrollment);
         }
     }
