@@ -92,8 +92,10 @@ export function LockBackdrop({
  * How the person unlocks or signs in, as Windows Hello offers its PIN and the password: the PIN's
  * field while there is one (`usePassword` switches to the password's, when the password signs in
  * here), the password's otherwise; a locked-out PIN says to use the password, or, without one, to
- * sign in with Oxy at the login screen (no field: nothing here would open it). `testID`'s field is
- * `${testID}-pin` for the PIN.
+ * sign in with Oxy at the login screen (no field: nothing here would open it). When the service
+ * could not say whether there is a PIN (`unknown`), the password's field comes first and `usePin`
+ * offers the PIN's, so whichever the account has is there. `testID`'s field is `${testID}-pin` for
+ * the PIN.
  */
 export function SecretFields({
   testID,
@@ -107,7 +109,7 @@ export function SecretFields({
   focusRequest,
 }: {
   testID: string;
-  pin?: "set" | "locked";
+  pin?: "set" | "locked" | "unknown";
   password?: boolean;
   authenticate: (password: string) => boolean;
   authenticatePin?: (pin: string) => boolean;
@@ -117,15 +119,17 @@ export function SecretFields({
   focusRequest?: number;
 }) {
   const words = useShellMessages().password;
-  // The PIN first when there is one, as Windows Hello offers it.
-  const [withPassword, setWithPassword] = useState(false);
-  const usesPin = pin === "set" && !!authenticatePin && !(withPassword && password);
+  // The PIN first when there is one, as Windows Hello offers it; the password's first when it is
+  // not known whether there is one. Without the password, the PIN alone.
+  const [chosen, setChosen] = useState<"pin" | "password">();
+  const pinOffered = (pin === "set" || pin === "unknown") && !!authenticatePin;
+  const usesPin = pinOffered && (!password || (chosen ?? (pin === "set" ? "pin" : "password")) === "pin");
   const switchTo = (label: string, toPassword: boolean, id: string) => (
     <Pressable
       testID={id}
       accessibilityRole="button"
       accessibilityLabel={label}
-      onPress={() => setWithPassword(toPassword)}
+      onPress={() => setChosen(toPassword ? "password" : "pin")}
       style={{ marginTop: 6, paddingHorizontal: 12, paddingVertical: 4 }}
     >
       <Text style={{ ...textShadow, color: "rgba(255,255,255,0.9)", fontSize: 13, fontWeight: "600" }}>
@@ -178,7 +182,7 @@ export function SecretFields({
         >
           {words.pinLocked}
         </Text>
-      ) : pin === "set" && authenticatePin ? (
+      ) : pinOffered ? (
         switchTo(words.usePin, false, `${testID}-use-pin`)
       ) : null}
     </>
