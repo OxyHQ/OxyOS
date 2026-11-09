@@ -475,6 +475,13 @@ A scenario's `launch_settle_ms` is how long the application's first frames must 
 before its steps begin (750 by default): a browser shows its window before its interface draws in
 it, for longer than that on a loaded machine.
 
+A scenario's `clear_of_minute_ms` keeps its steps clear of the wall clock's minute: no step begins
+in its last that many milliseconds, the session served until the minute has begun, the shell has
+drawn its clock's turn and all has been still for the settling time. The shell's clock turning is a
+change no step makes; in a step's settling it holds the step 750 ms more, beyond what shows only for
+a moment (a hardware key's bezel, 1.5 s from its key), which then is checked gone. For a scenario
+whose shell shows its top bar.
+
 A scenario with `client` (a list of arguments) runs a native OxyOS client that is not a Bloom
 application instead of the host: the program `--client` names, with those arguments, `{out}`,
 `{scenarios}`, `{width}` and `{height}` in them replaced by the run's directory, the scenarios'
@@ -6260,6 +6267,9 @@ def main():
         # How long the application's first frames must stay unchanged before the steps begin: a
         # browser shows its window before its interface draws in it (ADR 0029).
         command += ["--launch-settle", str(scenario["launch_settle_ms"])]
+    if "clear_of_minute_ms" in scenario:
+        # No step begins so close to the minute that the shell's clock turns as it settles.
+        command += ["--clear-of-minute", str(scenario["clear_of_minute_ms"])]
     if through_devices or "layout" in scenario:
         # The device expectations are the scenario's layout's: its dead keys, its Shift keys. It
         # is also the layout the session tells applications (ADR 0029).
