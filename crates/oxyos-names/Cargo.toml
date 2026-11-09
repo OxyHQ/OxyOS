@@ -1,0 +1,12 @@
+[package]
+name = "oxyos-names"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# No dependencies: every layer may name things by these rules.
+[dependencies]
+
+[lints]
+workspace = true

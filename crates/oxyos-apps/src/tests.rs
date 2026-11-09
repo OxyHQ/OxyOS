@@ -108,7 +108,11 @@ fn entries_not_to_list_and_invalid_ids_are_not_applications() {
         &[]
     )
     .is_err());
-    assert!(valid_id("so.oxy.allo") && !valid_id("") && !valid_id(".hidden") && !valid_id("a b"));
+    // The registry's ids are packages' ids (oxyos_names::valid_app_id): one label or a capital
+    // is not one, though the Desktop Entry Specification would allow it.
+    for id in ["", ".hidden", "a b", "allo", "So.Oxy.Allo", "so..allo"] {
+        assert!(parse(id, ALLO, dir, &[]).is_err(), "{id:?}");
+    }
 }
 
 #[test]

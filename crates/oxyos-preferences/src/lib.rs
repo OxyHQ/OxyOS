@@ -381,24 +381,13 @@ pub enum ApplicationList {
     NotificationSoundsOff,
 }
 
-/// An application id, as the registry takes one (`oxyos_apps::valid_id`): a reverse domain name
-/// of ASCII letters, digits, `.`, `-` and `_`, at most 128 bytes.
-fn application_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && !id.starts_with('.')
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
-}
-
-/// A list of application ids: each valid, none twice, at most [`MAX_APPLICATIONS`].
+/// A list of application ids: each valid ([`oxyos_names::valid_app_id`], the registry's rule), none twice, at most [`MAX_APPLICATIONS`].
 pub fn application_list<'a>(
     ids: impl IntoIterator<Item = &'a str>,
 ) -> Result<Vec<String>, Refused> {
     let mut list: Vec<String> = Vec::new();
     for id in ids {
-        if !application_id(id) || list.iter().any(|kept| kept == id) {
+        if !oxyos_names::valid_app_id(id) || list.iter().any(|kept| kept == id) {
             return Err(Refused::BadValue);
         }
         list.push(id.to_owned());

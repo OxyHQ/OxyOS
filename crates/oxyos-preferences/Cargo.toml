@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The application id's rule, the registry's, for the person's lists of applications.
+oxyos-names = { path = "../oxyos-names" }
 
 [lints]
 workspace = true
