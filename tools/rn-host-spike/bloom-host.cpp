@@ -720,9 +720,7 @@ int main(int argc, char** argv) {
                   if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
                   if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
                   if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
-                  // One write: `std::cerr` writes each `<<` at once, and the session's other
-                  // processes write to the same log while an application starts.
-                  std::cerr << ("[host] TurboModule unavailable: " + name + "\n");
+                  // Said, once, by the cache (turbo-module-cache.h).
                   return nullptr;
                 }));
   });
