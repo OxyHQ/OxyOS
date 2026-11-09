@@ -317,6 +317,9 @@ uint8_t protocolRole(const std::string& role) {
       {"switch", OXYOS_ROLE_SWITCH},         {"tab", OXYOS_ROLE_TAB},
       {"tablist", OXYOS_ROLE_TAB_LIST},      {"list", OXYOS_ROLE_LIST},
       {"listitem", OXYOS_ROLE_LIST_ITEM},    {"dialog", OXYOS_ROLE_DIALOG},
+      // An item a list offers to choose (ARIA's option, a Bloom `Item` with role="option": a
+      // backup's item, a version) is an item of its list, as VoiceOver reads a table's row.
+      {"option", OXYOS_ROLE_LIST_ITEM},
       {"alertdialog", OXYOS_ROLE_DIALOG},    {"alert", OXYOS_ROLE_ALERT},
       {"progressbar", OXYOS_ROLE_PROGRESS_BAR}, {"adjustable", OXYOS_ROLE_SLIDER},
       {"slider", OXYOS_ROLE_SLIDER},         {"toolbar", OXYOS_ROLE_TOOLBAR},
@@ -392,8 +395,10 @@ void placeItems(std::vector<AccessibleNode>& nodes) {
         }
       }
     }
-    if (node.role == "listitem") {
-      int list = nearest(i, [](const AccessibleNode& n) { return n.role == "list" || n.role == "listitem"; });
+    if (node.role == "listitem" || node.role == "option") {
+      int list = nearest(i, [](const AccessibleNode& n) {
+        return n.role == "list" || n.role == "listitem" || n.role == "option";
+      });
       if (list >= 0 && nodes[list].role == "list") rows[list].push_back(i);
     } else if (node.role == "tab") {
       int list = nearest(i, [](const AccessibleNode& n) { return n.role == "tablist" || n.role == "tab"; });

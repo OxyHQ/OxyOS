@@ -800,7 +800,9 @@ pub struct Settling {
     /// `--until-named MS NAME`: its answer comes on the application's own clock (an install the
     /// person confirmed, done once the machine has fetched and compiled it): it settles only once
     /// the assistive technology holds a node so named on a shown surface, within MS, as
-    /// `--wait-named` waits, and so what the step said is all its own.
+    /// `--wait-named` waits, and has held it for the step's stillness: what the frame showing it
+    /// set off (a live region it changed, said by the screen reader) is the step's own too, as
+    /// everything said on the way is.
     pub until_named: Option<(u64, String)>,
 }
 
@@ -2472,6 +2474,11 @@ fn settle(
     let shown_before = session.compositor.screens[0].flips.len();
     // The flip that will show the answer, when it was not yet shown as it appeared.
     let mut answer_flip = None;
+    // Since when the node the answer shows has been held (`named`). A launched application's
+    // frames do not count as changes (its window's configure does), so the node appearing in one
+    // starts the stillness itself: settling the moment it appeared left what that frame set off
+    // (its live region said by the screen reader) to the next step.
+    let mut named_since: Option<Instant> = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -2577,7 +2584,17 @@ fn settle(
                     .iter()
                     .any(|(key, _, _)| !shell_before.contains(key));
         // A node the answer shows, once the assistive technology holds it.
-        let named_shown = named.is_none_or(|name| named_point(session, name).is_some());
+        let named_shown = match named {
+            None => true,
+            Some(name) => {
+                if named_point(session, name).is_none() {
+                    named_since = None;
+                } else if named_since.is_none() {
+                    named_since = Some(Instant::now());
+                }
+                named_since.is_some_and(|since| since.elapsed() >= still)
+            }
+        };
         if !changed
             && !shell_changed
             && answered
