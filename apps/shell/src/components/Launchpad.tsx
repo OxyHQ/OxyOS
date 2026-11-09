@@ -9,7 +9,7 @@ import {
 import { BlurTargetView, BlurView } from "expo-blur";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
-import { BloomColorScope } from "@oxy.so/bloom/theme";
+import { BloomColorScope, useReducedTransparency } from "@oxy.so/bloom/theme";
 import { Search } from "@oxy.so/bloom/search";
 import { usePlatformDrag } from "@oxy.so/bloom/platform-surface";
 import { APPLICATION_TYPE, DRAG_SLOP, shellDrag } from "../app-drag";
@@ -108,11 +108,15 @@ const LABEL_SHADOW = {
   textShadowRadius: 2,
 };
 
+/** Launchpad's backdrop with Reduce transparency on: opaque, the icons' white labels reading on it. */
+export const LAUNCHPAD_OPAQUE = "#2c2f36";
+
 /**
  * Launchpad's backdrop, a surface of its own beneath its icons (docs/adr/0011-transitions.mdx):
  * the desktop's wallpaper, at the screen's size so it meets the desktop's exactly, blurred and
  * darkened as a Mac's Launchpad blurs the desktop. The compositor fades it in and out, never
- * scaling it, while the icons above settle.
+ * scaling it, while the icons above settle. With Reduce transparency on, it is opaque, a dark grey
+ * as a Mac's Launchpad is then: no wallpaper drawn, nothing blurred.
  */
 export const LaunchpadBackdrop = memo(function LaunchpadBackdrop({
   open,
@@ -124,7 +128,18 @@ export const LaunchpadBackdrop = memo(function LaunchpadBackdrop({
 }) {
   const { width, height } = useWindowDimensions();
   const dark = useColorScheme() === "dark";
+  const reduced = useReducedTransparency();
   const target = useRef<ComponentRef<typeof View>>(null);
+  if (reduced) {
+    return (
+      <Box
+        testID="shell-launchpad-backdrop"
+        pointerEvents="none"
+        className="absolute inset-0"
+        style={{ display: open ? "flex" : "none", backgroundColor: LAUNCHPAD_OPAQUE }}
+      />
+    );
+  }
   return (
     <Box
       testID="shell-launchpad-backdrop"

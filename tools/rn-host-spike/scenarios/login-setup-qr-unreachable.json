@@ -1,0 +1,311 @@
+{
+  "about": "A QR sign-in whose setup cannot reach Oxy the first time (docs/adr/0020-oxy-account-login.mdx, the setup assistant's amendment and item 6 of the PIN's): the accounts' service answers `failed: unreachable`, keeping the sign-in (`login.enroll.fail_first`). The screen says what happened and that the sign-in, the PIN and the choices are kept, with Try Again; no Back, which would abandon what the service kept. Try Again asks the service to try again with what it kept: set up and signed in with the PIN, never a second scan (one claim, no new QR).",
+  "shell": "OxyOSLogin",
+  "outputs": "1280x800",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Bea Ramos"
+      }
+    ],
+    "record": [
+      "session would start for oxy-cccccccccccccccccccc (user session): "
+    ],
+    "oxy": {
+      "identifier": "ada",
+      "code": "246810",
+      "id": "0123456789abcdef01234569",
+      "username": "ada",
+      "name": "Ada Lovelace",
+      "has_password": true,
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "qr": {
+        "approve": "socket",
+        "approve_after_ms": 7500
+      }
+    },
+    "enroll": {
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "password": "played password 1",
+      "account": {
+        "accountId": "0123456789abcdef01234569",
+        "user": "oxy-cccccccccccccccccccc",
+        "uid": 1003,
+        "name": "Ada Lovelace"
+      },
+      "fail_first": "unreachable"
+    }
+  },
+  "steps": [
+    {
+      "name": "the login screen with one account",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Add Account: setup, online, the SDK's chooser asking for its QR",
+      "do": [
+        "press_named",
+        "Add Account"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "platform: platform"
+        ],
+        "delivered": {},
+        "oxy_requests": [
+          "POST /auth/session/create 200",
+          "WS /auth-session join {token} 101"
+        ]
+      }
+    },
+    {
+      "name": "the SDK's chooser, its QR beside the form, the field focused",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Sign in",
+            "Email or username",
+            "Scan with Commons to sign in",
+            "Create account",
+            "Step 1 of 4",
+            "Back"
+          ],
+          "absent": [
+            "Get Commons",
+            "Commons isn't installed",
+            "Choose an account",
+            "Use another account"
+          ],
+          "focus_input": "signin-identifier"
+        }
+      }
+    },
+    {
+      "name": "a phone approves the QR: the session claimed once, the PIN page at once, its field focused, step 2 of 4; no password asked or offered",
+      "do": [
+        "wait",
+        4000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "oxy_requests": [
+          "WS /auth-session auth_update 101",
+          "GET /auth/session/status/{token} 200",
+          "POST /auth/session/claim 200"
+        ],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Create a PIN",
+            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "Step 2 of 4",
+            "Back"
+          ],
+          "absent": [
+            "Choose an account",
+            "Email or username",
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password",
+            "Use another account"
+          ],
+          "focus_input": "login-setup-pin-password"
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 1,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    },
+    {
+      "name": "the PIN chosen: typed again, its field focused",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Enter Your PIN Again",
+            "To be sure it's the one you meant.",
+            "Step 2 of 4"
+          ],
+          "absent": [
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Set a password",
+            "Send code"
+          ],
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "typed again: Choose Your Look, step 3 of 4, Auto chosen",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Select an appearance. You can change it later in Settings.",
+            "Light",
+            "Dark",
+            "Auto",
+            "Continue",
+            "Back",
+            "Step 3 of 4"
+          ],
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Dark chosen",
+      "do": [
+        "press_named",
+        "Dark"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Continue"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Continue pressed",
+      "do": [
+        "press_named",
+        "Continue"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "enroll: failed unreachable"
+        ]
+      }
+    },
+    {
+      "name": "Continue: Oxy unreachable; said, the sign-in kept, Try Again offered",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "never": [
+          "482916"
+        ],
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Your Account Isn't Set Up Yet",
+            "Oxy couldn't be reached. Your sign-in, PIN and choices are kept: check the connection, then try again.",
+            "Try Again"
+          ],
+          "absent": [
+            "Sign In Again",
+            "Scan with Commons to sign in",
+            "Back"
+          ],
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Try Again pressed",
+      "do": [
+        "press_named",
+        "Try Again"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "appearance: dark",
+          "retry: enrolled",
+          "verifyPin: accepted"
+        ]
+      }
+    },
+    {
+      "name": "Try Again: what the service kept set up again, and signed in with the PIN; no second scan",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "never": [
+          "482916"
+        ],
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "in_shell": {
+          "never": [
+            "482916"
+          ]
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 0,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    }
+  ]
+}

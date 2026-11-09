@@ -162,3 +162,60 @@ test('reading gives text or bytes as asked', async () => {
   assert.equal(await files.read('file:///a', 'base64'), 'SG9sYQ==');
   assert.deepEqual(await files.read('file:///a', 'bytes'), new Uint8Array([72]));
 });
+
+test("the person's backups: refused without `files`, a restore's progress told and stopped when aborted", async () => {
+  const refused = played(() => ({ ok: false, error: 'not-permitted', message: "this application was not granted the person's files" }));
+  assert.equal(refused.files.backups.available, false);
+  await assert.rejects(refused.files.backups.state(), (error: unknown) => {
+    assert.ok(isPlatformError(error, 'notPermitted'));
+    assert.equal(error.reason, 'notPermitted');
+    assert.equal(error.refused, true);
+    return true;
+  });
+
+  const progress: unknown[] = [];
+  let finish: ((reply: { json: string }) => void) | undefined;
+  const requests: Record<string, any>[] = [];
+  let listener: ((json: string) => void) | undefined;
+  const native: FilesModule = {
+    getConstants: () => ({ backups: true }),
+    call(json) {
+      requests.push(JSON.parse(json));
+      return { json: JSON.stringify({ ok: true, value: null }) };
+    },
+    request(id, json) {
+      requests.push({ id, ...JSON.parse(json) });
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
+  const events: Events = {
+    addListener(_name, handler) {
+      listener = handler;
+      return { remove() {} };
+    },
+  };
+  const files = createFiles(createFileService(native, events, async () => true));
+  assert.equal(files.backups.available, true);
+  const controller = new AbortController();
+  const backup = { destination: 'disk', id: '2026-11-09' };
+  const restoring = files.backups.restore(backup, 'file:///home/a/notes.txt', {
+    onProgress: (told) => progress.push(told),
+    signal: controller.signal,
+  });
+  const asked = requests.at(-1)!;
+  assert.deepEqual(
+    { op: asked.op, backup: asked.backup, uri: asked.uri, to: asked.to, replace: asked.replace },
+    { op: 'restoreVersion', backup, uri: 'file:///home/a/notes.txt', to: null, replace: false },
+  );
+  listener?.(JSON.stringify({ transfer: asked.id, progress: { written: 3 } }));
+  assert.deepEqual(progress, [{ written: 3 }]);
+  controller.abort();
+  await assert.rejects(restoring, (error: unknown) => isPlatformError(error, 'cancelled'));
+  assert.deepEqual(requests.at(-1), { op: 'cancelTransfer', transfer: asked.id });
+  // The service's late answer is dropped; its progress no longer told.
+  finish?.({ json: JSON.stringify({ ok: false, error: 'cancelled', message: '' }) });
+  listener?.(JSON.stringify({ transfer: asked.id, progress: { written: 4 } }));
+  assert.deepEqual(progress, [{ written: 3 }]);
+});

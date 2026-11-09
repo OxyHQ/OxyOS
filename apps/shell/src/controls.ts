@@ -128,3 +128,25 @@ export function bluetoothLabel(
   return messages.controls.devices(bluetooth.connected);
 }
 
+
+/** The status items' testIDs as the keyboard goes along them (← →, Super+F8,
+    docs/adr/0039-keyboard-access.mdx), in the bar's order from the left: the backup item where it
+    is shown (left of the battery, as a Mac's Time Machine extra), the battery where it is a menu,
+    the network's item (`shell-wifi` or `shell-ethernet`) and the input source's where shown, then
+    the search, the Control Center and the clock. */
+export function statusItemOrder(shown: {
+  backup?: boolean;
+  battery?: boolean;
+  network?: string;
+  inputSource?: boolean;
+}): string[] {
+  return [
+    ...(shown.backup ? ["shell-backup"] : []),
+    ...(shown.battery ? ["shell-battery"] : []),
+    ...(shown.network ? [shown.network] : []),
+    ...(shown.inputSource ? ["shell-input-source"] : []),
+    "shell-search",
+    "shell-control-center",
+    "shell-clock",
+  ];
+}

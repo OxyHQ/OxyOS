@@ -41,6 +41,11 @@ test("the service's snapshot is read strictly; anything else is the service unav
     assert.equal(accountStateOf(wrong).status, 'unavailable');
   }
   assert.deepEqual(accountStateOf({ status: 'signed_out', account: null, online: false }).account, null);
+  // The account's languages are kept as a list of strings, and nothing else is.
+  const languages = { ...ada, account: { ...ada.account, avatar: 'a.png', languages: ['es-ES', 'en'] } };
+  assert.deepEqual(accountStateOf(languages).account?.languages, ['es-ES', 'en']);
+  const wrongLanguages = { ...ada, account: { ...ada.account, languages: 'es' } };
+  assert.equal(accountStateOf(wrongLanguages).account?.languages, undefined);
 });
 
 test("the host's own snapshot is read until followed, then the changes it tells; nothing new is the same state", () => {

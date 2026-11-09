@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => ({
       async resolveId(source, importer) {
         // Shared OxyOS source consumes the development host's dependencies.
         if (
-          importer?.includes("/apps/shell/") &&
+          (importer?.includes("/apps/shell/") || importer?.includes("/apps/activity-monitor/")) &&
           !source.startsWith(".") &&
           !path.isAbsolute(source)
         )

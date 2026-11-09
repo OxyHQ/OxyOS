@@ -860,3 +860,141 @@ fn an_entry_declares_the_kinds_of_file_and_the_url_schemes_its_package_opens() {
         "{entry}"
     );
 }
+
+/// What `Pkg::notes(code)` needs on the disk before it is fetched: what it fetches, and as much
+/// again as its entry for the bytecode.
+fn room_for_notes(code: u64) -> u64 {
+    let pkg = Pkg::notes(code);
+    let all: u64 = pkg.files.iter().map(|(_, b)| b.len() as u64).sum();
+    let entry = pkg
+        .files
+        .iter()
+        .find(|(path, _)| path == "bundle/index.js")
+        .map(|(_, b)| b.len() as u64)
+        .unwrap();
+    all + entry
+}
+
+#[test]
+fn a_version_the_disk_has_no_room_for_is_never_fetched_and_says_how_much_more_it_needs() {
+    let mut world = World::new("room");
+    world.repo.add(&Pkg::notes(12));
+    world.repo.publish();
+    // Ten bytes free: an install is refused before anything is fetched, and nothing is left.
+    let before = world.files();
+    let tight = world
+        .installer_with(
+            Counting::new(world.fetcher.client()),
+            FakeCompiler::Works,
+            now,
+        )
+        .unwrap()
+        .with_space(Box::new(|_| Ok(10)));
+    let refused = install(&tight, ALICE, ID).unwrap_err();
+    assert_eq!(
+        refused,
+        InstallError::NoSpace {
+            needed: room_for_notes(12) - 10
+        }
+    );
+    assert!(tight
+        .fetch_for_tests()
+        .asked
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|path| !path.starts_with("objects/")));
+    assert_eq!(world.files(), before);
+    // Said to the session as the refusal's reason, with the bytes more it needs.
+    let answer = crate::ipc::Answer::from(&refused);
+    assert!(matches!(
+        answer,
+        crate::ipc::Answer::Refused {
+            reason: crate::ipc::Reason::NoSpace,
+            needed: Some(needed),
+            ..
+        } if needed == room_for_notes(12) - 10
+    ));
+    // Exactly the room it needs: installed.
+    let exact = world
+        .installer()
+        .with_space(Box::new(|_| Ok(room_for_notes(12))));
+    install(&exact, ALICE, ID).unwrap();
+    // An update with no room: its outcome fails, saying how much more, and the account keeps
+    // its version.
+    exact.shown(ALICE, ID, 12).unwrap();
+    world.repo.add(&Pkg::notes(13));
+    world.repo.publish();
+    let tight = world.installer().with_space(Box::new(|_| Ok(0)));
+    tight.check().unwrap();
+    let outcomes = tight.update(ALICE, None).unwrap();
+    assert_eq!(outcomes.len(), 1);
+    assert_eq!(outcomes[0].outcome, "failed");
+    // What it fetches is only what the machine lacks: the files 13 changed, and its entry's room.
+    let lacked: u64 = Pkg::notes(13)
+        .files
+        .iter()
+        .filter(|(path, _)| path == "bundle/index.js")
+        .map(|(_, b)| b.len() as u64)
+        .sum();
+    assert_eq!(outcomes[0].needed, Some(lacked * 2));
+    assert_eq!(world.current("alice", ID), Some(12));
+    // With room, it is.
+    let roomy = world.installer().with_space(Box::new(|_| Ok(u64::MAX)));
+    roomy.check().unwrap();
+    assert_eq!(roomy.update(ALICE, None).unwrap()[0].outcome, "switched");
+}
+
+fn later() -> i64 {
+    now() + 3_600
+}
+
+#[test]
+fn the_list_says_each_applications_size_and_when_the_account_last_used_it() {
+    let mut world = World::new("used");
+    world.repo.add(&Pkg::notes(12));
+    world.repo.publish();
+    let installer = world.installer();
+    install(&installer, ALICE, ID).unwrap();
+    let listed = installer.list(ALICE).unwrap();
+    // Installed now: used, as far as anything says, now.
+    assert_eq!(listed[0].last_used, Some(now()));
+    let files: u64 = Pkg::notes(12)
+        .files
+        .iter()
+        .map(|(_, b)| b.len() as u64)
+        .sum();
+    let bytecode = std::fs::metadata(world.layout().version(ID, 12).join("index.hbc"))
+        .unwrap()
+        .len();
+    assert_eq!(listed[0].size, files + bytecode);
+    // A session opens it an hour later: its last use is then, and its entry is not written again
+    // (the registry follows the entries).
+    let entry = world
+        .layout()
+        .user_applications("alice")
+        .join(format!("{ID}.desktop"));
+    drop(installer);
+    // (Opening the service writes every entry again from its record, as after a crash.)
+    let installer = world
+        .installer_with(world.fetcher.client(), FakeCompiler::Works, later)
+        .unwrap();
+    let written = std::fs::metadata(&entry).unwrap().modified().unwrap();
+    installer.hold(ALICE, ID, 12).unwrap();
+    assert_eq!(installer.list(ALICE).unwrap()[0].last_used, Some(later()));
+    assert_eq!(world.user("alice", ID).unwrap().last_used, Some(later()));
+    assert_eq!(
+        std::fs::metadata(&entry).unwrap().modified().unwrap(),
+        written
+    );
+    // Another account's use is its own.
+    install(&installer, BOB, ID).unwrap();
+    assert_eq!(world.user("alice", ID).unwrap().last_used, Some(later()));
+    // A record from before the service kept it reads as none.
+    let path = world.layout().user("alice").join(format!("{ID}.json"));
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    record.as_object_mut().unwrap().remove("lastUsed");
+    std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+    assert_eq!(installer.list(ALICE).unwrap()[0].last_used, None);
+}

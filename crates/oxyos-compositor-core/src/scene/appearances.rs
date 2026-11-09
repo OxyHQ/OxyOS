@@ -5,7 +5,7 @@
 //! neither arrives nor goes.
 
 use super::{Role, Scene, SurfaceKey};
-use oxyos_protocol::ShellKind;
+use oxyos_protocol::{PanelEdge, ShellKind};
 
 /// Appearances kept until the compositor takes them.
 const MAX_APPEARANCES: usize = 256;
@@ -22,8 +22,11 @@ pub enum Kind {
     Backdrop,
     /// The shell's panels and background.
     Panel,
-    /// The shell's notifications.
+    /// The shell's notifications at the right edge: its banners (docs/adr/0026-notifications.mdx).
     Notification,
+    /// The shell's notifications with no edge: a hardware key's bezel (docs/adr/0025-hardware-keys-and-control-center.mdx),
+    /// shown where it is at once, as a Mac's, and faded by the shell itself.
+    Bezel,
     Lock,
     /// The input method's candidates: never animated.
     Candidates,
@@ -90,8 +93,13 @@ pub(super) fn kind(role: &Role) -> Kind {
         } => Kind::Overlay,
         Role::Shell {
             kind: ShellKind::Notification,
+            edge: PanelEdge::Right,
             ..
         } => Kind::Notification,
+        Role::Shell {
+            kind: ShellKind::Notification,
+            ..
+        } => Kind::Bezel,
         Role::Shell {
             kind: ShellKind::Backdrop,
             ..
@@ -126,7 +134,7 @@ impl Scene {
                     node.role,
                     Role::Shell {
                         kind: ShellKind::Panel,
-                        edge: oxyos_protocol::PanelEdge::Bottom,
+                        edge: PanelEdge::Bottom,
                         ..
                     }
                 )
