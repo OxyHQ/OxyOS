@@ -98,7 +98,11 @@
     },
     "texts": [
      "Sección: General"
-    ]
+    ],
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1
+    },
+    "delivered": {}
    }
   },
   {
@@ -199,7 +203,16 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -303,7 +316,18 @@
     "announcements": [],
     "texts": [
      "Sección: Avanzado"
-    ]
+    ],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-general": 1,
+     "focus@tab-advanced": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -404,7 +428,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-advanced": 1,
+     "focus@tab-about": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -505,7 +540,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-about": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -606,7 +652,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-general": 1,
+     "focus@tab-about": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -710,7 +767,18 @@
     "announcements": [],
     "texts": [
      "Sección: General"
-    ]
+    ],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-about": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -811,7 +879,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@tab-general": 1,
+     "focus@categories-item-homes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -912,7 +990,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@categories-item-homes": 1,
+     "focus@categories-item-search": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1013,7 +1102,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@categories-item-search": 1,
+     "focus@categories-item-people": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1109,7 +1209,16 @@
      ]
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1210,7 +1319,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@categories-item-people": 1,
+     "focus@categories-item-homes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1233,7 +1353,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@categories-item-homes": 1,
+     "focus@done": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1335,7 +1465,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@done": 1,
+     "focus@categories-item-homes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
    }
   },
   {
@@ -1437,7 +1577,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@categories-item-homes": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
    }
   }
  ]

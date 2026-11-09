@@ -27,7 +27,16 @@
           "show@default-sheet": 1
         },
         "gestures": [],
-        "pointer_shape": "Arrow"
+        "pointer_shape": "Arrow",
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -62,7 +71,16 @@
           "PanGestureHandler@View BEGAN>ACTIVE",
           "PanGestureHandler@View update x8",
           "PanGestureHandler@View ACTIVE>END"
-        ]
+        ],
+        "delivered": {
+          "1": {
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -84,7 +102,16 @@
           "touchEnd@open-scrolling": 1,
           "show@scrolling-sheet": 1
         },
-        "gestures": []
+        "gestures": [],
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -118,7 +145,16 @@
           "PanGestureHandler@View BEGAN>ACTIVE",
           "PanGestureHandler@View touches up x1",
           "PanGestureHandler@View ACTIVE>END"
-        ]
+        ],
+        "delivered": {
+          "1": {
+            "leave": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -140,7 +176,16 @@
           "touchEnd@open-scrolling": 1,
           "show@scrolling-sheet": 1
         },
-        "gestures": []
+        "gestures": [],
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -166,7 +211,15 @@
           "touchEnd@scrolling-sheet": 1
         },
         "gestures": [],
-        "pointer_shape": "Arrow"
+        "pointer_shape": "Arrow",
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -188,7 +241,15 @@
           "touchEnd@open-default": 1,
           "show@default-sheet": 1
         },
-        "gestures": []
+        "gestures": [],
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -207,7 +268,15 @@
         "react": {
           "requestClose@default-sheet": 1
         },
-        "gestures": []
+        "gestures": [],
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -225,7 +294,15 @@
           "touchStart@hand": 1,
           "touchEnd@hand": 1
         },
-        "gestures": []
+        "gestures": [],
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       },
       "allow_unchanged": true
     }

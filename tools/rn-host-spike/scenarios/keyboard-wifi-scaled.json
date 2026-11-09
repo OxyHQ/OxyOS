@@ -75,7 +75,12 @@
      "active": "LukeSkyRouter"
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {},
+    "in_shell": {
+     "react": {}
+    }
    }
   },
   {
@@ -99,6 +104,9 @@
      "keyboard_focus": {
       "target": "shell-wifi",
       "ring": true
+     },
+     "react": {
+      "focus@shell-wifi": 1
      }
     },
     "at": {
@@ -138,6 +146,11 @@
      "keyboard_focus": {
       "target": "wifi-back",
       "ring": true
+     },
+     "react": {
+      "click@shell-wifi": 1,
+      "blur@shell-wifi": 1,
+      "focus@wifi-back": 1
      }
     },
     "at": {
@@ -161,7 +174,8 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -179,6 +193,10 @@
      "keyboard_focus": {
       "target": "wifi-switch",
       "ring": true
+     },
+     "react": {
+      "blur@wifi-back": 1,
+      "focus@wifi-switch": 1
      }
     },
     "spoken": [
@@ -187,7 +205,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -205,6 +224,10 @@
      "keyboard_focus": {
       "target": "wifi-network-LukeSkyRouter",
       "ring": true
+     },
+     "react": {
+      "blur@wifi-switch": 1,
+      "focus@wifi-network-LukeSkyRouter": 1
      }
     },
     "spoken": [
@@ -213,7 +236,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -231,6 +255,10 @@
      "keyboard_focus": {
       "target": "wifi-network-Café Libre",
       "ring": true
+     },
+     "react": {
+      "blur@wifi-network-LukeSkyRouter": 1,
+      "focus@wifi-network-Café Libre": 1
      }
     },
     "spoken": [
@@ -239,7 +267,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -257,6 +286,10 @@
      "keyboard_focus": {
       "target": "wifi-network-Vecinos",
       "ring": true
+     },
+     "react": {
+      "blur@wifi-network-Café Libre": 1,
+      "focus@wifi-network-Vecinos": 1
      }
     },
     "spoken": [
@@ -265,7 +298,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -293,7 +327,16 @@
       "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2., diálogo",
       "interrupting": true
      }
-    ]
+    ],
+    "delivered": {},
+    "in_shell": {
+     "react": {
+      "click@wifi-network-Vecinos": 1,
+      "focus@system-sheet-password": 1,
+      "selectionChange@system-sheet-password": 1,
+      "blur@wifi-network-Vecinos": 1
+     }
+    }
    },
    "until_sheet": true
   },
@@ -308,7 +351,13 @@
     "react": {},
     "delivered": {},
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "in_shell": {
+     "react": {
+      "change@system-sheet-password": 1,
+      "selectionChange@system-sheet-password": 1
+     }
+    }
    }
   },
   {
@@ -328,7 +377,15 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {},
+    "in_shell": {
+     "react": {
+      "blur@system-sheet-password": 1,
+      "endEditing@system-sheet-password": 1,
+      "focus@Mostrar contraseña": 1
+     }
+    }
    }
   },
   {
@@ -346,6 +403,10 @@
      "keyboard_focus": {
       "target": "system-sheet-refuse",
       "ring": true
+     },
+     "react": {
+      "blur@Mostrar contraseña": 1,
+      "focus@system-sheet-refuse": 1
      }
     },
     "spoken": [
@@ -354,7 +415,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -372,6 +434,10 @@
      "keyboard_focus": {
       "target": "system-sheet-accept",
       "ring": true
+     },
+     "react": {
+      "blur@system-sheet-refuse": 1,
+      "focus@system-sheet-accept": 1
      }
     },
     "spoken": [
@@ -380,7 +446,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -398,6 +465,11 @@
      "keyboard_focus": {
       "target": "system-sheet-password",
       "ring": true
+     },
+     "react": {
+      "blur@system-sheet-accept": 1,
+      "focus@system-sheet-password": 1,
+      "selectionChange@system-sheet-password": 2
      }
     },
     "spoken": [
@@ -406,7 +478,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -427,6 +500,12 @@
      "keyboard_focus": {
       "target": "wifi-back",
       "ring": true
+     },
+     "react": {
+      "submitEditing@system-sheet-password": 1,
+      "blur@system-sheet-password": 1,
+      "endEditing@system-sheet-password": 1,
+      "focus@wifi-back": 1
      }
     },
     "announcements": [
@@ -445,7 +524,8 @@
       "text": "Conectado a Vecinos",
       "interrupting": false
      }
-    ]
+    ],
+    "delivered": {}
    }
   },
   {
@@ -463,6 +543,10 @@
      "keyboard_focus": {
       "target": "shell-wifi",
       "ring": true
+     },
+     "react": {
+      "shortcut@shell": 1,
+      "focus@shell-wifi": 1
      }
     },
     "spoken": [
@@ -471,7 +555,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -496,7 +581,17 @@
      ]
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     }
+    },
+    "in_shell": {
+     "react": {
+      "shortcut@shell": 1
+     }
+    }
    }
   }
  ]

@@ -105,6 +105,10 @@
       "do": ["a11y-action", ["activate", "Abrir diálogo"]],
       "expect": {
         "texts": ["Diálogo abierto"],
+        "react": {"click@open": 1, "show@ModalHostView#122": 1},
+        "delivered": {},
+        "keyboard_focus": null,
+        "focus_surface": 1,
         "at": {"window": [{"role": "Alert", "name": "Diálogo abierto", "actions": ["dismiss"]}]}
       }
     },
@@ -113,6 +117,11 @@
       "do": ["a11y-action", ["dismiss", "Diálogo abierto"]],
       "expect": {
         "absent": ["Diálogo abierto"],
+        "react": {"requestClose@ModalHostView#122": 1},
+        "delivered": {},
+        "keyboard_focus": null,
+        "focus_surface": 1,
+        "at": {"window": [{"role": "Button", "name": "Abrir diálogo", "state": []}]},
         "at_absent": {"window": [{"name": "Diálogo abierto"}]}
       }
     }

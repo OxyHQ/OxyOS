@@ -34,7 +34,16 @@
         "pixels": {
           "300,250": "#ffffff",
           "300,20": "#ffffff"
-        }
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -64,7 +73,15 @@
         "pixels": {
           "300,250": "#e0e0e0",
           "300,20": "#e0e0e0"
-        }
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -95,7 +112,15 @@
         "pixels": {
           "300,250": "#ffffff",
           "300,20": "#ffffff"
-        }
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -121,7 +146,15 @@
         "pixels": {
           "300,250": "#e0e0e0",
           "300,20": "#e0e0e0"
-        }
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -150,7 +183,15 @@
         "pixels": {
           "300,250": "#ffffff",
           "300,20": "#ffffff"
-        }
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     },
     {
@@ -174,7 +215,15 @@
         "pixels": {
           "300,250": "#e0e0e0",
           "300,20": "#e0e0e0"
-        }
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "keyboard_focus": null,
+        "focus_surface": 1
       }
     }
   ]

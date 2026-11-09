@@ -101,7 +101,12 @@
    "expect": {
     "keyboard_focus": null,
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {},
+    "in_launched": {
+     "react": {}
+    }
    }
   },
   {
@@ -125,7 +130,13 @@
      "keyboard_focus": null
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    }
    }
   },
   {
@@ -143,7 +154,9 @@
      "keyboard_focus": null
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -163,10 +176,13 @@
       "Inbox",
       "Get"
      ],
-     "keyboard_focus": null
+     "keyboard_focus": null,
+     "react": {}
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -183,6 +199,9 @@
      "keyboard_focus": {
       "target": "sidebar-item-index",
       "ring": true
+     },
+     "react": {
+      "focus@sidebar-item-index": 1
      }
     },
     "spoken": [
@@ -203,7 +222,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -220,6 +241,10 @@
      "keyboard_focus": {
       "target": "sidebar-item-apps",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-item-index": 1,
+      "focus@sidebar-item-apps": 1
      }
     },
     "spoken": [
@@ -239,7 +264,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -256,6 +283,10 @@
      "keyboard_focus": {
       "target": "sidebar-item-search",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-item-apps": 1,
+      "focus@sidebar-item-search": 1
      }
     },
     "spoken": [
@@ -275,7 +306,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -292,6 +325,10 @@
      "keyboard_focus": {
       "target": "sidebar-item-categories",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-item-search": 1,
+      "focus@sidebar-item-categories": 1
      }
     },
     "spoken": [
@@ -311,7 +348,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -328,6 +367,10 @@
      "keyboard_focus": {
       "target": "sidebar-item-category:productivity",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-item-categories": 1,
+      "focus@sidebar-item-category:productivity": 1
      }
     },
     "spoken": [
@@ -347,7 +390,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -364,6 +409,10 @@
      "keyboard_focus": {
       "target": "sidebar-item-updates",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-item-category:productivity": 1,
+      "focus@sidebar-item-updates": 1
      }
     },
     "spoken": [
@@ -383,7 +432,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -400,6 +451,10 @@
      "keyboard_focus": {
       "target": "Sign In",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-item-updates": 1,
+      "focus@Sign In": 1
      }
     },
     "spoken": [
@@ -419,7 +474,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -436,6 +493,10 @@
      "keyboard_focus": {
       "target": "sidebar-logo",
       "ring": true
+     },
+     "react": {
+      "blur@Sign In": 1,
+      "focus@sidebar-logo": 1
      }
     },
     "spoken": [
@@ -455,7 +516,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -472,6 +535,10 @@
      "keyboard_focus": {
       "target": "sidebar-collapse",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-logo": 1,
+      "focus@sidebar-collapse": 1
      }
     },
     "spoken": [
@@ -492,7 +559,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -509,6 +578,11 @@
      "keyboard_focus": {
       "target": "Apps, categories and more",
       "ring": true
+     },
+     "react": {
+      "blur@sidebar-collapse": 1,
+      "focus@Apps, categories and more": 1,
+      "selectionChange@Apps, categories and more": 1
      }
     },
     "spoken": [
@@ -528,7 +602,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -541,7 +617,13 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "in_launched": {},
+    "in_launched": {
+     "react": {
+      "blur@Apps, categories and more": 1,
+      "endEditing@Apps, categories and more": 1,
+      "focus@View#276": 1
+     }
+    },
     "spoken": [
      {
       "text": "Ask Alia, button",
@@ -559,7 +641,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -576,6 +660,10 @@
      "keyboard_focus": {
       "target": "featured-inbox",
       "ring": true
+     },
+     "react": {
+      "blur@View#276": 1,
+      "focus@featured-inbox": 1
      }
     },
     "spoken": [
@@ -595,7 +683,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -612,6 +702,10 @@
      "keyboard_focus": {
       "target": "lockup-inbox-link",
       "ring": true
+     },
+     "react": {
+      "blur@featured-inbox": 1,
+      "focus@lockup-inbox-link": 1
      }
     },
     "spoken": [
@@ -631,7 +725,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -648,6 +744,10 @@
      "keyboard_focus": {
       "target": "install-inbox",
       "ring": true
+     },
+     "react": {
+      "blur@lockup-inbox-link": 1,
+      "focus@install-inbox": 1
      }
     },
     "spoken": [
@@ -667,7 +767,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -694,7 +796,8 @@
       "Install Inbox?",
       "Install",
       "Cancel"
-     ]
+     ],
+     "react": {}
     },
     "at": {
      "launched": [
@@ -717,7 +820,9 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    },
    "until_sheet": true
   },
@@ -735,6 +840,9 @@
      "keyboard_focus": {
       "target": "system-sheet-refuse",
       "ring": true
+     },
+     "react": {
+      "focus@system-sheet-refuse": 1
      }
     },
     "spoken": [
@@ -743,7 +851,12 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {},
+    "in_launched": {
+     "react": {}
+    }
    }
   },
   {
@@ -760,6 +873,10 @@
      "keyboard_focus": {
       "target": "system-sheet-accept",
       "ring": true
+     },
+     "react": {
+      "blur@system-sheet-refuse": 1,
+      "focus@system-sheet-accept": 1
      }
     },
     "spoken": [
@@ -768,7 +885,12 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {},
+    "in_launched": {
+     "react": {}
+    }
    }
   },
   {
@@ -784,7 +906,10 @@
     "in_shell": {
      "absent": [
       "Install Inbox?"
-     ]
+     ],
+     "react": {
+      "click@system-sheet-accept": 1
+     }
     },
     "in_launched": {
      "keyboard_focus": {
@@ -793,7 +918,8 @@
      },
      "texts": [
       "Open"
-     ]
+     ],
+     "react": {}
     },
     "at": {
      "launched": [
@@ -821,7 +947,9 @@
       "politeness": "assertive",
       "text": "Inbox installed"
      }
-    ]
+    ],
+    "react": {},
+    "delivered": {}
    },
    "until_named": [
     "Open Inbox",
@@ -844,7 +972,9 @@
      }
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   }
  ]
