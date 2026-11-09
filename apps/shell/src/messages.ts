@@ -168,8 +168,13 @@ const en = (f: Formats) => ({
     shutDownNow: "Shut Down",
     /** The question's and the login screen's button. */
     shutDownButton: "Shut Down",
-    logOutMenu: (name: string) => (name ? `Log Out ${name}…` : "Log Out…"),
-    logOutNow: (name: string) => (name ? `Log Out ${name}` : "Log Out"),
+    /** Log Out *name*…, as a Mac's always names the person (docs/adr/0020-oxy-account-login.mdx,
+        decision 1 as amended on 2026-11-09): `name` their display name, else their username, else
+        `unnamedAccount`, never the Unix user's. */
+    logOutMenu: (name: string) => `Log Out ${name}…`,
+    logOutNow: (name: string) => `Log Out ${name}`,
+    /** The person with neither a display name nor a username, as the login screen calls them. */
+    unnamedAccount: "Oxy Account",
     logOutButton: "Log Out",
     question: {
       shutDown: "Are you sure you want to shut down your computer now?",
@@ -792,8 +797,9 @@ const es = (f: Formats): Catalogue => ({
     shutDownMenu: "Apagar equipo…",
     shutDownNow: "Apagar equipo",
     shutDownButton: "Apagar",
-    logOutMenu: (name) => (name ? `Cerrar sesión de ${name}…` : "Cerrar sesión…"),
-    logOutNow: (name) => (name ? `Cerrar sesión de ${name}` : "Cerrar sesión"),
+    logOutMenu: (name) => `Cerrar sesión de ${name}…`,
+    logOutNow: (name) => `Cerrar sesión de ${name}`,
+    unnamedAccount: "Cuenta de Oxy",
     logOutButton: "Cerrar sesión",
     question: {
       shutDown: "¿Seguro que quieres apagar el ordenador ahora?",

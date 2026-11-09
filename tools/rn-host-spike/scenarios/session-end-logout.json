@@ -6,6 +6,9 @@
     360
   ],
   "shell": "OxyOSShell",
+  "account": {
+    "registered": []
+  },
   "app": {
     "id": "so.oxy.allo",
     "title": "Allo"

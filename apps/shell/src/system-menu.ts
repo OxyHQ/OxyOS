@@ -38,7 +38,8 @@ export function chordLabel(keys: readonly string[], messages: ShellMessages): st
 /**
  * The Oxy menu's rows: System Settings, Applications and Show Desktops; then, where the platform
  * ends the session (`power`), Sleep, Restart… and Shut Down…; then Lock Screen (Ctrl+Super+Q, a
- * Mac's ⌃⌘Q) where it locks, and Log Out *name*… (Shift+Super+Q, ⇧⌘Q) where it ends the session.
+ * Mac's ⌃⌘Q) where it locks, and Log Out *name*… (Shift+Super+Q, ⇧⌘Q) where it ends the session,
+ * always naming the person, as a Mac's does ("Oxy Account" for an account with no name).
  * With `option` held, as a Mac's alternates: Restart, Shut Down and Log Out *name* lose their
  * ellipsis and their question, and Log Out shows Alt+Shift+Super+Q (⌥⇧⌘Q).
  */
@@ -53,13 +54,15 @@ export function systemMenuRows(
     canLock: boolean;
     /** Whether the platform sleeps, restarts, shuts down and logs out. */
     power: boolean;
-    /** The session's user, as the menu names it: their full name, else their user name. */
+    /** The session's user, as the menu names it: their full name, else their user name; none, an
+        account with neither (`unnamedAccount`, as the login screen calls it), never the Unix user. */
     name?: string;
     /** Whether Option (Alt) is held while the menu is open. */
     option?: boolean;
   },
 ): SystemMenuRow[] {
   const words = messages.power;
+  const person = name?.trim() || words.unnamedAccount;
   const rows: SystemMenuRow[] = [
     { kind: "item", id: "system.settings", label: messages.common.systemSettings },
     { kind: "item", id: "view.launcher", label: messages.topBar.applications },
@@ -96,7 +99,7 @@ export function systemMenuRows(
     rows.push({
       kind: "item",
       id: "session.logOut",
-      label: option ? words.logOutNow(name ?? "") : words.logOutMenu(name ?? ""),
+      label: option ? words.logOutNow(person) : words.logOutMenu(person),
       chord: chordLabel(option ? ["Alt", "Shift", "Super", "Q"] : ["Shift", "Super", "Q"], messages),
       confirm: !option,
     });

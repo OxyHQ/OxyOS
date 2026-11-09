@@ -1,12 +1,15 @@
 {
   "outputs": "1600x1000@1.25",
-  "about": "session-end at 1.25, on the ThinkPad's display (1600x1000): the same steps, the same answers. Sleep, restart, shut down and log out as a Mac's (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), in English, with the session's shell and an application with a document whose changes are unsaved (sample/QuitProbe.tsx, launched as Allo), over logind played on the run's own bus (never the machine's: the session holds its handle-power-key inhibitor there). The Oxy menu has Sleep, Restart…, Shut Down…, Lock Screen and Log Out *name*…. Restart… asks, the keyboard on Restart, its countdown running; Return restarts: the application is asked to quit once and refuses, its changes unsaved, so the session says “Allo” canceled restart. and logind is asked nothing. The power key asks with Restart, Sleep, Cancel and Shut Down; its Sleep is logind's Suspend, not interactive, once. Shift+Super+Q asks to log out and Escape cancels, asking no application; Alt+Shift+Super+Q asks nothing and goes straight to the application, which cancels again. With Alt held in the open menu Restart, Shut Down and Log Out lose their ellipsis. Saved, Shut Down… is left alone: nothing happens before its 60 seconds, and at them the session withdraws the question and asks the application, which quits, and logind's PowerOff is called once, not interactive. With the session asking no application, or going on with one that refused, the run fails.",
+  "about": "session-end at 1.25, on the ThinkPad's display (1600x1000): the same steps, the same answers. Sleep, restart, shut down and log out as a Mac's (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), in English, with the session's shell and an application with a document whose changes are unsaved (sample/QuitProbe.tsx, launched as Allo), over logind played on the run's own bus (never the machine's: the session holds its handle-power-key inhibitor there). The Oxy menu has Sleep, Restart…, Shut Down…, Lock Screen and Log Out Ada Lovelace…, naming the person by their Oxy account (the accounts' service played: @ada, Ada Lovelace), never the Unix user (docs/adr/0020-oxy-account-login.mdx, decision 1 as amended on 2026-11-09). Restart… asks, the keyboard on Restart, its countdown running; Return restarts: the application is asked to quit once and refuses, its changes unsaved, so the session says “Allo” canceled restart. and logind is asked nothing. The power key asks with Restart, Sleep, Cancel and Shut Down; its Sleep is logind's Suspend, not interactive, once. Shift+Super+Q asks to log out and Escape cancels, asking no application; Alt+Shift+Super+Q asks nothing and goes straight to the application, which cancels again. With Alt held in the open menu Restart, Shut Down and Log Out lose their ellipsis. Saved, Shut Down… is left alone: nothing happens before its 60 seconds, and at them the session withdraws the question and asks the application, which quits, and logind's PowerOff is called once, not interactive. With the session asking no application, or going on with one that refused, the run fails.",
   "module": "QuitProbe",
   "window": [
     600,
     360
   ],
   "shell": "OxyOSShell",
+  "account": {
+    "registered": []
+  },
   "app": {
     "id": "so.oxy.allo",
     "title": "Allo"
@@ -16,7 +19,7 @@
   },
   "steps": [
     {
-      "name": "the Oxy menu: Sleep, Restart…, Shut Down…, Lock Screen and Log Out name…; the application not asked anything, the power key's inhibitor held",
+      "name": "the Oxy menu: Sleep, Restart…, Shut Down…, Lock Screen and Log Out Ada Lovelace…; the application not asked anything, the power key's inhibitor held",
       "do": [
         "press_named",
         "Oxy Menu"
@@ -32,10 +35,8 @@
             "Sleep",
             "Restart…",
             "Shut Down…",
-            "Lock Screen"
-          ],
-          "texts_matching": [
-            "^Log Out .*…$"
+            "Lock Screen",
+            "Log Out Ada Lovelace…"
           ]
         },
         "power": {
@@ -332,7 +333,7 @@
       }
     },
     {
-      "name": "Alt held in the open menu: Restart, Shut Down and Log Out name lose their ellipsis, as a Mac's alternates",
+      "name": "Alt held in the open menu: Restart, Shut Down and Log Out Ada Lovelace lose their ellipsis, as a Mac's alternates",
       "do": [
         "key_down",
         [
@@ -344,14 +345,13 @@
           "texts": [
             "Restart",
             "Shut Down",
-            "Sleep"
+            "Sleep",
+            "Log Out Ada Lovelace"
           ],
           "absent": [
             "Restart…",
-            "Shut Down…"
-          ],
-          "texts_matching": [
-            "^Log Out [^…]*$"
+            "Shut Down…",
+            "Log Out Ada Lovelace…"
           ]
         }
       }
@@ -368,10 +368,8 @@
         "in_shell": {
           "texts": [
             "Restart…",
-            "Shut Down…"
-          ],
-          "texts_matching": [
-            "^Log Out .*…$"
+            "Shut Down…",
+            "Log Out Ada Lovelace…"
           ]
         }
       }

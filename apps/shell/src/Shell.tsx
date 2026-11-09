@@ -46,6 +46,7 @@ import type { ShellMessages } from "./messages";
 import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
 import { showsBackupItem } from "./backup";
+import { personName } from "./session-user";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -892,7 +893,7 @@ export const Shell = memo(function Shell({
             launcher={toggleLauncher}
             canLock={!!lock}
             powerActions={powerActions}
-            userName={lock ? lock.user.fullName || lock.user.name : undefined}
+            userName={lock ? personName(lock.user) : undefined}
             menuKeyboard={keyboard}
             onCommand={menuCommand}
             power={controls?.power}

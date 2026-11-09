@@ -66,6 +66,23 @@ test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q
   ]);
 });
 
+test("Log Out always names the person, as a Mac's: an account with no name is the Oxy Account, never the Unix user", () => {
+  for (const name of [undefined, "", "  "]) {
+    assert.equal(
+      read(systemMenuRows(en, { canLock: true, power: true, name })).at(-1),
+      "Log Out Oxy Account… Shift+Super+Q",
+    );
+    assert.equal(
+      read(systemMenuRows(en, { canLock: true, power: true, name, option: true })).at(-1),
+      "Log Out Oxy Account Alt+Shift+Super+Q",
+    );
+    assert.equal(
+      read(systemMenuRows(es, { canLock: true, power: true, name })).at(-1),
+      "Cerrar sesión de Cuenta de Oxy… Mayús+Super+Q",
+    );
+  }
+});
+
 test("without the session's power or lock the menu offers neither, and no stray separator", () => {
   assert.deepEqual(read(systemMenuRows(en, { canLock: false, power: false })), [
     "System Settings",
@@ -79,8 +96,6 @@ test("without the session's power or lock the menu offers neither, and no stray 
     "—",
     "Lock Screen Ctrl+Super+Q",
   ]);
-  // A user with no name is still offered Log Out.
-  assert.equal(read(systemMenuRows(en, { canLock: true, power: true })).at(-1), "Log Out… Shift+Super+Q");
   assert.equal(chordLabel(["Ctrl", "Shift", "Q"], es), "Ctrl+Mayús+Q");
 });
 
