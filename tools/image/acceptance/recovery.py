@@ -406,9 +406,16 @@ class Scenario:
         armed = sh("systemctl start oxyos-erase.service && echo armed || echo refused").strip()
         request = sh("cat /efi/oxyos-recovery/erase.json")
         entries = self.entries(sh)
-        self.check("oxyos-erase.service arms the erase: the request, and OxyOS's entries with no tries",
-                   armed.endswith("armed") and '"state": "armed"' in request
-                   and all("+0" in e for e in entries if e != "oxyos-recovery.conf"), f"{armed}; {' '.join(entries)}")
+        # Condemned are the kernels' entries, which the recovery counts; the recovery's own and the Safe
+        # Mode entries are never counted (ADR 0054, decision 10: an erase pending never makes Safe Mode
+        # the default, which is sorted after the recovery).
+        kernels = [e for e in entries if e != "oxyos-recovery.conf" and not re.fullmatch(r"oxyos-safe-mode-.+\.conf", e)]
+        safe = [e for e in entries if re.fullmatch(r"oxyos-safe-mode-.+\.conf", e)]
+        self.check("oxyos-erase.service arms the erase: the request, and the kernels' entries with no tries,"
+                   " Safe Mode's never counted",
+                   armed.endswith("armed") and '"state": "armed"' in request and kernels
+                   and all(re.search(r"\+0(-[0-9]+)?\.conf$", e) for e in kernels)
+                   and safe and not any(re.search(r"\+[0-9]+(-[0-9]+)?\.conf$", e) for e in safe), f"{armed}; {' '.join(entries)}")
         return self.restart(sh)
 
     def erased(self, name, debug, started):
