@@ -84,6 +84,7 @@ An earlier attempt that morning (08:32) stranded a QR's proof: `oxyos-accountd` 
 
 1. **One assistant, the SDK's frame.** Adding an account is a Mac's Setup Assistant: one page at a time, in the Oxy SDK's own frame (`OxySetupFlow`, `@oxy.so/services` 14.17.0, Oxy ADR 0064), whose sign-in page is the SDK's own chooser unchanged (`oxySignInStep`: `OxyAuthChooser`, the QR side from `md`, the same component every app's account dialog shows). OxyOS adds its pages as the flow's steps; the SDK draws the header, Back, Continue and the progress, moves focus to each page and says it ("Create a PIN, step 3 of 5"). Only the pages that apply, in order (`apps/login/src/setup.ts`):
    - **Welcome**, on the computer's first account.
+   - **Transfer Your Data**, on the computer's first account where it migrates ([ADR 0059](./0059-backups), decision 7, added 8 November 2026): another computer's accounts brought over from its backup, which ends the assistant with them listed to sign in again, or **Not Now**, to set up as new.
    - **Connect to the Internet**, only while offline (or **Accounts Can't Be Added** without a client id), saying why setup needs the network once and that it works offline after.
    - **Sign in with Oxy**: the QR or a way typed in.
    - **The Oxy password once more**, only for a sign-in that typed none (the email's code) of an account that has one.

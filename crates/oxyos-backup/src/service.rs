@@ -441,6 +441,7 @@ impl Service {
                 match Manifest::of_machine(
                     &config.computer,
                     &accounts,
+                    &self.shared.options.passwd,
                     &self.shared.options.group,
                     self.now(),
                 ) {

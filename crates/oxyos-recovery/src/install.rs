@@ -21,6 +21,11 @@
 //!    from the recovery's own image, with a new install key;
 //! 4. the root is set up as an installed system, exactly as an install sets it up; the request is
 //!    removed. The next boot is a first boot.
+//!
+//! **Restoring from a backup** ([ADR 0059](../../../docs/adr/0059-backups.mdx), decision 7) is an
+//! erase whose new root, once set up and still mounted, is filled from the backup ([`Fill`])
+//! before the request is removed: a power cut anywhere in it starts the recovery again, which
+//! erases again and restores into a root as new, never boots a root half restored.
 
 use crate::disks::{self, Disk, Kind, Layout};
 use crate::entries::{Entries, TRIES};
@@ -99,6 +104,11 @@ pub enum Step {
     Recreating,
     Finishing,
 }
+
+/// What fills an erase's new root, mounted at the path it is given, once it is set up: a backup
+/// restored into it. It may run programs of its own; what it fails with fails the erase, whose
+/// request stays for the next try.
+pub type Fill<'a> = &'a mut dyn FnMut(&Path) -> Result<(), Failed>;
 
 /// The disks, as lsblk sees them now.
 pub fn disks(host: &mut dyn Host) -> Result<Vec<Disk>, Failed> {
@@ -253,7 +263,7 @@ pub fn install(
         root_hash: &hash,
         version: &version,
     };
-    set_up(host, paths, &layout, options, Some(&recovery_entry))
+    set_up(host, paths, &layout, options, Some(&recovery_entry), None)
 }
 
 /// What the recovery's entry is made from, at install.
@@ -338,13 +348,14 @@ fn set_up(
     layout: &Layout,
     options: &Options,
     recovery_entry: Option<&RecoveryEntry<'_>>,
+    fill: Option<Fill<'_>>,
 ) -> Result<Installed, Failed> {
     let mut mounts = Mounts {
         host,
         mounted: Vec::new(),
         opened: None,
     };
-    let result = set_up_mounted(&mut mounts, paths, layout, options, recovery_entry);
+    let result = set_up_mounted(&mut mounts, paths, layout, options, recovery_entry, fill);
     let undone = mounts.undo();
     let installed = result?;
     undone?;
@@ -357,6 +368,7 @@ fn set_up_mounted(
     layout: &Layout,
     options: &Options,
     recovery_entry: Option<&RecoveryEntry<'_>>,
+    fill: Option<Fill<'_>>,
 ) -> Result<Installed, Failed> {
     let target = paths.target();
     let key = paths.key();
@@ -574,6 +586,9 @@ fn set_up_mounted(
     {
         return Err(failed("no boot entry was written for OxyOS's kernel", ""));
     }
+    if let Some(fill) = fill {
+        fill(&target)?;
+    }
     mounts.host.run(&Command::new("sync"))?;
     Ok(installed)
 }
@@ -612,6 +627,22 @@ pub fn erase(
     esp: &Path,
     layout: &Layout,
     request: &mut EraseRequest,
+    progress: &mut dyn FnMut(Step),
+) -> Result<(), Failed> {
+    erase_and_fill(host, paths, image, esp, layout, request, None, progress)
+}
+
+/// [`erase`], the new root then filled by `fill` (a backup restored into it) before the request
+/// is removed.
+#[allow(clippy::too_many_arguments)]
+pub fn erase_and_fill(
+    host: &mut dyn Host,
+    paths: &Paths,
+    image: &Image,
+    esp: &Path,
+    layout: &Layout,
+    request: &mut EraseRequest,
+    fill: Option<Fill<'_>>,
     progress: &mut dyn FnMut(Step),
 ) -> Result<(), Failed> {
     // A converted machine's disk is not an install's: systemd-repart's definitions do not describe
@@ -664,7 +695,7 @@ pub fn erase(
         encrypt: request.encrypted,
         developer: None,
     };
-    set_up(host, paths, &layout, &options, None)?;
+    set_up(host, paths, &layout, &options, None, fill)?;
 
     progress(Step::Finishing);
     request::remove(esp).map_err(|e| failed("the erase request", e.to_string()))?;

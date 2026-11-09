@@ -219,6 +219,13 @@ impl Connection {
     }
 }
 
+impl AsFd for Listener {
+    /// What a service waits on for its next connection.
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
+    }
+}
+
 impl AsFd for Connection {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.fd.as_fd()

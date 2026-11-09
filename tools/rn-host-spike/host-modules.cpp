@@ -2238,6 +2238,96 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value::undefined();
     });
     module->listeners();
+  } else if (name == "OxyOSMigration") {
+    // Migrate from a Backup (migration.h, docs/adr/0059-backups.mdx, decision 7), the login
+    // screen's alone, where the computer migrates (`available`): `disks()`, `backups(source, password, sharePassword?)` and
+    // `migrate(repository, snapshot, onProgress)`, each a promise of the migration service's answer
+    // ({failed: {reason}} when it could not be asked), `onProgress` called with each
+    // {migrating: {step, percent}} before `migrate`'s answer; `end()` ends the conversation. The
+    // passwords go to the service and are forgotten here; nothing of them is logged. The service
+    // itself answers only the login screen's user, and only while no account is enrolled.
+    // Offered where the computer migrates: its migration service's socket is there.
+    bool available = services.shellWindow && oxyos_migration_available() == 1;
+    module->constants(folly::dynamic::object("available", available));
+    auto migration = [&services]() -> Migration& {
+      if (!services.migration) services.migration = std::make_unique<Migration>();
+      return *services.migration;
+    };
+    auto unavailable = [](jsi::Runtime& rt) {
+      return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                    "failed", folly::dynamic::object("reason", "unavailable"))));
+    };
+    // The answer as a value on the JavaScript thread, or {failed: {reason}}.
+    auto deliverTo = [invoker](std::shared_ptr<jsi::Value> callback, const char* what) {
+      return [invoker, callback, what](Migration::Answer& answer) {
+        auto json = std::make_shared<std::string>(answer.json.value_or(""));
+        std::string error = answer.error;
+        if (!answer.json) std::cerr << "[host] the migration's " << what << ": " << error << "\n";
+        invoker->invokeAsync([callback, json, error](jsi::Runtime& rt) {
+          jsi::Value value = json->empty()
+                                 ? jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                                 "failed", folly::dynamic::object("reason", error)))
+                                 : jsi::Value::createFromJsonUtf8(rt, reinterpret_cast<const uint8_t*>(json->data()),
+                                                                  json->size());
+          callback->asObject(rt).asFunction(rt).call(rt, value);
+        });
+      };
+    };
+    auto promise = [](jsi::Runtime& rt, std::function<void(std::shared_ptr<jsi::Value> resolve)> start) {
+      auto run = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "settle"), 2,
+          [start = std::move(start)](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            start(std::make_shared<jsi::Value>(rt, args[0]));
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
+    };
+    module->method("disks", [available, migration, unavailable, deliverTo, promise](jsi::Runtime& rt,
+                                                                                    const jsi::Value*, size_t) {
+      if (!available) return unavailable(rt);
+      return promise(rt, [migration, deliverTo](std::shared_ptr<jsi::Value> resolve) {
+        migration().disks(deliverTo(resolve, "disks"));
+      });
+    });
+    module->method("backups", [available, migration, unavailable, deliverTo, promise](
+                                  jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isObject() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSMigration.backups: a source and the backup password");
+      }
+      if (!available) return unavailable(rt);
+      std::string source = folly::toJson(jsi::dynamicFromValue(rt, args[0]));
+      std::string password = args[1].asString(rt).utf8(rt);
+      std::optional<std::string> sharePassword;
+      if (count > 2 && args[2].isString()) sharePassword = args[2].asString(rt).utf8(rt);
+      return promise(rt, [migration, deliverTo, source = std::move(source), password = std::move(password),
+                          sharePassword = std::move(sharePassword)](std::shared_ptr<jsi::Value> resolve) mutable {
+        migration().backups(std::move(source), std::move(password), std::move(sharePassword),
+                            deliverTo(resolve, "backups"));
+      });
+    });
+    module->method("migrate", [available, migration, unavailable, deliverTo, promise](
+                                  jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSMigration.migrate: a computer's repository and a backup");
+      }
+      if (!available) return unavailable(rt);
+      std::shared_ptr<jsi::Value> progress;
+      if (count > 2 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)) {
+        progress = std::make_shared<jsi::Value>(rt, args[2]);
+      }
+      std::string repository = args[0].asString(rt).utf8(rt);
+      std::string snapshot = args[1].asString(rt).utf8(rt);
+      return promise(rt, [migration, deliverTo, progress, repository = std::move(repository),
+                          snapshot = std::move(snapshot)](std::shared_ptr<jsi::Value> resolve) mutable {
+        migration().migrate(std::move(repository), std::move(snapshot),
+                            progress ? Migration::Done(deliverTo(progress, "progress")) : Migration::Done{},
+                            deliverTo(resolve, "migration"));
+      });
+    });
+    module->method("end", [&services](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (services.migration) services.migration->end();
+      return jsi::Value::undefined();
+    });
   } else if (name == "RNCAsyncStorage") {
     // @react-native-async-storage/async-storage (application.h, crates/oxyos-app-storage): kept in
     // the application's data directory, by its id, on a thread of its own; each callback as its

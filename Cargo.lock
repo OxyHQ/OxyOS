@@ -3188,8 +3188,11 @@ dependencies = [
 name = "oxyos-recovery-tool"
 version = "0.1.0"
 dependencies = [
+ "jiff",
+ "oxyos-backup",
  "oxyos-recovery",
  "rustix",
+ "serde_json",
  "zeroize",
 ]
 
