@@ -1,14 +1,14 @@
-//! `oxyos-backupd`'s service, run by its program (`src/main.rs`) and by the development
+//! `oxyos-backupd`'s service, run by its program (`tools/oxyos-backupd`) and by the development
 //! compositor (`oxyos-offscreen --play-backup`), which plays it on a run's own folders for the
-//! scenarios ([ADR 0059](../../../docs/adr/0059-backups.mdx), step 2) as the program's
-//! `--development` does.
+//! scenarios ([ADR 0059](../../docs/adr/0059-backups.mdx), step 2) as the program's
+//! `--development` does. It lives here, not in the program, so that no program depends on another.
 
-use oxyos_backup::disks::{self, Disks};
-use oxyos_backup::engine::Engine;
-use oxyos_backup::ipc;
-use oxyos_backup::policy::{self, Sources};
-use oxyos_backup::service::{self, Options, Service};
-use oxyos_backup::store::STATE_DIRECTORY;
+use crate::disks::{self, Disks};
+use crate::engine::Engine;
+use crate::ipc;
+use crate::policy::{self, Sources};
+use crate::service::{self, Options, Service};
+use crate::store::STATE_DIRECTORY;
 use oxyos_install::socket::Listener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};

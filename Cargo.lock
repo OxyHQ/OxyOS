@@ -3087,7 +3087,7 @@ dependencies = [
  "oxyos-apps",
  "oxyos-audio",
  "oxyos-auth",
- "oxyos-backupd",
+ "oxyos-backup",
  "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor",

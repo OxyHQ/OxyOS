@@ -35,7 +35,7 @@ use oxyos_backup::engine::Engine;
 use oxyos_backup::ipc;
 use oxyos_backup::migrate::{self, Migration};
 use oxyos_backup::restore::Restorer;
-use oxyos_backupd::Arguments as Service;
+use oxyos_backup::daemon::Arguments as Service;
 use oxyos_install::socket::{Connection, Listener};
 use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
@@ -193,7 +193,7 @@ fn main() -> ExitCode {
     let result = arguments().and_then(|arguments| match arguments.client.clone() {
         Some(request) => client(&arguments, &request),
         None if arguments.migrate => migration(arguments),
-        None => oxyos_backupd::run(arguments.service),
+        None => oxyos_backup::daemon::run(arguments.service),
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,

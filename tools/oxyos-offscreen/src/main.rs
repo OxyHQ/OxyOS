@@ -1697,7 +1697,7 @@ fn main() -> Result<()> {
         [flag, state, volumes, socket, cache, sources @ ..]
             if flag == "--play-backup" && !sources.is_empty() =>
         {
-            oxyos_backupd::run(oxyos_backupd::Arguments {
+            oxyos_backup::daemon::run(oxyos_backup::daemon::Arguments {
                 development: true,
                 state: state.into(),
                 socket: Some(socket.into()),
