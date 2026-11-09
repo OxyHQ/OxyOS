@@ -435,7 +435,10 @@ file onto the dock's Trash, ADR 0035; held over it, docs/adr/0044-system-sounds.
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
 named on a shown surface, and fails if none is within `ms`: an answer that comes on the application's
 own clock (a store that is down, asked again until the application says so) is waited for as it
-shows, never for a set time it might outlast.
+shows, never for a set time it might outlast. A `wait_sheet_keyboard` step (ms) waits the same way
+until a system sheet the session asked has the keyboard (the shell's overlay showing it focused), and
+fails if none has within `ms`: the keys typed next are the sheet's, whenever the shell's request for
+the keyboard was granted.
 
 A step settles once what the session shows stops changing: the director's application's frames,
 the companion's, the shell's, and the windows of the applications the session launched (their place
@@ -754,7 +757,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -1110,6 +1113,10 @@ def director_args(step, out):
         # Real time until the assistive technology holds a node of this name, at most so many
         # milliseconds: [name, ms] (an answer on the application's own clock).
         return args + ["--wait-named", str(value[1]), value[0]]
+    if kind == "wait_sheet_keyboard":
+        # Real time until a system sheet the session asked has the keyboard, at most so many
+        # milliseconds: what is typed next is the sheet's.
+        return args + ["--wait-sheet-keyboard", str(value)]
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]

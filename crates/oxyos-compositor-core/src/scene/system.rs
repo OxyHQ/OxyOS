@@ -10,8 +10,8 @@
 //! capability asked at first use (`RequestCapability`); the program decides and answers. The scene
 //! knows no vocabulary, no application and no capability.
 
-use super::{ClientId, Scene};
-use oxyos_protocol::{ErrorCode, Event, PreeditText, TextChunk, MAX_SYSTEM_TEXT_BYTES};
+use super::{ClientId, Role, Scene};
+use oxyos_protocol::{ErrorCode, Event, PreeditText, ShellKind, TextChunk, MAX_SYSTEM_TEXT_BYTES};
 use std::collections::BTreeMap;
 
 /// Requests a client asked for and the session has not taken yet: each client's own, so the
@@ -322,6 +322,25 @@ impl Scene {
     /// How many sheets are asked for and not yet answered nor withdrawn.
     pub fn sheets_waiting(&self) -> usize {
         self.system.sheets.len()
+    }
+
+    /// Whether a system sheet has the keyboard: a sheet is asked and the shell's overlay showing it
+    /// is focused. What the person types there is the session's question's (an Oxy account's
+    /// password, a Wi-Fi password), so only the person moves the keyboard from it: no window
+    /// mapping, however recently its application was launched, takes it.
+    pub fn system_sheet_has_keyboard(&self) -> bool {
+        self.sheets_waiting() > 0
+            && self.focus.is_some_and(|focus| {
+                self.nodes.get(&self.root_of(focus)).is_some_and(|node| {
+                    matches!(
+                        node.role,
+                        Role::Shell {
+                            kind: ShellKind::Overlay,
+                            ..
+                        }
+                    )
+                })
+            })
     }
 
     /// Withdraws a sheet not answered: the shells are told.
