@@ -149,6 +149,10 @@ pub struct SnapshotAccount {
     pub display_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
+    /// The account's picture on this machine (its avatar's image, as the accounts' service last
+    /// read it: a root-owned file the session reads, [`crate::store`]); none without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
     /// The account's languages, primary first, as the platform last read them online.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub languages: Option<Vec<String>>,
@@ -401,6 +405,24 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         f(entry)
     }
 
+    /// Every enrolled account's picture read where it is missing or out of date (the service
+    /// started; accounts set up before pictures were kept): online, each one's subscribers told.
+    /// Run on a thread of its own: nothing waits for Oxy's cloud.
+    pub fn refresh_pictures(&self) {
+        let Ok(enrollments) = self.setup.store().enrollments() else {
+            return;
+        };
+        for enrollment in enrollments {
+            if enrollment.state() == crate::store::State::Ready
+                && self
+                    .setup
+                    .picture_user(&enrollment.user, &enrollment.profile)
+            {
+                self.changed(&enrollment);
+            }
+        }
+    }
+
     /// The account was signed out or removed: a new revision, whatever snapshots were made between.
     fn switched(&self, enrollment: &Enrollment) {
         let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
@@ -509,6 +531,11 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 handle: profile.username.clone().unwrap_or_default(),
                 display_name: profile.display_name.clone(),
                 avatar: profile.avatar.clone(),
+                picture: self
+                    .setup
+                    .store()
+                    .picture(&enrollment.user, profile.avatar.as_deref())
+                    .map(|path| path.to_string_lossy().into_owned()),
                 languages: profile.languages.clone(),
             }),
             online,
@@ -942,6 +969,10 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         drop(token);
         if let Some(profile) = &profile {
             self.update_profile(&enrollment, credential, profile);
+            // Its picture read anew when its avatar changed (or was never read): subscribers told.
+            if self.setup.picture_user(&enrollment.user, profile) {
+                self.changed(&enrollment);
+            }
         }
         let username = profile
             .as_ref()
@@ -1237,8 +1268,8 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         if let Err(error) = self.setup.store().remove(user) {
             eprintln!("oxyos-accountd: {user}: its file cannot be removed: {error}");
         }
-        if let Some(picture) = self.setup.store().picture(user) {
-            let _ = std::fs::remove_file(picture);
+        if let Err(error) = self.setup.store().remove_pictures(user) {
+            eprintln!("oxyos-accountd: {user}: its picture cannot be removed: {error}");
         }
         self.live
             .lock()

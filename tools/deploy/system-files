@@ -22,6 +22,7 @@ tools/oxyos-login/pam.d/oxyos-login-pin                                 /etc/pam
 tools/oxyos-accountd/pam.d/oxyos-accountd                               /etc/pam.d/oxyos-accountd                       0644
 tools/oxyos-login/oxyos-login.sysusers                                  /usr/lib/sysusers.d/oxyos-login.conf            0644
 tools/oxyos-login/oxyos-login.tmpfiles                                  /usr/lib/tmpfiles.d/oxyos-login.conf            0644
+tools/oxyos-accountd/oxyos-accountd.tmpfiles                            /usr/lib/tmpfiles.d/oxyos-accountd.conf         0644
 config/includes.chroot_after_packages/etc/sysctl.d/10-oxyos-ptrace.conf /etc/sysctl.d/10-oxyos-ptrace.conf              0644
 target/release/oxyos-recovery                                           /usr/sbin/oxyos-recovery                        0755
 tools/oxyos-recovery/package/usr/lib/kernel/install.d/91-oxyos-safe-mode.install /usr/lib/kernel/install.d/91-oxyos-safe-mode.install 0755

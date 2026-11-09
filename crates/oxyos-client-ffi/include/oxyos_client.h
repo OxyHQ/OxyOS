@@ -2099,8 +2099,8 @@ int64_t oxyos_accounts(char* out, size_t capacity);
  * strictly and written rebuilt. A message is at most OXYOS_ACCOUNT_MESSAGE_MAX bytes. */
 #define OXYOS_ACCOUNT_MESSAGE_MAX 16384
 /* The session's snapshot, asked once, as JSON {"status" ("signed_in", "signed_out" or
- * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?, "languages"?
- * (its locales, primary first)} or null), "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
+ * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?, "picture"?
+ * (its picture's file on this machine), "languages"? (its locales, primary first)} or null), "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
  * asked or refused (oxyos_last_error). */
 int64_t oxyos_account_session_snapshot(char* out, size_t capacity);
 /* A short token for the calling application, `reason` "boot", "preflight" or "response-401" (which

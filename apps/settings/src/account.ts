@@ -12,6 +12,9 @@ export type OxyAccount = {
   handle: string;
   displayName?: string;
   avatar?: string;
+  /** The account's picture on this machine (its avatar's image, kept by the accounts' service, so
+      it shows offline too): an absolute path. */
+  picture?: string;
 };
 
 /** The platform's snapshot of the machine's Oxy session (the SDK's `OxyHostSnapshot`). */
@@ -60,7 +63,7 @@ export function accountView(snapshot: AccountSnapshot | null | undefined): Accou
     kind: "signed_in",
     name,
     handle: account.handle,
-    picture: pictureOf(account.avatar),
+    picture: localPicture(account.picture) ?? pictureOf(account.avatar),
     initials: initialsOf(name),
     online: snapshot.online,
   };
@@ -70,6 +73,13 @@ export function accountView(snapshot: AccountSnapshot | null | undefined): Accou
     name, else its handle. */
 export function accountName(account: Pick<OxyAccount, "handle" | "displayName">): string {
   return account.displayName?.trim() || account.handle.trim();
+}
+
+/** The picture the accounts' service keeps for the account (an absolute path) as an image's URI;
+    anything else is none. */
+export function localPicture(picture: string | undefined): string | null {
+  if (typeof picture !== "string" || !picture.startsWith("/") || picture.includes("\0")) return null;
+  return `file://${picture.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /** The account's picture when it is one an image can show (an http(s) or file URL); else none, and
@@ -97,13 +107,14 @@ export function accountSnapshotFrom(told: unknown): AccountSnapshot | null {
   if (typeof revision !== "number" || typeof online !== "boolean") return null;
   let kept: OxyAccount | null = null;
   if (account != null) {
-    const { id, handle, displayName, avatar } = account as Record<string, unknown>;
+    const { id, handle, displayName, avatar, picture } = account as Record<string, unknown>;
     if (typeof id !== "string" || typeof handle !== "string" || !id || !handle) return null;
     kept = {
       id,
       handle,
       ...(typeof displayName === "string" ? { displayName } : {}),
       ...(typeof avatar === "string" ? { avatar } : {}),
+      ...(typeof picture === "string" ? { picture } : {}),
     };
   }
   if ((status === "signed_in") !== (kept !== null)) return null;
