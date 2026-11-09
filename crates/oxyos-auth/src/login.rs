@@ -82,13 +82,15 @@ impl Login {
     /// changed does not sign in: a login screen has no way to change it yet, and a session must
     /// never start with one PAM asked to change.
     pub fn authenticate(&mut self, secret: Secret) -> Result<Outcome, Error> {
-        if secret.0.contains(&0) {
+        if secret.as_bytes().contains(&0) {
             return Err(Error::NulInSecret);
         }
-        if secret.0.is_empty() {
+        if secret.is_empty() {
             return Ok(Outcome::Rejected);
         }
-        let mut bytes = Zeroizing::new(secret.0.to_vec());
+        // Sized for the NUL beforehand, so that pushing it leaves no copy behind.
+        let mut bytes = Zeroizing::new(Vec::with_capacity(secret.len() + 1));
+        bytes.extend_from_slice(secret.as_bytes());
         bytes.push(0);
         let password = CStr::from_bytes_with_nul(&bytes).map_err(|_| Error::NulInSecret)?;
         self.transaction.give_password(password);

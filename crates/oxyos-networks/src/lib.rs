@@ -53,7 +53,7 @@ pub fn bus_socket(address: Option<&str>) -> Option<std::path::PathBuf> {
             .map(std::path::PathBuf::from)
     })
 }
-pub use secret::{clear, Secret};
+pub use secret::{clear, valid_wpa, Secret};
 
 use serde::Serialize;
 

@@ -35,7 +35,7 @@ use oxyos_keychain::store::{Store, Unlocked};
 use oxyos_keychain::vault::{
     self, Approving, Created, JoinStep, Joining, Look, RecoveryJoin, Rotation, Vault,
 };
-use oxyos_keychain::{EnrollmentId, ItemId, MemberId, SecretString};
+use oxyos_keychain::{EnrollmentId, ItemId, MemberId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
@@ -309,14 +309,6 @@ fn platform_name(member: &oxyos_keychain::roster::Member) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_default()
-}
-
-fn secret(text: &SecretString) -> Secret {
-    Secret::new(text.expose())
-}
-
-fn secret_string(text: &Secret) -> SecretString {
-    SecretString::new(text.expose())
 }
 
 /// A URL's host, or the text itself when it is none.
@@ -741,7 +733,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
             if field == Field::OneTimeCode && login.totp.is_none() {
                 continue;
             }
-            offered.push((id.clone(), secret(&login.title), secret(&login.username)));
+            offered.push((id.clone(), login.title.clone(), login.username.clone()));
         }
         offered.sort_by(|a, b| a.1.expose().cmp(b.1.expose()));
         let mut suggestions = Vec::new();
@@ -780,8 +772,8 @@ impl<V: VaultApi + 'static> KeychainService<V> {
             });
         }
         Ok(Answer::AutofillCredential {
-            username: secret(&login.username),
-            password: secret(&login.password),
+            username: login.username.clone(),
+            password: login.password.clone(),
         })
     }
 
@@ -1518,7 +1510,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
     fn generate(&self, user: &User) -> Result<Answer, Reason> {
         self.verified(user, |_| {
             let password = oxyos_keychain::password::generate().map_err(|_| Reason::Failed)?;
-            Ok(Answer::GeneratedPassword(secret(&password)))
+            Ok(Answer::GeneratedPassword(password.clone()))
         })
         .map(|(_, answer)| answer)
     }
@@ -1784,8 +1776,8 @@ fn kind(content: &Content) -> ItemKind {
 fn summary(id: &ItemId, item: &Item) -> ItemSummary {
     let (title, username, domains) = match &item.content {
         Content::Login(login) => (
-            secret(&login.title),
-            Some(secret(&login.username)),
+            login.title.clone(),
+            Some(login.username.clone()),
             login
                 .urls
                 .iter()
@@ -1793,13 +1785,13 @@ fn summary(id: &ItemId, item: &Item) -> ItemSummary {
                 .collect(),
         ),
         Content::Passkey(passkey) => (
-            secret(&passkey.rp_name),
-            Some(secret(&passkey.user_name)),
-            vec![secret(&passkey.rp_id)],
+            passkey.rp_name.clone(),
+            Some(passkey.user_name.clone()),
+            vec![passkey.rp_id.clone()],
         ),
-        Content::Totp(totp) => (secret(&totp.title), Some(secret(&totp.account)), Vec::new()),
-        Content::Note(note) => (secret(&note.title), None, Vec::new()),
-        Content::Wifi(wifi) => (secret(&wifi.ssid), None, Vec::new()),
+        Content::Totp(totp) => (totp.title.clone(), Some(totp.account.clone()), Vec::new()),
+        Content::Note(note) => (note.title.clone(), None, Vec::new()),
+        Content::Wifi(wifi) => (wifi.ssid.clone(), None, Vec::new()),
     };
     ItemSummary {
         item_id: id.to_string(),
@@ -1819,34 +1811,34 @@ fn summary(id: &ItemId, item: &Item) -> ItemSummary {
 fn view(item: &Item) -> ItemView {
     let fields = match &item.content {
         Content::Login(login) => ItemFields::Login {
-            title: secret(&login.title),
-            username: secret(&login.username),
-            password: secret(&login.password),
-            urls: login.urls.iter().map(|url| secret(&url.url)).collect(),
-            apps: login.apps.iter().map(secret).collect(),
-            totp: login.totp.as_ref().map(secret),
-            notes: Some(secret(&login.notes)),
+            title: login.title.clone(),
+            username: login.username.clone(),
+            password: login.password.clone(),
+            urls: login.urls.iter().map(|url| url.url.clone()).collect(),
+            apps: login.apps.to_vec(),
+            totp: login.totp.as_ref().cloned(),
+            notes: Some(login.notes.clone()),
         },
         Content::Passkey(passkey) => ItemFields::Passkey {
-            rp_id: secret(&passkey.rp_id),
-            rp_name: secret(&passkey.rp_name),
-            user_name: secret(&passkey.user_name),
-            user_display_name: secret(&passkey.user_display_name),
+            rp_id: passkey.rp_id.clone(),
+            rp_name: passkey.rp_name.clone(),
+            user_name: passkey.user_name.clone(),
+            user_display_name: passkey.user_display_name.clone(),
         },
         Content::Totp(totp) => ItemFields::Totp {
-            title: secret(&totp.title),
-            issuer: Some(secret(&totp.issuer)),
-            account: Some(secret(&totp.account)),
-            uri: secret(&totp.uri),
-            notes: Some(secret(&totp.notes)),
+            title: totp.title.clone(),
+            issuer: Some(totp.issuer.clone()),
+            account: Some(totp.account.clone()),
+            uri: totp.uri.clone(),
+            notes: Some(totp.notes.clone()),
         },
         Content::Note(note) => ItemFields::Note {
-            title: secret(&note.title),
-            body: secret(&note.body),
+            title: note.title.clone(),
+            body: note.body.clone(),
         },
         Content::Wifi(wifi) => ItemFields::Wifi {
-            ssid: secret(&wifi.ssid),
-            password: Some(secret(&wifi.password)),
+            ssid: wifi.ssid.clone(),
+            password: Some(wifi.password.clone()),
             security: serde_json::to_value(wifi.security)
                 .ok()
                 .and_then(|value| value.as_str().map(str::to_owned))
@@ -1862,8 +1854,8 @@ fn view(item: &Item) -> ItemView {
     }
 }
 
-fn text(value: &Option<Secret>) -> SecretString {
-    value.as_ref().map(secret_string).unwrap_or_default()
+fn text(value: &Option<Secret>) -> Secret {
+    value.as_ref().cloned().unwrap_or_default()
 }
 
 /// The item an application's save makes, the person having said yes: the next version of the
@@ -1898,20 +1890,20 @@ fn saved_item(open: &mut Open, login: &SaveLogin) -> Result<Option<Item>, Reason
             if old.password.expose() == login.password.expose() && has_url {
                 return Ok(None);
             }
-            let mut urls: Vec<Secret> = old.urls.iter().map(|url| secret(&url.url)).collect();
+            let mut urls: Vec<Secret> = old.urls.iter().map(|url| url.url.clone()).collect();
             if !has_url {
                 urls.extend(url.map(Secret::new));
             }
             ItemInput {
                 item_id: Some(id.to_string()),
                 fields: ItemFields::Login {
-                    title: secret(&old.title),
-                    username: secret(&old.username),
+                    title: old.title.clone(),
+                    username: old.username.clone(),
                     password: Secret::new(login.password.expose()),
                     urls,
-                    apps: old.apps.iter().map(secret).collect(),
-                    totp: old.totp.as_ref().map(secret),
-                    notes: (!old.notes.expose().is_empty()).then(|| secret(&old.notes)),
+                    apps: old.apps.to_vec(),
+                    totp: old.totp.as_ref().cloned(),
+                    notes: (!old.notes.expose().is_empty()).then(|| old.notes.clone()),
                 },
             }
         }
@@ -2006,17 +1998,12 @@ fn build(vault: &Vault, input: &ItemInput) -> Result<Item, Reason> {
                 return Err(Reason::InvalidRequest);
             }
             Content::Login(Login {
-                title: secret_string(title),
-                username: secret_string(username),
-                password: secret_string(password),
-                urls: urls
-                    .iter()
-                    .map(|url| Url {
-                        url: secret_string(url),
-                    })
-                    .collect(),
-                apps: apps.iter().map(secret_string).collect(),
-                totp: totp.as_ref().map(secret_string),
+                title: title.clone(),
+                username: username.clone(),
+                password: password.clone(),
+                urls: urls.iter().map(|url| Url { url: url.clone() }).collect(),
+                apps: apps.to_vec(),
+                totp: totp.as_ref().cloned(),
                 notes: text(notes),
                 password_history: history,
             })
@@ -2029,15 +2016,15 @@ fn build(vault: &Vault, input: &ItemInput) -> Result<Item, Reason> {
             uri,
             notes,
         } => Content::Totp(TotpItem {
-            title: secret_string(title),
+            title: title.clone(),
             issuer: text(issuer),
             account: text(account),
-            uri: secret_string(uri),
+            uri: uri.clone(),
             notes: text(notes),
         }),
         ItemFields::Note { title, body } => Content::Note(Note {
-            title: secret_string(title),
-            body: secret_string(body),
+            title: title.clone(),
+            body: body.clone(),
         }),
         ItemFields::Wifi {
             ssid,
@@ -2045,7 +2032,7 @@ fn build(vault: &Vault, input: &ItemInput) -> Result<Item, Reason> {
             security,
             hidden,
         } => Content::Wifi(Wifi {
-            ssid: secret_string(ssid),
+            ssid: ssid.clone(),
             password: text(password),
             security: serde_json::from_value::<WifiSecurity>(serde_json::Value::String(
                 security.clone(),
@@ -2148,7 +2135,7 @@ impl<V: VaultApi + 'static> Keychains for KeychainService<V> {
                 self.with_open(&account, None, |_| {
                     let password =
                         oxyos_keychain::password::generate().map_err(|_| Reason::Failed)?;
-                    Ok(Answer::GeneratedPassword(secret(&password)))
+                    Ok(Answer::GeneratedPassword(password.clone()))
                 })
                 .map(|(_, answer)| answer),
             ),

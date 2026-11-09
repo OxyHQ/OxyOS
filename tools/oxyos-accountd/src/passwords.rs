@@ -59,11 +59,9 @@ impl Passwords for PamPasswords {
         if let Some(wait) = throttle.wait(Instant::now()) {
             return PasswordCheck::Throttled(wait);
         }
-        let secret = oxyos_auth::Secret::new(password.expose().as_bytes().to_vec());
-        drop(password);
         let checked = self
             .authenticator(user)
-            .and_then(|authenticator| authenticator.check(secret));
+            .and_then(|authenticator| authenticator.check(password));
         match checked {
             Ok(Outcome::Accepted) => {
                 throttle.record(Outcome::Accepted, Instant::now());

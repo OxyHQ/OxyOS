@@ -256,7 +256,7 @@ impl Passkeys {
                         "incorrect": false,
                     });
                     if let Some(user_name) = user_name {
-                        text["userName"] = json!(user_name.as_str());
+                        text["userName"] = json!(user_name.expose());
                     }
                     self.show(
                         scene,

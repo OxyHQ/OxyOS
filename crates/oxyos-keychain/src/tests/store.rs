@@ -6,7 +6,7 @@ use crate::item::{Content, Item, Note};
 use crate::keyring::Keyring;
 use crate::store::{Store, StoredItem, StoredItems};
 use crate::wire::ItemId;
-use crate::{Error, SecretString};
+use crate::{Error, Secret};
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
@@ -55,8 +55,8 @@ fn everything_kept_is_sealed_and_read_back() {
         modified_at: super::AT.into(),
         counter: 3,
         content: Content::Note(Note {
-            title: SecretString::new("door"),
-            body: SecretString::new("4711"),
+            title: Secret::new("door"),
+            body: Secret::new("4711"),
         }),
     };
     let sealed = item.seal(&vault.id, &keyring).unwrap();
