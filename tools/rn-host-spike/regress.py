@@ -311,6 +311,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   `selectInputSource`) and the emoji pickers asked for ("emoji", `showEmoji`), each key given
   matching;
 - latency_ms: budget from injecting the input to the first changed frame;
+- content_ms_max: launch to content, with `texts`: the first frame (each surface's latest presented
+  frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
+  after the host's start (its report's first `stage` "main"), by the wall clock: what a person
+  waits for from launching an application to seeing what they opened, an application that renders
+  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
+  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
+  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -575,7 +582,8 @@ refused, so nothing of the network outside reaches the run. The server answers t
 as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
 (summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
 reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
-store that is down; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
+store that is down; `store.late_ms` ({PATH: MS}) sends what it answers for a path (a 404 for one it
+does not play, `/users/me` among them) that long after it was asked, as over a slow network; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
 document, as a listing's `icon` may be a file URL or path), and `{store_files}` in any answer is the
 directory holding them. It also answers NetInfo's check that the Internet is reachable
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
@@ -664,7 +672,9 @@ application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refu
 service restarting as a package upgrade restarts it: every subscription closed under its
 application, then every process refused `notPermitted` for MS, as the real service refuses one until
 the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
-credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
+credential; `account.token_delay_ms` answers each `token` (boot, preflight...) that long after it was
+asked, as a mint over a slow network does, its other answers (`snapshot`, `subscribe`) as at once
+(each connection is answered on its own; the token is recorded when it is answered). Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
 password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says
@@ -1726,6 +1736,10 @@ def serve_account_session(path, spec, log):
                         if message == "subscribe":
                             subscribers.append(connection)
                 elif asked.startswith("token "):
+                    # A mint over a slow network (`account.token_delay_ms`): this connection waits,
+                    # each other is answered on its own thread meanwhile.
+                    time.sleep(spec.get("token_delay_ms", 0) / 1000)
+                    snapshot = ACCOUNT["snapshot"]
                     if snapshot["status"] == "signed_in" and snapshot["online"] and not spec.get("refuse_tokens"):
                         token = {"accessToken": played_token(application, message["token"]["reason"]),
                                  "expiresAt": "2026-11-06T12:05:00.000Z"}
@@ -2768,6 +2782,25 @@ def latest_frames(report, until, closed_before):
         if line["kind"] == "frame" and line["t"] <= until:
             frames[line["surface"]] = line
     return {s: f for s, f in frames.items() if s not in closed_before}
+
+
+def content_shown_ms(report, texts):
+    """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
+    "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
+    reads them (in each surface's latest frame, a closed popup's left out); None when they never
+    all were, or the host reported no start."""
+    main = next((line["t"] for line in report if line["kind"] == "stage" and line.get("name") == "main"), None)
+    if main is None:
+        return None
+    shown = {}
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True):
+            shown[line["surface"]] = line.get("texts", [])
+            if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
+                return round((line["t"] - main) / 1e6, 1)
+    return None
 
 
 def png_pixel_reader(path):
@@ -5027,6 +5060,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "latency_ms" in expect and result.get("latency_ms") is not None and not COLLECT:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
+    if "content_ms_max" in expect:
+        # Launch to content: a budget with nothing to wait for is no check.
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_ms_max needs the step's texts")
+        result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
+        if not COLLECT:
+            if shown_ms is None:
+                fail(f"launch to content: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_ms_max']} ms budget from the host's start)")
+            elif shown_ms > expect["content_ms_max"]:
+                fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
+                     f"start, over the {expect['content_ms_max']} ms budget")
     return end
 
 
@@ -5407,6 +5452,8 @@ def store_fixture(spec, out):
                 down = failing.get(url.path, 0) > 0
                 if down:
                     failing[url.path] -= 1
+            # An answer arriving late (`store.late_ms`), as over a slow network.
+            time.sleep(spec.get("late_ms", {}).get(url.path, 0) / 1000)
             if down:
                 return self.reply(503, {"message": "The store is down for the scenario"})
             if url.path in spec.get("images", {}):
@@ -5803,7 +5850,7 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
                         help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
@@ -6388,6 +6435,9 @@ def main():
             "median": round(statistics.median(flips), 2) if flips else None,
             "max": round(max(flips), 2) if flips else None,
         },
+        # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
+        "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
+                       if "content_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }
