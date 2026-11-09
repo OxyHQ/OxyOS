@@ -172,6 +172,18 @@ pub(crate) struct FakeApi {
     pub(crate) windows_told: Mutex<(Option<Duration>, Option<Duration>)>,
     /// The display name `/users/me` says the account has now (changed on Oxy, say).
     pub(crate) display_name: Mutex<Option<String>>,
+    /// The avatar `/users/me` says the account has now, and the avatars whose pictures were read.
+    pub(crate) avatar: Mutex<Option<String>>,
+    pub(crate) pictures_asked: Mutex<Vec<String>>,
+    /// Oxy's cloud cannot be reached (its API may be).
+    pub(crate) pictures_offline: std::sync::atomic::AtomicBool,
+}
+
+/// The picture the fake cloud serves for `avatar`: a PNG's signature, then its id.
+pub(crate) fn fake_picture(avatar: &str) -> Vec<u8> {
+    let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+    bytes.extend_from_slice(avatar.as_bytes());
+    bytes
 }
 
 impl Default for FakeApi {
@@ -199,6 +211,9 @@ impl Default for FakeApi {
             limited: Mutex::new(std::collections::VecDeque::new()),
             windows_told: Mutex::new((None, None)),
             display_name: Mutex::new(Some("Ada Lovelace".into())),
+            avatar: Mutex::new(Some("avatar-file-1".into())),
+            pictures_asked: Mutex::new(Vec::new()),
+            pictures_offline: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -383,7 +398,7 @@ impl OxyApi for FakeApi {
             id: self.profile_id.unwrap_or(id).into(),
             username: Some(USERNAME.into()),
             display_name: self.display_name.lock().unwrap().clone(),
-            avatar: Some("avatar-file-1".into()),
+            avatar: self.avatar.lock().unwrap().clone(),
             languages: Some(vec!["en-GB".into(), "es-ES".into()]),
         })
     }
@@ -545,6 +560,14 @@ impl OxyApi for FakeApi {
             },
             account_id: account.as_str().into(),
         })
+    }
+
+    fn picture(&self, avatar: &str) -> Result<Vec<u8>, ApiError> {
+        self.pictures_asked.lock().unwrap().push(avatar.to_owned());
+        if self.pictures_offline.load(Ordering::SeqCst) {
+            return Err(ApiError::Offline("the cloud cannot be reached".into()));
+        }
+        Ok(fake_picture(avatar))
     }
 
     fn sign_out_device(&self, token: &Secret) -> Result<(), ApiError> {
