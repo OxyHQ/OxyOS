@@ -64,6 +64,26 @@ if [ "$layout" = bls ] && [ -n "$boot_root" ] && [ -n "$token" ]; then
 else
   echo "safe mode: no systemd-boot entries of kernel-install's here (layout '${layout:-none}'): none written"
 fi
+# Backups (docs/adr/0059-backups.mdx) as the image has them: Debian's restic and rclone, the engine and
+# the SMB client the service runs (the image's manifest's, tools/deploy/system-files.py --apt), then the
+# service installed above enabled and restarted onto its new program, and the migration's socket
+# enabled (its service answers only while no account is enrolled, so never on a machine in use). A
+# signed-in session follows the service as soon as its socket is there. No destination is configured
+# here: choosing one, and its password, is the person's (Settings › General › Backups).
+pkgs=$(python3 $T/tools/deploy/system-files.py --apt)
+missing=$(for p in $pkgs; do dpkg-query -W -f="\${Status}" $p 2>/dev/null | grep -q "ok installed" || echo $p; done)
+[ -z "$missing" ] || sudo -n apt-get install -y -q --no-install-recommends $missing > /dev/null
+for p in $pkgs; do command -v $p > /dev/null || { echo "backups: no $p"; exit 1; }; done
+sudo -n systemctl enable -q oxyos-backupd oxyos-migrate.socket
+sudo -n systemctl restart oxyos-backupd
+sudo -n systemctl start oxyos-migrate.socket
+systemctl is-active -q oxyos-backupd || { echo "backups: oxyos-backupd is not running"; exit 1; }
+systemctl is-active -q oxyos-migrate.socket || { echo "backups: oxyos-migrate.socket is not listening"; exit 1; }
+# It answers on its socket once it has read its state (Type=exec: started is not yet listening).
+rm -f backup-state.json
+for i in 1 2 3 4 5 6 7 8 9 10; do sudo -n /usr/libexec/oxyos-backupd --client '"status"' > backup-state.json 2>/dev/null && break; sleep 1; done
+[ -s backup-state.json ] || { echo "backups: oxyos-backupd does not answer on its socket"; exit 1; }
+echo "backups: $(restic version | cut -d' ' -f1-2), $(rclone version | head -1), oxyos-backupd active and answering, the migration's socket listening"
 # One GPU (ADR 0031, decision 14), on the machine itself before the session restarts: the
 # compositor and a painter opened as the session and a Bloom host open them, under strace; any
 # DRM node of a GPU that drives no display (a laptop's sleeping discrete GPU, for one), any NVK
