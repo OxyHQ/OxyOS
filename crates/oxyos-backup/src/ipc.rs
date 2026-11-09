@@ -188,7 +188,8 @@ pub struct DestinationStatus {
 #[serde(rename_all = "camelCase")]
 pub struct Running {
     pub destination: String,
-    /// `preparing`, `backingUp`, `cleaningUp` (thinning, removing what is unneeded) or `checking`.
+    /// `preparing` (until restic says how much it reads), `backingUp` (copying, its bytes and
+    /// files known), `cleaningUp` (thinning, removing what is unneeded) or `checking`.
     pub phase: &'static str,
     /// Asked for (Back Up Now) rather than scheduled.
     pub asked: bool,

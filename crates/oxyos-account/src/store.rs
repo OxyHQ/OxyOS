@@ -20,9 +20,14 @@
 //!   renamed over the old one, and the directory flushed, so a reader or a crash sees the old
 //!   file or the new one, never a part. What is written is overwritten in memory afterwards.
 //! - What the login screen shows of each (its user, name and picture, [`Store::list`]) is read
-//!   from the same files; the credential in them is dropped unread, overwritten. An account's
-//!   picture is a file of the pictures' directory (`/var/lib/oxyos/pictures/<user>`, readable by
-//!   the login screen, as AccountsService keeps its icons), when there is one.
+//!   from the same files; the credential in them is dropped unread, overwritten.
+//! - An account's picture (its Oxy avatar's image) is a file of the pictures' directory,
+//!   `/var/lib/oxyos/pictures/<user>-<avatar>`, as AccountsService keeps its icons: the directory
+//!   root's, mode 0755 (the unit's tmpfiles), each picture root's, mode 0644, so the login screen
+//!   (the greeter's user) and the account's session read it, and no one else writes it. Named by
+//!   the avatar it shows, so a new one is a new file (an image is never told apart from an older
+//!   one by its name alone) and the one shown until a new one is read (offline) is the last read.
+//!   Written whole, as the account's file is; the others of the user removed once it is.
 
 use crate::api::{DeviceCredential, Profile};
 use crate::id::{AccountId, UserName};
@@ -37,7 +42,8 @@ use zeroize::Zeroizing;
 
 /// Where the service keeps enrolled accounts.
 pub const STATE_DIRECTORY: &str = "/var/lib/oxyos/accounts";
-/// Where accounts' pictures are: a file named by the account's user, for the login screen.
+/// Where accounts' pictures are: a file named by the account's user and avatar, for the login
+/// screen and the account's session.
 pub const PICTURES_DIRECTORY: &str = "/var/lib/oxyos/pictures";
 
 /// The machine's first administrator was made (by its first setup, or by the service's start on a
@@ -187,11 +193,110 @@ impl Store {
         &self.directory
     }
 
-    /// Where `user`'s picture is, if accounts have pictures.
-    pub fn picture(&self, user: &UserName) -> Option<PathBuf> {
-        self.pictures
+    /// `user`'s picture: the one of `avatar` (its account's avatar now), else the last one read
+    /// (the avatar changed while Oxy's cloud could not be reached); none when it has none, or
+    /// accounts have no pictures. Only a regular file, never a link.
+    pub fn picture(&self, user: &UserName, avatar: Option<&str>) -> Option<PathBuf> {
+        let directory = self.pictures.as_ref()?;
+        let is_file =
+            |path: &Path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file());
+        if let Some(current) = avatar
+            .and_then(crate::api::avatar_id)
+            .map(|avatar| directory.join(format!("{user}-{avatar}")))
+            .filter(|path| is_file(path))
+        {
+            return Some(current);
+        }
+        self.pictures_of(user)
+            .into_iter()
+            .filter(|path| is_file(path))
+            .max_by_key(|path| fs::symlink_metadata(path).and_then(|m| m.modified()).ok())
+    }
+
+    /// Whether `user` has the picture of `avatar` already.
+    pub fn has_picture(&self, user: &UserName, avatar: &str) -> bool {
+        match (&self.pictures, crate::api::avatar_id(avatar)) {
+            (Some(directory), Some(avatar)) => {
+                fs::symlink_metadata(directory.join(format!("{user}-{avatar}")))
+                    .is_ok_and(|metadata| metadata.is_file())
+            }
+            _ => false,
+        }
+    }
+
+    /// Every picture file of `user`'s (any avatar's), by its name.
+    fn pictures_of(&self, user: &UserName) -> Vec<PathBuf> {
+        let Some(directory) = &self.pictures else {
+            return Vec::new();
+        };
+        let Ok(entries) = fs::read_dir(directory) else {
+            return Vec::new();
+        };
+        let prefix = format!("{user}-");
+        entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                // A user's name has no `-` past `oxy-`: `<user>-…` is no other user's.
+                name.strip_prefix(&prefix)
+                    .is_some_and(|avatar| crate::api::avatar_id(avatar).is_some())
+            })
+            .map(|entry| entry.path())
+            .collect()
+    }
+
+    /// `bytes` made `user`'s picture of `avatar` (root's, mode 0644, written whole), its others
+    /// removed; where it is.
+    pub fn put_picture(&self, user: &UserName, avatar: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+        let directory = self
+            .pictures
             .as_ref()
-            .map(|directory| directory.join(user.as_str()))
+            .ok_or_else(|| invalid("accounts have no pictures here".into()))?;
+        let avatar = crate::api::avatar_id(avatar)
+            .ok_or_else(|| invalid("not an avatar's file id".into()))?;
+        let path = directory.join(format!("{user}-{avatar}"));
+        let new = directory.join(format!("{user}-{avatar}{NEW}"));
+        {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+                .mode(0o644)
+                .open(&new)?;
+            // The service's umask (0077) is not the picture's: the login screen reads it.
+            file.set_permissions(fs::Permissions::from_mode(0o644))?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+        }
+        fs::rename(&new, &path)?;
+        for old in self.pictures_of(user) {
+            if old != path {
+                let _ = fs::remove_file(old);
+            }
+        }
+        File::open(directory)?.sync_all()?;
+        Ok(path)
+    }
+
+    /// Every picture of `user`'s removed (the account removed, or its avatar removed on Oxy).
+    pub fn remove_pictures(&self, user: &UserName) -> io::Result<()> {
+        let pictures = self.pictures_of(user);
+        if pictures.is_empty() {
+            return Ok(());
+        }
+        for picture in pictures {
+            match fs::remove_file(&picture) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        match &self.pictures {
+            Some(directory) => File::open(directory)?.sync_all(),
+            None => Ok(()),
+        }
     }
 
     fn path(&self, user: &UserName) -> PathBuf {
@@ -284,11 +389,7 @@ impl Store {
         if stored.user != user || account.user_name().as_str() != user {
             return Err(invalid("not this user's account".into()));
         }
-        let picture = self
-            .pictures
-            .as_ref()
-            .map(|directory| directory.join(user))
-            .filter(|path| fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()));
+        let picture = self.picture(&account.user_name(), stored.profile.avatar.as_deref());
         // Which field the screen shows; PAM decides what signs in, so an unreadable one shows the
         // password's and hides no account.
         let local = self.local(&account.user_name()).unwrap_or_default();

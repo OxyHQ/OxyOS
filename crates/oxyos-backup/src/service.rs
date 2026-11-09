@@ -463,7 +463,9 @@ impl Service {
                 tags: vec!["oxyos".into()],
                 time: None,
             };
-            self.set_phase("backingUp");
+            // `preparing` until restic says how much it reads (its first status with a total):
+            // only then is there a copy to show the progress of, as Time Machine says "Preparing
+            // backup…" until it knows.
             let mut tries = 0;
             loop {
                 tries += 1;
@@ -473,6 +475,9 @@ impl Service {
                     stop,
                     |progress| {
                         if let Some(running) = &mut lock(&self.shared.state).running {
+                            if progress.total_bytes > 0 {
+                                running.phase = "backingUp";
+                            }
                             running.percent = progress.percent_done.clamp(0.0, 1.0);
                             running.bytes_done = progress.bytes_done;
                             running.bytes_total = progress.total_bytes;
@@ -511,7 +516,7 @@ impl Service {
                             .engine
                             .prune(&opened.repository, stop)
                             .map_err(ended)?;
-                        self.set_phase("backingUp");
+                        self.set_phase("preparing");
                     }
                     Err(engine::Error::NoSpace) => return Err(Ended::Failed("full")),
                     Err(error) => return Err(ended(error)),
