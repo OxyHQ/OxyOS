@@ -95,6 +95,9 @@ pub struct Client {
     candidate_lists: candidates::CandidateLists,
     /// GPU buffers: the compositor's tables and this connection's timelines (ADR 0031).
     gpu: gpu::Gpu,
+    /// The text of the SystemData event last returned (version 37,
+    /// docs/adr/0063-activity-monitor.mdx), read whole from the file it carried.
+    system_data: Option<String>,
 }
 
 /// What one offer to the clipboard holds: each media type with its content.
@@ -163,6 +166,7 @@ impl Client {
             next_offer: 0,
             drags: std::collections::VecDeque::new(),
             next_drag: 0,
+            system_data: None,
             text_inputs: text_input::TextInputs::default(),
             candidate_lists: candidates::CandidateLists::default(),
             gpu: gpu::Gpu::default(),
@@ -1447,12 +1451,26 @@ impl Client {
         self.descriptor.take()
     }
 
+    /// The text the SystemData event last returned carried (its serial is the event's): a long
+    /// answer of the session's vocabulary, read whole; none when its file could not be read.
+    pub fn system_data(&self) -> Option<&str> {
+        self.system_data.as_deref()
+    }
+
     /// Frees released buffers for reuse; a protocol error ends the connection.
     fn observe(&mut self, event: Event) -> io::Result<Event> {
         self.observe_text_input(&event);
         self.observe_candidates(&event);
         self.gpu.observe(&event);
         match event {
+            // A long answer, read from the sealed file it carried (closed as it is read).
+            Event::SystemData { size, .. } => {
+                self.system_data = self
+                    .descriptor
+                    .take()
+                    .and_then(|file| read_system_data(file, size));
+                Ok(event)
+            }
             // A paste of what this client copied: written into its pipe from a thread, so a
             // slow reader stalls neither the client nor the compositor.
             Event::ClipboardSend { offer, mime } => {
@@ -1652,4 +1670,19 @@ fn chooser_chunks(text: &str) -> io::Result<Vec<PreeditText>> {
         .iter()
         .map(|chunk| PreeditText::new(chunk.as_str()).expect("a chunk fits"))
         .collect())
+}
+
+/// A SystemData's text: `size` bytes of UTF-8 from the start of the sealed file the compositor
+/// sent, at most `MAX_SYSTEM_DATA_BYTES`; none when it is shorter, larger or not text.
+fn read_system_data(file: OwnedFd, size: u32) -> Option<String> {
+    use std::os::unix::fs::FileExt;
+    let size = usize::try_from(size).ok()?;
+    if size > oxyos_protocol::MAX_SYSTEM_DATA_BYTES {
+        return None;
+    }
+    let mut bytes = vec![0; size];
+    std::fs::File::from(file)
+        .read_exact_at(&mut bytes, 0)
+        .ok()?;
+    String::from_utf8(bytes).ok()
 }

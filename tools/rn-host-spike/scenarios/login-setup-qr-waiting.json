@@ -1,0 +1,285 @@
+{
+  "about": "A QR setup whose redemption Oxy answers 429 once (docs/adr/0020-oxy-account-login.mdx, the 2026-11-08 amendment; oxy ADR 0058: the redemption's limit is per proof and inside the QR's ten minutes), against a played Oxy API and accounts' service (`login.enroll.wait_first`): the service keeps the conversation and tells the wait, and the Setting Up page says calmly that Oxy is busy and that setup goes on by itself, counting down under the stages, said once (a live region whose label stays its first), never each second; no failure, no Try Again, nothing asked. Then the service asks again with the same key, and the account is set up and signed in with the PIN just chosen. One approval, never a second scan.",
+  "shell": "OxyOSLogin",
+  "outputs": "1280x800",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Bea Ramos"
+      }
+    ],
+    "record": [
+      "session would start for oxy-cccccccccccccccccccc (user session): "
+    ],
+    "oxy": {
+      "identifier": "ada",
+      "code": "246810",
+      "id": "0123456789abcdef01234569",
+      "username": "ada",
+      "name": "Ada Lovelace",
+      "has_password": true,
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "qr": {
+        "approve": "socket",
+        "approve_after_ms": 7500
+      }
+    },
+    "enroll": {
+      "device": {
+        "deviceId": "played-device-1",
+        "deviceSecret": "played-device-secret-1"
+      },
+      "password": "played password 1",
+      "account": {
+        "accountId": "0123456789abcdef01234569",
+        "user": "oxy-cccccccccccccccccccc",
+        "uid": 1003,
+        "name": "Ada Lovelace"
+      },
+      "wait_first": 4
+    }
+  },
+  "steps": [
+    {
+      "name": "the login screen with one account",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Add Account: setup, online, the SDK's chooser asking for its QR",
+      "do": [
+        "press_named",
+        "Add Account"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "platform: platform"
+        ],
+        "delivered": {},
+        "oxy_requests": [
+          "POST /auth/session/create 200",
+          "WS /auth-session join {token} 101"
+        ]
+      }
+    },
+    {
+      "name": "the SDK's chooser, its QR beside the form, the field focused",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Sign in",
+            "Email or username",
+            "Scan with Commons to sign in",
+            "Create account",
+            "Step 1 of 4",
+            "Back"
+          ],
+          "absent": [
+            "Get Commons",
+            "Commons isn't installed",
+            "Choose an account",
+            "Use another account"
+          ],
+          "focus_input": "signin-identifier"
+        }
+      }
+    },
+    {
+      "name": "a phone approves the QR: the session claimed once, the PIN page at once, its field focused, step 2 of 4; no password asked or offered",
+      "do": [
+        "wait",
+        4000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "oxy_requests": [
+          "WS /auth-session auth_update 101",
+          "GET /auth/session/status/{token} 200",
+          "POST /auth/session/claim 200"
+        ],
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Create a PIN",
+            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "Step 2 of 4",
+            "Back"
+          ],
+          "absent": [
+            "Choose an account",
+            "Email or username",
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Scan with Commons to sign in",
+            "Send code",
+            "Set a password",
+            "Use another account"
+          ],
+          "focus_input": "login-setup-pin-password"
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 1,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    },
+    {
+      "name": "the PIN chosen: typed again, its field focused",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Enter Your PIN Again",
+            "To be sure it's the one you meant.",
+            "Step 2 of 4"
+          ],
+          "absent": [
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Set a password",
+            "Send code"
+          ],
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "typed again: Choose Your Look, step 3 of 4, Auto chosen",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Select an appearance. You can change it later in Settings.",
+            "Light",
+            "Dark",
+            "Auto",
+            "Continue",
+            "Back",
+            "Step 3 of 4"
+          ],
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Dark chosen",
+      "do": [
+        "press_named",
+        "Dark"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look",
+            "Continue"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Continue: Oxy asks for a moment; the Setting Up page says so once, calmly, and the setup goes on by itself: set up and signed in with the PIN just chosen; one approval",
+      "do": [
+        "press_named",
+        "Continue"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [
+          "waiting: 4",
+          "appearance: dark",
+          "enroll: enrolled",
+          "verifyPin: accepted"
+        ],
+        "announcements": [
+          {
+            "politeness": "assertive",
+            "text": "Setting Up Your Account…, step 4 of 4",
+            "live": false
+          },
+          {
+            "politeness": "polite",
+            "text": "Oxy is busy right now. Setup goes on by itself in 4 seconds.",
+            "live": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "signed in, nothing failed on the way",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "never": [
+          "482916"
+        ],
+        "shell": {
+          "locked": true,
+          "signed_in": true
+        },
+        "in_shell": {
+          "never": [
+            "482916"
+          ],
+          "absent": [
+            "Your Account Isn't Set Up Yet",
+            "Try Again",
+            "Sign In Again"
+          ]
+        },
+        "oxy_requests_times": {
+          "POST /auth/session/claim 200": 0,
+          "POST /auth/session/create 200": 0
+        }
+      }
+    }
+  ],
+  "final": {}
+}

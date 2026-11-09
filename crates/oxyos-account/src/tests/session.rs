@@ -46,6 +46,7 @@ pub(super) fn service(api: FakeApi) -> Socket {
             program: std::env::current_exe().unwrap(),
             parent: parent_program(),
             owner: me(),
+            verified: None,
         },
         eraser(&system, &Arc::new(FakePasswords::default())),
     ));
@@ -68,14 +69,27 @@ pub(super) fn service(api: FakeApi) -> Socket {
 
 /// An application: a child of the test that, once told (a line on its standard input), connects
 /// and runs `steps`: `{"send": message}` sends it and prints the answer, `"recv"` prints the next
-/// message, `"wait"` waits for another line; `{"child": steps}` runs them in a child of its own.
+/// message, `"wait"` waits for another line; `{"child": steps}` runs them in a child of its own;
+/// `{"post": message}` sends it on a connection of its own, kept open, and `"collect"` prints the
+/// answer of the oldest one posted.
 const APPLICATION: &str = r#"
 import json, socket, subprocess, sys
 def run(path, steps):
     s = None
+    posted = []
     for step in steps:
         if step == "wait":
             sys.stdin.readline()
+            continue
+        if isinstance(step, dict) and "post" in step:
+            other = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            other.connect(path)
+            other.send(json.dumps(step["post"]).encode())
+            posted.append(other)
+            continue
+        if step == "collect":
+            data = posted.pop(0).recv(65536)
+            print(data.decode() if data else "closed", flush=True)
             continue
         if isinstance(step, dict) and "child" in step:
             child = subprocess.Popen([sys.executable, "-I", "-c", sys.argv[3], path, json.dumps(step["child"])],
@@ -531,6 +545,7 @@ fn a_program_that_is_not_the_session_program_registers_nothing() {
             program: PathBuf::from("/bin/sh"),
             parent: parent_program(),
             owner: 0,
+            verified: None,
         },
         eraser(
             &Arc::new(FakeSystem::default()),
@@ -574,6 +589,7 @@ fn the_session_program_not_started_by_the_login_program_registers_nothing() {
             program: std::env::current_exe().unwrap(),
             parent: PathBuf::from("/bin/sh"),
             owner: me(),
+            verified: None,
         },
         eraser(
             &Arc::new(FakeSystem::default()),

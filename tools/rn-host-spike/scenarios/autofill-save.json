@@ -1,0 +1,175 @@
+{
+ "about": "AutoFill's ask to save (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): an application that has just signed someone in (sample/SavePasswordProbe.tsx, as Allo) asks @oxyos/platform's keychain.savePassword to save the made-up login it used; the played accounts' service never saves on its word, but asks the session (here the development compositor, taking the save confirmations as the session does: oxyos-account's SaveConfirmations), which asks the person in the shell's system sheet over the window: “¿Guardar la contraseña para Allo?”, the username and the website, never the password, with Ahora no and Guardar. The screen reader on, in Spanish. Ahora no and Escape save nothing (notSaved); Guardar saves it, for Allo alone. The password appears in nothing recorded. At 1 (1280 × 720), light.",
+ "locale": "es_ES.UTF-8",
+ "module": "SavePasswordProbe",
+ "window": [
+  560,
+  320
+ ],
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "shell": "OxyOSShell",
+ "reader": {},
+ "autofill": {
+  "application": "so.oxy.allo",
+  "saves": true
+ },
+ "account": {
+  "registered": [
+   "so.oxy.allo"
+  ]
+ },
+ "secrets": [
+  "fixture-Saved-Passw0rd"
+ ],
+ "account_saved": [
+  {
+   "application": "so.oxy.allo",
+   "username": "bea@example.com",
+   "domain": "example.com"
+  }
+ ],
+ "steps": [
+  {
+   "name": "the probe, launched by the session: the keychain available, nothing asked",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Keychain: available",
+     "Saved: none"
+    ],
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "signed in: the system's sheet asks to save, naming the application and the username",
+   "do": [
+    "press_named",
+    "Sign in"
+   ],
+   "until_sheet": true,
+   "expect": {
+    "texts": [
+     "Asked: 1",
+     "Saved: asking"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "¿Guardar la contraseña para Allo?"
+      }
+     ]
+    },
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "Ahora no: nothing saved",
+   "do": [
+    "press_named",
+    "Ahora no"
+   ],
+   "expect": {
+    "texts": [
+     "Saved: notSaved"
+    ],
+    "account_session": [
+     "so.oxy.allo savePassword: notSaved"
+    ],
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  },
+  {
+   "name": "signed in again: asked again",
+   "do": [
+    "press_named",
+    "Sign in"
+   ],
+   "until_sheet": true,
+   "expect": {
+    "texts": [
+     "Asked: 2",
+     "Saved: asking"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "¿Guardar la contraseña para Allo?"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Escape is Ahora no: nothing saved",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Saved: notSaved"
+    ],
+    "account_session": [
+     "so.oxy.allo savePassword: notSaved"
+    ]
+   }
+  },
+  {
+   "name": "signed in a third time: asked again",
+   "do": [
+    "press_named",
+    "Sign in"
+   ],
+   "until_sheet": true,
+   "expect": {
+    "texts": [
+     "Asked: 3",
+     "Saved: asking"
+    ],
+    "at": {
+     "shell": [
+      {
+       "role": "Dialog",
+       "name": "¿Guardar la contraseña para Allo?"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Guardar: saved, for Allo",
+   "do": [
+    "press_named",
+    "Guardar"
+   ],
+   "expect": {
+    "texts": [
+     "Saved: saved"
+    ],
+    "account_session": [
+     "so.oxy.allo savePassword: saved"
+    ],
+    "never": [
+     "fixture-Saved-Passw0rd"
+    ]
+   }
+  }
+ ]
+}

@@ -1,5 +1,7 @@
 #include "platform-modules.h"
 
+#include "account-session.h"
+
 #include <OxyOSPlatformSpecJSI.h>
 
 #include <utility>
@@ -50,6 +52,20 @@ class ClipboardModule : public NativeOxyOSClipboardCxxSpec<ClipboardModule> {
   jsi::Value setString(jsi::Runtime& rt, std::string text) {
     ready(rt);
     return resolved(rt, jsi::Value(services_.clipboard.copy(text)));
+  }
+
+  // A password or a code (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): marked
+  // sensitive, so no clipboard manager keeps it, and cleared after 90 seconds if still there
+  // (docs/adr/0007-clipboard.mdx, decision 6). The text is forgotten here once copied.
+  jsi::Value setSensitiveString(jsi::Runtime& rt, std::string text) {
+    ready(rt);
+    if (!services_.clipboard.copySensitive) {
+      forget(text);
+      return resolved(rt, jsi::Value(false));
+    }
+    bool sent = !text.empty() && services_.clipboard.copySensitive(text);
+    forget(text);
+    return resolved(rt, jsi::Value(sent));
   }
 
   // The text arrives later, from the clipboard's owner: the promise settles on the JavaScript
