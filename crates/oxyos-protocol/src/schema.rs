@@ -163,6 +163,10 @@ messages! {
         // pair (a username's or an email's password field, a password's username field), which a
         // fill fills too (TextInputFill). A field never told one has none.
         69 => TextInputContentType { surface: u32, content: TextContentType, paired: bool },
+        // The field's text is now empty (version 39), part of its state as TextInputSurrounding
+        // is, applied at TextInputCommit: chunks of none could not say so, and a commit keeps the
+        // text it does not describe again, so a field emptied stayed told as it was.
+        70 => TextInputEmpty { surface: u32 },
         // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
         // `index` 0 begins it, `last` applies it. The application id is the application's own
         // claim until launch records give it; the shell shows it, nothing is authorized by it.

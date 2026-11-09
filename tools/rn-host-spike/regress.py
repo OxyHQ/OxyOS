@@ -319,6 +319,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - transactions: the text-input transactions the application was given in the step (ADR 0008),
   exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
   end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
+- composition: the composition each text input draws, by testID, as the host last reported it
+  changing in the step: {"range": [start, end], "segments": [[start, end, style]]} in UTF-16
+  units of its text, or null once it ended; exactly the inputs whose composition changed;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back,
   composing...); with `im_candidates`, the page of candidates it hands the system ("candidates":
@@ -4868,6 +4871,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         got = sorted((name for name in wanted if name in firsts), key=lambda name: firsts[name])
         if got != wanted:
             fail(f"the host first had {got}, expected {wanted} in that order")
+    if "composition" in expect:
+        # The composition each text input draws (an input method's preedit), by testID, as the host
+        # last reported it changing in this step: {"range": [start, end], "segments": [[start, end,
+        # style], …]} in UTF-16 units of the input's text, or null once it ended; an input whose
+        # composition did not change in the step is not listed, exactly.
+        compositions = {}
+        for line in report:
+            if line["kind"] == "composition" and start <= line["t"] <= end:
+                compositions[line["target"]] = line["state"]
+        if compositions != expect["composition"]:
+            fail(f"compositions {compositions}, expected exactly {expect['composition']}")
     if "text_scroll" in expect:
         # How far each text input's text was scrolled in this step, by testID: the last value.
         scrolls = {}

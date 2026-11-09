@@ -1,0 +1,187 @@
+{
+  "about": "A composition's own caret, selection and segments in a Bloom field (sample/ImeProbe.tsx, ADR 0008, decision 3; ADR 0037, decision 2), driven by transactions so each state is exact: a composition with its caret at its end; the caret moved within it (the text unchanged: no change event, the selection React holds inside the composition, Backspace as Android's input connection reports a caret going back, the caret's rectangle the compositor is told moved left with it); a range selected within it with two segments, composing and converting; a segment in error; Escape's empty transaction cancelling it (the field's text back, as one change, and no edit recorded, so undo takes back the typing before it); a press elsewhere in the field ending a composition as Android's finishComposingText (the text kept, one edit an undo takes back whole); and a press in another field ending one there. Each step checks the text and selection React has, exactly the React events, the transactions the field was given and what the compositor delivered, the field the compositor holds (its text without the composition, its caret's rectangle), the input focused, and the composition the field draws (its range and segments, as the host reports it changing).",
+  "module": "ImeProbe",
+  "window": [800, 480],
+  "steps": [
+    {
+      "name": "focus the line: empty, its caret at its start, nothing composed",
+      "do": ["press", [400, 42]],
+      "expect": {
+        "focus_input": "line",
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "focus@line": 1, "selectionChange@line": 1},
+        "delivered": {"1": {"enter": 1, "press": 1, "release": 1}},
+        "field": {"text": "", "anchor": 0, "cursor": 0, "caret": [36, 33, 2, 18]},
+        "composition": {}
+      }
+    },
+    {
+      "name": "ab typed: one change, nothing composed",
+      "do": ["type", "ab"],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"ab\" [2,2]"],
+        "react": {"change@line": 1, "selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"commit": "ab"}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {}
+      }
+    },
+    {
+      "name": "xyz composed after it, its caret at its end: the field draws it composed, the compositor holds the text without it",
+      "do": ["transaction", {"preedit": "xyz"}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abxyz\" [5,5]"],
+        "react": {"change@line": 1, "selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"preedit": "xyz", "cursor": [3, 3]}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {"line": {"range": [2, 5], "segments": []}}
+      }
+    },
+    {
+      "name": "the composition's caret moves back to after x, its text the same: no change, the selection within it, Backspace as Android reports a caret going back",
+      "do": ["transaction", {"preedit": "xyz", "cursor": [1, 1]}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abxyz\" [3,3]"],
+        "react": {"selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"preedit": "xyz", "cursor": [1, 1]}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {}
+      }
+    },
+    {
+      "name": "yz selected within the composition, x composing and yz converting: the selection React holds is theirs, the segments drawn",
+      "do": ["transaction", {"preedit": "xyz", "cursor": [1, 3], "segments": [[0, 1, "composing"], [1, 3, "converting"]]}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abxyz\" [3,5]"],
+        "react": {"selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"preedit": "xyz", "cursor": [1, 3], "segments": [[0, 1, "composing"], [1, 3, "converting"]]}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {"line": {"range": [2, 5], "segments": [[2, 3, "composing"], [3, 5, "converting"]]}}
+      }
+    },
+    {
+      "name": "z marked in error, the caret at the composition's end: the segments drawn change, the selection collapses",
+      "do": ["transaction", {"preedit": "xyz", "segments": [[0, 2, "converting"], [2, 3, "error"]]}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abxyz\" [5,5]"],
+        "react": {"selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"preedit": "xyz", "cursor": [3, 3], "segments": [[0, 2, "converting"], [2, 3, "error"]]}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {"line": {"range": [2, 5], "segments": [[2, 4, "converting"], [4, 5, "error"]]}}
+      }
+    },
+    {
+      "name": "Escape's empty transaction cancels it: the text back to ab as one change, the caret where the composition began, nothing composed",
+      "do": ["transaction", {}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"ab\" [2,2]"],
+        "react": {"change@line": 1, "selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {"line": null}
+      }
+    },
+    {
+      "name": "the cancelled composition is no edit: undo takes back the typing before it",
+      "do": ["key", [29, 44]],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"\" [0,0]"],
+        "react": {"change@line": 1, "selectionChange@line": 1},
+        "delivered": {"1": {"key.press": 2, "key.release": 2}},
+        "transactions": [],
+        "field": {"text": "", "anchor": 0, "cursor": 0},
+        "composition": {}
+      }
+    },
+    {
+      "name": "redo brings it back",
+      "do": ["key", [29, 42, 44]],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"ab\" [2,2]"],
+        "react": {"change@line": 1, "selectionChange@line": 1},
+        "delivered": {"1": {"key.press": 3, "key.release": 3}},
+        "transactions": [],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {}
+      }
+    },
+    {
+      "name": "qr composed again after it",
+      "do": ["transaction", {"preedit": "qr"}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abqr\" [4,4]"],
+        "react": {"change@line": 1, "selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"preedit": "qr", "cursor": [2, 2]}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {"line": {"range": [2, 4], "segments": []}}
+      }
+    },
+    {
+      "name": "a press at the field's start ends the composition as Android's finishComposingText: its text kept, unchanged for React, the caret at the start; the compositor holds the whole text",
+      "do": ["press", [37, 42]],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abqr\" [0,0]"],
+        "react": {"touchStart@line": 1, "touchEnd@line": 1, "selectionChange@line": 1},
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "transactions": [],
+        "field": {"text": "abqr", "anchor": 0, "cursor": 0},
+        "composition": {"line": null}
+      }
+    },
+    {
+      "name": "the composition kept is one edit: undo takes it back whole",
+      "do": ["key", [29, 44]],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"ab\" [2,2]"],
+        "react": {"change@line": 1, "selectionChange@line": 1},
+        "delivered": {"1": {"key.press": 2, "key.release": 2}},
+        "transactions": [],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {}
+      }
+    },
+    {
+      "name": "st composed once more",
+      "do": ["transaction", {"preedit": "st"}],
+      "expect": {
+        "focus_input": "line",
+        "texts": ["Line: \"abst\" [4,4]"],
+        "react": {"change@line": 1, "selectionChange@line": 1, "keyPress@line": 1},
+        "delivered": {"1": {"text_input": 1}},
+        "transactions": [{"preedit": "st", "cursor": [2, 2]}],
+        "field": {"text": "ab", "anchor": 2, "cursor": 2},
+        "composition": {"line": {"range": [2, 4], "segments": []}}
+      }
+    },
+    {
+      "name": "a press in the email field ends it in the line, its text kept there, and focuses the email field with nothing composed",
+      "do": ["press", [400, 90]],
+      "expect": {
+        "focus_input": "email",
+        "texts": ["Line: \"abst\" [4,4]", "Email: \"\" [0,0]"],
+        "react": {"touchStart@email": 1, "touchEnd@email": 1, "blur@line": 1, "endEditing@line": 1, "focus@email": 1, "selectionChange@email": 1},
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "transactions": [],
+        "field": {"purpose": "Email", "text": "", "anchor": 0, "cursor": 0},
+        "composition": {"line": null}
+      }
+    }
+  ]
+}

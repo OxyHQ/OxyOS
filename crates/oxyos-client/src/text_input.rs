@@ -209,6 +209,14 @@ impl Client {
             for text in TextChunk::split(&told.surrounding) {
                 requests.push(Request::TextInputSurrounding { surface, text });
             }
+            // Emptied: chunks of none say nothing, so it is said, to a compositor that knows how.
+            let empty = Request::TextInputEmpty { surface };
+            if told.surrounding.is_empty()
+                && before.is_some()
+                && oxyos_protocol::request_since(&empty) <= self.version()
+            {
+                requests.push(empty);
+            }
         }
         if text_changed
             || before

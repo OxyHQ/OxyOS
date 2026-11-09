@@ -3223,6 +3223,58 @@ fn a_deletion_commit_and_composition_arrive_as_one_transaction() {
 }
 
 #[test]
+fn a_field_emptied_is_told_empty() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    enable_text_input(&mut h, window, "ab", 7);
+    // Its text all deleted: a commit with its empty text and its caret at 0.
+    h.request(APP, Request::TextInputEmpty { surface: 1 })
+        .unwrap();
+    h.request(
+        APP,
+        Request::TextInputSelection {
+            surface: 1,
+            anchor: 0,
+            cursor: 0,
+        },
+    )
+    .unwrap();
+    h.request(
+        APP,
+        Request::TextInputCommit {
+            surface: 1,
+            serial: 8,
+        },
+    )
+    .unwrap();
+    let state = h.scene.text_input(window).expect("enabled");
+    assert_eq!((state.surrounding.as_str(), state.cursor), ("", 0));
+    // A selection the empty text does not have is refused, as any outside the text.
+    h.request(APP, Request::TextInputEmpty { surface: 1 })
+        .unwrap();
+    h.request(
+        APP,
+        Request::TextInputSelection {
+            surface: 1,
+            anchor: 0,
+            cursor: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        h.request(
+            APP,
+            Request::TextInputCommit {
+                surface: 1,
+                serial: 9
+            }
+        ),
+        Err(ErrorCode::InvalidMessage)
+    );
+}
+
+#[test]
 fn done_names_the_latest_commit_and_stale_serials_are_refused() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

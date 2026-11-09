@@ -82,7 +82,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// docs/adr/0063-activity-monitor.mdx), sent only to a client of this version or newer;
 /// version 38, the session asking applications to quit before it ends (`QuitRequested`,
 /// `QuitReply`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), both ways, and the
-/// modifiers held told to the surface with the keyboard as they change (`Modifiers`).
+/// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
+/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -129,6 +130,7 @@ const REQUESTS_ADDED: Added = &[
     (32, 101..=101),
     (33, 165..=165),
     (38, 168..=168),
+    (39, 70..=70),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

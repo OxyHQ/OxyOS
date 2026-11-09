@@ -1671,6 +1671,7 @@ impl Scene {
             Request::TextInputSurrounding { surface, text } => {
                 self.text_input_surrounding(key(surface), text)
             }
+            Request::TextInputEmpty { surface } => self.text_input_empty(key(surface)),
             Request::TextInputSelection {
                 surface,
                 anchor,

@@ -138,6 +138,7 @@ fn requests() -> Vec<Request> {
             surface: 1,
             text: TextChunk::new("nate@").unwrap(),
         },
+        Request::TextInputEmpty { surface: 1 },
         Request::TextInputContentType {
             surface: 1,
             content: TextContentType::Email,
