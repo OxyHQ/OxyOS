@@ -156,6 +156,8 @@ export type ShellPowerActions = {
  */
 export type ShellLock = {
   locked: boolean;
+  /** Whom it is locked for (session-user.ts): the account's username and display name, never the
+      Unix user's name. */
   user: { name: string; fullName?: string };
   /** Whether Caps Lock is on: the password field says so. */
   capsLock?: boolean;
@@ -285,6 +287,68 @@ export type ShellBatteryMenu = {
   /** Each application's energy, sampled as the menu opens. */
   energy: () => Promise<readonly ShellEnergyApp[]>;
   /** Battery Settings…: Settings at its Battery page. */
+  openSettings: () => void;
+};
+/** A backup destination as the backup service says it is (docs/adr/0059-backups.mdx): times in
+    seconds since the epoch, sizes in bytes. */
+export type ShellBackupDestination = {
+  id: string;
+  name: string;
+  kind: "disk" | "share";
+  /** A share's `smb://` URL; none for a disk. */
+  url: string | null;
+  /** Its disk connected (a share: worth trying). */
+  available: boolean;
+  lastBackup: number | null;
+  oldestBackup: number | null;
+  backups: number;
+  usedBytes: number | null;
+  freeBytes: number | null;
+  /** Its latest backup that failed, and why (`full`, `unreachable`, `shareRefused`,
+      `wrongPassword`, `inUse`, `noBackup`, `damaged`, `failed`). */
+  lastFailure: { reason: string; at: number } | null;
+};
+/** The backup running now. */
+export type ShellBackupRunning = {
+  /** The destination's id. */
+  destination: string;
+  phase: "preparing" | "backingUp" | "cleaningUp" | "checking";
+  /** Asked for (Back Up Now) rather than scheduled. */
+  asked: boolean;
+  /** 0 to 1, a fraction. */
+  percent: number;
+  bytesDone: number;
+  bytesTotal: number;
+  filesDone: number;
+  filesTotal: number;
+  secondsRemaining: number | null;
+};
+/** Backups as the session tells the shell (docs/adr/0059-backups.mdx), unasked as they change. */
+export type ShellBackupState = {
+  automatic: boolean;
+  destinations: ShellBackupDestination[];
+  excluded: string[];
+  running: ShellBackupRunning | null;
+  /** The newest backup of any destination. */
+  lastBackup: number | null;
+  nextBackup: number | null;
+  /** Scheduled backups are held back (Low Power Mode). */
+  held: boolean;
+  administrator: boolean;
+  /** The person's `backup_in_menu_bar` preference. */
+  inMenuBar: boolean;
+};
+/** The menu bar's backup item (docs/adr/0059-backups.mdx, decision 10): the state and what its
+    menu asks. */
+export type ShellBackupMenu = {
+  state: ShellBackupState;
+  /** Back Up Now (the session asks the service, citing the press). */
+  backUpNow: () => void;
+  /** Skip This Backup. */
+  skip: () => void;
+  /** Browse Backups: opens Dropsea's (dropsea://backups). */
+  browse: () => void;
+  /** Open Backups Settings…: Settings at oxyos-settings://backups. */
   openSettings: () => void;
 };
 export type ShellNetwork = {

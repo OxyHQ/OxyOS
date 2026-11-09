@@ -44,6 +44,7 @@ import {
   unwatchFiles,
 } from './files';
 import { createSearch, searchAvailable } from './search';
+import { homeName } from './home-name';
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -366,7 +367,7 @@ function createFiles() {
     async places() {
       const { home, favourites, volumes } = (await requestFiles('places')).value;
       return [
-        { kind: 'home', name: named(home), uri: home },
+        { kind: 'home', name: homeName(home), uri: home },
         ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
         ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
       ];

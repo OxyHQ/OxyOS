@@ -119,7 +119,9 @@ export type SetupProblem = "unreachable" | "machine" | "expired" | "failed";
 
 /** The accounts' service's answer to a setup's turn, or why it could not be asked. */
 export type EnrollAnswer =
-  | { enrolled: { accountId: string; user: string } }
+  /** Set up: the account's id, its Unix user (what the login program signs in; never shown) and
+      what the person is called (the profile's display name, else its username; empty: none). */
+  | { enrolled: { accountId: string; user: string; name: string } }
   | "secondFactorRequired"
   | { refused: { reason: string; retryAfterSeconds?: number | null } }
   | { failed: { reason: string } };
@@ -232,7 +234,7 @@ export function backFrom(step: SetupStep, first: boolean): SetupStep | "close" |
 
 /** Where an answer of the accounts' service leads the setup of `account`. */
 export type AfterEnroll =
-  | { next: "enrolled"; user: string }
+  | { next: "enrolled"; user: string; name: string }
   | { next: "secondFactor"; invalid: boolean }
   /** The password again (only an account that is asked it): `wait` seconds before another try. */
   | { next: "password"; problem: "incorrect" | "throttled" | "unusable"; wait: number }
@@ -243,7 +245,7 @@ export type AfterEnroll =
 /** Where an answer of the accounts' service leads the setup of `account`. */
 export function afterEnroll(account: SignedInAccount, answer: EnrollAnswer): AfterEnroll {
   if (answer === "secondFactorRequired") return { next: "secondFactor", invalid: false };
-  if ("enrolled" in answer) return { next: "enrolled", user: answer.enrolled.user };
+  if ("enrolled" in answer) return { next: "enrolled", user: answer.enrolled.user, name: answer.enrolled.name };
   const reason = "failed" in answer ? answer.failed.reason : answer.refused.reason;
   // A password the setup sent without asking (typed in the sign-in) that Oxy refuses is a
   // sign-in to do again: the password field is only for an account that was asked it.
@@ -286,7 +288,8 @@ export function enrollAnswerFrom(told: unknown): EnrollAnswer {
     const answer = told as Record<string, Record<string, unknown> | undefined>;
     const enrolled = answer.enrolled;
     if (enrolled && typeof enrolled.accountId === "string" && typeof enrolled.user === "string" && enrolled.user) {
-      return { enrolled: { accountId: enrolled.accountId, user: enrolled.user } };
+      const name = typeof enrolled.name === "string" ? enrolled.name.trim() : "";
+      return { enrolled: { accountId: enrolled.accountId, user: enrolled.user, name } };
     }
     const refused = answer.refused;
     if (refused && typeof refused.reason === "string") {

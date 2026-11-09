@@ -159,6 +159,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   wrote them, "active_profile", "holds", "suspends", "calls"; and logind's "power_offs",
   "reboots" and "inhibitors" held, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, its
   `PowerOff`, `Reboot` and `Suspend` in "calls"), each key given matching;
+- backup: with the scenario's `backup` (the development backup service, `oxyos-offscreen
+  --play-backup`, on the run's own folders backing up its home, the session's backups for the menu
+  bar and Settings, docs/adr/0059-backups.mdx; `backups`, below, is an application's files
+  service's, backed up before the run), what
+  it holds once the step settled, as its `status` answers (`automatic`, `destinations` with each
+  one's `name`, `available`, `backups`, `lastFailure`; `excluded`, `running`, `held`...), each key
+  given matching ("{home}" in a text the run's home); a `backup` step acts on it: {"connect": uuid, "label"} and {"disconnect": uuid}
+  a played disk, {"ask": request} a request of the person's, and {"until": state, "ms": N} waits,
+  the session served, until it holds that state;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -309,6 +318,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   `selectInputSource`) and the emoji pickers asked for ("emoji", `showEmoji`), each key given
   matching;
 - latency_ms: budget from injecting the input to the first changed frame;
+- content_ms_max: launch to content, with `texts`: the first frame (each surface's latest presented
+  frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
+  after the host's start (its report's first `stage` "main"), by the wall clock: what a person
+  waits for from launching an application to seeing what they opened, an application that renders
+  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
+  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
+  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -426,7 +442,10 @@ file onto the dock's Trash, ADR 0035; held over it, docs/adr/0044-system-sounds.
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
 named on a shown surface, and fails if none is within `ms`: an answer that comes on the application's
 own clock (a store that is down, asked again until the application says so) is waited for as it
-shows, never for a set time it might outlast.
+shows, never for a set time it might outlast. A `wait_sheet_keyboard` step (ms) waits the same way
+until a system sheet the session asked has the keyboard (the shell's overlay showing it focused), and
+fails if none has within `ms`: the keys typed next are the sheet's, whenever the shell's request for
+the keyboard was granted.
 
 A step settles once what the session shows stops changing: the director's application's frames,
 the companion's, the shell's, and the windows of the applications the session launched (their place
@@ -573,7 +592,8 @@ refused, so nothing of the network outside reaches the run. The server answers t
 as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
 (summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
 reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
-store that is down; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
+store that is down; `store.late_ms` ({PATH: MS}) sends what it answers for a path (a 404 for one it
+does not play, `/users/me` among them) that long after it was asked, as over a slow network; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
 document, as a listing's `icon` may be a file URL or path), and `{store_files}` in any answer is the
 directory holding them. It also answers NetInfo's check that the Internet is reachable
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
@@ -655,13 +675,16 @@ A scenario with `account` runs against a played accounts' service's session sock
 (docs/adr/0020-oxy-account-login.mdx, decision 6; `OXYOS_ACCOUNTD_SESSION_SOCKET`, which every run
 points at a socket of its own, so none asks the machine's): the application ids it knows as the
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
-snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
+snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online, no languages; an
+`account` given replaces hers whole and is told unchanged, `languages` included), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
 application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
 service restarting as a package upgrade restarts it: every subscription closed under its
 application, then every process refused `notPermitted` for MS, as the real service refuses one until
 the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
-credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
+credential; `account.token_delay_ms` answers each `token` (boot, preflight...) that long after it was
+asked, as a mint over a slow network does, its other answers (`snapshot`, `subscribe`) as at once
+(each connection is answered on its own; the token is recorded when it is answered). Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
 password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says
@@ -741,7 +764,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -1101,6 +1124,10 @@ def director_args(step, out):
         # Real time until the assistive technology holds a node of this name, at most so many
         # milliseconds: [name, ms] (an answer on the application's own clock).
         return args + ["--wait-named", str(value[1]), value[0]]
+    if kind == "wait_sheet_keyboard":
+        # Real time until a system sheet the session asked has the keyboard, at most so many
+        # milliseconds: what is typed next is the sheet's.
+        return args + ["--wait-sheet-keyboard", str(value)]
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]
@@ -1128,6 +1155,13 @@ def director_args(step, out):
         # The played power services change the machine (ADR 0057): {"on_ac": false},
         # {"percent": 9, "warning": "low"}, {"state": "charging", "time_to_full": 3600}.
         return args + ["--power", json.dumps(value)]
+    if kind == "backup":
+        # The development backup service (ADR 0059): a played disk connected or taken away, a
+        # request of the person's, or a wait until it holds a state: {"connect": uuid, "label"},
+        # {"disconnect": uuid}, {"ask": {"addDisk": {...}}}, {"until": {...}, "ms": 60000};
+        # "{home}" in a text the run's home.
+        home = str((out / "home").resolve())
+        return args + ["--backup-act", json.dumps(value).replace("{home}", home)]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -1720,6 +1754,10 @@ def serve_account_session(path, spec, log):
                         if message == "subscribe":
                             subscribers.append(connection)
                 elif asked.startswith("token "):
+                    # A mint over a slow network (`account.token_delay_ms`): this connection waits,
+                    # each other is answered on its own thread meanwhile.
+                    time.sleep(spec.get("token_delay_ms", 0) / 1000)
+                    snapshot = ACCOUNT["snapshot"]
                     if snapshot["status"] == "signed_in" and snapshot["online"] and not spec.get("refuse_tokens"):
                         token = {"accessToken": played_token(application, message["token"]["reason"]),
                                  "expiresAt": "2026-11-06T12:05:00.000Z"}
@@ -2762,6 +2800,25 @@ def latest_frames(report, until, closed_before):
         if line["kind"] == "frame" and line["t"] <= until:
             frames[line["surface"]] = line
     return {s: f for s, f in frames.items() if s not in closed_before}
+
+
+def content_shown_ms(report, texts):
+    """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
+    "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
+    reads them (in each surface's latest frame, a closed popup's left out); None when they never
+    all were, or the host reported no start."""
+    main = next((line["t"] for line in report if line["kind"] == "stage" and line.get("name") == "main"), None)
+    if main is None:
+        return None
+    shown = {}
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True):
+            shown[line["surface"]] = line.get("texts", [])
+            if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
+                return round((line["t"] - main) / 1e6, 1)
+    return None
 
 
 def png_pixel_reader(path):
@@ -4784,6 +4841,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             held = json.loads(held) if isinstance(held, str) else held
             for problem in matches_within(expect["power"], held, "the power services'"):
                 fail(problem)
+    if "backup" in expect:
+        # What the development backup service holds once the step settled (ADR 0059): its
+        # destinations, their backups and failures, what runs, what is excluded and held.
+        held = result.get("backup")
+        if held is None:
+            fail("no backup service's state (the scenario needs `backup`)")
+        else:
+            held = json.loads(held) if isinstance(held, str) else held
+            # "{home}" the run's home: an item excluded from backups is a path of it.
+            for problem in matches_within(with_home(expect["backup"], preferences), held, "the backup service's"):
+                fail(problem)
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
@@ -4987,6 +5055,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
         if differing:
             fail(f"AutoFill has {differing}, expected {wanted}")
+    if "passkeys" in expect:
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): what
+        # the fixture accounts' service was answered so far, exactly, in order.
+        held, wanted = (result.get("passkeys") or {}).get("told"), expect["passkeys"]["told"]
+        if held != wanted:
+            fail(f"the passkeys' service was told {held}, expected {wanted}")
     if "input_sources" in expect:
         held, wanted = result.get("input_sources") or {}, expect["input_sources"]
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
@@ -5008,6 +5082,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "latency_ms" in expect and result.get("latency_ms") is not None and not COLLECT:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
+    if "content_ms_max" in expect:
+        # Launch to content: a budget with nothing to wait for is no check.
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_ms_max needs the step's texts")
+        result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
+        if not COLLECT:
+            if shown_ms is None:
+                fail(f"launch to content: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_ms_max']} ms budget from the host's start)")
+            elif shown_ms > expect["content_ms_max"]:
+                fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
+                     f"start, over the {expect['content_ms_max']} ms budget")
     return end
 
 
@@ -5388,6 +5474,8 @@ def store_fixture(spec, out):
                 down = failing.get(url.path, 0) > 0
                 if down:
                     failing[url.path] -= 1
+            # An answer arriving late (`store.late_ms`), as over a slow network.
+            time.sleep(spec.get("late_ms", {}).get(url.path, 0) / 1000)
             if down:
                 return self.reply(503, {"message": "The store is down for the scenario"})
             if url.path in spec.get("images", {}):
@@ -5630,6 +5718,63 @@ def bluetooth_daemon(spec, out, offscreen):
     return address, stop
 
 
+def write_backup_files(spec, home):
+    """The backup scenario's `files` in the run's home, once it is made: random bytes (what
+    deduplication and compression cannot shrink), by path and size."""
+    for relative, size in spec.get("files", {}).items():
+        path = home / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(os.urandom(size))
+
+
+def played_backup_service(spec, out, offscreen, home):
+    """The development backup service (docs/adr/0059-backups.mdx) played by the development
+    compositor's own program (`--play-backup`, as `oxyos-backupd --development` runs it), a
+    process of its own on the run's folders: its state, its played disks (`disks`: each a folder
+    named by its file system's UUID, its `label` in `.oxyos-label`), restic's cache, backing up
+    the run's `home` (its `files`: `write_backup_files`). With `pace` (KiB/s) the service's
+    restic is Debian's with its own upload limit (`--limit-upload`), so a backup lasts long
+    enough to be seen running; the session's and every other program's PATH is the run's. restic must be installed (`apt install restic`). The
+    compositor's arguments and a function that stops it."""
+    restic = shutil.which("restic")
+    if restic is None:
+        raise SystemExit("the backup scenarios need restic (apt install restic): the development backup service runs it")
+    base = (out / "backup").resolve()
+    shutil.rmtree(base, ignore_errors=True)
+    volumes = base / "volumes"
+    volumes.mkdir(parents=True)
+    for disk in spec.get("disks", []):
+        (volumes / disk["uuid"]).mkdir()
+        if "label" in disk:
+            (volumes / disk["uuid"] / ".oxyos-label").write_text(disk["label"])
+    env = dict(os.environ)
+    if "pace" in spec:
+        programs = base / "bin"
+        programs.mkdir()
+        wrapper = programs / "restic"
+        wrapper.write_text(f"#!/bin/sh\nexec {restic} --limit-upload {int(spec['pace'])} \"$@\"\n")
+        wrapper.chmod(0o755)
+        env["PATH"] = f"{programs}:{env.get('PATH', '/usr/bin:/bin')}"
+    # A directory of its own under /tmp: a run's directory is too deep for a socket's path.
+    sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-backup-"))
+    socket = sockets / "socket"
+    log = open(base / "service.log", "w")
+    service = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
+                                str(volumes), str(socket), str(base / "cache"), str(home)],
+                               env=env, stdout=log, stderr=log)
+    wait_for(socket)
+
+    def stop():
+        service.terminate()
+        try:
+            service.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            service.kill()
+        log.close()
+        shutil.rmtree(sockets, ignore_errors=True)
+    return ["--backup", str(socket), str(volumes)], stop
+
+
 def power_services(spec, out, offscreen):
     """A bus of the run's own and UPower, power-profiles-daemon and logind played on it by the
     development compositor's own program (`--play-power`, docs/adr/0057-battery-and-energy.mdx),
@@ -5727,7 +5872,7 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
                         help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
@@ -5883,12 +6028,21 @@ def main():
         bluetooth_address, stop_bluetooth = bluetooth_daemon(scenario["bluetooth"], out, options.offscreen)
         command += ["--bluetooth-bus", bluetooth_address]
     stop_power = None
+    stop_backup = None
     if "power" in scenario:
         # The machine's power services, played on a bus of the run's own (ADR 0057): the
         # session's battery, Low Power Mode, charge limit and sleep are theirs, never the
         # developer's machine's.
         power_arguments, stop_power = power_services(scenario["power"], out, options.offscreen)
         command += power_arguments
+    if "backup" in scenario:
+        # The development backup service on the run's own folders (ADR 0059), backing up the
+        # run's home: the session's backups are its, never the machine's.
+        if "home" not in scenario:
+            raise SystemExit(f"{options.scenario}: `backup` backs up the run's `home`, which it needs")
+        backup_arguments, stop_backup = played_backup_service(scenario["backup"], out, options.offscreen,
+                                                       (out / "home").resolve())
+        command += backup_arguments
     if "input_sources" in scenario:
         # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
         # played with an engine that has the input methods named (none: none installed), from the
@@ -5924,6 +6078,11 @@ def main():
             # Applications' requests to save a login (decision 5), told by the played accounts'
             # service (`account`) and asked in the shell's sheet, as the session asks them.
             command += ["--autofill-saves"]
+    if scenario.get("passkeys"):
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7) asked by
+        # the development compositor's fixture accounts' service for the application named, its
+        # account password made up (oxyos-offscreen's passkeys.rs).
+        command += ["--passkey-fixture", scenario["passkeys"]["application"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
@@ -6097,6 +6256,10 @@ def main():
         # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
         backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
         env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
+    if "backup" in scenario:
+        # The files the backup scenario adds to the run's home (made above), which its service
+        # backs up.
+        write_backup_files(scenario["backup"], home_root)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
@@ -6139,6 +6302,8 @@ def main():
             stop_bluetooth()
         if stop_power is not None:
             stop_power()
+        if stop_backup is not None:
+            stop_backup()
         if stop_backups is not None:
             stop_backups()
     if recorder is not None:
@@ -6292,6 +6457,9 @@ def main():
             "median": round(statistics.median(flips), 2) if flips else None,
             "max": round(max(flips), 2) if flips else None,
         },
+        # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
+        "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
+                       if "content_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }

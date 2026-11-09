@@ -440,7 +440,12 @@ fn a_setup_abandoned_before_its_confirmation_is_kept() {
 #[test]
 fn a_redemption_oxy_asks_to_wait_is_waited_told_and_asked_again_with_its_key() {
     let (setup, _dir) = setup(FakeApi::default(), 0);
-    setup.api().limited.lock().unwrap().extend([Some(30), None]);
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .extend([(Some(30), None), (None, None)]);
     let mut attempt = setup.start(request()).unwrap();
     let (events, result) = told(&setup, &mut attempt);
     assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
@@ -459,9 +464,15 @@ fn a_redemption_oxy_asks_to_wait_is_waited_told_and_asked_again_with_its_key() {
 }
 
 #[test]
-fn a_wait_that_would_outlast_the_window_is_sign_in_again() {
+fn a_wait_that_would_outlast_the_window_oxy_told_is_sign_in_again_however_new_the_setup() {
     let (setup, _dir) = setup(FakeApi::default(), 0);
-    setup.api().limited.lock().unwrap().push_back(Some(900));
+    // Just started; Oxy says the claim's window ends in 20 s: a 30 s wait would outlast it.
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .push_back((Some(30), Some(Duration::from_secs(20))));
     let mut attempt = setup.start(request()).unwrap();
     let (events, result) = told(&setup, &mut attempt);
     assert_eq!(result.unwrap_err(), SetupError::CredentialRefused);
@@ -470,4 +481,102 @@ fn a_wait_that_would_outlast_the_window_is_sign_in_again() {
         .any(|event| matches!(event, Event::Waiting(_))));
     assert!(setup.users().names().is_empty());
     assert_eq!(files(&setup), 0);
+}
+
+#[test]
+fn a_wait_that_fits_the_window_oxy_told_is_waited_however_long_the_setup_ran() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    let mut attempt = setup.start(request()).unwrap();
+    // However long the setup has run, only Oxy's window counts: it is never measured from the
+    // setup's start (nothing is kept of when it started).
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .push_back((Some(500), Some(Duration::from_secs(590))));
+    let (events, result) = told(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    assert!(events.contains(&Event::Waiting(500)));
+}
+
+#[test]
+fn a_wait_before_oxy_told_any_window_is_waited() {
+    // A 429 of the device id's budget, the proof not yet looked at: no window, no decision.
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .push_back((Some(600), None));
+    let mut attempt = setup.start(request()).unwrap();
+    let (events, result) = told(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    assert!(events.contains(&Event::Waiting(600)));
+}
+
+#[test]
+fn the_window_oxy_told_last_decides_a_later_wait() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    // The account's 429 tells the window (100 s); the next, the device id's, tells none, and its
+    // wait would outlast what is left of it.
+    setup.api().limited.lock().unwrap().extend([
+        (Some(30), Some(Duration::from_secs(100))),
+        (Some(200), None),
+    ]);
+    let mut attempt = setup.start(request()).unwrap();
+    let (events, result) = told(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::CredentialRefused);
+    assert!(events.contains(&Event::Waiting(30)));
+    assert!(!events.contains(&Event::Waiting(200)));
+}
+
+#[test]
+fn a_confirmation_is_asked_again_only_within_the_window_oxy_told() {
+    let (setup, _dir) = setup(FakeApi::default(), 2);
+    // Oxy says the confirmation's window has ended (0 s left) as it answers.
+    *setup.api().windows_told.lock().unwrap() =
+        (Some(Duration::from_secs(0)), Some(Duration::from_secs(0)));
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .extend([Hiccup::Unreachable, Hiccup::Unreachable]);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    let confirms = |setup: &Setup<FakeApi, FakeUsers>| {
+        setup
+            .api()
+            .calls()
+            .iter()
+            .filter(|call| **call == Call::Confirm)
+            .count()
+    };
+    // Not asked again past its window, though two retries were allowed.
+    assert_eq!(confirms(&setup), 1);
+    // The person's retry asks once more all the same: the server decides.
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    assert_eq!(confirms(&setup), 2);
+}
+
+#[test]
+fn a_confirmation_within_its_window_is_asked_again() {
+    let (setup, _dir) = setup(FakeApi::default(), 2);
+    *setup.api().windows_told.lock().unwrap() = (
+        Some(Duration::from_secs(600)),
+        Some(Duration::from_secs(600)),
+    );
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
 }

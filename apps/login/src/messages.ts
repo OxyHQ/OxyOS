@@ -9,6 +9,8 @@ import type { Language } from "../../shell/src/messages";
 
 const en = {
   accounts: "Accounts",
+  /** An account Oxy names nothing (neither a name nor a username): its user is never a name. */
+  unnamedAccount: "Oxy Account",
   addAccount: "Add Account",
   unreadable: "The accounts on this computer can't be read.",
   setup: {
@@ -78,7 +80,7 @@ const en = {
     secondFactorInvalid: "That code isn't right. Wait for a new one, then try again.",
     code: "Code",
     welcomeName: (name: string) => (name ? `Welcome, ${name}` : "Welcome"),
-    added: (name: string) => `${name} was added to this computer`,
+    added: (name: string) => (name ? `${name} was added to this computer` : "The account was added to this computer"),
     step: (title: string, current: number, total: number) => `${title}, step ${current} of ${total}`,
   },
   pinLocked: "Too many incorrect PINs. Sign in with Oxy to create a new one.",
@@ -90,6 +92,7 @@ export type LoginMessages = typeof en;
 
 const es: LoginMessages = {
   accounts: "Cuentas",
+  unnamedAccount: "Cuenta de Oxy",
   addAccount: "Añadir cuenta",
   unreadable: "No se pueden leer las cuentas de este ordenador.",
   setup: {
@@ -166,7 +169,7 @@ const es: LoginMessages = {
     secondFactorInvalid: "Ese código no es correcto. Espera a uno nuevo y vuelve a intentarlo.",
     code: "Código",
     welcomeName: (name: string) => (name ? `Te damos la bienvenida, ${name}` : "Te damos la bienvenida"),
-    added: (name: string) => `Se ha añadido ${name} a este ordenador`,
+    added: (name: string) => (name ? `Se ha añadido ${name} a este ordenador` : "Se ha añadido la cuenta a este ordenador"),
     step: (title: string, current: number, total: number) => `${title}, paso ${current} de ${total}`,
   },
   pinLocked: "Demasiados PIN incorrectos. Inicia sesión con Oxy para crear uno nuevo.",

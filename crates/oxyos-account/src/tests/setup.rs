@@ -309,6 +309,7 @@ fn enrolled_other(machine: &Machine<FakeUsers>, id: &str, uid: u32) -> UserName 
                 username: None,
                 display_name: None,
                 avatar: None,
+                languages: None,
             },
             credential: None,
             password_changed: false,
@@ -772,5 +773,35 @@ fn the_second_factor_names_the_platform_too() {
     assert_eq!(
         stored.credential.unwrap().device_secret.expose(),
         platform_secret(1)
+    );
+}
+
+#[test]
+fn the_user_is_named_as_the_account_and_a_name_not_written_sets_up_all_the_same() {
+    let machine = machine(FakeApi::default());
+    enrolled(machine.setup.enroll(request(PASSWORD)));
+    let name = account().user_name();
+    assert_eq!(
+        machine.setup.users().full_name(name.as_str()).as_deref(),
+        Some("Ada Lovelace")
+    );
+    // usermod failing is no failed setup: the name is written when the service starts.
+    let machine = self::machine(FakeApi::default());
+    machine
+        .setup
+        .users()
+        .full_name_fails
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    enrolled(machine.setup.enroll(request(PASSWORD)));
+    assert_eq!(machine.setup.users().full_name(name.as_str()), None);
+    machine
+        .setup
+        .users()
+        .full_name_fails
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    machine.setup.name_users().unwrap();
+    assert_eq!(
+        machine.setup.users().full_name(name.as_str()).as_deref(),
+        Some("Ada Lovelace")
     );
 }

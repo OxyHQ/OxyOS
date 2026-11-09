@@ -6,12 +6,19 @@ import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { createApplication, type ApplicationModule } from './application.ts';
 import { createFrameworks } from './frameworks.ts';
 import { createKeychain, type KeychainModule } from './keychain.ts';
+import type { PasskeyModule } from './passkeys.ts';
 import { createSession, type SystemModule } from './session.ts';
 
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
 export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type {
+  AuthenticationResponseJSON,
+  CreationOptionsJSON,
+  RegistrationResponseJSON,
+  RequestOptionsJSON,
+} from './passkeys.ts';
 export type { BackgroundItem, BackgroundItemStatus, QuitAnswer, QuitHandler, QuitReason } from './application.ts';
 export type { Credential, KeychainModules, SaveResult } from './keychain.ts';
 
@@ -34,7 +41,9 @@ export const application = createApplication(
   DeviceEventEmitter,
 );
 
-/** The keychain (docs/adr/0050-keychain-autofill-and-passkeys.mdx): asking to save a login. */
+/** The keychain (docs/adr/0050-keychain-autofill-and-passkeys.mdx): asking to save a login, and
+    passkeys, the platform's authenticator. */
 export const keychain = createKeychain({
   keychain: TurboModuleRegistry.get('OxyOSKeychain') as KeychainModule | null,
+  passkeys: TurboModuleRegistry.get('OxyOSAccountSession') as PasskeyModule | null,
 });

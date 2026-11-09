@@ -282,6 +282,9 @@ pub struct Preferences {
     pub battery_percentage: bool,
     /// The display's and the machine's sleep, Low Power Mode and the battery's options (ADR 0057).
     pub energy: Energy,
+    /// The menu bar's backup item, shown once a backup destination exists (ADR 0059, decision
+    /// 10: *Show Backups in menu bar*).
+    pub backup_in_menu_bar: bool,
     /// The language the person chose, one of [`LANGUAGES`]; none is the system's (ADR 0040).
     pub language: Option<String>,
     /// The region the person chose, as CLDR names one (two ASCII capitals); none is the
@@ -337,6 +340,7 @@ impl Default for Preferences {
             screen_reader: false,
             battery_percentage: false,
             energy: Energy::default(),
+            backup_in_menu_bar: true,
             language: None,
             region: None,
             hour_cycle: HourCycle::default(),
@@ -453,6 +457,7 @@ pub const KEYS: &[&str] = &[
     "sleep_battery",
     "sleep_adapter",
     "dim_on_battery",
+    "backup_in_menu_bar",
     "language",
     "region",
     "hour_cycle",
@@ -535,6 +540,7 @@ impl Preferences {
             }
             "screen_reader" => self.screen_reader = boolean(value)?,
             "battery_percentage" => self.battery_percentage = boolean(value)?,
+            "backup_in_menu_bar" => self.backup_in_menu_bar = boolean(value)?,
             "low_power_mode" => {
                 self.energy.low_power_mode = match value {
                     "never" => LowPowerMode::Never,
@@ -622,6 +628,7 @@ impl Preferences {
             "sleep_battery" => self.energy.sleep_battery.to_string(),
             "sleep_adapter" => self.energy.sleep_adapter.to_string(),
             "dim_on_battery" => self.energy.dim_on_battery.to_string(),
+            "backup_in_menu_bar" => self.backup_in_menu_bar.to_string(),
             "language" => self.language.clone().unwrap_or_default(),
             "region" => self.region.clone().unwrap_or_default(),
             "hour_cycle" => self.hour_cycle.name().to_owned(),

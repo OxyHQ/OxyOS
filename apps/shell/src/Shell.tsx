@@ -8,6 +8,7 @@ import type {
   ShellControls,
   ShellInputMethod,
   ShellBatteryMenu,
+  ShellBackupMenu,
   ShellAutofill,
   ShellLock,
   ShellMenu,
@@ -44,6 +45,7 @@ import { useShellMessages } from "./useShellMessages";
 import type { ShellMessages } from "./messages";
 import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
+import { showsBackupItem } from "./backup";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -133,6 +135,7 @@ export const Shell = memo(function Shell({
   screenshots,
   inputMethod,
   battery,
+  backup,
   autofill,
   powerActions,
 }: {
@@ -180,6 +183,10 @@ export const Shell = memo(function Shell({
     /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
         to the session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerCode?: (code: string) => void;
+    /** A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the passkey
+        chosen and the Oxy account's password, to the session alone. Without it such a sheet
+        cannot be answered but by Cancel. */
+    answerPasskey?: (choice: number | undefined, password: string) => void;
     /** What else a sheet offers, pressed (an application that quit: Reset…, which asks the session
         to reset it, docs/adr/0061-crashes-and-resetting-an-application.mdx). */
     act?: (action: SheetAction) => void;
@@ -201,6 +208,9 @@ export const Shell = memo(function Shell({
   /** The battery's menu, where the platform has the session's battery and energy
       (docs/adr/0057-battery-and-energy.mdx). */
   battery?: ShellBatteryMenu;
+  /** The menu bar's backup item, where the platform has the session's backup service
+      (docs/adr/0059-backups.mdx, decision 10). */
+  backup?: ShellBackupMenu;
   /** AutoFill, where the platform has it (docs/adr/0050-keychain-autofill-and-passkeys.mdx): its
       list at a field's caret, drawn in the candidate window's surface. */
   autofill?: ShellAutofill;
@@ -290,8 +300,8 @@ export const Shell = memo(function Shell({
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, spotlight });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, spotlight };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -522,6 +532,7 @@ export const Shell = memo(function Shell({
               now.controls?.network,
               now.inputSources,
               !!(now.battery && now.controls?.power && now.controls.power.battery !== "absent"),
+              showsBackupItem(now.backup?.state),
             ),
             request: (keys?.request ?? 0) + 1,
           }));
@@ -899,6 +910,7 @@ export const Shell = memo(function Shell({
             openKeyboardSettings={inputMethod?.openKeyboardSettings}
             onInputMenuChange={inputMenuChanged}
             batteryMenu={battery}
+            backupMenu={backup}
           />
         </Surface>
         {(inputMethod || autofill) && (
@@ -1159,6 +1171,7 @@ export const Shell = memo(function Shell({
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
+              answerPasskey={sheet.answerPasskey}
               act={sheet.act}
               toggle={sheet.toggle}
               copy={sheet.copy}

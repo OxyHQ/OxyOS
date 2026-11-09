@@ -678,3 +678,20 @@ fn windows_reopen_at_login_until_the_person_unchecks_it_as_on_a_mac() {
     preferences.set("reopen_windows", "false").unwrap();
     assert!(!Preferences::parse(&preferences.to_text()).reopen_windows);
 }
+
+#[test]
+fn the_backup_item_is_in_the_menu_bar_by_default() {
+    // Shown once a backup destination exists, as a Mac's Time Machine item (ADR 0059, decision 10).
+    let mut preferences = Preferences::default();
+    assert!(preferences.backup_in_menu_bar);
+    preferences.set("backup_in_menu_bar", "false").unwrap();
+    assert_eq!(
+        preferences.get("backup_in_menu_bar").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        preferences.set("backup_in_menu_bar", "no"),
+        Err(Refused::BadValue)
+    );
+    assert!(!Preferences::parse("backup_in_menu_bar = false\n").backup_in_menu_bar);
+}

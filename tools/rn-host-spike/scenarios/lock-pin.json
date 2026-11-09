@@ -36,7 +36,7 @@
       }
     },
     {
-      "name": "Bloquear pantalla locks: the lock screen offers the PIN first, its field focused",
+      "name": "Bloquear pantalla locks: the lock screen names the person as their Oxy account does (Ada Lovelace, the accounts' service's snapshot) and offers the PIN first, its field focused",
       "do": [
         "press_named",
         "Bloquear pantalla"
@@ -48,10 +48,14 @@
         },
         "in_shell": {
           "texts": [
+            "Ada Lovelace",
             "Introduce el PIN",
             "Usar contraseña"
           ],
-          "focus_input": "shell-lock-pin-password"
+          "focus_input": "shell-lock-pin-password",
+          "absent": [
+            "oxy-"
+          ]
         }
       }
     },

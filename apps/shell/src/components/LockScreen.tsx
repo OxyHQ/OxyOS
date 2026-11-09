@@ -14,6 +14,7 @@ import { AppIcon } from "../apps";
 import type { MaskedProps } from "../platform";
 import { useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
+import { personName } from "../session-user";
 
 /**
  * The backdrop of the lock and login screens: the wallpaper dimmed, and the date and the time
@@ -215,7 +216,7 @@ export const LockScreen = memo(function LockScreen({
   safeMode?: boolean;
 }) {
   const messages = useShellMessages();
-  const name = lock.user.fullName || lock.user.name;
+  const name = personName(lock.user);
   const summary = notifications
     ? lockSummary(notifications.list, applications, notifications.previews, messages)
     : [];
@@ -253,11 +254,14 @@ export const LockScreen = memo(function LockScreen({
         </Box>
       ) : null}
       <UserPicture />
-      <Text
-        style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
-      >
-        {name}
-      </Text>
+      {name ? (
+        <Text
+          testID="shell-lock-name"
+          style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
+        >
+          {name}
+        </Text>
+      ) : null}
       <SecretFields
         testID="shell-lock"
         pin={lock.pin}

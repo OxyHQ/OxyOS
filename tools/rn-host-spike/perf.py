@@ -19,7 +19,8 @@ step's expected result) and measures, from what the processes report and from /p
   perf-dropsea-home.json on a home of 360,000 files, zoomed at 1.25):
   for each input, the latency from it to the first frame that changed, against the scenario's
   budget, and the work the application's host did for it (`busy_ms` summed over the frames until
-  the step settled, and its JavaScript);
+  the step settled, and its JavaScript); and Dropsea's launch signed in, its token and the account's
+  API late (perf-dropsea-launch-signed-in.json), from the host's start to its listing shown;
 - cold start: an application's process started to its first frame on the output, and the stages
   of the host's start in between (the host's report's `stage` lines);
 - idle: the CPU time and the wakeups (context switches, every thread) of every process while
@@ -63,7 +64,7 @@ nothing of a session's (oxyos-session waits on its devices and clients); the hos
 
 Writes perf.json into --out and prints the tables docs/performance.mdx shows. Each regression run
 checks what its steps do and enforces no time (regress.py --collect): the scenarios' own budgets on
-time (a step's `latency_ms`, `js_work`'s, `resize_work`'s) are measured over every run and judged
+time (a step's `latency_ms` and `content_ms_max`, `js_work`'s, `resize_work`'s) are measured over every run and judged
 here, at the median of the runs, or at the percentile a budget states (`js_ms_p95_max`: the 95th
 of every run's frames pooled), with the runs over it named. With --check, exits 1 when one of
 them, or a budget of BUDGETS, is exceeded. A frame's budget is a refresh of the display the interaction
@@ -95,7 +96,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 SCENARIOS = HERE / "scenarios"
 sys.path.insert(0, str(HERE))
-from regress import animated_values, display_hz  # noqa: E402  (beside this file)
+from regress import animated_values, content_shown_ms, display_hz  # noqa: E402  (beside this file)
 
 
 def refresh_ms(scenario):
@@ -147,11 +148,13 @@ GENIE = [
 ]
 
 # Responses: (name, scenario). Each step with an input is measured; its budget is the scenario's own
-# `latency_ms`, which --check holds the median of the runs to (step_budgets).
+# `latency_ms`, which --check holds the median of the runs to (step_budgets), as it holds a launch's
+# `content_ms_max` (signed in: its first step waits, and only the budgets' table shows it).
 RESPONSES = [
     ("Dropsea", "perf-dropsea.json"),
     ("Dropsea at 1.25", "perf-dropsea-scaled.json"),
     ("Dropsea on a big home, zoomed at 1.25", "perf-dropsea-home.json"),
+    ("Dropsea's launch signed in", "perf-dropsea-launch-signed-in.json"),
 ]
 
 # The shell's responses: (name, scenario). Each step that holds the shell to a `js_work` budget
@@ -433,7 +436,8 @@ def measure_steps(scenario, summary, report, shell):
     """What one run measured of each step's budgets on time, as regress.py would check them (the same
     windows: from the step before's end to the step's own): `js_work`'s (the most JavaScript one
     piece of work ran on the CPU, blocked and by the clock), `resize_work`'s (the frames' JavaScript
-    on the CPU and their work in refreshes, the zoom's frame), and the step's `latency_ms`."""
+    on the CPU and their work in refreshes, the zoom's frame), the step's `latency_ms` and its launch
+    to content (`content_ms_max`; never shown counts as infinitely late)."""
     measured = {}
     hz = display_hz(scenario)
     start = summary["t_launch"]
@@ -463,6 +467,9 @@ def measure_steps(scenario, summary, report, shell):
                         measured[(index, host, "zoom_presented_ms_max")] = max(zooms)
         if "latency_ms" in expect and result.get("latency_ms") is not None:
             measured[(index, "app", "latency_ms")] = result["latency_ms"]
+        if "content_ms_max" in expect:
+            shown = content_shown_ms(report, expect.get("texts", []))
+            measured[(index, "app", "content_ms_max")] = float("inf") if shown is None else shown
         start = end
     return measured
 
@@ -483,7 +490,7 @@ def step_budgets():
             index, host, budget = key
             expect = steps[index].get("expect", {})
             wanted = expect if host == "app" else expect.get("in_shell", {})
-            limit = (wanted.get(budget) if budget == "latency_ms"
+            limit = (wanted.get(budget) if budget in ("latency_ms", "content_ms_max")
                      else {**wanted.get("js_work", {}), **wanted.get("resize_work", {})}.get(budget))
             values = [run[key] for run in runs if key in run]
             if budget in POOLED:
@@ -1238,6 +1245,8 @@ def show(results):
             return "—" if not stats else f"{stats['p50']} / {stats['max']}"
 
         for name, steps in results["responses"].items():
+            if not steps:
+                continue
             rows = [[step["step"], middle(step["latency_ms"]), step["budget_ms"] or "—", middle(step["work_ms"]),
                      middle(step["js_ms"]), middle(step.get("js_cpu_ms"))] for step in steps]
             print(f"{name}:")

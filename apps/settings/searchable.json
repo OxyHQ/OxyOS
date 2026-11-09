@@ -198,6 +198,15 @@
     }
   },
   {
+    "id": "settings:backups",
+    "url": "oxyos-settings://backups",
+    "titles": { "en": "Backups", "es": "Copias de seguridad" },
+    "keywords": {
+      "en": ["backup", "backups", "back up", "time machine", "restore", "disk", "external disk", "backup disk", "nas", "network share", "share", "smb", "encrypted", "exclude", "versions"],
+      "es": ["copia de seguridad", "copias de seguridad", "time machine", "restaurar", "disco", "disco externo", "disco de copia de seguridad", "nas", "carpeta compartida", "red", "smb", "cifrado", "excluir", "versiones"]
+    }
+  },
+  {
     "id": "settings:transfer-reset",
     "url": "oxyos-settings://transfer-reset",
     "titles": { "en": "Transfer or Reset", "es": "Transferir o restablecer" },

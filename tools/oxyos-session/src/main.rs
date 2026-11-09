@@ -78,6 +78,9 @@
 //! asked on registrar connections of the session's own off the turn (`autofill.rs`): a field's
 //! suggestions and the person's pick, and an application's request to save a login asked in the
 //! shell's sheet; a session the login program did not start has no registrar, and no AutoFill.
+//! Backups (docs/adr/0059-backups.mdx) are the system's backup service's (`oxyos-backupd`), which
+//! the session follows on one connection for the menu bar's item and Settings, holding its
+//! scheduled backups while Low Power Mode is on; not at the login screen.
 //!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
@@ -101,6 +104,7 @@
 mod autofill;
 mod cursor_file;
 mod installd;
+mod passkeys;
 
 use oxyos_compositor::displays::{Connector, Displays, Heads};
 use oxyos_compositor::settings::{self, Settings};
@@ -673,6 +677,28 @@ fn main() -> Result<()> {
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
     };
+    // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the accounts'
+    // service's sheets verifying each passkey an application makes or uses. The login screen has
+    // none.
+    let mut passkeys = if greeter {
+        None
+    } else {
+        match oxyos_account::keychain::passkey::PasskeySheets::spawn(
+            accountd_session_socket(),
+            |said| eprintln!("[session] passkeys: {said}"),
+        ) {
+            Ok(sheets) => {
+                compositor.wakers.push(sheets.wake_fd()?);
+                Some(oxyos_compositor::passkeys::Passkeys::new(Box::new(
+                    passkeys::Sheets(sheets),
+                )))
+            }
+            Err(error) => {
+                eprintln!("[session] no passkey sheets: {error}; no passkey is verified");
+                None
+            }
+        }
+    };
     // Search (docs/adr/0051-search.mdx): the user's index, this program's child (`--search-service`,
     // its standard input a socket only this program holds), started with the session after its
     // shell and told the applications the shell's launcher lists. The login screen has none.
@@ -708,6 +734,20 @@ fn main() -> Result<()> {
             oxyos_compositor::power::Power::new(None, oxyos_power::history::session_path())?;
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
+    };
+    // Backups (docs/adr/0059-backups.mdx): the menu bar's backup item and Settings › Backups,
+    // over the system's backup service (followed on one connection, waited for while it is not
+    // there), its scheduled backups held while Low Power Mode is on. The login screen has none.
+    let mut backups = match power.as_ref() {
+        Some(power) => {
+            let backups = oxyos_compositor::backups::Backups::new(
+                PathBuf::from(oxyos_backup::ipc::SOCKET),
+                power.low_power(),
+            )?;
+            compositor.wakers.push(backups.wake_fd()?);
+            Some(backups)
+        }
+        None => None,
     };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
@@ -966,6 +1006,11 @@ fn main() -> Result<()> {
                 Err(error) => eprintln!("[session] {id} not reopened: {error}"),
             }
         }
+        // Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+        // service's prompts shown, the shell's answers taken, before the store takes the rest.
+        if let Some(passkeys) = passkeys.as_mut() {
+            passkeys.serve(&mut compositor);
+        }
         // Input sources (ADR 0041), before the store, which takes the requests left.
         if let Some(methods) = input_methods.as_mut() {
             methods.serve(&mut compositor, &mut settings, settings::now());
@@ -984,6 +1029,10 @@ fn main() -> Result<()> {
                 })
                 .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        // Backups (ADR 0059), before the store, which takes the requests left.
+        if let Some(backups) = backups.as_mut() {
+            backups.serve(&mut compositor.scene, settings.preferences());
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
@@ -1449,6 +1498,8 @@ fn main() -> Result<()> {
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
+    // Its hold on scheduled backups goes with its connection.
+    drop(backups);
     // Recorded as ended; power-saver let go as it goes.
     if let Some(power) = power.as_mut() {
         power.end();

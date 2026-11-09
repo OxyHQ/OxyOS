@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Pressable } from "react-native";
 import { Button } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
 import { TextField, TextFieldInput } from "@oxy.so/bloom/text-field";
@@ -9,8 +10,8 @@ import {
   bluetoothCodeTyped,
   sheetView,
   spokenCode,
+  submittablePassword,
   validBluetoothCode,
-  validWifiPassword,
   type SheetAction,
   type SheetText,
 } from "../sheet";
@@ -41,6 +42,8 @@ const BACKDROP = {
 const CARD = { borderRadius: 18, padding: 20, gap: 12 } as const;
 const QUIET = "#5b6472";
 const ERROR = "#d93025";
+/** Each of a passkey's accounts to choose from. */
+const CHOICE_HEIGHT = 44;
 /** The space after each digit of a code shown. */
 const CODE_SPACING = 8;
 
@@ -80,6 +83,12 @@ const CODE_SPACING = 8;
  * change. The power key's choice adds Restart and Sleep at its foot's start. What kept an end from
  * happening (an application that canceled it or did not quit, the system refusing) is told with
  * OK, its default button.
+ *
+ * A passkey's sheet (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7) is answered by
+ * the Oxy account's password, in the same secure field, focused at once, by Continue (enabled once
+ * something is typed) or Return; it goes to the session alone, with the account chosen. When
+ * several passkeys match, the accounts are a list of choices (radio buttons, the first chosen), ↑
+ * and ↓ moving the choice, each said. A wrong password, or too many, asks again saying so.
  */
 export const SystemSheet = memo(function SystemSheet({
   text,
@@ -87,6 +96,7 @@ export const SystemSheet = memo(function SystemSheet({
   answer,
   answerPassword,
   answerCode,
+  answerPasskey,
   act,
   copy,
   toggle,
@@ -100,6 +110,9 @@ export const SystemSheet = memo(function SystemSheet({
   answerPassword?: (password: string) => void;
   /** A Bluetooth pairing code's answer: the passkey or PIN typed. */
   answerCode?: (code: string) => void;
+  /** A passkey sheet's answer: the passkey chosen (its index, for a list of them) and the account's
+      password typed. */
+  answerPasskey?: (choice: number | undefined, password: string) => void;
   /** What else the sheet offers was pressed (Reset…): the sheet goes, as answered no. */
   act?: (action: SheetAction) => void;
   /** Puts a report's text on the clipboard, where the platform offers it. */
@@ -116,11 +129,17 @@ export const SystemSheet = memo(function SystemSheet({
   const [password, setPassword] = useState("");
   // Answered once: the session takes the sheet away, and a second press or Return sends nothing.
   const answered = useRef(false);
+  const passkey = text.kind === "passkey";
+  const passwordAnswer = passkey ? answerPasskey : answerPassword;
+  // Asked again (a wrong password), the account chosen before stays chosen.
+  const [choice, setChoice] = useState(text.kind === "passkey" ? (text.chosen ?? 0) : 0);
+  const choices = view.choices?.rows.length ?? 0;
   const submit = (typed: string) => {
-    if (answered.current || !answerPassword || !validWifiPassword(typed)) return;
+    if (answered.current || !passwordAnswer || !submittablePassword(typed, view.passwordKind)) return;
     answered.current = true;
     setPassword("");
-    answerPassword(typed);
+    if (passkey) answerPasskey?.(choices > 0 ? choice : undefined, typed);
+    else answerPassword?.(typed);
   };
   const [code, setCode] = useState("");
   const codeKind = view.codeField?.kind;
@@ -165,11 +184,17 @@ export const SystemSheet = memo(function SystemSheet({
         latestReturn.current();
         return true;
       }
+      // A passkey's accounts: ↑ and ↓ choose among them.
+      if (choices > 1 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        setChoice((current) => Math.min(choices - 1, Math.max(0, current + step)));
+        return true;
+      }
       if (event.key !== "Escape") return false;
       latestEscape.current();
       return true;
     });
-  }, [keyboard]);
+  }, [keyboard, choices]);
   // Reopen windows, as the session told it, then as the person toggles it.
   const [checked, setChecked] = useState(view.checkbox?.checked ?? false);
   // The countdown: the seconds left, counted down each second from what the session said. The
@@ -258,7 +283,12 @@ export const SystemSheet = memo(function SystemSheet({
         }
         style={[
           CARD,
-          { width: wide ? WIDE_SHEET_WIDTH : SHEET_WIDTH, height: SHEET_HEIGHT, backgroundColor: glass("#ffffffee", reduced) },
+          {
+            width: wide ? WIDE_SHEET_WIDTH : SHEET_WIDTH,
+            // A passkey's accounts add a row each.
+            height: SHEET_HEIGHT + choices * CHOICE_HEIGHT,
+            backgroundColor: glass("#ffffffee", reduced),
+          },
         ]}
       >
         <Box style={{ flex: 1, gap: 12, overflow: "hidden" }}>
@@ -310,12 +340,47 @@ export const SystemSheet = memo(function SystemSheet({
               autoCapitalize="none"
               autoCorrect={false}
               multiline={false}
-              returnKeyType="join"
+              returnKeyType={passkey ? "go" : "join"}
               submitBehavior="submit"
               // What the field holds as Return is pressed, as the lock screen sends its password.
               onSubmitEditing={({ nativeEvent }) => submit(nativeEvent.text)}
             />
           </TextField>
+        ) : null}
+        {view.choices ? (
+          <Box
+            testID="system-sheet-choices"
+            accessibilityRole="radiogroup"
+            // Named by the account chosen, said politely as ↑ and ↓ change it.
+            accessibilityLabel={`${view.choices.label}: ${view.choices.rows[choice]?.title ?? ""}`}
+            accessibilityLiveRegion="polite"
+            style={{ gap: 2 }}
+          >
+            {view.choices.rows.map((row, index) => (
+              <Pressable
+                key={index}
+                testID={`system-sheet-choice-${index}`}
+                accessibilityRole="radio"
+                accessibilityLabel={`${row.title}, ${row.detail}`}
+                accessibilityState={{ checked: index === choice }}
+                onPress={() => setChoice(index)}
+                style={{
+                  height: CHOICE_HEIGHT - 2,
+                  borderRadius: 8,
+                  paddingHorizontal: 10,
+                  justifyContent: "center",
+                  backgroundColor: index === choice ? "#0a84ff22" : "transparent",
+                }}
+              >
+                <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 14, color: INK }}>
+                  {row.title}
+                </Text>
+                <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 12, color: QUIET }}>
+                  {row.detail}
+                </Text>
+              </Pressable>
+            ))}
+          </Box>
         ) : null}
         {view.code ? (
           <Text
@@ -407,7 +472,7 @@ export const SystemSheet = memo(function SystemSheet({
                 tone={view.destructive ? "danger" : "accent"}
                 disabled={
                   view.password
-                    ? !answerPassword || !validWifiPassword(password)
+                    ? !passwordAnswer || !submittablePassword(password, view.passwordKind)
                     : codeKind
                       ? !answerCode || !validBluetoothCode(code, codeKind)
                       : false

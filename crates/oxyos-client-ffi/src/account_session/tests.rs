@@ -44,7 +44,8 @@ fn service(
 
 fn signed_in(revision: u64) -> Value {
     json!({"snapshot": {"status": "signed_in", "revision": revision, "online": true,
-        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}}})
+        "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+            "languages": ["es-ES", "en-GB"]}}})
 }
 
 #[test]
@@ -66,7 +67,8 @@ fn a_snapshot_is_the_services_rebuilt_and_strict() {
     assert_eq!(
         serde_json::to_value(&snapshot).unwrap(),
         json!({"status": "signed_in", "revision": 3, "online": true,
-            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate"}})
+            "account": {"id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "handle": "nate", "displayName": "Nate",
+                "languages": ["es-ES", "en-GB"]}})
     );
     assert!(snapshot_at(&socket).is_err(), "signed in names an account");
     assert!(
@@ -401,7 +403,7 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert!(
         enrollment.second_factor(&Secret::new("123456")).is_err(),
@@ -649,7 +651,7 @@ fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
     let enrolled = enrollment.retry().unwrap().to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert_eq!(told.borrow()[4..], ["preparing", "signingIn", "finishing"]);
     assert!(
@@ -742,7 +744,7 @@ fn a_wait_oxy_asks_of_a_setup_is_told_and_its_answer_waited_for() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert_eq!(
         *told.borrow(),
