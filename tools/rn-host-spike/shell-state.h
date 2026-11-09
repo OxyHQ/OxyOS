@@ -38,7 +38,8 @@ class ShellState {
   //   menuBar: { window, serial, items: [{ parent, kind, enabled, checkable, checked, label, shortcut }] }
   //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
-  //   user: { fullName } (passwd's GECOS full name; never the user's name), capsLock,
+  //   capsLock (no name of the person's: the shell names them from the accounts' service's
+  //   snapshot alone, docs/adr/0020-oxy-account-login.mdx as amended on 2026-11-09),
 //   wallpaper: { key, uri: "file://..." or null, fit, color: "#rrggbb", slow } or null (none told:
 //   the shell's own; `slow`, the clock brought it: a variant of the sun's or a shuffle's next),
   //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null }],
@@ -176,9 +177,6 @@ class ShellState {
   folly::dynamic applications_ = folly::dynamic::array();
   void readApplications();
   static std::string oxyApi();
-  // The session's user, from the account database: the login name, and the full name of its
-  // GECOS field (empty if it has none).
-  std::string fullName_;
 };
 
 }  // namespace oxyos
