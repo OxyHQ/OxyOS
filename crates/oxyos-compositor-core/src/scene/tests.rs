@@ -689,6 +689,73 @@ fn nested_submenus_chain_and_unwind_with_focus_return() {
     assert_eq!(h.scene.focus(), Some(window), "focus returns to the window");
 }
 
+/// A row chosen in a submenu closes the whole menu: the client destroys the menu with the keyboard
+/// in its submenu (Bloom destroys the menu, then the submenu). The keyboard goes from the submenu
+/// straight back to the window: the menu going is never told it had it on the way. So does a press
+/// outside the chain, which dismisses it from the menu up.
+#[test]
+fn a_menu_closed_from_its_submenu_gives_the_keyboard_straight_back() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    let open = |h: &mut Harness| -> (SurfaceKey, SurfaceKey) {
+        let menu_popup = h.open_menu(
+            window,
+            2,
+            (w.x + 10, w.y + 10),
+            menu(Rect::new(0, 0, 40, 20), 200, 300),
+        );
+        let m = h.rect(menu_popup);
+        let serial = h.press(m.x + 20, m.y + 40);
+        let mut positioner = menu(Rect::new(0, 30, 200, 20), 180, 200);
+        positioner.anchor = Anchor::TopRight;
+        positioner.gravity = Gravity::BottomRight;
+        let sub = h.popup(menu_popup, 3, positioner);
+        h.request(APP, Request::GrabPopup { surface: 3, serial })
+            .unwrap();
+        h.present(sub);
+        h.scene.pointer_button(BUTTON, false);
+        assert_eq!(h.scene.grab_chain(), &[menu_popup, sub]);
+        assert_eq!(h.scene.focus(), Some(sub));
+        h.clear_log();
+        (menu_popup, sub)
+    };
+    let focus = |h: &mut Harness| -> Vec<Event> {
+        h.events_for(APP)
+            .into_iter()
+            .filter(|e| matches!(e, Event::Focus { .. }))
+            .collect()
+    };
+    let straight_back = [
+        Event::Focus {
+            surface: 3,
+            focused: false,
+        },
+        Event::Focus {
+            surface: 1,
+            focused: true,
+        },
+    ];
+
+    let _ = open(&mut h);
+    h.request(APP, Request::Destroy { surface: 2 }).unwrap();
+    h.request(APP, Request::Destroy { surface: 3 }).unwrap();
+    assert!(h.scene.grab_chain().is_empty());
+    assert_eq!(h.scene.focus(), Some(window));
+    assert_eq!(focus(&mut h), straight_back);
+
+    let (menu_popup, sub) = open(&mut h);
+    h.scene.pointer_motion(w.x + 390, w.y + 290);
+    h.scene.pointer_button(BUTTON, true);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    assert_eq!(h.dismissed(menu_popup), Some(DismissReason::OutsidePress));
+    assert_eq!(h.dismissed(sub), Some(DismissReason::OutsidePress));
+    assert!(h.scene.grab_chain().is_empty());
+    assert_eq!(h.scene.focus(), Some(window));
+    assert_eq!(focus(&mut h), straight_back);
+}
+
 /// A Mac's menu bar with a menu open: the pointer crossing the bar reaches it, so another title
 /// can open its menu in place of the open one, with no press; the chain goes on, its keyboard
 /// passing from menu to menu, no other surface or client told anything; a press on the bar is

@@ -265,9 +265,10 @@ pub enum Step {
         custom: Option<String>,
         selection: (u32, u32),
     },
-    /// The output's scale changes (in 120ths, so 180 is 1.5): the compositor asks every surface
-    /// on it for buffers at the new scale; logical geometry is unchanged.
-    Scale(u32),
+    /// An output's scale changes (in 120ths, so 180 is 1.5): the compositor asks every surface
+    /// on it for buffers at the new scale; logical geometry is unchanged. The primary's unless an
+    /// output is named (`--scale ID:SCALE`, ids from `OUTPUT_ID` in `--outputs`' order).
+    Scale { output: OutputId, scale: u32 },
     /// No input: a popup of the application must be shown, extending beyond its window.
     ExpectPopup,
     /// Through the devices (`--uinput`, `--kms`): Ctrl+Alt+F`n` to terminal `n`, and Ctrl+Alt
@@ -489,7 +490,7 @@ impl Step {
             Step::MinimizeWindow => "window minimized".to_string(),
             Step::CapsLock => "Caps Lock".to_string(),
             Step::Accessibility { action, name, .. } => format!("assistive {action:?} on {name:?}"),
-            Step::Scale(scale) => format!("output scale {scale}/120"),
+            Step::Scale { output, scale } => format!("output {output}'s scale {scale}/120"),
             Step::ExpectPopup => "a popup beyond the window".to_string(),
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
@@ -722,7 +723,7 @@ impl Step {
             Step::Accessibility { action, name, .. } => {
                 format!("\"a11y_action\":[\"{action:?}\",{}]", json_string(name))
             }
-            Step::Scale(scale) => format!("\"scale\":{scale}"),
+            Step::Scale { output, scale } => format!("\"scale\":[{output},{scale}]"),
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
@@ -1009,7 +1010,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale [ID:]SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1852,7 +1853,16 @@ impl Launch {
                 }
                 Some("--scale") => {
                     let scale = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
-                    Step::Scale(scale.parse()?)
+                    match scale.split_once(':') {
+                        Some((output, scale)) => Step::Scale {
+                            output: output.parse()?,
+                            scale: scale.parse()?,
+                        },
+                        None => Step::Scale {
+                            output: OUTPUT_ID,
+                            scale: scale.parse()?,
+                        },
+                    }
                 }
                 Some("--preedit") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
@@ -5243,10 +5253,10 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         }
         // No input: the idle lock's time passes, and the next turn follows it.
         Step::Idle(seconds) => compositor.idle.pass(Duration::from_secs(*seconds)),
-        Step::Scale(scale) => compositor
+        Step::Scale { output, scale } => compositor
             .scene
-            .set_output_scale(OUTPUT_ID, *scale)
-            .map_err(|code| format!("scale {scale}: {code:?}"))?,
+            .set_output_scale(*output, *scale)
+            .map_err(|code| format!("output {output}'s scale {scale}: {code:?}"))?,
         // Handled by the step loop: no input to inject, the session's input method's, or the
         // assistive technology's.
         Step::ExpectPopup
@@ -6745,6 +6755,8 @@ mod tests {
             "10,20,90,100",
             "--scale",
             "180",
+            "--scale",
+            "2:150",
             "--idle",
             "300",
             "--wait-named",
@@ -6783,7 +6795,8 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false, false, true
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                true
             ]
         );
         assert_eq!(
@@ -6845,7 +6858,14 @@ mod tests {
                     from: (10, 20),
                     to: (90, 100)
                 },
-                Step::Scale(180),
+                Step::Scale {
+                    output: OUTPUT_ID,
+                    scale: 180
+                },
+                Step::Scale {
+                    output: 2,
+                    scale: 150
+                },
                 Step::Idle(300),
                 Step::WaitNamed {
                     name: "Try again".into(),

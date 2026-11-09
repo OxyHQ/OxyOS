@@ -110,8 +110,12 @@ function PopupsPage() {
             <View style={{ width: 280, height: 80, backgroundColor: '#dfe7f5', borderRadius: 12 }} />
           </ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem onPress={() => setChosen('Rename')}>Rename</ContextMenuItem>
-            <ContextMenuItem onPress={() => setChosen('Duplicate')}>Duplicate</ContextMenuItem>
+            <ContextMenuItem testID="context-Rename" onPress={() => setChosen('Rename')}>
+              Rename
+            </ContextMenuItem>
+            <ContextMenuItem testID="context-Duplicate" onPress={() => setChosen('Duplicate')}>
+              Duplicate
+            </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
         <Muted testID="counts-menus">{`${said('menu', menu)}; ${said('context', context)}`}</Muted>

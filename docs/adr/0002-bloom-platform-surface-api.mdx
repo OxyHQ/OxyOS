@@ -65,6 +65,7 @@ interface PopupHandle {
 | `sideOffset` / `alignOffset` | offset on the main / cross axis |
 | `direction="rtl"` | `Adjust::RTL`; Bloom stops mirroring at each call site for this path |
 | Bloom's flip-then-clamp (`resolveDropdownPlacement`) | `FLIP` on the main axis, `SLIDE` on the cross axis; `RESIZE` on the main axis for scrolling lists (Select) |
+| A menu at a point (`ContextMenu`, opened where the pointer pressed) | `FLIP` on both axes, then `SLIDE`: near the screen's right edge it opens left of the point, near the bottom above it, as a Mac's context menu does, rather than sliding back under the pointer |
 | `activation` | `GrabPopup` with the serial of the triggering press or key; `null` (hover cards) opens without a grab |
 | `onDismiss` reasons | `PopupDone` reasons (outside press, parent hidden, lock, …) |
 | Escape stack, arrows, Home/End, typeahead, focus return | Unchanged in Bloom; the popup surface has keyboard focus while grabbed |
@@ -97,7 +98,7 @@ interface PopupSurfaceProps {
 
 The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It renders the `OxyOSPopupView` host component with the anchor's tag, and the host (`popup.cpp`) does the rest:
 - leaves the popup subtree out of the window;
-- opens a protocol popup with the positioner in the table above (flip on the side axis, slide on both), grabbed with the serial of the press that opened it;
+- opens a protocol popup with the positioner in the table above (flip on the side axis, and on both for a menu at a point; slide on both), grabbed with the serial of the press that opened it;
 - draws the subtree in premultiplied ARGB;
 - routes the popup's pointer input to it;
 - sends `PopupDone` back as `onDismiss`;

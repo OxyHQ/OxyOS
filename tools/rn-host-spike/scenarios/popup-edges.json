@@ -1,0 +1,140 @@
+{
+  "about": "Menus at the screen's edge open on the other side, as a Mac's (ADR 0001, Popup placement; ADR 0002): PopupWindowProbe (sample/PopupWindowProbe.tsx) on one display at 1 (popup-edges-scaled.json is the same at 1.25), its window moved by the shell. Near the bottom, the menu under its Actions button opens above it. Near the bottom-right corner, the context menu opens left of and above the point pressed, its corner at the point, rather than sliding back under the pointer. Near the right edge, the menu under its button slides along the edge, its main side kept. With that menu open, the window moved down so that it no longer fits below: the compositor places it above its trigger after the move, with no request of the application's, and it keeps the keyboard: End and Return choose its last row. Each step checks the popups' rectangles, the window's, the compositor's focus, what each surface was delivered, exactly what React heard, the popups' events and where the assistive technology's focus went.",
+  "module": "PopupWindowProbe",
+  "window": [900, 600],
+  "steps": [
+    {
+      "name": "a press on the page: the window is the active one",
+      "do": ["press", [600, 500]],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [190, 60, 900, 600],
+        "react": {"touchStart@settings-page": 1, "touchEnd@settings-page": 1},
+        "delivered": {"1": {"enter": 1, "press": 1, "release": 1}}
+      }
+    },
+    {
+      "name": "the shell moves the window down, its Actions button near the bottom of the screen",
+      "do": ["move-window", [0, 440]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [190, 500, 900, 600],
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "the menu does not fit under its button: it opens above it, and takes the keyboard",
+      "do": ["press_named", "Actions"],
+      "expect": {
+        "popup_rects": [[524, 556, 266, 72]],
+        "focus_surface": 2,
+        "react": {"touchStart@menu-trigger": 1, "touchEnd@menu-trigger": 1},
+        "popup_events": {"open@actions": 1},
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "press": 1, "release": 1}, "2": {"focus.in": 1}},
+        "texts": ["menu opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "Escape closes it",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["menu opened 1, closed 1", "Chosen: nothing"],
+        "react": {"key@actions": 1},
+        "popup_events": {"close@2": 1},
+        "a11y_events": {"focus@menu-trigger": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "2": {"key.press": 1, "key.release": 1, "focus.out": 1}}
+      }
+    },
+    {
+      "name": "the shell moves the window right and up, the area near the bottom-right corner",
+      "do": ["move-window", [570, -80]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [760, 420, 900, 600],
+        "react": {},
+        "delivered": {"1": {"leave": 1}}
+      }
+    },
+    {
+      "name": "the context menu does not fit right of or below the point pressed: it opens left of and above it, its corner at the point",
+      "do": ["press_secondary_named", "Area"],
+      "expect": {
+        "popup_rects": [[969, 641, 266, 72]],
+        "focus_surface": 3,
+        "react": {},
+        "popup_events": {"open@Context menu": 1},
+        "delivered": {"1": {"enter": 1, "focus.out": 1, "leave": 1, "press": 1, "release": 1}, "3": {"focus.in": 1}},
+        "texts": ["context opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "Escape closes it",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["context opened 1, closed 1", "Chosen: nothing"],
+        "react": {"key@Context menu": 1},
+        "popup_events": {"close@3": 1},
+        "a11y_events": {"focus@context-area": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "3": {"key.press": 1, "key.release": 1, "focus.out": 1}}
+      }
+    },
+    {
+      "name": "the menu opens under its button, slid along the right edge",
+      "do": ["press_named", "Actions"],
+      "expect": {
+        "popup_rects": [[1014, 592, 266, 72]],
+        "focus_surface": 4,
+        "react": {"touchStart@menu-trigger": 1, "touchEnd@menu-trigger": 1},
+        "popup_events": {"open@actions": 1},
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "press": 1, "release": 1}, "4": {"focus.in": 1}},
+        "texts": ["menu opened 2, closed 1"]
+      }
+    },
+    {
+      "name": "the shell moves the window down, the menu open: it no longer fits under its button and is placed above it after the move, by the compositor alone, the keyboard still its",
+      "do": ["move-window", [0, 100]],
+      "expect": {
+        "popup_rects": [[1014, 576, 266, 72]],
+        "focus_surface": 4,
+        "window_rect": [760, 520, 900, 600],
+        "react": {},
+        "popup_events": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "End reaches the menu once: Delete active",
+      "do": ["key", 107],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 4,
+        "react": {"key@actions": 1},
+        "popup_events": {},
+        "delivered": {"4": {"key.press": 1, "key.release": 1}},
+        "at": {"popup": [{"role": "MenuItem", "name": "Delete", "state": ["focused"]}]}
+      }
+    },
+    {
+      "name": "Return chooses Delete, once: the menu closes, the keyboard back on its button",
+      "do": ["key", 28],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Delete", "menu opened 2, closed 2"],
+        "react": {"key@actions": 1},
+        "popup_events": {"close@4": 1},
+        "a11y_events": {"focus@menu-trigger": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "4": {"key.press": 1, "key.release": 1, "focus.out": 1}}
+      }
+    }
+  ]
+}
