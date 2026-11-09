@@ -87,11 +87,8 @@
     {
       "name": "The top bar's button opens Control Center: the sound's card has its arrow, Dispositivos de salida, valued by the output chosen",
       "do": [
-        "press_output",
-        [
-          1146,
-          14
-        ]
+        "press_named",
+        "Centro de control"
       ],
       "expect": {
         "react": {},
