@@ -1,0 +1,134 @@
+{
+  "about": "The lock screen when the accounts' service has never said whether the account has a PIN (docs/adr/0020-oxy-account-login.mdx, decision 2; issue #477): the service refuses the session from the start (regress.py's `account.later` restart as the window first shows, for longer than the run), so the shell's read is refused. The lock offers the password's field first and \"Usar PIN\" beside it, never one credential alone; the PIN's field, chosen, unlocks with the PIN, the session's PAM checking it without the session socket (the development compositor's fixture here). Neither the PIN nor the password reaches any report.",
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "lock_password": "oxyos.correcta",
+  "lock_pin": "482916",
+  "account": {
+    "registered": [],
+    "local": {
+      "pin": "set",
+      "password": true
+    },
+    "later": [
+      {
+        "when_shown": "Line: \"\" [0,0]",
+        "restart": {
+          "refuse_for": 600000
+        }
+      }
+    ]
+  },
+  "steps": [
+    {
+      "name": "the window shown: the accounts' service restarts and refuses the session from now on",
+      "do": [
+        "wait",
+        300
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ]
+      }
+    },
+    {
+      "name": "the Oxy menu opens, with its lock item",
+      "do": [
+        "press_output",
+        [
+          16,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Bloquear pantalla"
+          ]
+        }
+      }
+    },
+    {
+      "name": "locked, the read refused: the password's field first, Usar PIN beside it",
+      "do": [
+        "press_output",
+        [
+          82,
+          142
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "account_session": [],
+        "in_shell": {
+          "texts": [
+            "Introduce la contraseña",
+            "Usar PIN"
+          ],
+          "absent": [
+            "Introduce el PIN",
+            "Usar contraseña"
+          ],
+          "focus_input": "shell-lock-password"
+        }
+      }
+    },
+    {
+      "name": "Usar PIN: the PIN's field, focused, and Usar contraseña beside it",
+      "do": [
+        "press_named",
+        "Usar PIN"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "in_shell": {
+          "texts": [
+            "Introduce el PIN",
+            "Usar contraseña"
+          ],
+          "absent": [
+            "Introduce la contraseña"
+          ],
+          "focus_input": "shell-lock-pin-password"
+        }
+      }
+    },
+    {
+      "name": "the PIN unlocks without the service's session socket",
+      "do": [
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": false
+        },
+        "never": [
+          "482916",
+          "oxyos.correcta"
+        ],
+        "in_shell": {
+          "never": [
+            "482916",
+            "oxyos.correcta"
+          ]
+        }
+      }
+    }
+  ]
+}
