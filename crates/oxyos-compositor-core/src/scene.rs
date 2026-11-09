@@ -87,6 +87,9 @@ pub struct Grants {
     /// first), disconnects, forgets and renames devices (`SystemRequest`), as the shell does by its
     /// own grant (all but discovering, forgetting and renaming).
     pub bluetooth: bool,
+    /// Activity Monitor (docs/adr/0063-activity-monitor.mdx): follows the machine's use and every
+    /// process's, inspects them and quits the person's own (`SystemRequest`).
+    pub activity: bool,
 }
 
 impl Grants {
@@ -100,6 +103,7 @@ impl Grants {
             || self.privacy
             || self.network
             || self.bluetooth
+            || self.activity
             || self.shell
             || self.settings
     }
@@ -323,6 +327,10 @@ struct ApplicationOutput {
     work_area: Rect,
 }
 
+/// The media type a copy is marked sensitive with (ADR 0007, decision 6): clipboard managers keep
+/// none of it, and its owner may clear it on no input (a password cleared after a while).
+pub const SENSITIVE_TYPE: &str = "x-oxyos-sensitive";
+
 /// What the clipboard holds: an offer its owner committed, and the name receivers know it by.
 #[derive(Clone, Debug)]
 struct Clipboard {
@@ -443,6 +451,9 @@ pub struct Scene {
     swipe_gestures: u64,
     /// Where the compositor draws what swipes drive (`swipe_from`).
     swipe_rest: swipes::SwipeRest,
+    /// Which fingers make which of the trackpad's gestures, as the person chose
+    /// (`set_trackpad_gestures`).
+    trackpad_gestures: swipes::TrackpadGestures,
     /// The workspace drawn beside the active one while a swipe across slides them
     /// (`show_beside`).
     beside: Option<u32>,
@@ -543,6 +554,14 @@ pub struct Scene {
     system: system::System,
     /// What clients asked the search index, and the askers gone (docs/adr/0051-search.mdx).
     search: search::Search,
+    /// What applications asked of their login items and background activity
+    /// (docs/adr/0060-login-items-and-background-activity.mdx).
+    background: background::Background,
+    /// The session's keys and the applications asked to quit before it ends
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+    session_ending: session_end::SessionEnding,
+    /// The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+    safe_mode: bool,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
     choosers: choosers::Choosers,
     /// The user's preferences as the program running the compositor told them, and the changes
@@ -1131,6 +1150,7 @@ impl Scene {
             privacy: granted.privacy && !held.privacy,
             network: granted.network && !held.network,
             bluetooth: granted.bluetooth && !held.bluetooth,
+            activity: granted.activity && !held.activity,
         };
         self.check_grants(new)?;
         let grants = self.clients.get_mut(&client).expect("connected");
@@ -1146,6 +1166,7 @@ impl Scene {
         grants.privacy |= new.privacy;
         grants.network |= new.network;
         grants.bluetooth |= new.bluetooth;
+        grants.activity |= new.activity;
         if new.accessibility {
             // Whether the session is locked, before the trees it may read (the lock screen's
             // alone while it is): told as it is, never said as a change.
@@ -1177,6 +1198,9 @@ impl Scene {
         if new.shell || new.settings {
             self.tell_application_lists(client);
         }
+        if new.shell || new.lock {
+            self.tell_safe_mode(client);
+        }
         Ok(())
     }
 
@@ -1199,6 +1223,8 @@ impl Scene {
         self.forget_dock_client(client);
         self.forget_system_requests(client);
         self.forget_searcher(client);
+        self.forget_background_items(client);
+        self.forget_session_end_client(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
@@ -1601,8 +1627,16 @@ impl Scene {
                 Ok(())
             }
             Request::ClipboardClear { serial } => {
-                let owner = self.clipboard.as_ref().map(|clipboard| clipboard.owner);
-                if owner == Some(client) && self.recent_input(client, serial) {
+                // The owner empties it with an input of its own; a copy it marked sensitive (ADR
+                // 0007, decision 6: a password copied from the keychain) also without one, as it
+                // clears it after a while (ADR 0050 decision 8's 90 seconds) on no input at all.
+                let owned = self.clipboard.as_ref().filter(|held| held.owner == client);
+                let sensitive = owned.is_some_and(|held| {
+                    held.types
+                        .iter()
+                        .any(|mime| mime.as_str() == SENSITIVE_TYPE)
+                });
+                if owned.is_some() && (sensitive || self.recent_input(client, serial)) {
                     self.clipboard = None;
                     self.tell_clipboard();
                 }
@@ -1797,6 +1831,15 @@ impl Scene {
                 last,
                 text,
             } => self.search_request(client, serial, index, last, text),
+            Request::BackgroundItem {
+                serial,
+                kind,
+                action,
+            } => self.background_item_request(client, serial, kind, action),
+            Request::QuitReply { serial, quit } => {
+                self.quit_reply(client, serial, quit);
+                Ok(())
+            }
             Request::ChooseFiles {
                 serial,
                 surface,
@@ -2061,8 +2104,9 @@ impl Scene {
         if kind == ShellKind::Background {
             return ((output.x, output.y), Size::new(output.width, output.height));
         }
-        // A notification (a banner, ADR 0026) is at the output's top-right corner, its own size
-        // there, whatever its edge: it slides in from beside itself at the right edge (ADR 0011).
+        // A notification is at the output's top-right corner, its own size there, whatever its
+        // edge: at the right edge a banner (ADR 0026), which slides in from beside itself (ADR
+        // 0011); with none a hardware key's bezel over the whole output (ADR 0025), shown at once.
         if kind == ShellKind::Notification {
             let size = Size::new(size.width.min(output.width), size.height.min(output.height));
             let x = output.right() - i64::from(size.width);
@@ -3653,6 +3697,10 @@ impl Scene {
                     },
                 );
             }
+            // Modifiers already held as it takes the keyboard (a menu opened with Option down).
+            if self.modifiers() != 0 {
+                self.tell_modifiers(new);
+            }
         }
         self.focus = key;
         self.update_active();
@@ -3929,6 +3977,17 @@ impl Scene {
         }
         self.pointer_cancel();
         self.touch_cancel();
+        // A copy marked sensitive (ADR 0007 decision 6: a password or a code from the keychain)
+        // goes with the lock: the keychain locks with the session, and an unlock that does not
+        // open it (a PIN, ADR 0050) must not paste what was copied from it.
+        if self.clipboard.as_ref().is_some_and(|held| {
+            held.types
+                .iter()
+                .any(|mime| mime.as_str() == SENSITIVE_TYPE)
+        }) {
+            self.clipboard = None;
+            self.tell_clipboard();
+        }
         self.set_pointer_focus(None);
         self.set_focus(None);
         self.focus_next();
@@ -4514,12 +4573,29 @@ impl Scene {
         );
     }
 
-    /// A touchpad pinch: it goes to the surface under the pointer when it began (as a scroll
-    /// does) until it ends, at the pointer, which a pinch does not move. `scale_65536` and
+    /// A touchpad pinch of `fingers`: it goes to the surface under the pointer when it began (as
+    /// a scroll does) until it ends, at the pointer, which a pinch does not move. `scale_65536` and
     /// `rotation_256` are as the Pinch event carries them. A pinch that began over no surface,
-    /// or whose surface went, reaches nothing.
-    pub fn pointer_pinch(&mut self, phase: GesturePhase, scale_65536: u32, rotation_256: i32) {
+    /// or whose surface went, reaches nothing. The thumb and three fingers pinched are the
+    /// system's, Launchpad's, unless the person turned that off (`Scene::launchpad_pinch`).
+    pub fn pointer_pinch(
+        &mut self,
+        phase: GesturePhase,
+        fingers: u8,
+        scale_65536: u32,
+        rotation_256: i32,
+    ) {
         self.user_input();
+        let launchpads = if phase == GesturePhase::Begin {
+            self.pinch_is_launchpads(fingers)
+        } else {
+            self.pinching_launchpad()
+        };
+        if launchpads {
+            self.pinch = None;
+            self.launchpad_pinch(phase, fingers, f64::from(scale_65536) / 65536.0);
+            return;
+        }
         if phase == GesturePhase::Begin {
             self.pinch = self.pointer_target();
         }
@@ -4628,10 +4704,36 @@ impl Scene {
         if modifier_of(key) == 0 {
             return;
         }
+        let before = self.modifiers();
         if pressed {
             self.modifier_keys.insert(key);
         } else {
             self.modifier_keys.remove(&key);
+        }
+        if self.modifiers() != before {
+            if let Some(focus) = self.focus {
+                self.tell_modifiers(focus);
+            }
+        }
+    }
+
+    /// Tells the surface with the keyboard the modifiers held now, as a Mac's `flagsChanged:`
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx: a menu's alternates follow Option the
+    /// instant it goes down or up): a client of version 38 or newer, as they change and as it takes
+    /// the keyboard with some held.
+    fn tell_modifiers(&mut self, focus: SurfaceKey) {
+        if self
+            .version_of(focus.client)
+            .is_some_and(|version| version >= oxyos_protocol::QUIT_REQUESTS_VERSION)
+        {
+            let modifiers = self.modifiers();
+            self.emit(
+                focus.client,
+                Event::Modifiers {
+                    surface: focus.id,
+                    modifiers,
+                },
+            );
         }
     }
 
@@ -4996,7 +5098,15 @@ impl Scene {
                     // waits for its window to be activated, and never lowers it.
                     let sheet = self.is_sheet(key);
                     if activated || sheet && self.active == Some(self.root_of(key)) {
-                        self.activate(key);
+                        // A system sheet the person is answering keeps the keyboard (an
+                        // application asking for a passkey as it starts, its window mapped after
+                        // the sheet took the keys): the window comes to the top of its layer,
+                        // under the sheet, and has the keyboard once the sheet goes.
+                        if self.system_sheet_has_keyboard() {
+                            self.raise_in_layer(key);
+                        } else {
+                            self.activate(key);
+                        }
                     } else if !sheet {
                         self.lower_below_focus(key);
                     }
@@ -5040,6 +5150,16 @@ impl Scene {
     /// keyboard's input reaches the focused surface only while it is (`surface_key`).
     pub fn shown(&self, key: SurfaceKey) -> bool {
         self.visible(key)
+    }
+
+    /// Whether a window of `client`'s is on the screen: a toplevel shown (mapped, neither
+    /// minimized nor hidden, on the workspace shown) while the session is unlocked. What samples
+    /// for a window only while it can be seen asks this (docs/adr/0063-activity-monitor.mdx).
+    pub fn client_shown(&self, client: ClientId) -> bool {
+        !self.locked
+            && self.nodes.iter().any(|(key, node)| {
+                key.client == client && node.role == Role::Toplevel && self.visible(*key)
+            })
     }
 
     pub fn grab_chain(&self) -> &[SurfaceKey] {
@@ -5109,6 +5229,15 @@ pub use system::{CapabilityRequest, SheetAnswered, SystemRequest};
 /// Search (docs/adr/0051-search.mdx).
 mod search;
 pub use search::{SearchAsk, MAX_SEARCH_ASKS, SEARCH_VERSION};
+/// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
+mod background;
+pub use background::{BackgroundItemRequest, BACKGROUND_VERSION};
+/// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+mod session_end;
+pub use session_end::{QuitReplied, SessionKey, KEY_POWER};
+/// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+mod safe_mode;
+pub use safe_mode::SAFE_MODE_VERSION;
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 mod choosers;
 pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};
@@ -5120,8 +5249,8 @@ pub use displays::{
 /// Notifications (docs/adr/0026-notifications.mdx).
 mod notifications;
 pub use notifications::{
-    NotificationPolicy, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION, NOTIFICATION_BURST,
-    NOTIFICATION_WINDOW,
+    NotificationPolicy, SessionActivation, MAX_NOTIFICATIONS, MAX_NOTIFICATIONS_PER_APPLICATION,
+    NOTIFICATION_BURST, NOTIFICATION_WINDOW,
 };
 mod appearances;
 mod menus;
@@ -5145,7 +5274,7 @@ pub use controls::{
 };
 pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
-pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest};
+pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest, TrackpadGestures};
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

@@ -2,8 +2,10 @@
 #include "system.h"
 
 #include <cctype>
+#include <chrono>
 #include <iostream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace oxyos {
@@ -85,6 +87,25 @@ size_t completeUtf8(const std::string& bytes) {
   return size;
 }
 
+// What a request is, as its failure names it: its method and where it went (scheme, host, port and
+// path), never its query, fragment or user info, any of which may carry a secret.
+std::string describe(const std::string& method, std::string_view url) {
+  constexpr auto npos = std::string_view::npos;
+  url = url.substr(0, url.find_first_of("?#"));
+  size_t scheme = url.find("://");
+  if (scheme == npos) {
+    // No authority (`data:`, `blob:`): its scheme alone, never what it holds.
+    size_t colon = url.find(':');
+    return method + " " + (colon == npos ? std::string("(no URL)") : std::string(url.substr(0, colon + 1)));
+  }
+  std::string_view rest = url.substr(scheme + 3);
+  size_t slash = rest.find('/');
+  std::string_view authority = rest.substr(0, slash);
+  if (size_t at = authority.rfind('@'); at != npos) authority = authority.substr(at + 1);
+  std::string_view path = slash == npos ? std::string_view("/") : rest.substr(slash);
+  return method + " " + std::string(url.substr(0, scheme + 3)) + std::string(authority) + std::string(path);
+}
+
 }  // namespace
 
 Networking::Networking(BlobStore& blobs, Emit emit) : blobs_(blobs), emit_(std::move(emit)), net_(oxyos_net_new()) {
@@ -94,6 +115,9 @@ Networking::Networking(BlobStore& blobs, Emit emit) : blobs_(blobs), emit_(std::
 Networking::~Networking() { oxyos_net_free(net_); }
 
 void Networking::send(Request request) {
+  // Remembered from the start, so that a failure, even one refused before it is sent, says what
+  // failed and after how long.
+  live_[request.id] = Live{.what = describe(request.method, request.url), .sent = std::chrono::steady_clock::now()};
   // An installed version reaches the Internet only if its account granted `network`, as the
   // session told this launch (docs/adr/0030-installing-applications.mdx, decision 8): refused as
   // a failed request, which fetch and XMLHttpRequest report, never a crash.
@@ -131,7 +155,9 @@ void Networking::send(Request request) {
       .part_count = parts.size(),
   };
   if (oxyos_net_send(net_, &native) != 0) return reject(request.id, oxyos_last_error());
-  live_[request.id] = Live{.responseType = request.responseType, .incremental = incremental};
+  Live& live = live_[request.id];
+  live.responseType = request.responseType;
+  live.incremental = incremental;
 }
 
 void Networking::reject(int64_t id, const std::string& error) {
@@ -147,9 +173,18 @@ void Networking::abort(int64_t id) {
 void Networking::clearCookies() { oxyos_net_clear_cookies(net_); }
 
 void Networking::complete(int64_t id, const std::string& error, bool timedOut) {
-  live_.erase(id);
-  // fetch reports any failure as "Network request failed": the reason is told here.
-  if (!error.empty()) std::cerr << "[host] network request " << id << " failed: " << error << "\n";
+  // fetch reports any failure as "Network request failed": what failed, and why, is told here.
+  if (auto live = live_.find(id); live != live_.end()) {
+    if (!error.empty()) {
+      auto took = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                        live->second.sent);
+      std::cerr << "[host] network request " << id << " (" << live->second.what << ", " << took.count()
+                << " ms) failed: " << error << "\n";
+    }
+    live_.erase(live);
+  } else if (!error.empty()) {
+    std::cerr << "[host] network request " << id << " failed: " << error << "\n";
+  }
   emit_("didCompleteNetworkResponse",
         folly::dynamic::array(id, error.empty() ? folly::dynamic(nullptr) : folly::dynamic(error), timedOut));
 }

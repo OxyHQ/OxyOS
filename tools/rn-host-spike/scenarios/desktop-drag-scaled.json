@@ -55,8 +55,8 @@
         },
         "react": {
           "insetsChange@RNCSafeAreaProvider#6": 2,
-          "insetsChange@RNCSafeAreaProvider#18": 2,
-          "insetsChange@RNCSafeAreaProvider#10": 2
+          "insetsChange@RNCSafeAreaProvider#18": 1,
+          "insetsChange@RNCSafeAreaProvider#10": 1
         },
         "delivered": {}
       }

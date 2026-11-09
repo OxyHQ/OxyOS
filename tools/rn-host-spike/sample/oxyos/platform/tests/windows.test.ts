@@ -81,3 +81,13 @@ test("the first responder's state is followed and its actions performed", () => 
   assert.equal(windows.editing.perform('copy'), true);
   assert.equal(windows.editing.perform('paste'), false);
 });
+
+test('the modifiers held are told to each follower as they change, until it stops', () => {
+  const { windows, emit } = played();
+  const seen: boolean[] = [];
+  const stop = windows.keys.onModifiers((modifiers) => void seen.push(modifiers.altKey));
+  emit('OxyOSModifiersChanged', { altKey: true, ctrlKey: false, metaKey: false, shiftKey: false });
+  stop();
+  emit('OxyOSModifiersChanged', { altKey: false, ctrlKey: false, metaKey: false, shiftKey: false });
+  assert.deepEqual(seen, [true]);
+});

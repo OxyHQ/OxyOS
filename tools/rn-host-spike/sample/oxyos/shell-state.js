@@ -4,7 +4,7 @@
  *
  * The state: { windows: [{ id, appId, title, workspace, minimized, focused, launched, used, hidden }],
  * workspaces, active,
- * locked, user: { name, fullName }, capsLock, wallpaper, applications }: wallpaper what this
+ * locked, user: { fullName } (passwd's GECOS full name, never the Unix user's name), capsLock, wallpaper, applications }: wallpaper what this
  * output's wallpaper shows now (docs/adr/0048-wallpapers.mdx, `useShellWallpaper` in wallpaper.js:
  * { key, uri, fit, color, slow }, null where the session told none); applications the session's
  * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null, opens: [media
@@ -74,6 +74,8 @@
  * compositor's pings); `applicationLists` in the state, { dock: { chosen, ids } | null, openAtLogin:
  * [ids] | null } (the person's lists, null until the session told them: `chosen` false while the
  * dock is the registry's), and `trashItems`, what the user's Trashes hold (null until told).
+ * `safeMode` in the state: the session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx,
+ * decision 10), false unless told.
  * `forceQuitApplication(window)` has the session end the application of a window;
  * `setApplicationList('dock' | 'openAtLogin', ids)` replaces one of the lists; `openUrl(url)` opens
  * a URL in the application that opens its scheme, citing the latest input (its serial; 0 not sent;

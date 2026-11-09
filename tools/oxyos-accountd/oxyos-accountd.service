@@ -2,7 +2,7 @@
 # (docs/adr/0020-oxy-account-login.mdx). It runs as root, because it makes users and sets their
 # verifiers with the system's tools (useradd, chpasswd, usermod, userdel), and is confined to what
 # that needs: its own state, the user database, the homes it makes, the network to Oxy's API,
-# logind (to end a signed-out account's sessions), reading which program a session's process
+# logind (to end a signed-out account's sessions), the accounts' pictures, reading which program a session's process
 # runs, and systemd, to start oxyos-erase.service and restart the machine when an administrator
 # erases it (docs/adr/0054-recovery-and-erasing.mdx). That unit writes the erase request and the
 # firmware's next boot with its own privileges: this one never writes to the EFI system partition
@@ -48,20 +48,30 @@ LimitMEMLOCK=16M
 LimitCORE=0
 RuntimeDirectory=oxyos/accountd
 RuntimeDirectoryMode=0755
+# Kept when the service stops or restarts (a package upgrade restarts it under running sessions),
+# for its registrars directory (0700, root's): the sessions it verified this boot, so a session
+# whose program an upgrade replaced is still known (docs/adr/0020-oxy-account-login.mdx). A boot
+# empties /run.
+RuntimeDirectoryPreserve=yes
 
 # The file system is read-only but for what it writes:
 # - /etc: useradd, chpasswd (through pam_unix) and userdel replace passwd, shadow, group and
 #   gshadow by renaming a new file over the old one in /etc, and take /etc/.pwd.lock; a single
 #   file cannot be bound writable for that, so the directory is;
-# - /home: the homes it makes and removes. ProtectHome=tmpfs hides every home, /root and
-#   /run/user, and BindPaths gives /home back alone;
+# - /home: the homes it makes and removes. /root and /run/user, the other homes, are hidden
+#   (InaccessiblePaths). Not ProtectHome=tmpfs with /home bound back (BindPaths=/home): systemd
+#   makes that bind read-only under ProtectSystem=strict, ReadWritePaths=/home or not, and useradd
+#   could make no home (exit 12; tools/oxyos-accountd/src/unit_sandbox.rs runs this unit to prove
+#   it can);
 # - lastlog and faillog, where they exist: useradd resets a new uid's entries (LOG_INIT), so a
 #   uid used before does not show its last user's logins.
+# - /var/lib/oxyos/pictures: the accounts' pictures (their Oxy avatars), which the login screen
+#   and each account's session read, so not a StateDirectory (0700 here): root's, 0755, made by
+#   oxyos-accountd.tmpfiles, each picture 0644 (as AccountsService keeps its icons).
 # Nothing else: useradd makes no mail spool on Debian (CREATE_MAIL_SPOOL=no).
 ProtectSystem=strict
-ReadWritePaths=/etc -/var/log/lastlog -/var/log/faillog
-ProtectHome=tmpfs
-BindPaths=/home
+ReadWritePaths=/etc /home -/var/log/lastlog -/var/log/faillog -/var/lib/oxyos/pictures
+InaccessiblePaths=-/root -/run/user
 
 # Root, and only the capabilities making users needs: owning a home and its skeleton's files to
 # the new user, and reaching into a user's home to remove it; and CAP_SYS_PTRACE, which reading

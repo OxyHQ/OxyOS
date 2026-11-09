@@ -40,10 +40,11 @@ export type ShellSurfaceProps = {
       in its view alone, flying there from where it is as the region arrives and back as it goes.
       Without it, a view is a copy of its window, which stays where it is. */
   movesWindows?: boolean;
-  /** Which view a touchpad's swipe drives the region is, Mission Control's or App Exposé's
-      (docs/adr/0046-interactive-gestures.mdx): while three or four fingers open or close it, the
-      platform draws it, its moved windows with it, as far as they have it. */
-  gesture?: "mission-control" | "app-expose";
+  /** Which view a touchpad's gesture drives the region is, Mission Control's or App Exposé's
+      (swiped up and down) or Launchpad's (the thumb and three fingers pinched,
+      docs/adr/0046-interactive-gestures.mdx): while the fingers open or close it, the platform
+      draws it, its moved windows with it, as far as they have it. */
+  gesture?: "mission-control" | "app-expose" | "launchpad";
   style?: StyleProp<ViewStyle>;
   children: ReactNode;
 };
@@ -117,6 +118,18 @@ export type ShellKeyEvent = {
  */
 export type ShellKeyboard = {
   subscribe(listener: (event: ShellKeyEvent) => boolean): () => void;
+  /** The modifiers held, told as they change, as a Mac's `flagsChanged:`: Option going down or up
+      shows or hides a menu's alternates at once (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+      Where the platform does not tell them, none. */
+  subscribeModifiers?(listener: (flags: ShellModifiers) => void): () => void;
+};
+
+/** The modifiers held. */
+export type ShellModifiers = {
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
 };
 
 /** What a search result is (docs/adr/0051-search.mdx): its kind, as Spotlight groups results. */

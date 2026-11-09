@@ -56,8 +56,22 @@
 //! | `unwatch` | `watch` | null |
 //! | `download` (requested) | `url`, `to`, `toDirectory`, `headers`, `idempotent`, `resume` | the file's URI, null if paused |
 //! | `upload` (requested) | `uri`, `url`, `method`, `headers`, `uploadType`, `fieldName`, `mimeType`, `parameters` | `{body, status, headers}` |
-//! | `cancelTransfer` | `transfer` (its request's id) | null |
+//! | `cancelTransfer` | `transfer` (its request's id: a transfer's or a restore's) | null |
 //! | `pauseTransfer` | `transfer` | `{resumeData}`: the bytes written, or null |
+//!
+//! | `backups` (requested) | | `{destinations: [{id, name, kind, available, lastBackup, oldestBackup}], lastBackup, backingUp}` |
+//! | `watchBackups` | | the watch: the backups' state changed |
+//! | `versions` (requested) | `uri` | `[{backup: {destination, id, time}, isDirectory, size, lastModified}]`, newest first |
+//! | `versionContents` (requested) | `backup: {destination, id}`, `uri` (a folder) | `[{uri, name, isDirectory, size, lastModified}]` |
+//! | `restoreVersion` (requested) | `backup: {destination, id}`, `uri`, `to` (a folder, optional), `replace` | `{uri, skipped}` |
+//!
+//! The backup operations (docs/adr/0059-backups.mdx, decision 10) ask the backup service on its
+//! socket ([`crate::backups`]) and are answered from a thread of their own, never holding the
+//! requests behind them (a version is looked for in every backup); an application not granted
+//! `files` is refused them (`not-permitted`, [`BackupAccess`]). A restore says its progress as a
+//! transfer does (`{"transfer": ID, "progress": {bytesWritten, totalBytes}}`, `totalBytes` null
+//! for a folder) and is cancelled as one (`cancelTransfer`); where it goes and what it is named
+//! is [`crate::restore`]'s.
 //!
 //! A `TAG` is `{name, color}`, `color` one of Finder's seven (`red`, `orange`, `yellow`, `green`,
 //! `blue`, `purple`, `grey`) or null (docs/adr/0049-file-tags.mdx). `changeTags` removes, then
@@ -68,6 +82,7 @@
 //! starts it too.
 
 use crate::access::{self, Encoding, Handles, Mode, Relocation};
+use crate::backups::{Backup, Backups, Follower};
 use crate::places::{self, Favourite};
 use crate::scope::Access;
 use crate::tag_index::{TagIndex, Tagged};
@@ -85,6 +100,13 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+/// The backup operations answered from a thread of their own ([`backed_up`]).
+macro_rules! BACKUPS_OPS {
+    () => {
+        "backups" | "versions" | "versionContents" | "restoreVersion"
+    };
+}
 
 /// The longest request taken, in bytes (its JSON; the bytes beside it are the content).
 pub const MAX_REQUEST_BYTES: usize = 1 << 20;
@@ -130,6 +152,19 @@ pub enum NetworkAccess {
 /// requests, sockets and images are refused with.
 pub const NOT_GRANTED_THE_NETWORK: &str = "this application was not granted the network";
 
+/// Whether the application may ask the person's backups: only with `files` (an installed version
+/// whose account granted it, docs/adr/0030-installing-applications.mdx, decision 8), since a backup
+/// holds everything the person's home ever held. The host decides it (`LaunchCapabilities`), as it
+/// decides the network.
+#[derive(Clone, Debug)]
+pub enum BackupAccess {
+    Granted(Backups),
+    Refused,
+}
+
+/// Why the backups are refused to an application without `files`.
+pub const NOT_GRANTED_FILES: &str = "this application was not granted the person's files";
+
 /// What every request runs against: the scope, the watches, the open files and the transfers.
 struct Context {
     scope: Scope,
@@ -143,6 +178,12 @@ struct Context {
     tag_index: Mutex<Option<Arc<TagIndex>>>,
     /// The watches told when it changes (`watchTags`).
     tag_watches: Arc<Mutex<BTreeSet<u32>>>,
+    /// The backup service, for an application granted `files` (at its launch, or at first use:
+    /// `Service::grant_the_persons_files`).
+    backups: Mutex<Option<Backups>>,
+    /// The backups' state followed while a watch wants it (`watchBackups`), and those watches.
+    backup_follower: Mutex<Option<Follower>>,
+    backup_watches: Arc<Mutex<BTreeSet<u32>>>,
     shared: Arc<Shared>,
 }
 
@@ -163,6 +204,15 @@ impl Context {
         })?);
         *index = Some(started.clone());
         Ok(started)
+    }
+
+    /// The backup service, if the application may ask it.
+    fn backups(&self) -> Result<Backups, Error> {
+        self.backups
+            .lock()
+            .expect("lock")
+            .clone()
+            .ok_or_else(|| Error::NotPermitted(NOT_GRANTED_FILES.into()))
     }
 }
 
@@ -191,8 +241,22 @@ fn event_json(event: &Event) -> Value {
 }
 
 impl Service {
-    /// The service for `scope`, its downloads and uploads reaching the network only with `network`.
+    /// The service for `scope`, its downloads and uploads reaching the network only with `network`,
+    /// the person's backups those of the system's backup service.
     pub fn new(scope: Scope, network: NetworkAccess) -> io::Result<Service> {
+        Service::with_backups(
+            scope,
+            network,
+            BackupAccess::Granted(Backups::from_environment()),
+        )
+    }
+
+    /// `new`, the person's backups reached as `backups` says.
+    pub fn with_backups(
+        scope: Scope,
+        network: NetworkAccess,
+        backups: BackupAccess,
+    ) -> io::Result<Service> {
         let (readable, wake) = UnixStream::pair()?;
         readable.set_nonblocking(true)?;
         wake.set_nonblocking(true)?;
@@ -230,6 +294,12 @@ impl Service {
             transfers: Mutex::new(HashMap::new()),
             tag_index: Mutex::new(None),
             tag_watches: Arc::new(Mutex::new(BTreeSet::new())),
+            backups: Mutex::new(match backups {
+                BackupAccess::Granted(backups) => Some(backups),
+                BackupAccess::Refused => None,
+            }),
+            backup_follower: Mutex::new(None),
+            backup_watches: Arc::new(Mutex::new(BTreeSet::new())),
             shared: shared.clone(),
         });
         let (requests, received) = mpsc::channel::<(u64, String, Vec<u8>)>();
@@ -251,6 +321,10 @@ impl Service {
                             matches!(op, Some("download" | "upload")),
                             matches!(op, Some("tagged" | "tagNames")),
                         );
+                        if let (Some(BACKUPS_OPS!()), Some(parsed)) = (op, &parsed) {
+                            backed_up(&context, &shared, id, parsed.clone());
+                            continue;
+                        }
                         if let (true, Some(parsed)) = (a_transfer || a_question, parsed) {
                             if a_transfer {
                                 transfer(&context, &shared, id, parsed);
@@ -288,8 +362,14 @@ impl Service {
 
     /// The person's files, granted to the application: its account granted `files` at first use
     /// (docs/adr/0030-installing-applications.mdx, decision 8). Holds for every request after.
+    /// The person's backups come with them, which hold everything their home ever held
+    /// (docs/adr/0059-backups.mdx): the system's backup service, as for a launch with `files`.
     pub fn grant_the_persons_files(&self) {
         self.context.scope.grant_the_persons_files();
+        let mut backups = self.context.backups.lock().expect("lock");
+        if backups.is_none() {
+            *backups = Some(Backups::from_environment());
+        }
     }
 
     /// The item `uri` (a `file://` URI) of the person's files, given to the application by the
@@ -382,6 +462,94 @@ fn transfer(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, parsed: Value
             json: ended_json(Err(error.into())),
             bytes: Vec::new(),
         });
+    }
+}
+
+/// Answers a question about the person's backups, or restores from one (`parsed`), on a thread of
+/// its own, as `id`: the service's answers take a while (restic reads the destination), and a
+/// restore streams an item.
+fn backed_up(context: &Arc<Context>, shared: &Arc<Shared>, id: u64, parsed: Value) {
+    let live = Arc::new(Live::default());
+    if parsed["op"] == "restoreVersion" {
+        context
+            .transfers
+            .lock()
+            .expect("lock")
+            .insert(id, live.clone());
+    }
+    let (context, replies) = (context.clone(), shared.clone());
+    let started = std::thread::Builder::new()
+        .name(format!("oxyos-files-backups-{id}"))
+        .spawn(move || {
+            let shared = replies;
+            let ended = backup_answer(&context, &shared, id, &parsed, &live);
+            context.transfers.lock().expect("lock").remove(&id);
+            shared.push(Reply {
+                id,
+                json: ended_json(ended),
+                bytes: Vec::new(),
+            });
+        });
+    if let Err(error) = started {
+        shared.push(Reply {
+            id,
+            json: ended_json(Err(error.into())),
+            bytes: Vec::new(),
+        });
+    }
+}
+
+fn backup_answer(
+    context: &Context,
+    shared: &Arc<Shared>,
+    id: u64,
+    request: &Value,
+    live: &Live,
+) -> Result<Value, Error> {
+    let backups = context.backups()?;
+    let scope = &context.scope;
+    match request["op"].as_str().unwrap_or_default() {
+        "backups" => backups.state(),
+        "versions" => {
+            let path = crate::restore::backed_up_path(scope, text(request, "uri")?)?;
+            backups.versions(&path)
+        }
+        "versionContents" => {
+            let folder_uri = text(request, "uri")?;
+            let backup = Backup::from_json(request.get("backup"))?;
+            let path = crate::restore::backed_up_path(scope, folder_uri)?;
+            Ok(backups
+                .contents(&backup, &path)?
+                .into_iter()
+                .map(|mut item| {
+                    let name = item["name"].as_str().unwrap_or_default().to_owned();
+                    let directory = item["isDirectory"].as_bool().unwrap_or(false);
+                    item["uri"] = uri::child(folder_uri, &name, directory).into();
+                    item
+                })
+                .collect())
+        }
+        "restoreVersion" => {
+            let backup = Backup::from_json(request.get("backup"))?;
+            let to = match request.get("to") {
+                None | Some(Value::Null) => None,
+                Some(_) => Some(text(request, "to")?),
+            };
+            let restore = crate::restore::Restore {
+                backup: &backup,
+                uri: text(request, "uri")?,
+                to,
+                replace: flag(request, "replace"),
+            };
+            let progress = |written: u64, total: Option<u64>| {
+                shared.event(json!({
+                    "transfer": id,
+                    "progress": { "bytesWritten": written, "totalBytes": total },
+                }));
+            };
+            crate::restore::restore(scope, &backups, &restore, &live.cancel, &progress)
+        }
+        other => Err(Error::Invalid(format!("no operation {other:?}"))),
     }
 }
 
@@ -842,7 +1010,22 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
             context.tag_watches.lock().expect("lock").insert(watch);
             value(watch.into())
         }
-        "download" | "upload" | "tagged" | "tagNames" => Err(Error::Invalid(format!(
+        "watchBackups" => {
+            let backups = context.backups()?;
+            let watch = context.watcher.watch(&[], false)?;
+            let mut follower = context.backup_follower.lock().expect("lock");
+            if follower.is_none() {
+                let (shared, watches) = (context.shared.clone(), context.backup_watches.clone());
+                *follower = Some(Follower::start(backups, move || {
+                    for id in watches.lock().expect("lock").iter() {
+                        shared.event(json!({ "watch": id }));
+                    }
+                })?);
+            }
+            context.backup_watches.lock().expect("lock").insert(watch);
+            value(watch.into())
+        }
+        "download" | "upload" | "tagged" | "tagNames" | BACKUPS_OPS!() => Err(Error::Invalid(format!(
             "{op} is answered when it ends: it is requested, never called"
         ))),
         "cancelTransfer" => {
@@ -864,6 +1047,12 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
             let id = number(request, "watch")?;
             let id = u32::try_from(id).map_err(|_| Error::Invalid("no such watch".into()))?;
             context.tag_watches.lock().expect("lock").remove(&id);
+            let mut backup_watches = context.backup_watches.lock().expect("lock");
+            if backup_watches.remove(&id) && backup_watches.is_empty() {
+                // Nothing watches the backups: their state is no longer followed.
+                drop(backup_watches);
+                context.backup_follower.lock().expect("lock").take();
+            }
             context.watcher.unwatch(id);
             done()
         }

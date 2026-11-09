@@ -27,6 +27,8 @@ function caller(session: Session, domain: PlatformDomain) {
 }
 
 export type Direction = 'output' | 'input';
+/** What Activity Monitor shows: each view reads what its columns need. */
+export type ActivityView = 'cpu' | 'memory' | 'energy' | 'disk' | 'network';
 
 export function createFrameworks(session: Session) {
   const call = (domain: PlatformDomain) => caller(session, domain);
@@ -51,6 +53,16 @@ export function createFrameworks(session: Session) {
     forget: (id: string, options?: CallOptions) => net({ forget: { id } }, options),
     /** Turns Wi-Fi on or off (decision 7: its one owner). */
     setWifi: (enabled: boolean, options?: CallOptions) => net({ wifi: { enabled } }, options),
+    /** A known network's private Wi-Fi address; the network joined is joined again with it
+        (ADR 0038, 8 November 2026). */
+    setPrivateAddress: (id: string, mode: 'fixed' | 'rotating' | 'off', options?: CallOptions) =>
+      net({ privateAddress: { id, mode } }, options),
+    /** What resetting the network settings would remove and keep; nothing changes. */
+    resetPreview: (options?: CallOptions) => net({ networkResetPreview: {} }, options),
+    /** Removes the saved networks and VPNs this person may, with their passwords. */
+    reset: (options?: CallOptions) => net({ networkReset: {} }, options),
+    /** Wi-Fi Diagnostics, run once: the link, the router, the internet, DNS. */
+    diagnose: (options?: CallOptions) => net({ wifiDiagnostics: {} }, options),
   };
 
   /** Bluetooth (docs/adr/0055-bluetooth.mdx): the `bluetooth` grant, or `shell`. */
@@ -128,9 +140,61 @@ export function createFrameworks(session: Session) {
     selectInputSource: (id: string, options?: CallOptions) => st({ selectInputSource: { id } }, options),
     /** The account's decisions on its applications' capabilities (`privacy`). */
     privacy: (options?: CallOptions) => st({ privacy: {} }, options),
+    /** Those decisions as told: by `privacy`'s answers, and again, unasked, when they changed
+        elsewhere (an application granted a capability as it registered its login item, or one
+        running in the background or no longer; docs/adr/0060-login-items-and-background-
+        activity.mdx). Not asked as it is first followed: the page that shows it asks. */
+    decisions: state.privacy as Followed<Json[]>,
     /** Records the account's decision on `capability` for the application `id` (`privacy`). */
     decide: (id: string, capability: string, granted: boolean, options?: CallOptions) =>
       st({ decide: { id, capability, granted } }, options),
+    /** Settings › Storage (docs/adr/0062-storage.mdx): the session's measurement of the volume, the
+        system's image, the Trash and each application, asked as the page shows it
+        (`{storage: {volume, system, trash, apps}}`). */
+    storage: (options?: CallOptions) => st({ storage: {} }, options),
+    /** Shows an item in the file manager, citing the press that asked (`{revealed: {}}`). */
+    reveal: (uri: string, options?: CallOptions) => st({ reveal: { uri } }, options),
+    /** Removes an application through the store's uninstall, confirmed in the system's sheet
+        (`{uninstalled: {id}}` or `{cancelled: {}}`). */
+    uninstall: (id: string, options?: CallOptions) => st({ uninstall: { id } }, options),
+    /** Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx): confirmed in the system's
+        sheet, the application quit and its own data erased (`{reset: {id}}`). */
+    resetApplication: (id: string, options?: CallOptions) => st({ resetApplication: { id } }, options),
+  };
+
+  const bk = call('backup');
+  /**
+   * Backups (docs/adr/0059-backups.mdx): the backup service's state, followed as `{backup: State}`
+   * (`{backup: null}` while the service is not there; State: `{automatic, destinations, excluded,
+   * running, lastBackup, nextBackup, held, administrator, inMenuBar}`), told to the shell (its
+   * `shell` grant: the menu bar's backup item) and Settings (`settings`: its Backups page). Both back
+   * up now and skip a backup; Settings alone lists the disks that can be added, adds a disk or a
+   * share, removes a destination, sets the excluded items and Back Up Automatically. Each cites the
+   * press that asked; the service decides who is an administrator.
+   */
+  const backup = {
+    available,
+    /** The backup service's state as the session tells it, asked as it is first followed. */
+    state: state.backup as Followed<{ backup: Json | null }>,
+    /** Backs up now, to every destination. */
+    backUpNow: (options?: CallOptions) => bk({ backupNow: {} }, options),
+    /** Skips the backup running. */
+    stop: (options?: CallOptions) => bk({ backupStop: {} }, options),
+    /** The disks that can be added as a destination (Settings alone). */
+    disks: (options?: CallOptions) => bk({ backupDisks: {} }, options),
+    /** Adds the disk `uuid`, encrypted with `password` (null: not encrypted). */
+    addDisk: (uuid: string, password: string | null, options?: CallOptions) =>
+      bk({ backupAddDisk: { uuid, password } }, options),
+    /** Adds the network share `share`, signed in to with `sharePassword`, encrypted with `password`. */
+    addShare: (share: string, sharePassword: string | null, password: string | null, options?: CallOptions) =>
+      bk({ backupAddShare: { share, sharePassword, password } }, options),
+    /** Removes the destination `id`; its backups stay on it. */
+    remove: (id: string, options?: CallOptions) => bk({ backupRemove: { id } }, options),
+    /** The items of the home left out of every backup. */
+    setExcluded: (paths: readonly string[], options?: CallOptions) =>
+      bk({ backupExcluded: { paths: [...paths] } }, options),
+    /** Back Up Automatically, on or off. */
+    setAutomatic: (enabled: boolean, options?: CallOptions) => bk({ backupAutomatic: { enabled } }, options),
   };
 
   /** Installing, updating and removing applications (ADR 0030, decision 9): the `store` grant. */
@@ -149,7 +213,30 @@ export function createFrameworks(session: Session) {
     open: (id: string, options?: CallOptions) => sto({ open: { id } }, options),
   };
 
-  return { network, bluetooth, power, audio, settings, store };
+  /**
+   * The machine's use and every process's (docs/adr/0063-activity-monitor.mdx): the `activity`
+   * grant (Activity Monitor). `sample` is followed: its first follower begins the session's
+   * sampling of `setView`'s view, every two seconds while the follower's window is shown, and its
+   * last ends it. A process is named by its pid and its start (`started`, as a sample gives it).
+   */
+  const act = call('activity');
+  const activity = {
+    available,
+    /** The machine's use and every process's, sampled every two seconds while followed. */
+    sample: state.activity as Followed<Json>,
+    /** Which view the samples are of: what its columns need (`cpu`, `memory`, `energy`, ...). */
+    setView: (view: ActivityView) => session.activityView(view),
+    /** Quits one of the person's processes, citing the press that confirmed it (SIGKILL with `force`). */
+    quit: (pid: number, started: number, force: boolean, options?: CallOptions) =>
+      act({ activityQuit: { pid, started, force } }, options),
+    /** Quits an application the session launched, as the dock does (`force`: Force Quit). */
+    quitApp: (id: string, force: boolean, options?: CallOptions) => act({ activityQuitApp: { id, force } }, options),
+    /** One process's details: its parent, memory, open files and ports, control group. */
+    inspect: (pid: number, started: number, options?: CallOptions) =>
+      act({ activityInspect: { pid, started } }, options),
+  };
+
+  return { network, bluetooth, power, audio, settings, backup, store, activity };
 }
 
 export type Frameworks = ReturnType<typeof createFrameworks>;

@@ -27,6 +27,8 @@ export interface Account {
   readonly handle: string;
   readonly displayName?: string;
   readonly avatar?: string;
+  /** The account's languages (locales, primary first). */
+  readonly languages?: readonly string[];
 }
 /** The session: signed in (with its account), signed out, or the service unavailable. */
 export interface AccountState {
@@ -46,6 +48,10 @@ export interface AccessToken {
 const UNAVAILABLE: AccountState = Object.freeze({ status: 'unavailable', account: null, online: false });
 const REASONS = new Set<string>(['boot', 'preflight', 'response-401']);
 
+/** The account's languages, kept only as a list of strings. */
+const isLanguages = (languages: unknown): languages is string[] =>
+  Array.isArray(languages) && languages.every((language) => typeof language === 'string');
+
 /** The service's snapshot read strictly; anything that is not one is the service unavailable. */
 export function accountStateOf(told: unknown): AccountState {
   if (typeof told !== 'object' || told === null) return UNAVAILABLE;
@@ -63,6 +69,7 @@ export function accountStateOf(told: unknown): AccountState {
       handle: given.handle,
       ...(typeof given.displayName === 'string' ? { displayName: given.displayName } : {}),
       ...(typeof given.avatar === 'string' ? { avatar: given.avatar } : {}),
+      ...(isLanguages(given.languages) ? { languages: Object.freeze([...given.languages]) } : {}),
     });
   }
   if ((status === 'signed_in') !== (kept !== null)) return UNAVAILABLE;

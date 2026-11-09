@@ -34,6 +34,9 @@ bool Files::started() {
     const auto& launch = LaunchCapabilities::current();
     uint32_t flags = (launch.allows("network") ? 0 : OXYOS_FILES_NO_NETWORK) |
                      (launch.allows("files") ? 0 : OXYOS_FILES_NO_PERSONS_FILES);
+    // The person's backups hold everything their home ever held: only with `files`
+    // (docs/adr/0059-backups.mdx), which the service then refuses as `not-permitted`.
+    if (!launch.allows("files")) flags |= OXYOS_FILES_NO_BACKUPS;
     files_ = oxyos_files_new_with(appId_.empty() ? nullptr : appId_.data(), appId_.size(),
                                   bundleDirectory_.empty() ? nullptr : bundleDirectory_.data(),
                                   bundleDirectory_.size(), flags);
