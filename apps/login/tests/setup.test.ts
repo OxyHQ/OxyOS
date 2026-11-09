@@ -8,9 +8,11 @@ import {
   pageOf,
   pagesFor,
   pinOptional,
+  secondsLeft,
   platformFrom,
   stageFrom,
   usablePin,
+  waitFrom,
 } from "../src/setup.ts";
 import { loginMessages } from "../src/messages.ts";
 
@@ -93,6 +95,7 @@ test("Back goes to the page before, past the sign-in gives it up, and never whil
 test("a stage is one the service names, else none", () => {
   assert.equal(stageFrom("preparing"), "preparing");
   assert.equal(stageFrom("starting"), "starting");
+  assert.equal(stageFrom("confirming"), "confirming", "the credential confirmed with Oxy, the service's last");
   assert.equal(stageFrom("redeeming"), null);
   assert.equal(stageFrom(3), null);
 });
@@ -175,4 +178,26 @@ test("Transfer Your Data comes after the welcome on the first account, and migra
     null,
   );
   assert.deepEqual(backFrom({ step: "migrate", migrate: { step: "failed", problem: "clash" } }, true, true), { step: "transfer" });
+});
+
+test("a wait Oxy asks for is a time it ends, inside the QR's ten minutes, else none", () => {
+  assert.equal(waitFrom(12, 1_000), 13_000);
+  assert.equal(waitFrom(2.2, 0), 3_000, "rounded up: never sooner than asked");
+  assert.equal(waitFrom(0, 5), 5);
+  for (const told of [-1, 601, Number.NaN, Infinity, "12", null, undefined]) assert.equal(waitFrom(told, 0), null, String(told));
+});
+
+test("the seconds left are whole and never zero while it lasts", () => {
+  assert.equal(secondsLeft(13_000, 1_000), 12);
+  assert.equal(secondsLeft(13_000, 12_100), 1);
+  assert.equal(secondsLeft(13_000, 13_500), 1);
+});
+
+test("a wait is said calmly, in both languages", () => {
+  assert.equal(loginMessages("en").setup.waiting(12), "Oxy is busy right now. Setup goes on by itself in 12 seconds.");
+  assert.equal(loginMessages("en").setup.waiting(1), "Oxy is busy right now. Setup goes on by itself in 1 second.");
+  assert.equal(
+    loginMessages("es").setup.waiting(12),
+    "Oxy está ocupado ahora mismo. La configuración seguirá sola en 12 segundos.",
+  );
 });

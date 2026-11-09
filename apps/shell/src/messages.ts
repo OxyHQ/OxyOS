@@ -94,6 +94,9 @@ const en = (f: Formats) => ({
     /** The clock's hint: what pressing it does, which its name (the date and time) does not say. */
     clockHint: "Opens Notification Center",
   },
+  /** The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10), as a
+      Mac's menu bar says "Safe Boot". */
+  safeMode: "Safe Mode",
   /** The input sources (docs/adr/0041-input-methods.mdx): the top bar's item, its menu, and what
       is said of a switch. */
   inputSources: {
@@ -196,6 +199,63 @@ const en = (f: Formats) => ({
     noSignificant: "No Apps Using Significant Energy",
     settings: "Battery Settings…",
     lowPower: "Low Power Mode",
+  },
+  /** The menu bar's backup item and its menu (docs/adr/0059-backups.mdx, backup.ts). */
+  backup: {
+    /** The item's name and its menu's. */
+    title: "Backups",
+    backingUp: "Backing Up…",
+    preparing: "Preparing Backup…",
+    cleaningUp: "Cleaning Up…",
+    checking: "Verifying Backups…",
+    /** How far a backup is: "12.3 MB of 240 MB", then the time left after a dash. */
+    progress: (done: string, total: string) => `${done} of ${total}`,
+    progressRemaining: (done: string, total: string, remaining: string) => `${done} of ${total} – ${remaining}`,
+    lessThanAMinute: "Less than a minute remaining",
+    minutesRemaining: (minutes: number) =>
+      f.plural(minutes, { one: "About 1 minute remaining", other: `About ${f.number(minutes)} minutes remaining` }),
+    hoursRemaining: (hours: number) =>
+      f.plural(hours, { one: "About 1 hour remaining", other: `About ${f.number(hours)} hours remaining` }),
+    daysRemaining: (days: number) =>
+      f.plural(days, { one: "About 1 day remaining", other: `About ${f.number(days)} days remaining` }),
+    latestTo: (name: string) => `Latest Backup to “${name}”:`,
+    today: (time: string) => `Today, ${time}`,
+    yesterday: (time: string) => `Yesterday, ${time}`,
+    on: (date: string, time: string) => `${date}, ${time}`,
+    noBackups: "No Backups Yet",
+    failed: "Latest Backup Failed",
+    /** Why the latest backup failed, as the service names it; any other is `failed`'s. */
+    reasons: {
+      full: "The backup disk is full.",
+      unreachable: "The computer with the share could not be reached.",
+      shareRefused: "The share did not accept the user name or password.",
+      wrongPassword: "The backup password was not accepted.",
+      inUse: "The backup is in use by another computer.",
+      noBackup: "The backup could not be found.",
+      damaged: "The backups could not be verified.",
+      failed: "The backup could not be completed.",
+    },
+    diskNotConnected: "Backup Disk Not Connected",
+    notAvailable: "Backup Not Available",
+    held: "Waiting for Low Power Mode to Turn Off",
+    backUpNow: "Back Up Now",
+    skip: "Skip This Backup",
+    browse: "Browse Backups",
+    settings: "Open Backups Settings…",
+    /** The item's value, as a screen reader says it. */
+    saidBackingUp: (percent: string) => `Backing up, ${percent}`,
+    saidPreparing: "Preparing backup",
+    saidCleaningUp: "Cleaning up",
+    saidChecking: "Verifying backups",
+    saidToday: (time: string) => `Latest backup today, ${time}`,
+    saidYesterday: (time: string) => `Latest backup yesterday, ${time}`,
+    saidOn: (date: string, time: string) => `Latest backup on ${date}, ${time}`,
+    saidNone: "No backups yet",
+    saidFailed: "Latest backup failed",
+    /** Sizes, in decimal units as a Mac shows them. */
+    bytes: (count: number) => f.plural(count, { one: "1 byte", other: `${f.number(count)} bytes` }),
+    size: (value: string, unit: string) => `${value} ${unit}`,
+    units: ["KB", "MB", "GB", "TB"] as readonly string[],
   },
   /** The Control Center's modules. */
   controlCenter: {
@@ -525,6 +585,31 @@ const en = (f: Formats) => ({
     bluetoothOtherFailure: "Make sure it's turned on and nearby.",
     /** A code said digit by digit: "Code: 1 2 3 4 5 6". */
     bluetoothCodeSaid: (digits: string) => `Code: ${digits}`,
+    /** An application asks to save a login it used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+        decision 5): its name, then the username (and the website it names). */
+    savePassword: (name: string) => `Save password for ${name}?`,
+    savePasswordNote: "It's kept in your Oxy account's keychain, end-to-end encrypted, and filled in for you next time.",
+    save: "Save",
+    notNow: "Not Now",
+    /** An application that quit unexpectedly, and resetting one (docs/adr/0061). */
+    crash: (name: string) => `${name} quit unexpectedly`,
+    crashBody: "You can reopen it, or see what it reported.",
+    crashAgain: (name: string) => `${name} keeps quitting unexpectedly`,
+    crashAgainBody: (times: number) =>
+      `It quit ${f.number(times)} times in the last 10 minutes. If it keeps quitting, resetting it may help.`,
+    reopen: "Reopen",
+    ignore: "Ignore",
+    resetButtonEllipsis: "Reset…",
+    reportButton: "Report…",
+    reportTitle: (name: string) => `What ${name} reported`,
+    copy: "Copy",
+    copied: "Copied",
+    done: "Done",
+    reset: (name: string) => `Reset “${name}”?`,
+    resetBody: (name: string) =>
+      `${name}'s data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.`,
+    resetQuits: (name: string) => `${name} will quit first.`,
+    resetButton: "Reset",
     /** A size's units, from bytes up. */
     units: ["bytes", "KB", "MB", "GB"] as readonly string[],
     /** Each capability's name, and what an application asking for it would do. */
@@ -574,6 +659,7 @@ const es = (f: Formats): Catalogue => ({
     connected: "Conectado",
     clockHint: "Abre el centro de notificaciones",
   },
+  safeMode: "Modo seguro",
   inputSources: {
     item: "Fuente de entrada",
     pinyin: "Pinyin – Simplificado",
@@ -657,6 +743,57 @@ const es = (f: Formats): Catalogue => ({
     noSignificant: "No hay apps que consuman mucha energía",
     settings: "Ajustes de Batería…",
     lowPower: "Modo de bajo consumo",
+  },
+  backup: {
+    title: "Copias de seguridad",
+    backingUp: "Realizando copia de seguridad…",
+    preparing: "Preparando copia de seguridad…",
+    cleaningUp: "Limpiando…",
+    checking: "Verificando copias de seguridad…",
+    progress: (done, total) => `${done} de ${total}`,
+    progressRemaining: (done, total, remaining) => `${done} de ${total} – ${remaining}`,
+    lessThanAMinute: "Queda menos de un minuto",
+    minutesRemaining: (minutes) =>
+      f.plural(minutes, { one: "Queda 1 minuto aproximadamente", other: `Quedan unos ${f.number(minutes)} minutos` }),
+    hoursRemaining: (hours) =>
+      f.plural(hours, { one: "Queda 1 hora aproximadamente", other: `Quedan unas ${f.number(hours)} horas` }),
+    daysRemaining: (days) =>
+      f.plural(days, { one: "Queda 1 día aproximadamente", other: `Quedan unos ${f.number(days)} días` }),
+    latestTo: (name) => `Última copia de seguridad en “${name}”:`,
+    today: (time) => `Hoy, ${time}`,
+    yesterday: (time) => `Ayer, ${time}`,
+    on: (date, time) => `${date}, ${time}`,
+    noBackups: "Todavía no hay copias de seguridad",
+    failed: "La última copia de seguridad ha fallado",
+    reasons: {
+      full: "El disco de copia de seguridad está lleno.",
+      unreachable: "No se ha podido conectar con el ordenador del recurso compartido.",
+      shareRefused: "El recurso compartido no ha aceptado el usuario o la contraseña.",
+      wrongPassword: "No se ha aceptado la contraseña de la copia de seguridad.",
+      inUse: "Otro ordenador está usando la copia de seguridad.",
+      noBackup: "No se ha encontrado la copia de seguridad.",
+      damaged: "No se han podido verificar las copias de seguridad.",
+      failed: "No se ha podido completar la copia de seguridad.",
+    },
+    diskNotConnected: "El disco de copia de seguridad no está conectado",
+    notAvailable: "La copia de seguridad no está disponible",
+    held: "Esperando a que se desactive el modo de bajo consumo",
+    backUpNow: "Hacer copia de seguridad ahora",
+    skip: "Omitir esta copia de seguridad",
+    browse: "Explorar copias de seguridad",
+    settings: "Abrir ajustes de Copias de seguridad…",
+    saidBackingUp: (percent) => `Realizando copia de seguridad, ${percent}`,
+    saidPreparing: "Preparando copia de seguridad",
+    saidCleaningUp: "Limpiando",
+    saidChecking: "Verificando copias de seguridad",
+    saidToday: (time) => `Última copia de seguridad hoy, ${time}`,
+    saidYesterday: (time) => `Última copia de seguridad ayer, ${time}`,
+    saidOn: (date, time) => `Última copia de seguridad el ${date}, ${time}`,
+    saidNone: "Todavía no hay copias de seguridad",
+    saidFailed: "La última copia de seguridad ha fallado",
+    bytes: (count) => f.plural(count, { one: "1 byte", other: `${f.number(count)} bytes` }),
+    size: (value, unit) => `${value} ${unit}`,
+    units: ["KB", "MB", "GB", "TB"],
   },
   controlCenter: {
     wifiNetworks: "Redes Wi-Fi",
@@ -956,6 +1093,28 @@ const es = (f: Formats): Catalogue => ({
     bluetoothTimeout: "Asegúrate de que está encendido, cerca y en modo de enlace.",
     bluetoothOtherFailure: "Asegúrate de que está encendido y cerca.",
     bluetoothCodeSaid: (digits) => `Código: ${digits}`,
+    savePassword: (name) => `¿Guardar la contraseña para ${name}?`,
+    savePasswordNote: "Se guarda en el llavero de tu cuenta Oxy, cifrado de extremo a extremo, y se rellena por ti la próxima vez.",
+    save: "Guardar",
+    notNow: "Ahora no",
+    crash: (name) => `${name} se cerró inesperadamente`,
+    crashBody: "Puedes volver a abrirla o ver lo que informó.",
+    crashAgain: (name) => `${name} sigue cerrándose inesperadamente`,
+    crashAgainBody: (times) =>
+      `Se ha cerrado ${f.number(times)} veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar.`,
+    reopen: "Volver a abrir",
+    ignore: "Ignorar",
+    resetButtonEllipsis: "Restablecer…",
+    reportButton: "Informe…",
+    reportTitle: (name) => `Lo que informó ${name}`,
+    copy: "Copiar",
+    copied: "Copiado",
+    done: "Listo",
+    reset: (name) => `¿Restablecer “${name}”?`,
+    resetBody: (name) =>
+      `Se borrarán los datos y los ajustes de ${name} en este ordenador, y se abrirá como nueva. Tus documentos y archivos, y tus contraseñas, se conservan.`,
+    resetQuits: (name) => `Antes se cerrará ${name}.`,
+    resetButton: "Restablecer",
     units: ["bytes", "kB", "MB", "GB"],
     capabilities: {
       network: ["Internet", "conectarse a Internet"],

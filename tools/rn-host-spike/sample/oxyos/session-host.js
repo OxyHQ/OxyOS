@@ -20,6 +20,10 @@ export const ACCOUNT_SETTINGS_URL = 'oxyos-settings://oxy-account';
 const REASONS = new Set(['boot', 'preflight', 'response-401']);
 const ACTIONS = new Set(['sign_in', 'switch_account', 'sign_out', 'manage_account']);
 
+/** The account's languages (locales, primary first), kept only as a list of strings. */
+const isLanguages = (languages) => Array.isArray(languages)
+  && languages.every((language) => typeof language === 'string');
+
 /** A snapshot of the service's, kept only if it is one; anything else is none. */
 function snapshotOf(told) {
   if (typeof told !== 'object' || told === null) return null;
@@ -34,6 +38,7 @@ function snapshotOf(told) {
       handle: account.handle,
       ...(typeof account.displayName === 'string' ? { displayName: account.displayName } : {}),
       ...(typeof account.avatar === 'string' ? { avatar: account.avatar } : {}),
+      ...(isLanguages(account.languages) ? { languages: Object.freeze([...account.languages]) } : {}),
     });
   }
   if ((status === 'signed_in') !== (kept !== null)) return null;
@@ -67,16 +72,16 @@ export function createSessionHost(native = TurboModuleRegistry.get('OxyOSAccount
   const tell = () => {
     for (const listener of [...listeners]) listener();
   };
-  // Followed on one connection the service keeps. Once it ends (the service went away), the session
-  // is unavailable until the application next asks for a token, which follows it again: nothing
-  // wakes an idle application to look.
+  // Followed on one connection the service keeps. The host follows it again by itself when it ends
+  // (the service restarted under the application), and says null only if it stays unfollowed for
+  // more than a few seconds: the session is unavailable then, until a snapshot comes again.
   let following = false;
   const follow = () => {
     following = native.subscribe();
     if (!following && take(null)) tell();
   };
   events.addListener('OxyOSAccountSessionChanged', (told) => {
-    if (told === null) following = false;
+    following = told !== null;
     if (take(told)) tell();
   });
   follow();

@@ -2,6 +2,7 @@
 
 #include <folly/json.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <memory>
@@ -76,17 +77,45 @@ bool AccountSession::subscribe(std::function<void(const folly::dynamic&)> change
     changed_ = std::move(changed);
     return true;
   }
+  changed_ = std::move(changed);
   subscription_ = oxyos_account_session_subscribe();
   if (!subscription_) {
-    std::cerr << "[host] the Oxy session: " << oxyos_last_error() << "\n";
+    // The service is not there: followed by itself once it is; the caller knows it is not now.
+    if (!endedAt_) std::cerr << "[host] the Oxy session: " << oxyos_last_error() << "; following it once it is there\n";
+    unreachable_ = true;
+    ended();
+    toldEnded_ = true;
     return false;
   }
-  changed_ = std::move(changed);
   return true;
 }
 
 int AccountSession::subscriptionFd() const {
   return subscription_ ? oxyos_account_session_subscription_fd(subscription_) : -1;
+}
+
+namespace {
+// How long the snapshot may not be followed before JavaScript is told (a service restarting is
+// back well within it).
+constexpr std::chrono::seconds kEndedGrace{3};
+constexpr std::chrono::milliseconds kResubscribeFirst{500};
+constexpr std::chrono::seconds kResubscribeMost{30};
+}  // namespace
+
+void AccountSession::ended() {
+  auto now = std::chrono::steady_clock::now();
+  if (!endedAt_) endedAt_ = now;
+  auto wait = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+      kResubscribeFirst * (1LL << std::min(resubscribeTries_, 16)));
+  resubscribeAt_ = now + std::min<std::chrono::steady_clock::duration>(wait, kResubscribeMost);
+  resubscribeTries_ += 1;
+}
+
+std::optional<std::chrono::steady_clock::time_point> AccountSession::nextDeadline() const {
+  if (subscription_ || !changed_) return std::nullopt;
+  std::optional<std::chrono::steady_clock::time_point> next = resubscribeAt_;
+  if (endedAt_ && !toldEnded_ && (!next || *endedAt_ + kEndedGrace < *next)) next = *endedAt_ + kEndedGrace;
+  return next;
 }
 
 void AccountSession::run(std::function<Answer()> job, Done done) {
@@ -136,6 +165,35 @@ void AccountSession::eraseAll(std::string password, Done done) {
         std::string buffer(kMessage, '\0');
         auto answer = answered(oxyos_account_session_erase_all(secret->c_str(), buffer.data(), buffer.size()), buffer);
         forget(*secret);
+        return answer;
+      },
+      std::move(done));
+}
+
+void AccountSession::keychain(std::string request, Done done) {
+  auto secret = std::make_shared<std::string>(std::move(request));
+  run(
+      [secret] {
+        std::string buffer(kMessage, '\0');
+        auto answer = answered(oxyos_account_session_keychain(secret->c_str(), buffer.data(), buffer.size()), buffer);
+        forget(*secret);
+        return answer;
+      },
+      std::move(done));
+}
+
+void AccountSession::savePassword(std::string username, std::string password, std::string domain, Done done) {
+  auto secret = std::make_shared<std::array<std::string, 3>>(
+      std::array<std::string, 3>{std::move(username), std::move(password), std::move(domain)});
+  run(
+      [secret] {
+        std::string buffer(kMessage, '\0');
+        auto& [username, password, domain] = *secret;
+        auto answer = answered(oxyos_account_session_save_password(username.c_str(), password.c_str(),
+                                                                    domain.empty() ? nullptr : domain.c_str(),
+                                                                    buffer.data(), buffer.size()),
+                               buffer);
+        for (auto& text : *secret) forget(text);
         return answer;
       },
       std::move(done));
@@ -259,6 +317,16 @@ void AccountSession::reportStages(Stage stage) {
   currentReport = stage ? std::make_unique<StageReport>(StageReport{this, std::move(stage)}) : nullptr;
   oxyos_account_enrollment_on_progress(enrollment_, currentReport ? &AccountSession::reported : nullptr,
                                        currentReport.get());
+  // A wait is told for every call that reports, by the session's own handler.
+  oxyos_account_enrollment_on_waiting(enrollment_, currentReport && waiting_ ? &AccountSession::waited : nullptr,
+                                      currentReport.get());
+}
+
+void AccountSession::waited(void* context, uint64_t seconds) {
+  auto* report = static_cast<StageReport*>(context);
+  if (!report || !report->session->waiting_) return;
+  auto told = report->session->waiting_;
+  report->session->post(Answer{}, [told, seconds](Answer&) { told(seconds); });
 }
 
 void AccountSession::reported(void* context, const char* stage) {
@@ -325,6 +393,18 @@ bool AccountSession::deliver() {
     }
     busy = true;
   }
+  // Followed again once it is time: a refusal (the session has not registered this process again
+  // yet) ends it at once, and it is tried again later.
+  auto now = std::chrono::steady_clock::now();
+  if (!subscription_ && changed_ && resubscribeAt_ && now >= *resubscribeAt_) {
+    resubscribeAt_.reset();
+    subscription_ = oxyos_account_session_subscribe();
+    if (!subscription_) {
+      unreachable_ = true;
+      ended();
+    }
+    busy = true;
+  }
   if (subscription_) {
     std::string buffer(kMessage, '\0');
     for (;;) {
@@ -332,15 +412,41 @@ bool AccountSession::deliver() {
       if (length == 0) break;
       busy = true;
       if (length < 0 || static_cast<size_t>(length) >= buffer.size()) {
-        std::cerr << "[host] the Oxy session's subscription ended: "
-                  << (length < 0 ? oxyos_last_error() : "an answer longer than a message") << "\n";
         oxyos_account_session_subscription_free(subscription_);
         subscription_ = nullptr;
+        // Followed before, or the service was away: it restarted, and refuses this process only
+        // until the session registers it again. Followed again; said once per outage.
+        if (followed_ || unreachable_) {
+          if (!endedAt_) {
+            std::cerr << "[host] the Oxy session's subscription ended: "
+                      << (length < 0 ? oxyos_last_error() : "an answer longer than a message")
+                      << "; following it again\n";
+          }
+          ended();
+          break;
+        }
+        // Refused from the start: the service does not know this process, and that does not change.
+        std::cerr << "[host] the Oxy session's subscription ended: "
+                  << (length < 0 ? oxyos_last_error() : "an answer longer than a message") << "\n";
+        toldEnded_ = true;
         if (changed_) changed_(nullptr);
         break;
       }
+      if (endedAt_ && toldEnded_) std::cerr << "[host] the Oxy session is followed again\n";
+      followed_ = true;
+      unreachable_ = false;
+      endedAt_.reset();
+      toldEnded_ = false;
+      resubscribeTries_ = 0;
+      resubscribeAt_.reset();
       if (changed_) changed_(folly::parseJson(std::string_view(buffer.data(), static_cast<size_t>(length))));
     }
+  }
+  // Not followed for longer than a restart takes: JavaScript is told, once.
+  if (!subscription_ && endedAt_ && !toldEnded_ && now >= *endedAt_ + kEndedGrace) {
+    toldEnded_ = true;
+    busy = true;
+    if (changed_) changed_(nullptr);
   }
   return busy;
 }

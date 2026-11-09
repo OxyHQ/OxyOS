@@ -3,7 +3,10 @@
 
 What must be installed is the tree's: each binary of tools/oxyos-session, tools/oxyos-login and
 tools/oxyos-accountd (src/main.rs, the package's own, and every src/bin/*.rs), their systemd units,
-PAM services (pam.d/*), sysusers and tmpfiles files. Each must be in the manifest, from where it is,
+PAM services (pam.d/*), sysusers and tmpfiles files; and for Safe Mode on a converted machine
+(docs/adr/0054-recovery-and-erasing.mdx, decision 10) the recovery's program (tools/oxyos-recovery,
+at /usr/sbin as its package installs it), each kernel-install plugin its package has and each polkit
+rule the image has, at the paths they have there. Each must be in the manifest, from where it is,
 and a PAM file where its header says it is "Installed as". Every FROM must exist (a target/release
 binary must be one of those). Prints the cargo packages a deploy builds with `--packages`.
 """
@@ -13,6 +16,12 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 STACKS = ("oxyos-session", "oxyos-login", "oxyos-accountd")
+# Safe Mode's parts on a converted machine (ADR 0054, decision 10): the recovery's program, built from
+# its package (tools/oxyos-recovery is `oxyos-recovery-tool`), where tools/image/programs installs it;
+# its package's kernel-install plugins; and the image's polkit rules, each at its place in the image.
+RECOVERY = ("oxyos-recovery-tool", "target/release/oxyos-recovery", "/usr/sbin/oxyos-recovery")
+PLUGINS = "tools/oxyos-recovery/package/usr/lib/kernel/install.d"
+POLKIT = "config/includes.chroot_after_packages/etc/polkit-1/rules.d"
 
 
 def manifest():
@@ -43,6 +52,11 @@ def required():
             header = " ".join(line.lstrip("# ") for line in path.read_text().splitlines() if line.startswith("#"))
             said = re.search(r"Installed as (/etc/pam\.d/[\w-]+)", header)
             want[str(path.relative_to(ROOT))] = (said.group(1) if said else f"/etc/pam.d/{path.name}", "0644")
+    want[RECOVERY[1]] = (RECOVERY[2], "0755")
+    for path in sorted((ROOT / PLUGINS).glob("*.install")):
+        want[str(path.relative_to(ROOT))] = (f"/usr/lib/kernel/install.d/{path.name}", "0755")
+    for path in sorted((ROOT / POLKIT).glob("*.rules")):
+        want[str(path.relative_to(ROOT))] = (f"/etc/polkit-1/rules.d/{path.name}", "0644")
     return want
 
 
@@ -54,20 +68,20 @@ def main():
         if source not in have:
             errors.append(f"{source} is not in tools/deploy/system-files")
         elif target and have[source][0] != target:
-            errors.append(f"{source} goes to {have[source][0]}, its header says {target}")
+            errors.append(f"{source} goes to {have[source][0]}, not {target}")
         elif have[source][1] != mode:
             errors.append(f"{source} is mode {have[source][1]}, not {mode}")
     built = {source for source in required() if source.startswith("target/release/")}
     for source, _, _ in entries:
         if source.startswith("target/release/"):
             if source not in built:
-                errors.append(f"{source} is no binary of {', '.join(STACKS)}")
+                errors.append(f"{source} is no binary of {', '.join(STACKS)} or the recovery's")
         elif not (ROOT / source).is_file():
             errors.append(f"{source} does not exist")
     if errors:
         sys.exit("\n".join(errors))
     if sys.argv[1:] == ["--packages"]:
-        print(" ".join(f"-p {stack}" for stack in STACKS))
+        print(" ".join(f"-p {package}" for package in (*STACKS, RECOVERY[0])))
     else:
         print(f"tools/deploy/system-files: {len(entries)} files, as the tree has them")
 

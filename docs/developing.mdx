@@ -77,7 +77,7 @@ python3 tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/sample.json
 tools/gate/run-scenarios.sh [--out DIR]
 ```
 
-It runs `tools/dev/bootstrap`, builds this tree's runtime (the Bloom host with this tree's C ABI, in a
+It runs `tools/dev/bootstrap`, builds (at the least priority, below any gate's scenarios) this tree's runtime (the Bloom host with this tree's C ABI, in a
 build directory kept per checkout, installed as runtime 1, its framework) and every package against
 it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the tree:
 
@@ -125,8 +125,11 @@ tools/deploy/deploy.sh --stage-only        # build, test and stage; send nothing
 
 `tools/deploy/system-files.py` checks the manifest against the tree (the Scenarios check runs it too):
 each binary, unit, PAM service, sysusers and tmpfiles file of `tools/oxyos-session`, `tools/oxyos-login`
-and `tools/oxyos-accountd` must be in it, and each PAM file where its own header says it is installed,
-so a new one cannot be left out of a deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
+and `tools/oxyos-accountd` must be in it, and each PAM file where its own header says it is installed;
+and for Safe Mode on a converted machine ([ADR 0054](./adr/0054-recovery-and-erasing), decision 10) the
+recovery's program (`/usr/sbin/oxyos-recovery`), each kernel-install plugin of `tools/oxyos-recovery`
+and each polkit rule of `config/`, where the image installs them; so a new one cannot be left out of a
+deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
 is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
 `astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
 it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there,
@@ -134,8 +137,11 @@ installs the runtime, the system applications, their entries and policy, the inp
 sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
 (the one before kept as `.old`), the login, accounts and PIN stack (every file of
 `tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
-units, PAM services, sysusers, tmpfiles and the ptrace scope), Inbox and Allo as development packages
-in `~/oxyos-validation`,
+units, PAM services, sysusers, tmpfiles and the ptrace scope), Safe Mode's parts (the recovery's
+program, the kernel-install plugin, the polkit rule) and, where the machine boots systemd-boot with
+kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
+safe-mode-entry sync` with what `kernel-install inspect` says; run again, it changes nothing), Inbox and
+Allo as development packages in `~/oxyos-validation`,
 checks the one-GPU rule on the machine itself, and restarts the login screen only while nobody is
 signed in (or the development session, `probar.sh` on terminal 8). The test machine needs ssh by key,
 passwordless sudo and rustup's cargo.
@@ -146,16 +152,25 @@ The **Scenarios** check runs on self-hosted runners on a machine that also does 
 keeps its priority: a pull request's on runners labelled `oxyos-gate`, the merge queue's on runners
 labelled `oxyos-merge` alone (two of them on seldon), so a merge never waits behind a pull request's
 run. `tools/gate/machine.sh`, run as root on a Debian trixie machine, prepares it, and running it
-again changes nothing that is already so:
+again changes nothing that is already so. Changed limits (`GATE_CPU_QUOTA`, `GATE_MEMORY_HIGH`,
+`GATE_MEMORY_MAX`, `GATE_RUN_MEMORY_MAX`) take effect as it runs: it writes them in the slices' units
+and gives them to every gate slice that runs now (`systemctl set-property --runtime`), since systemd
+applies a changed unit only to a slice it starts; it never restarts a slice or a runner:
 
 - the packages of `tools/dev/packages`, and QEMU with its firmware for the image's acceptance runs;
 - the gate's user, `oxyos-ci`, with no sudo but for reserving its cores. Its home holds only what
   `tools/dev/bootstrap` makes for each runner;
 - `oxyosgate.slice`, every gate's: a CPU weight of 20 against the 100 of `system.slice` (the
-  machine's own work), at most 24 CPUs and 32 GB in all. Inside it each runner has a slice of its
-  own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, sharing it evenly, each at most
-  16 GB. (No dash in the parent's name: systemd nests a slice under the part of its name before
-  one.);
+  machine's own work), at most 24 CPUs and 40 GB in all, reclaimed from 36 GB on (`GATE_MEMORY_MAX`,
+  `GATE_MEMORY_HIGH`: of seldon's 60 GB, the rest is its owner's VMs and builds'). Past 36 GB every
+  gate's processes are slowed together, whichever gate's build passed it: a 28 GB high was passed
+  hundreds of thousands of times with several gates at once. Inside it each runner has a slice of
+  its own, `oxyosgate-N.slice`, and a deploy `oxyosgate-deploy.slice`, each at most 16 GB. Their CPU
+  they share task by task (no CPU controller below `oxyosgate.slice`), so every gate's builds run at
+  the least priority (`nice 19`, `tools/gate/run-scenarios.sh`), below every gate's scenarios: a
+  build at full priority took the CPU of another gate's running scenarios, which failed late and
+  passed alone. (No dash in the parent's name: systemd nests a slice under the part of its name
+  before one.);
 - several runners (`machine.sh runner N`), whose runs share nothing they change: each works in
   `/var/lib/oxyos-gate/runner-N`, with a cache of its own (`~/.cache/oxyos-runner-N`) and a `/tmp` of
   its own;
@@ -170,11 +185,18 @@ again changes nothing that is already so:
   that port's lock (`/run/lock/oxyos-gate/port-N`), so the same scenario in two gates never
   collides. Every run has a home of its own (`regress.py`), never the user's.
 
-`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere:
+`machine.sh runner N` registers runner N with a registration token on stdin, never written anywhere,
+with both labels; `machine.sh runner N merge` registers it with `oxyos-merge` alone. Seldon's are
+runners 1 to 3 with both and 4 and 5 for the merge queue alone:
 
 ```sh
-gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token | sudo sh tools/gate/machine.sh runner 1
+token() { gh api -X POST repos/OxyHQ/OxyOS/actions/runners/registration-token --jq .token; }
+for n in 1 2 3; do token | sudo sh tools/gate/machine.sh runner $n; done
+for n in 4 5; do token | sudo sh tools/gate/machine.sh runner $n merge; done
 ```
+
+Registering a runner again (`--replace`) sets its labels to these, so a label changed by hand on
+GitHub does not outlive the next run of `machine.sh` (stop the runner first, below).
 
 ### Runners stopped only when idle, and the watchdog
 

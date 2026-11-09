@@ -56,6 +56,14 @@ jobs:
           test=$(cargo test --locked -p oxyos-install --lib --no-run --message-format=json \
             | python3 -c 'import json, sys; print(*[m["executable"] for m in map(json.loads, sys.stdin) if m.get("reason") == "compiler-artifact" and m["profile"]["test"] and m.get("executable")])')
           sudo "$test" --ignored --exact tests::sandbox::the_compilers_sandbox_runs_under_systemd
+      # The accounts service's unit, started as root with a probe in place of the service: a user set
+      # up with its home and removed in its sandbox, which once left /home read-only
+      # (tools/oxyos-accountd/src/unit_sandbox.rs).
+      - name: The accounts service's sandbox under systemd, as root
+        run: |
+          test=$(cargo test --locked -p oxyos-accountd --bin oxyos-accountd --no-run --message-format=json \
+            | python3 -c 'import json, sys; print(*[m["executable"] for m in map(json.loads, sys.stdin) if m.get("reason") == "compiler-artifact" and m["profile"]["test"] and m.get("executable")])')
+          sudo "$test" --ignored --exact unit_sandbox::the_units_sandbox_sets_a_user_up
       # The development compositor's runs through virtual devices read their own and no other
       # run's, and the seat adds a mouse plugged in and removes it unplugged (docs/adr/0042-scrolling.mdx):
       # devices only root may make in the kernel (uinput), read through udev.
@@ -76,6 +84,8 @@ jobs:
       - run: python3 scripts/check-native-boundary.py
       # regress.py's own checks (the input-delivery invariant) on records written by hand.
       - run: python3 tools/rn-host-spike/test_regress.py
+      # The scenario gate's builds below every gate's scenarios (tools/gate/run-scenarios.sh).
+      - run: python3 tools/gate/test_run_scenarios.py
       - run: cargo run --locked -p oxyos-platform-probe
 
   # The tests that run the system's useradd, chpasswd and userdel on a root of their own need

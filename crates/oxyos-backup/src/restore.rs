@@ -541,7 +541,7 @@ impl Restorer {
                         username: None,
                         display_name: Some(account.manifest.name.clone())
                             .filter(|n| !n.trim().is_empty()),
-                        avatar: None,
+                        ..Profile::default()
                     },
                     credential: None,
                     password_changed: false,

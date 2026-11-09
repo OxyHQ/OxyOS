@@ -1059,6 +1059,12 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   dim, its turning off and the machine's sleep are deadlines of the compositor's turn, as the idle
   lock's. While the displays are off nothing is composed and no client is given a frame, so what
   animates stops. In Low Power Mode every surface on a display faster than 60 Hz paces at 60.
+- **Backups add no wakeup** (8 November 2026, [ADR 0059](./adr/0059-backups)). The session's
+  backups part keeps one connection to the backup service and its follower waits on it, on Low
+  Power Mode's descriptor and on the order to stop; while the service is not there, on its socket
+  being made (inotify), never on a clock. The service tells its state only as it changes (about
+  once a second while a backup runs, restic's progress), and the menu bar's backup item never
+  animates: its hand stands at the backup's progress, still while idle.
 - **A border drawn with rounded corners visited every pixel of its box** to find the ring: 19 ms
   of a two-panel Inbox's 25 ms frame. Rows now skip the ring's hole and fill what a rounded
   rectangle covers whole at once (pixel for pixel the same).

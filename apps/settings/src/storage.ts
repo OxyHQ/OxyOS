@@ -169,6 +169,23 @@ export function largeFiles(items: readonly Record<string, unknown>[]): LargeFile
     sheet, or it failed (said). */
 export type RemoveOutcome = "removed" | "cancelled" | "failed";
 
+/** Settings itself: the session never resets an application at its own request
+    (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 5), so its row offers no
+    Reset…. */
+export const SETTINGS_ID = "so.oxy.settings";
+
+/** What a reset came to: done, the person cancelled it in the system's sheet, or it failed. */
+export type ResetOutcome = "reset" | "cancelled" | "failed";
+
+/** The session's answer to `{resetApplication}` (docs/adr/0061), read: `{reset}`, a refusal
+    `cancelled`, anything else a failure. */
+export function resetOutcomeOf(answer: unknown): ResetOutcome {
+  const told = answer as { reset?: unknown; refused?: { reason?: unknown } } | null;
+  if (told && typeof told === "object" && told.reset) return "reset";
+  if (told?.refused?.reason === "cancelled") return "cancelled";
+  return "failed";
+}
+
 /** The session's answer to an uninstall, read: `{uninstalled}`, `{cancelled}`, anything else a
     failure. */
 export function removeOutcomeOf(answer: unknown): RemoveOutcome {
@@ -240,4 +257,8 @@ export type StorageActions = {
   /** Removes an application and its data through the store's uninstall, which the person
       confirms in the system's sheet. */
   remove(id: string): Promise<RemoveOutcome>;
+  /** Resets an application (docs/adr/0061): the session erases its own data and settings, its
+      documents and the person's decisions kept, once the person confirms in the system's sheet;
+      a running one quits first. Absent where the platform cannot. */
+  reset?(id: string): Promise<ResetOutcome>;
 };

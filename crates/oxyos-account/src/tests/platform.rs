@@ -192,6 +192,10 @@ fn offline_there_is_no_token_and_the_snapshot_still_says_signed_in() {
     assert_eq!(account.id, ACCOUNT);
     assert_eq!(account.handle, USERNAME);
     assert_eq!(account.display_name.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(
+        account.languages,
+        Some(vec!["en-GB".to_owned(), "es-ES".to_owned()])
+    );
 }
 
 #[test]
@@ -216,6 +220,7 @@ fn the_snapshot_is_the_sdks_and_its_revision_changes_only_with_its_account() {
                 "handle": USERNAME,
                 "displayName": "Ada Lovelace",
                 "avatar": "avatar-file-1",
+                "languages": ["en-GB", "es-ES"],
             },
             "online": true,
         })
@@ -324,10 +329,10 @@ fn a_password_pam_rejects_that_oxy_accepts_becomes_the_verifier() {
         Checked::ACCEPTED
     );
     assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
-    // The platform's own sign-in, which rotated the credential.
+    // The platform's own sign-in, which rotated the credential, confirmed (R8).
     assert_eq!(
         machine.api().calls(),
-        [Call::Mint, Call::Profile, Call::Password]
+        [Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     assert_eq!(
         machine.stored().credential.unwrap().device_secret.expose(),
@@ -632,4 +637,46 @@ fn mints_are_rationed_per_application() {
         .platform
         .token(uid, &Attestation::OwnPlatform, TokenReason::Boot)
         .is_some());
+}
+
+#[test]
+fn a_rotation_oxy_could_not_confirm_keeps_the_credential_the_machine_had() {
+    const NEW: &str = "a new password set elsewhere";
+    let machine = machine_as(
+        FakeApi {
+            password: NEW,
+            ..FakeApi::default()
+        },
+        NEW,
+        None,
+    );
+    let before = machine.stored().credential.unwrap().device_secret;
+    machine
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    // The password was changed elsewhere: Oxy accepts the new one, which becomes the verifier,
+    // and the rotation waits for another check.
+    let name = account().user_name();
+    machine
+        .users()
+        .users
+        .lock()
+        .unwrap()
+        .get_mut(name.as_str())
+        .unwrap()
+        .1 = Some(PASSWORD.into());
+    assert_eq!(
+        machine
+            .platform
+            .check(&user(), Secret::new(NEW), Local::Rejected),
+        Checked::ACCEPTED
+    );
+    assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
+    assert_eq!(machine.stored().credential.unwrap().device_secret, before);
+    // The credential the machine has still works: the rotated one was never confirmed (R8).
+    assert!(machine.api().live().contains(&before.expose().to_owned()));
+    assert!(machine.api().is_pending(&platform_secret(2)));
 }

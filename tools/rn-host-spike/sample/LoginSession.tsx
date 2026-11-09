@@ -8,9 +8,10 @@
  * as one. Adding an account is the setup assistant in the Oxy SDK's own frame with its own sign-in
  * (SetupAssistant.tsx), which hands the credential, the password and the PIN chosen to the
  * accounts' service through the host (`OxyOSAccountSession`), never keeping any of them here, the
- * service's stages told as they come (`OxyOSAccountSetupStage`). At the first setup, the
- * assistant's Transfer Your Data step migrates from a backup through the host (`OxyOSMigration`,
- * docs/adr/0059-backups.mdx), the backup password going straight on to the migration service.
+ * service's stages told as they come (`OxyOSAccountSetupStage`) and a wait Oxy asked for
+ * (`OxyOSAccountSetupWaiting`). At the first setup, the assistant's Transfer Your Data step
+ * migrates from a backup through the host (`OxyOSMigration`, docs/adr/0059-backups.mdx), the backup
+ * password going straight on to the migration service.
  */
 import * as React from 'react';
 import { DeviceEventEmitter, StyleSheet, TurboModuleRegistry, View } from 'react-native';
@@ -24,9 +25,10 @@ import {
   type LoginActions,
   type MigrationActions,
   type SetupActions,
+  type SetupProgress,
 } from '../../../apps/login/src/LoginScreen';
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
-import { enrollAnswerFrom, platformFrom, stageFrom, type SetupStage } from '../../../apps/login/src/setup';
+import { enrollAnswerFrom, platformFrom, stageFrom } from '../../../apps/login/src/setup';
 import { SetupAssistantFrame } from './SetupAssistant';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
@@ -61,16 +63,24 @@ const accountSession = TurboModuleRegistry.get<{
   endEnrollment(): void;
 }>('OxyOSAccountSession');
 
-/** A call of the setup, its stages told to `onStage` while it runs. */
-async function withStages(call: () => Promise<unknown>, onStage: (stage: SetupStage) => void) {
-  const listener = DeviceEventEmitter.addListener('OxyOSAccountSetupStage', (event: { stage?: unknown }) => {
+/** A call of the setup, what the service tells as it goes given to `progress` while it runs: its
+    stages (`OxyOSAccountSetupStage`) and a wait Oxy asked for (`OxyOSAccountSetupWaiting`). */
+async function withProgress(call: () => Promise<unknown>, progress: SetupProgress) {
+  const stages = DeviceEventEmitter.addListener('OxyOSAccountSetupStage', (event: { stage?: unknown }) => {
     const stage = stageFrom(event?.stage);
-    if (stage) onStage(stage);
+    if (stage) progress.stage(stage);
   });
+  const waits = DeviceEventEmitter.addListener(
+    'OxyOSAccountSetupWaiting',
+    (event: { retryAfterSeconds?: unknown }) => {
+      if (typeof event?.retryAfterSeconds === 'number') progress.waiting(event.retryAfterSeconds);
+    },
+  );
   try {
     return enrollAnswerFrom(await call());
   } finally {
-    listener.remove();
+    stages.remove();
+    waits.remove();
   }
 }
 
@@ -80,15 +90,15 @@ const setupActions: SetupActions | undefined =
     ? {
         platform: () => platformFrom(accountSession.platform()),
         Assistant: SetupAssistantFrame,
-        enroll: ({ password, pin, appearance }, onStage) => {
+        enroll: ({ password, pin, appearance }, progress) => {
           // What the setup sends, for the log; never the secrets.
           console.info(`[setup] enroll with ${password ? 'the password' : 'no password'} and ${pin ? 'a PIN' : 'no PIN'}, ${appearance}`);
-          return withStages(() => accountSession.enroll(password, pin, appearance), onStage);
+          return withProgress(() => accountSession.enroll(password, pin, appearance), progress);
         },
-        secondFactor: (code, onStage) => withStages(() => accountSession.secondFactor(code), onStage),
-        retry: (onStage) => {
+        secondFactor: (code, progress) => withProgress(() => accountSession.secondFactor(code), progress),
+        retry: (progress) => {
           console.info('[setup] try again with what the service kept');
-          return withStages(() => accountSession.retryEnrollment(), onStage);
+          return withProgress(() => accountSession.retryEnrollment(), progress);
         },
         end: () => accountSession.endEnrollment(),
       }
@@ -153,7 +163,14 @@ export default function LoginSession() {
           <Wallpaper wallpaper={wallpaper} decorative />
           {state?.locked && (
             <Surface kind="lock" style={StyleSheet.absoluteFill}>
-              <LoginScreen accounts={accounts} actions={actions} wallpaper={wallpaper} now={now} Masked={Masked} />
+              <LoginScreen
+                accounts={accounts}
+                actions={actions}
+                wallpaper={wallpaper}
+                now={now}
+                Masked={Masked}
+                safeMode={state?.safeMode === true}
+              />
             </Surface>
           )}
         </View>

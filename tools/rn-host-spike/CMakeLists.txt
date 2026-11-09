@@ -283,7 +283,7 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/intl.js OXYOS_INTL_JS)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/intl-js.h.in ${CMAKE_CURRENT_BINARY_DIR}/intl-js.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/intl.js)
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-gpu.cpp android-view-props.cpp damage.cpp host-modules.cpp application.cpp account-session.cpp migration.cpp files.cpp clipboard.cpp images.cpp svg-image.cpp network.cpp websocket.cpp worklets-host.cpp intl.cpp
-  reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
+  reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
   gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp

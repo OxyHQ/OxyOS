@@ -7,7 +7,9 @@
 //!   session's snapshot, follows it, and asks for a short token for itself. Settings may ask the
 //!   service to remove its own account from the machine, or to erase the machine
 //!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx)): what erasing would do, then the
-//!   erase itself with the administrator's password.
+//!   erase itself with the administrator's password. Any application may ask to save a login it
+//!   has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): the service
+//!   asks the person in the session's sheet, and saves it only on their yes.
 //! - **Setting an account up, for the login screen** (decision 4): the control socket's `platform`
 //!   (Oxy's API and OxyOS's public client id, which the SDK's sign-in runs with) and the `enroll`
 //!   conversation, a second factor answered on the same connection.
@@ -22,6 +24,7 @@
 use super::fail;
 use oxyos_account::erase::{ErasePreview, Erasing};
 use oxyos_account::ipc::{self, Connection};
+use oxyos_account::keychain;
 use oxyos_account::platform;
 pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
 use oxyos_account::session;
@@ -46,6 +49,10 @@ const ERASE_PREVIEW_WAIT: Duration = Duration::from_secs(10);
 /// armed by its unit, every account signed out online at once, each within the service's HTTP
 /// bounds (two calls of at most 30 s).
 const ERASE_WAIT: Duration = Duration::from_secs(180);
+/// How long a save may take: the person is asked in the session's sheet, for at most two minutes
+/// (`oxyos_account::session::SAVE_WAIT`), then the login is written to Oxy (two calls of at most
+/// 30 s).
+const SAVE_WAIT: Duration = Duration::from_secs(200);
 /// How long `platform` may take.
 const PLATFORM_WAIT: Duration = Duration::from_secs(5);
 /// How long a setup's turn may take: a sign-in online and the user made.
@@ -313,6 +320,128 @@ pub fn erase_all_at(socket: &Path, password: Secret) -> Result<EraseAnswer, Sess
     }
 }
 
+/// How long a keychain request may take: a write, a join, an approval or a removal asks Oxy (each
+/// call within the service's HTTP bounds, a conflict written twice), a verification runs Argon2id.
+const KEYCHAIN_WAIT: Duration = Duration::from_secs(120);
+
+/// Whether `request` is one of Settings' keychain requests ([ADR 0050](../../docs/adr/0050-keychain-autofill-and-passkeys.mdx),
+/// decision 8): the keychain's, never the registrar's (AutoFill, the lock) nor anything else.
+fn settings_keychain_request(request: &session::Request) -> bool {
+    keychain::is_keychain_request(request) && !keychain::is_registrar_request(request)
+}
+
+/// Whether `answer` is one the keychain gives Settings, or a refusal.
+fn keychain_answer(answer: &session::Answer) -> bool {
+    use session::Answer as A;
+    matches!(
+        answer,
+        A::Refused { .. }
+            | A::KeychainStatus(_)
+            | A::KeychainRecoveryKey { .. }
+            | A::KeychainEnrollment(_)
+            | A::KeychainEnrollments(_)
+            | A::KeychainApproved
+            | A::KeychainDenied
+            | A::KeychainMembers(_)
+            | A::KeychainMemberRemoved
+            | A::KeychainVerified
+            | A::KeychainItems(_)
+            | A::KeychainItem(_)
+            | A::KeychainSaved { .. }
+            | A::KeychainDeleted
+            | A::KeychainAudit(_)
+            | A::KeychainLeft
+            | A::KeychainCode(_)
+            | A::GeneratedPassword(_)
+    )
+}
+
+/// One of Settings' keychain requests, `request` (its JSON, as the service reads it), and the
+/// service's answer as JSON, read in the service's own types and written rebuilt: an answer of the
+/// keychain's or a refusal (`{"refused": {"reason", "retryAfter"?}}`, `retryAfter` only when
+/// throttled), never anything else. The request and the answer hold secrets (a password, an item,
+/// a recovery key, a code): each is kept in a buffer overwritten when dropped, and none appears in
+/// an error.
+pub fn keychain_at(socket: &Path, request: &Secret) -> Result<Zeroizing<Vec<u8>>, SessionError> {
+    let request: session::Request = serde_json::from_str(request.expose())
+        .map_err(|_| SessionError::Failed("not a keychain request".into()))?;
+    if !settings_keychain_request(&request) {
+        return Err(SessionError::Failed(
+            "not one of Settings' keychain requests".into(),
+        ));
+    }
+    let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
+    connection
+        .set_timeout(KEYCHAIN_WAIT)
+        .map_err(|error| failed(socket, error))?;
+    connection
+        .send(&request)
+        .map_err(|error| failed(socket, error))?;
+    let answer = match connection.receive::<session::Answer>() {
+        Ok(Some(Some(answer))) if keychain_answer(&answer) => answer,
+        Ok(Some(_)) => return Err(failed(socket, "not an answer of the keychain's")),
+        Ok(None) => return Err(failed(socket, "it closed the connection")),
+        Err(error) => return Err(failed(socket, error)),
+    };
+    let answer = match answer {
+        session::Answer::Refused {
+            reason,
+            retry_after,
+        } => session::Answer::Refused {
+            reason,
+            retry_after: retry_after.filter(|_| reason == session::Reason::Throttled),
+        },
+        other => other,
+    };
+    // Room for the longest message the service sends, so the buffer is never moved and left behind.
+    let mut json = Zeroizing::new(Vec::with_capacity(ipc::MAX_MESSAGE));
+    serde_json::to_writer(&mut *json, &answer)
+        .map_err(|_| SessionError::Failed("the answer could not be written".into()))?;
+    Ok(json)
+}
+
+/// What a request to save came to: saved on the person's yes, not saved (their no, no answer in
+/// time, the sheet not shown), or refused with the service's reason.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SaveAnswer {
+    Saved {},
+    NotSaved {},
+    Refused { reason: String },
+}
+
+/// Asks to save a login the calling application has just used: `username` and `password`, and the
+/// website it is for (`domain`, a host name). A refusal is an answer, not an error: the error is a
+/// service that could not be asked or answered something else.
+pub fn save_password_at(
+    socket: &Path,
+    username: Secret,
+    password: Secret,
+    domain: Option<String>,
+) -> Result<SaveAnswer, SessionError> {
+    let connection = Connection::connect(socket).map_err(|error| failed(socket, error))?;
+    connection
+        .set_timeout(SAVE_WAIT)
+        .map_err(|error| failed(socket, error))?;
+    connection
+        .send(&session::Request::SavePassword {
+            username,
+            password,
+            domain,
+        })
+        .map_err(|error| failed(socket, error))?;
+    match connection.receive::<session::Answer>() {
+        Ok(Some(Some(session::Answer::Saved {}))) => Ok(SaveAnswer::Saved {}),
+        Ok(Some(Some(session::Answer::NotSaved {}))) => Ok(SaveAnswer::NotSaved {}),
+        Ok(Some(Some(session::Answer::Refused { reason, .. }))) => Ok(SaveAnswer::Refused {
+            reason: reason_name(&reason),
+        }),
+        Ok(Some(_)) => Err(failed(socket, "not an answer to a save")),
+        Ok(None) => Err(failed(socket, "it closed the connection")),
+        Err(error) => Err(failed(socket, error)),
+    }
+}
+
 /// The snapshots as they change, on one connection the service keeps: the first at once.
 pub struct Subscription {
     connection: Connection,
@@ -435,6 +564,7 @@ pub fn stage_name(stage: Stage) -> &'static CStr {
         Stage::Preparing => c"preparing",
         Stage::SigningIn => c"signingIn",
         Stage::Finishing => c"finishing",
+        Stage::Confirming => c"confirming",
     }
 }
 
@@ -449,6 +579,8 @@ pub struct Enrollment {
     appearance: Option<Appearance>,
     /// Told each step of the setup as the service starts it.
     progress: Option<Box<dyn FnMut(Stage)>>,
+    /// Told each wait Oxy asks of the setup, in seconds.
+    waiting: Option<Box<dyn FnMut(u64)>>,
     /// The last answer, as JSON, for a caller whose buffer was too small.
     answer: String,
 }
@@ -465,6 +597,7 @@ impl Enrollment {
             started: false,
             appearance: None,
             progress: None,
+            waiting: None,
             answer: String::new(),
         })
     }
@@ -480,12 +613,19 @@ impl Enrollment {
         self.progress = Some(progress);
     }
 
+    /// `waiting` is told each wait Oxy asks of the setup (seconds), on the thread that waits for
+    /// its answer; the setup goes on after it.
+    pub fn on_waiting(&mut self, waiting: Box<dyn FnMut(u64)>) {
+        self.waiting = Some(waiting);
+    }
+
     fn turn(&mut self, request: &ipc::Request) -> Result<&str, SessionError> {
         let connection = self
             .connection
             .as_ref()
             .ok_or_else(|| SessionError::Failed("the setup has ended".into()))?;
         let progress = &mut self.progress;
+        let waiting = &mut self.waiting;
         let result = connection
             .send(request)
             .map_err(|error| failed(&self.socket, error))
@@ -494,6 +634,16 @@ impl Enrollment {
                     Ok(Some(Some(ipc::Answer::Progress(stage)))) => {
                         if let Some(progress) = progress.as_mut() {
                             progress(stage);
+                        }
+                    }
+                    Ok(Some(Some(ipc::Answer::Waiting {
+                        retry_after_seconds,
+                    }))) => {
+                        // The service waits that long before it goes on: so does the answer.
+                        let _ = connection
+                            .set_timeout(ENROLL_WAIT + Duration::from_secs(retry_after_seconds));
+                        if let Some(waiting) = waiting.as_mut() {
+                            waiting(retry_after_seconds);
                         }
                     }
                     Ok(Some(Some(answer))) => {
@@ -505,6 +655,8 @@ impl Enrollment {
                     Err(error) => break Err(failed(&self.socket, error)),
                 }
             });
+        // A wait lengthened the answer's: the next turn waits as long as any.
+        let _ = connection.set_timeout(ENROLL_WAIT);
         match result {
             Ok((json, continues)) => {
                 if !continues {
@@ -817,6 +969,92 @@ pub unsafe extern "C" fn oxyos_account_session_change_local(
     }
 }
 
+/// One of Settings' keychain requests (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision
+/// 8): `request` is its JSON as the service reads it (`{"keychainList": {}}`, `{"keychainReveal":
+/// {"itemId"}}` …; secret: copied into a buffer this library overwrites, the caller overwrites its
+/// own). Settings alone may ask (the service refuses anyone else `notPermitted`); the registrar's
+/// requests (AutoFill, the lock) are not sent. Blocks while the service answers, which may ask Oxy:
+/// call it off the interface's thread. The answer as JSON, rebuilt: one of the keychain's answers,
+/// or {"refused": {"reason", "retryAfter"? (seconds, when throttled)}}. It may hold secrets (an
+/// item, a recovery key, a code): overwrite `out` once handed on. Its length (larger than
+/// `capacity`: nothing written, and the answer is lost: give OXYOS_ACCOUNT_MESSAGE_MAX bytes), or
+/// OXYOS_ERROR (`oxyos_last_error`: not a request of Settings', or the service could not be asked
+/// or answered something else; never a secret).
+///
+/// # Safety
+/// `request` is a NUL-terminated string valid for the call; `out` points to `capacity` writable
+/// bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_keychain(
+    request: *const c_char,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let Some(request) = (unsafe { secret_arg(request) }) else {
+        return i64::from(fail("a keychain request as JSON"));
+    };
+    match keychain_at(&session_socket(), &request) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(&json, out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
+/// Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+/// decision 5): `username` and `password` (NUL-terminated UTF-8; the password secret, copied into a
+/// buffer this library overwrites: the caller overwrites its own) and the website it is for
+/// (`domain`, a host name, or null). The service asks the person in the session's sheet; blocks
+/// until they answer (at most two minutes) and the login is written: call it off the interface's
+/// thread. The answer as JSON: {"saved": {}}, {"notSaved": {}} (their no, no answer, the sheet not
+/// shown), or {"refused": {"reason"}} ("locked", "notMember": no keychain, "tooMany": one already
+/// waits, "unavailable": no session to ask in, "invalidRequest", "notPermitted", "offline", …). Its
+/// length (larger than `capacity`: nothing written, give OXYOS_ACCOUNT_MESSAGE_MAX bytes), or
+/// OXYOS_ERROR (`oxyos_last_error`: the service could not be asked or answered something else).
+///
+/// # Safety
+/// `username` and `password` are NUL-terminated strings valid for the call, `domain` one or null;
+/// `out` points to `capacity` writable bytes, or is null with `capacity` 0.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_session_save_password(
+    username: *const c_char,
+    password: *const c_char,
+    domain: *const c_char,
+    out: *mut c_char,
+    capacity: usize,
+) -> i64 {
+    if out.is_null() && capacity != 0 {
+        return i64::from(fail("null buffer"));
+    }
+    // SAFETY: the caller's contract.
+    let (Some(username), Some(password)) = (unsafe { secret_arg(username) }, unsafe {
+        secret_arg(password)
+    }) else {
+        return i64::from(fail("a save needs a username and a password"));
+    };
+    let domain = if domain.is_null() {
+        None
+    } else {
+        // SAFETY: the caller's contract.
+        match unsafe { text_arg(domain) } {
+            Some(domain) => Some(domain.to_owned()),
+            None => return i64::from(fail("a domain is UTF-8")),
+        }
+    };
+    match save_password_at(&session_socket(), username, password, domain).and_then(|answer| {
+        serde_json::to_string(&answer).map_err(|error| SessionError::Failed(error.to_string()))
+    }) {
+        // SAFETY: the caller's contract.
+        Ok(json) => unsafe { write_out(json.as_bytes(), out, capacity) },
+        Err(error) => session_fail(error),
+    }
+}
+
 /// The session's snapshots as they change (see oxyos_account_session_subscription_next).
 pub struct OxyOSAccountSubscription(Subscription);
 
@@ -1060,7 +1298,7 @@ pub unsafe extern "C" fn oxyos_account_enrollment_answer(
 }
 
 /// Tells a setup's steps as the service starts them: `progress(context, stage)`, `stage` one of
-/// "securing", "verifying", "preparing", "signingIn", "finishing" (a static NUL-terminated
+/// "securing", "verifying", "preparing", "signingIn", "finishing", "confirming" (a static NUL-terminated
 /// string), called on the thread blocked in `_enroll`, `_second_factor` or `_retry`, before that
 /// call returns. Null `progress` tells nothing.
 ///
@@ -1093,6 +1331,41 @@ pub unsafe extern "C" fn oxyos_account_enrollment_on_progress(
 /// A setup's step, told as the service starts it.
 pub type OxyOSAccountEnrollmentProgressFn =
     Option<unsafe extern "C" fn(context: *mut c_void, stage: *const c_char)>;
+
+/// Tells the waits Oxy asks of a setup: `waiting(context, seconds)` when Oxy rate-limits the
+/// QR's redemption and the wait ends within its window, called on the thread blocked in `_enroll`,
+/// `_second_factor` or `_retry`, which goes on blocking through the wait and the rest of the
+/// setup. Null `waiting` tells nothing.
+///
+/// # Safety
+/// `enrollment` is one `oxyos_account_enrollment_new` returned, not freed; `waiting`, if not null,
+/// may be called with `context` from the thread that calls `_enroll`, `_second_factor` or `_retry`
+/// until the setup is freed.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_account_enrollment_on_waiting(
+    enrollment: *mut OxyOSAccountEnrollment,
+    waiting: OxyOSAccountEnrollmentWaitingFn,
+    context: *mut c_void,
+) -> c_int {
+    if enrollment.is_null() {
+        return fail("null setup");
+    }
+    // SAFETY: the caller's contract.
+    let enrollment = &mut unsafe { &mut *enrollment }.0;
+    match waiting {
+        Some(waiting) => enrollment.on_waiting(Box::new(move |seconds| {
+            // SAFETY: the caller's contract: `waiting` may be called with `context` here.
+            unsafe { waiting(context, seconds) }
+        })),
+        None => enrollment.waiting = None,
+    }
+    0
+}
+
+/// A wait Oxy asks of a setup, in seconds.
+pub type OxyOSAccountEnrollmentWaitingFn =
+    Option<unsafe extern "C" fn(context: *mut c_void, retry_after_seconds: u64)>;
 
 /// The appearance a new account's home starts with: "light", "dark" or "auto" (anything else:
 /// OXYOS_ERROR, nothing set). Before `_enroll`; an account set up again keeps its own.

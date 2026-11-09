@@ -8,6 +8,7 @@ import type {
   ShellControls,
   ShellInputMethod,
   ShellBatteryMenu,
+  ShellBackupMenu,
   ShellAutofill,
   ShellLock,
   ShellMenu,
@@ -38,11 +39,12 @@ import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
 import { AutofillWindow } from "./components/AutofillWindow";
 import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
-import type { SheetText } from "./sheet";
+import type { SheetAction, SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
 import type { ShellMessages } from "./messages";
 import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
+import { showsBackupItem } from "./backup";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -132,6 +134,7 @@ export const Shell = memo(function Shell({
   screenshots,
   inputMethod,
   battery,
+  backup,
   autofill,
 }: {
   snapshot: ShellSnapshot;
@@ -178,6 +181,11 @@ export const Shell = memo(function Shell({
     /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
         to the session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerCode?: (code: string) => void;
+    /** What else a sheet offers, pressed (an application that quit: Reset…, which asks the session
+        to reset it, docs/adr/0061-crashes-and-resetting-an-application.mdx). */
+    act?: (action: SheetAction) => void;
+    /** Puts a report's text on the clipboard, at the person's press. */
+    copy?: (text: string) => Promise<boolean> | boolean | void;
   };
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
@@ -188,6 +196,9 @@ export const Shell = memo(function Shell({
   /** The battery's menu, where the platform has the session's battery and energy
       (docs/adr/0057-battery-and-energy.mdx). */
   battery?: ShellBatteryMenu;
+  /** The menu bar's backup item, where the platform has the session's backup service
+      (docs/adr/0059-backups.mdx, decision 10). */
+  backup?: ShellBackupMenu;
   /** AutoFill, where the platform has it (docs/adr/0050-keychain-autofill-and-passkeys.mdx): its
       list at a field's caret, drawn in the candidate window's surface. */
   autofill?: ShellAutofill;
@@ -277,8 +288,8 @@ export const Shell = memo(function Shell({
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, spotlight });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, spotlight };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -509,6 +520,7 @@ export const Shell = memo(function Shell({
               now.controls?.network,
               now.inputSources,
               !!(now.battery && now.controls?.power && now.controls.power.battery !== "absent"),
+              showsBackupItem(now.backup?.state),
             ),
             request: (keys?.request ?? 0) + 1,
           }));
@@ -857,6 +869,7 @@ export const Shell = memo(function Shell({
           onKeyboardLost={keyboardLost}
         >
           <TopBar
+            safeMode={snapshot.safeMode}
             keyboardRequest={barRequest}
             keyboardLost={barLost}
             onKeyboard={setBarKeyboard}
@@ -882,6 +895,7 @@ export const Shell = memo(function Shell({
             openKeyboardSettings={inputMethod?.openKeyboardSettings}
             onInputMenuChange={inputMenuChanged}
             batteryMenu={battery}
+            backupMenu={backup}
           />
         </Surface>
         {(inputMethod || autofill) && (
@@ -1116,6 +1130,7 @@ export const Shell = memo(function Shell({
               notifications={notifications}
               applications={snapshot.applications}
               announce={platform.announce}
+              safeMode={snapshot.safeMode}
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />
@@ -1124,8 +1139,14 @@ export const Shell = memo(function Shell({
         {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question
             to the person; only the shell's press answers it. It is modal, and has the keyboard as
             a Mac's alert does: nothing typed while it asks reaches the application behind it. */}
+        {/* An application that quit (docs/adr/0061) starts on Reopen, its default button. */}
         {sheet && !lock?.locked && (
-          <Surface kind="overlay" style={WHOLE} keyboard>
+          <Surface
+            kind="overlay"
+            style={WHOLE}
+            keyboard
+            focusTarget={sheet.text.kind === "crash" && sheet.text.show === "notice" ? "system-sheet-accept" : undefined}
+          >
             <SystemSheet
               key={sheet.id}
               text={sheet.text}
@@ -1133,6 +1154,8 @@ export const Shell = memo(function Shell({
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
+              act={sheet.act}
+              copy={sheet.copy}
               keyboard={platform.keyboard}
             />
           </Surface>

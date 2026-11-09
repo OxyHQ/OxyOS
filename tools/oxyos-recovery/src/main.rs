@@ -14,6 +14,10 @@
 //! - `arm-erase`: leaves the erase request for the recovery and makes the next boot the
 //!   recovery's (`oxyos-erase.service`, which the account service starts once an administrator
 //!   confirmed *Erase All Content and Settings* with their password).
+//! - `safe-mode-entry add|remove VERSION`: Safe Mode's entry for a kernel, written beside the
+//!   kernel's own or removed with it (ADR 0054, decision 10), by OxyOS's kernel-install plugin
+//!   (`91-oxyos-safe-mode.install`); `safe-mode-entry sync`: every installed kernel's, as their
+//!   entries are (a deploy to a converted machine, `tools/deploy/remote.sh`).
 
 mod console;
 mod messages;
@@ -41,7 +45,8 @@ fn main() -> ExitCode {
         Some("arm-erase") => arm_erase(),
         Some("recovery-entry") => recovery_entry(&arguments[1..]),
         Some("rearm") => rearm(&arguments[1..]),
-        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY".into()),
+        Some("safe-mode-entry") => safe_mode_entry(&arguments[1..]),
+        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY | safe-mode-entry add|remove VERSION | sync [--boot-root DIRECTORY] [--entry-token TOKEN]".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -56,6 +61,66 @@ fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+/// Safe Mode's entry for the kernel `VERSION` (ADR 0054, decision 10): written from the kernel's
+/// own (`add`, after kernel-install wrote it) or removed with it (`remove`), on the boot loader's
+/// partition at `--boot-root` (kernel-install's `KERNEL_INSTALL_BOOT_ROOT`; /efi by default), the
+/// kernel's entry named by `--entry-token` (`KERNEL_INSTALL_ENTRY_TOKEN`; `oxyos` by default).
+/// `sync`: every installed kernel's written as its entry makes it, and one whose kernel is gone
+/// removed; run again, nothing changes.
+fn safe_mode_entry(arguments: &[String]) -> Result<(), String> {
+    let usage = "usage: oxyos-recovery safe-mode-entry add|remove VERSION | sync [--boot-root DIRECTORY] [--entry-token TOKEN]";
+    let (command, version, mut rest) = match arguments {
+        [command, rest @ ..] if command == "sync" => ("sync", "", rest),
+        [command, version, rest @ ..] => (command.as_str(), version.as_str(), rest),
+        _ => return Err(usage.into()),
+    };
+    let (mut boot_root, mut token) = (ESP.to_string(), "oxyos".to_string());
+    while let [flag, value, more @ ..] = rest {
+        match flag.as_str() {
+            "--boot-root" => boot_root = value.clone(),
+            "--entry-token" => token = value.clone(),
+            _ => return Err(usage.into()),
+        }
+        rest = more;
+    }
+    if !rest.is_empty() || (command != "sync" && (version.is_empty() || version.contains('/'))) {
+        return Err(usage.into());
+    }
+    let entries = Entries::new(Path::new(&boot_root));
+    match command {
+        "sync" => {
+            let (written, removed) = entries
+                .sync_safe_mode(&token)
+                .map_err(|e| format!("Safe Mode's entries: {e}"))?;
+            for name in &written {
+                println!("{name} written.");
+            }
+            for name in &removed {
+                println!("{name} removed: its kernel is gone.");
+            }
+            if written.is_empty() && removed.is_empty() {
+                println!("Safe Mode's entries are as the kernels' are.");
+            }
+        }
+        "add" => {
+            let name = entries
+                .write_safe_mode(&token, version)
+                .map_err(|e| format!("Safe Mode's entry for {version}: {e}"))?;
+            println!("{name} written.");
+        }
+        "remove" => {
+            if entries
+                .remove_safe_mode_of(version)
+                .map_err(|e| format!("Safe Mode's entry for {version}: {e}"))?
+            {
+                println!("Safe Mode's entry for {version} removed.");
+            }
+        }
+        _ => return Err(usage.into()),
+    }
+    Ok(())
 }
 
 /// After a complete boot (`boot-complete.target`, once `systemd-bless-boot` marked it good): the

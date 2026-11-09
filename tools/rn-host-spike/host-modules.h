@@ -105,6 +105,8 @@ class HostModule : public TurboModule {
 // app received (ADR 0007): set by the host once its window exists; unset without one.
 struct ClipboardService {
   std::function<bool(const std::string& text)> copy;
+  // A copy marked sensitive, cleared after 90 seconds (clipboard.h).
+  std::function<bool(const std::string& text)> copySensitive;
   std::function<void(std::function<void(std::string)> done)> paste;
   std::function<bool()> hasText;
 };

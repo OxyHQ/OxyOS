@@ -13,6 +13,7 @@ import { lockSummary } from "../notifications";
 import { AppIcon } from "../apps";
 import type { MaskedProps } from "../platform";
 import { useShellMessages } from "../useShellMessages";
+import { SafeModeLabel } from "./SafeModeLabel";
 
 /**
  * The backdrop of the lock and login screens: the wallpaper dimmed, and the date and the time
@@ -24,6 +25,7 @@ export function LockBackdrop({
   now,
   Masked,
   clock = true,
+  safeMode = false,
   children,
 }: {
   testID: string;
@@ -34,6 +36,9 @@ export function LockBackdrop({
   /** The date and the time over it; without them (the login screen's setup) the content takes
       the screen from near its top. */
   clock?: boolean;
+  /** The session started in Safe Mode: said at the top right, as a Mac's login window says it
+      (docs/adr/0054-recovery-and-erasing.mdx, decision 10). */
+  safeMode?: boolean;
   children: React.ReactNode;
 }) {
   const wallpaperTarget = useRef<ComponentRef<typeof View>>(null);
@@ -47,6 +52,11 @@ export function LockBackdrop({
         className="absolute inset-0"
         style={{ backgroundColor: "rgba(0,0,0,0.28)" }}
       />
+      {safeMode ? (
+        <Box className="absolute" style={{ top: 10, right: 16 }}>
+          <SafeModeLabel />
+        </Box>
+      ) : null}
       {clock ? (
         <Box className="items-center" style={{ marginTop: "9%" }}>
           <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
@@ -175,6 +185,7 @@ export const LockScreen = memo(function LockScreen({
   notifications,
   applications = [],
   announce,
+  safeMode = false,
 }: {
   lock: ShellLock;
   wallpaper: ShellWallpaper;
@@ -187,6 +198,8 @@ export const LockScreen = memo(function LockScreen({
   applications?: readonly ShellApplication[];
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
   announce?: (text: string, polite: boolean) => void;
+  /** The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10). */
+  safeMode?: boolean;
 }) {
   const messages = useShellMessages();
   const name = lock.user.fullName || lock.user.name;
@@ -194,7 +207,7 @@ export const LockScreen = memo(function LockScreen({
     ? lockSummary(notifications.list, applications, notifications.previews, messages)
     : [];
   return (
-    <LockBackdrop testID="shell-lock" wallpaper={wallpaper} now={now} Masked={Masked}>
+    <LockBackdrop testID="shell-lock" wallpaper={wallpaper} now={now} Masked={Masked} safeMode={safeMode}>
       {summary.length > 0 ? (
         <Box
           testID="shell-lock-notifications"

@@ -11,12 +11,14 @@ import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
 import {
+  backup as backupApi,
   bluetooth,
   autofill as autofillApi,
   inputSources,
   network,
   power,
   sound as soundApi,
+  useBackupState,
   useBluetoothState,
   useAutofillState,
   useInputSourcesState,
@@ -27,6 +29,7 @@ import {
 } from './oxyos/system';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
+import { backupStateOf } from '../../../apps/shell/src/backup';
 import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
@@ -36,6 +39,7 @@ import { localSignInFrom, type LocalSignIn } from '../../../apps/shell/src/local
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
+  ShellBackupMenu,
   ShellBatteryMenu,
   ShellEnergyApp,
   ShellInputMethod,
@@ -47,6 +51,9 @@ import type {
   ShellScreenshots,
   ShellSnapshot,
 } from '../../../apps/shell/src/model';
+
+/** The clipboard (docs/adr/0007-clipboard.mdx): what a sheet copies, at the person's press. */
+const clipboard = TurboModuleRegistry.get('OxyOSClipboard') as { setString(text: string): Promise<boolean> } | null;
 
 /** The active window's menus as the compositor told them (OxyOSShell's `menuBar`). */
 type MenuBar = {
@@ -255,6 +262,7 @@ function ProbeShell({
   screenshots,
   inputMethod,
   battery,
+  backup,
   autofill,
 }: {
   /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
@@ -283,6 +291,8 @@ function ProbeShell({
   inputMethod?: ShellInputMethod;
   /** The battery's menu (ADR 0057), once the session told the battery and energy. */
   battery?: ShellBatteryMenu;
+  /** The menu bar's backup item (ADR 0059), once the session told the backup service's state. */
+  backup?: ShellBackupMenu;
 }) {
   // The same wallpaper while it draws the same: the wallpaper and what blurs it render again only
   // when it changes.
@@ -305,6 +315,7 @@ function ProbeShell({
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      backup={backup}
       autofill={autofill}
     />
   );
@@ -436,7 +447,7 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode } = useSystemSheets();
+  const { sheets, answer, answerPassword, answerCode, resetApplication } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -447,6 +458,8 @@ function SessionShell() {
   const sources = useInputSourcesState();
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
   const powerState = usePowerState() as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
+  // The backup service's state as the session tells it (ADR 0059): the menu bar's backup item.
+  const backupTold = useBackupState();
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -502,6 +515,8 @@ function SessionShell() {
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
   const openAtLogin = lists?.openAtLogin ?? undefined;
   const trashItems: number | null = state?.trashItems ?? null;
+  // Safe Mode, as the session told it (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+  const safeMode = state?.safeMode === true;
   const trash = React.useMemo(() => (trashItems === null ? undefined : { items: trashItems }), [trashItems]);
   const workspaceCount: number = state?.workspaces ?? 0;
   const workspaces = React.useMemo(() => workspaceNames(workspaceCount, messages), [workspaceCount, messages]);
@@ -528,8 +543,9 @@ function SessionShell() {
       menus,
       openAtLogin,
       trash,
+      safeMode,
     }),
-    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash],
+    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash, safeMode],
   );
   // The actions read the state when they act, so they are made once (and again once the session
   // told the person's lists, which a session of an older protocol never does).
@@ -808,6 +824,30 @@ function SessionShell() {
     [!!powerState, showPercentage, lowPower, shell.openUrl],
   );
 
+  // The menu bar's backup item (ADR 0059): the state as the session tells it, read strictly; Back
+  // Up Now and Skip This Backup asked of the session citing the press, Browse Backups opening
+  // Dropsea's, Open Backups Settings… Settings at its Backups page.
+  const backupMenu: ShellBackupMenu | undefined = React.useMemo(() => {
+    const state = backupStateOf((backupTold as { backup?: unknown } | null)?.backup);
+    return state
+      ? {
+          state,
+          backUpNow: () => {
+            backupApi.backUpNow();
+          },
+          skip: () => {
+            backupApi.stop();
+          },
+          browse: () => {
+            shell.openUrl('dropsea://backups');
+          },
+          openSettings: () => {
+            shell.openUrl('oxyos-settings://backups');
+          },
+        }
+      : undefined;
+  }, [backupTold, shell.openUrl]);
+
   // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
   // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
   const autofillTold = useAutofillState();
@@ -834,8 +874,14 @@ function SessionShell() {
       answerPassword: (password: string) => answerPassword(first.sheet, password),
       // A Bluetooth pairing code's answer (ADR 0055): to the session alone.
       answerCode: (code: string) => answerCode(first.sheet, code),
+      // An application that quit (docs/adr/0061): Reset… asks the session to reset it.
+      act: (action: string) => {
+        if (action === 'reset' && firstText.kind === 'crash') resetApplication(first.sheet, firstText.id);
+      },
+      // Its report copied, at the person's press, as any application copies (ADR 0007).
+      copy: (text: string) => clipboard?.setString(text) ?? false,
     };
-  }, [first, registry, answer, answerPassword, answerCode]);
+  }, [first, registry, answer, answerPassword, answerCode, resetApplication]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell
@@ -853,6 +899,7 @@ function SessionShell() {
       screenshots={screenshots}
       inputMethod={inputMethod}
       battery={battery}
+      backup={backupMenu}
       autofill={autofill}
     />
   );

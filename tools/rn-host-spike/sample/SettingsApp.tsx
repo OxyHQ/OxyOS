@@ -34,6 +34,7 @@ import {
 import { useSessionLocale } from './oxyos/locale';
 import {
   available,
+  backup as systemBackup,
   session as systemSession,
   bluetooth as systemBluetooth,
   network as systemNetwork,
@@ -44,6 +45,7 @@ import {
   updates as systemUpdates,
   followInputLevel,
   useInputSourcesState,
+  useBackupState,
   useBluetoothState,
   useNetworkState,
   useSoundState,
@@ -63,11 +65,13 @@ import {
   largeFiles,
   measuredOf,
   removeOutcomeOf,
+  resetOutcomeOf,
   type LargeFile,
   type StorageActions,
   type StorageMeasured,
 } from '../../../apps/settings/src/storage';
 import { localOutcomeFrom, localSignInFrom } from '../../../apps/settings/src/local-sign-in';
+import type { KeychainPlatform } from '../../../apps/settings/src/passwords';
 import type {
   DiagnosticsAnswer,
   NetworkActions,
@@ -94,12 +98,20 @@ import {
   type PowerState,
 } from '../../../apps/settings/src/battery';
 import {
+  backupDisksOf,
+  backupFailureOf,
+  backupStateOf,
+  type BackupActions,
+  type BackupState,
+} from '../../../apps/settings/src/backups';
+import {
   INPUT_METHODS,
   inputSourcesOf,
   parseInputSources,
   parseInputSourcesPreference,
 } from '../../../apps/settings/src/input-sources';
 import {
+  BACKUP_DEFAULTS,
   ENERGY_DEFAULTS,
   GESTURE_DEFAULTS,
   PREFERENCE_KEYS,
@@ -161,6 +173,7 @@ const FIXTURE: SettingsSnapshot = {
     inputSources: [],
     inputSource: 'layout',
     ...ENERGY_DEFAULTS,
+    ...BACKUP_DEFAULTS,
     emptyTrashAutomatically: false,
   },
   wallpapers: EMPTY_CATALOG,
@@ -359,6 +372,8 @@ function preferencesOf(values: Record<string, string>): Preferences {
     sleepBattery: minutesOf(values[PREFERENCE_KEYS.sleepBattery], ENERGY_DEFAULTS.sleepBattery),
     sleepAdapter: minutesOf(values[PREFERENCE_KEYS.sleepAdapter], ENERGY_DEFAULTS.sleepAdapter),
     dimOnBattery: values[PREFERENCE_KEYS.dimOnBattery] !== 'false',
+    // The menu bar's backup item (docs/adr/0059-backups.mdx): shown unless the person turned it off.
+    backupInMenuBar: values[PREFERENCE_KEYS.backupInMenuBar] !== 'false',
     // Off unless the person turned it on (docs/adr/0062-storage.mdx).
     emptyTrashAutomatically: flag(PREFERENCE_KEYS.emptyTrashAutomatically),
   };
@@ -808,6 +823,32 @@ function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
   return { power: told, actions: session };
 }
 
+/** Backups' requests of the session (docs/adr/0059-backups.mdx), each answered once the backup
+    service answered: why not, or null once done. */
+const backupActions: BackupActions = {
+  backUpNow: async () => backupFailureOf(await systemBackup.backUpNow(), 'backupNow'),
+  stop: async () => backupFailureOf(await systemBackup.stop(), 'backupStop'),
+  disks: async () => backupDisksOf(await systemBackup.disks()),
+  addDisk: async (uuid, password) => backupFailureOf(await systemBackup.addDisk(uuid, password), 'backupAddDisk'),
+  addShare: async (share, sharePassword, password) =>
+    backupFailureOf(await systemBackup.addShare(share, sharePassword, password), 'backupAddShare'),
+  remove: async (id) => backupFailureOf(await systemBackup.remove(id), 'backupRemove'),
+  setExcluded: async (paths) => backupFailureOf(await systemBackup.setExcluded(paths), 'backupExcluded'),
+  setAutomatic: async (enabled) => backupFailureOf(await systemBackup.setAutomatic(enabled), 'backupAutomatic'),
+};
+
+/**
+ * Backups (docs/adr/0059-backups.mdx): in a session, the backup service's state as the session
+ * tells Settings with its `settings` grant, read strictly (undefined until told, null while the
+ * service is not there), and its requests. Without a session there is no backup service, and no
+ * page.
+ */
+function useBackupModel(): { backup: BackupState | null | undefined; actions: BackupActions | undefined } {
+  const told = useBackupState() as { backup?: unknown } | null;
+  if (!available || told === null) return { backup: undefined, actions: undefined };
+  return { backup: backupStateOf(told.backup), actions: backupActions };
+}
+
 /**
  * Bluetooth (docs/adr/0055-bluetooth.mdx): the state the session tells a client with its
  * `bluetooth` grant, followed, and its requests. The session tells nothing without the grant, so
@@ -1084,6 +1125,10 @@ function useStorageActions(): StorageActions {
           apps = apps.filter((app) => app.id !== id);
           return 'removed';
         },
+        reset: async (id) => {
+          apps = apps.map((app) => (app.id === id ? { ...app, data: 0, caches: 0 } : app));
+          return 'reset';
+        },
       };
     }
     const failure = (answer: any) =>
@@ -1116,6 +1161,7 @@ function useStorageActions(): StorageActions {
         if (!moved?.ok) throw new Error(moved?.error ?? 'failed');
       },
       remove: async (id) => removeOutcomeOf(await systemStorage.remove(id)),
+      reset: async (id) => resetOutcomeOf(await systemStorage.reset(id)),
     };
   }, []);
 }
@@ -1141,6 +1187,7 @@ const accountSession = TurboModuleRegistry.get<{
   remove(): Promise<unknown>;
   erasePreview(): Promise<unknown>;
   eraseAll(password: string): Promise<unknown>;
+  keychain(request: string): Promise<unknown>;
 }>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
@@ -1171,6 +1218,36 @@ const eraseActions: EraseActions | undefined = accountSession
     }
   : undefined;
 
+/** Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): each
+    request handed to the host, which sends it to the accounts' service and forgets it, and a copy
+    marked sensitive, which the host clears after 90 seconds (docs/adr/0007-clipboard.mdx). */
+const clipboard = TurboModuleRegistry.get<{ setSensitiveString?(text: string): Promise<boolean> }>('OxyOSClipboard');
+const nativeWindow = TurboModuleRegistry.get<{
+  getConstants?(): { available?: boolean };
+  getState(): { active?: unknown };
+}>('OxyOSWindow');
+const keychainPlatform: KeychainPlatform | undefined =
+  accountSession && typeof accountSession.keychain === 'function'
+    ? {
+        ask: (request) => accountSession.keychain(JSON.stringify(request)),
+        copySensitive: async (text) => (clipboard?.setSensitiveString ? clipboard.setSensitiveString(text) : false),
+        // The window's activation as the host tells it (docs/adr/0016-windows.mdx): the lock leaves
+        // no window active, so Passwords asks again whether it may stay open.
+        watchActive: (listener) => {
+          const told = nativeWindow?.getConstants?.()?.available ? nativeWindow.getState() : null;
+          let active: boolean | null = typeof told?.active === 'boolean' ? told.active : null;
+          const subscription = DeviceEventEmitter.addListener('OxyOSWindowChanged', (state: { active?: unknown }) => {
+            if (typeof state?.active !== 'boolean' || state.active === active) return;
+            active = state.active;
+            listener(state.active);
+          });
+          // Not active already (another application is): said at once, so it is followed from now.
+          if (active === false) listener(false);
+          return () => subscription.remove();
+        },
+      }
+    : undefined;
+
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
   const told = React.useSyncExternalStore(
@@ -1198,6 +1275,7 @@ export default function SettingsApp() {
   const bluetooth = useBluetoothModel();
   const sound = useSoundModel();
   const power = usePowerModel();
+  const backup = useBackupModel();
   const storage = useStorageActions();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
@@ -1208,6 +1286,7 @@ export default function SettingsApp() {
     bluetooth: bluetooth.bluetooth,
     sound: sound.sound,
     power: power.power,
+    backup: backup.backup,
     inputSources,
     account: useAccount(),
   };
@@ -1219,6 +1298,7 @@ export default function SettingsApp() {
     bluetooth: bluetooth.actions,
     sound: sound.actions,
     power: power.actions,
+    backup: backup.actions,
     account: sessionHost ? accountActions : undefined,
     chooseFolder,
     // Settings › Spotlight (docs/adr/0051-search.mdx): the session's search index, which takes its
@@ -1226,6 +1306,7 @@ export default function SettingsApp() {
     search: oxyosSurfaces.search,
     storage,
     erase: sessionHost ? eraseActions : undefined,
+    keychain: sessionHost ? keychainPlatform : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

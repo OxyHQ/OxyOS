@@ -77,7 +77,7 @@ fn a_pin_given_at_setup_becomes_its_verifier_and_is_listed() {
     // Oxy saw the password, as before, and never the PIN.
     assert_eq!(
         setup.api().calls(),
-        vec![Call::Mint, Call::Profile, Call::Password]
+        vec![Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     let local = setup.store().local(&name()).unwrap();
     assert!(local.password);
@@ -109,7 +109,12 @@ fn a_qr_sign_in_is_set_up_with_its_pin_alone_by_the_device_proof_route() {
     // No password was asked of Oxy: the handed-over credential redeemed for the platform's.
     assert_eq!(
         setup.api().calls(),
-        vec![Call::Mint, Call::Profile, Call::PlatformDevice]
+        vec![
+            Call::Mint,
+            Call::Profile,
+            Call::PlatformDevice,
+            Call::Confirm
+        ]
     );
     assert_eq!(
         *setup.api().platforms.lock().unwrap(),
