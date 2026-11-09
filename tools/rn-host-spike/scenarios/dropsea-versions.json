@@ -77,7 +77,7 @@
    }
   },
   {
-   "name": "the versions are listed (asked of the service, restic's find), under Today",
+   "name": "the versions are listed under Today (restic's find, the snapshots already known to the service)",
    "do": [
     "wait_named",
     [
@@ -127,12 +127,12 @@
    "expect": {}
   },
   {
-   "name": "its items, from the backup",
+   "name": "its items, from the newest backup (restic's find for the timeline, then its ls: two runs, each deriving the machine's key)",
    "do": [
     "wait_named",
     [
      "plan.txt",
-     15000
+     30000
     ]
    ],
    "allow_unchanged": true,

@@ -101,6 +101,22 @@ struct Shared {
     shutdown: AtomicBool,
     mounts: Mutex<BTreeMap<String, usize>>,
     locks: Mutex<BTreeMap<String, Arc<RwLock<()>>>>,
+    /// What the service learned of each destination's repository, by its id ([`Known`]).
+    known: Mutex<BTreeMap<String, Known>>,
+}
+
+/// What the service learned of a destination's repository while it runs, so a person's question
+/// (an item's versions, Dropsea's Browse Versions… and Browse Backups) runs restic once, not
+/// three times, each run deriving a key: the id of the machine's key (`RESTIC_KEY_HINT`: restic
+/// derives that key alone instead of trying each key of the repository in turn) and its
+/// snapshots, which only the service's own backups, thinning and removals change (forgotten as
+/// one starts, learned again as it ends; `generation` keeps a question's older list from
+/// replacing a newer one).
+#[derive(Clone, Debug, Default)]
+struct Known {
+    key: Option<String>,
+    snapshots: Option<Vec<engine::Snapshot>>,
+    generation: u64,
 }
 
 /// The service.
@@ -154,6 +170,7 @@ impl Service {
                 shutdown: AtomicBool::new(false),
                 mounts: Mutex::new(BTreeMap::new()),
                 locks: Mutex::new(BTreeMap::new()),
+                known: Mutex::new(BTreeMap::new()),
             }),
         })
     }
@@ -424,6 +441,8 @@ impl Service {
             }
         };
         let destination_lock = self.destination_lock(id);
+        // A backup changes the snapshots: what was learned of them is forgotten until it ends.
+        self.learn_snapshots(id, None, None);
         let summary = {
             let _shared = destination_lock.read().unwrap_or_else(|e| e.into_inner());
             let opened = self.repository(&destination).map_err(|r| {
@@ -563,6 +582,7 @@ impl Service {
             }
         }
         let snapshots = engine.snapshots(&opened.repository, Some(&config.computer));
+        self.learn_snapshots(id, snapshots.as_ref().ok().cloned(), None);
         let stats = engine.stats(&opened.repository);
         let free = opened.mount.as_deref().and_then(disks::free_bytes);
         self.update(id, |record| {
@@ -601,7 +621,55 @@ impl Service {
             keys.share_password.as_deref().map(String::as_str),
         )?;
         opened.repository.password = keys.machine.clone();
+        let known = lock(&self.shared.known)
+            .get(&destination.id)
+            .and_then(|known| known.key.clone());
+        let key = known.or_else(|| {
+            // Learned once: a repository not made yet (a destination being added) says nothing.
+            let key = self.shared.options.engine.key_id(&opened.repository).ok()?;
+            lock(&self.shared.known)
+                .entry(destination.id.clone())
+                .or_default()
+                .key = Some(key.clone());
+            Some(key)
+        });
+        if let Some(key) = key {
+            opened
+                .repository
+                .location
+                .environment
+                .push(("RESTIC_KEY_HINT".into(), Zeroizing::new(key)));
+        }
         Ok(opened)
+    }
+
+    /// The destination's snapshots as the service last learned them, and the generation they
+    /// are of.
+    fn known_snapshots(&self, id: &str) -> (Option<Vec<engine::Snapshot>>, u64) {
+        let known = lock(&self.shared.known);
+        let known = known.get(id).cloned().unwrap_or_default();
+        (known.snapshots, known.generation)
+    }
+
+    /// The destination's snapshots as a backup, thinning or removal left them (none: forgotten,
+    /// learned again at the next question); `asked` the generation a question read, which a
+    /// newer change outranks.
+    fn learn_snapshots(
+        &self,
+        id: &str,
+        snapshots: Option<Vec<engine::Snapshot>>,
+        asked: Option<u64>,
+    ) {
+        let mut known = lock(&self.shared.known);
+        let known = known.entry(id.to_owned()).or_default();
+        match asked {
+            Some(generation) if generation != known.generation => {}
+            Some(_) => known.snapshots = snapshots,
+            None => {
+                known.generation += 1;
+                known.snapshots = snapshots;
+            }
+        }
     }
 
     fn location(
@@ -1137,6 +1205,7 @@ impl Service {
         let answer = self.configure(|config| config.destinations.retain(|d| d.id != id));
         if matches!(answer, Answer::Set) {
             let _ = self.shared.store.remove_keys(id);
+            lock(&self.shared.known).remove(id);
             let mut state = lock(&self.shared.state);
             state.records.remove(id);
             let _ = self.shared.store.put_records(&state.records);
@@ -1175,8 +1244,20 @@ impl Service {
                 continue;
             };
             let engine = &self.shared.options.engine;
-            let Ok(snapshots) = engine.snapshots(&opened.repository, Some(&computer)) else {
-                continue;
+            let snapshots = match self.known_snapshots(&destination.id) {
+                (Some(snapshots), _) => snapshots,
+                (None, generation) => {
+                    let Ok(snapshots) = engine.snapshots(&opened.repository, Some(&computer))
+                    else {
+                        continue;
+                    };
+                    self.learn_snapshots(
+                        &destination.id,
+                        Some(snapshots.clone()),
+                        Some(generation),
+                    );
+                    snapshots
+                }
             };
             let times: BTreeMap<&str, i64> = snapshots
                 .iter()
