@@ -8,7 +8,7 @@
 //! other parameters (`image`, …) passed over. The secret is base32 in either case, spaces and
 //! hyphens passed over, trailing `=` dropped, 1 to 128 bytes.
 
-use crate::{Error, Result, SecretString};
+use crate::{Error, Result, Secret};
 use data_encoding::{Encoding, Specification};
 use hmac::{Hmac, Mac};
 use percent_encoding::percent_decode_str;
@@ -29,8 +29,8 @@ pub struct Totp {
     algorithm: Algorithm,
     digits: u32,
     period: u64,
-    issuer: SecretString,
-    account: SecretString,
+    issuer: Secret,
+    account: Secret,
 }
 
 const SCHEME: &str = "otpauth://totp/";
@@ -127,8 +127,8 @@ impl Totp {
             algorithm,
             digits,
             period,
-            issuer: SecretString::default(),
-            account: SecretString::default(),
+            issuer: Secret::default(),
+            account: Secret::default(),
         })
     }
 
@@ -192,8 +192,8 @@ impl Totp {
             _ => return Err(malformed()),
         };
         let mut totp = Self::new(&secret, algorithm, digits, period)?;
-        totp.issuer = SecretString::new(get("issuer").unwrap_or(label_issuer));
-        totp.account = SecretString::new(account);
+        totp.issuer = Secret::new(get("issuer").unwrap_or(label_issuer));
+        totp.account = Secret::new(account);
         Ok(totp)
     }
 
@@ -240,11 +240,11 @@ impl Totp {
     }
 
     /// The `issuer` parameter, else the label's issuer, else empty.
-    pub fn issuer(&self) -> &SecretString {
+    pub fn issuer(&self) -> &Secret {
         &self.issuer
     }
 
-    pub fn account(&self) -> &SecretString {
+    pub fn account(&self) -> &Secret {
         &self.account
     }
 }

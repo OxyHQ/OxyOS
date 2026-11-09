@@ -1806,8 +1806,11 @@ impl Authentication for Pam {
         if account.is_some_and(|account| account.as_bytes() != self.user.to_bytes()) {
             return Some((AuthOutcome::Rejected, 0));
         }
-        // The password's memory moves to PAM's side whole, and is overwritten there.
-        let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
+        // The password's memory moves to PAM's side whole, and is overwritten there. The lock
+        // assembled it from text chunks, so it is text.
+        let Ok(secret) = oxyos_auth::Secret::from_utf8(std::mem::take(&mut *secret)) else {
+            return Some((AuthOutcome::Rejected, 0));
+        };
         let checker = if passcode {
             &mut self.pins
         } else {

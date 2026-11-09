@@ -1,65 +1,13 @@
-//! Text that is a secret (a password, a username, a title, a URI holding a seed): overwritten
-//! when dropped, never printed; and JSON written into buffers that are overwritten.
+//! Text that is a secret (a password, a username, a title, a URI holding a seed) is
+//! `oxyos-secret`'s [`Secret`]: overwritten when dropped, never printed. And JSON written into
+//! buffers that are overwritten.
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fmt;
+use serde::Serialize;
 use std::io;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
-#[derive(Clone, Default, Zeroize)]
-pub struct SecretString(Zeroizing<String>);
-
-impl SecretString {
-    pub fn new(text: impl Into<String>) -> Self {
-        Self(Zeroizing::new(text.into()))
-    }
-
-    /// The text itself, for the one place that hands it on.
-    pub fn expose(&self) -> &str {
-        &self.0
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-impl From<Zeroizing<String>> for SecretString {
-    fn from(text: Zeroizing<String>) -> Self {
-        Self(text)
-    }
-}
-
-impl fmt::Debug for SecretString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("SecretString(…)")
-    }
-}
-
-impl PartialEq for SecretString {
-    /// For tests and for comparing an item with itself; not a password check.
-    fn eq(&self, other: &Self) -> bool {
-        self.0.as_bytes() == other.0.as_bytes()
-    }
-}
-
-impl Eq for SecretString {}
-
-impl Serialize for SecretString {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for SecretString {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        String::deserialize(deserializer).map(Self::new)
-    }
-}
+/// The one secret type of OxyOS (`oxyos-secret`): overwritten when dropped, never printed.
+pub use oxyos_secret::Secret;
 
 /// Counts what would be written, so that a secret's buffer is allocated once at its size and
 /// never grows (growing would leave a copy in the memory it left).
@@ -92,13 +40,6 @@ pub(crate) fn json(value: &impl Serialize) -> crate::Result<Zeroizing<Vec<u8>>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn debug_hides_the_text() {
-        let secret = SecretString::new("hunter2-correct-horse");
-        let shown = format!("{secret:?} {:?}", Some(&secret));
-        assert!(!shown.contains("hunter2"), "{shown}");
-    }
 
     #[test]
     fn json_is_sized_once() {

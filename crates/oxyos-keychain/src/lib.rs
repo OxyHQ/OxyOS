@@ -51,7 +51,7 @@ pub mod wire;
 pub mod wrap;
 
 pub use error::{Error, Result};
-pub use secret::SecretString;
+pub use secret::Secret;
 pub use wire::{EnrollmentId, ItemId, MemberId, VaultId};
 
 #[cfg(test)]

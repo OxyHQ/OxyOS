@@ -28,7 +28,10 @@ impl Authentication for LoginProgram {
         mut secret: oxyos_compositor_core::scene::Secret,
     ) -> Option<(AuthOutcome, u32)> {
         // The password's memory moves to the login program's message whole, and is overwritten.
-        let secret = oxyos_auth::Secret::new(std::mem::take(&mut *secret));
+        // The lock assembled it from text chunks, so it is text.
+        let Ok(secret) = oxyos_auth::Secret::from_utf8(std::mem::take(&mut *secret)) else {
+            return Some((AuthOutcome::Rejected, 0));
+        };
         self.0.attempt(account, passcode, secret).map(outcome)
     }
 

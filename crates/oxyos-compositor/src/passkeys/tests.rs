@@ -163,7 +163,7 @@ impl Session {
                     password,
                 } => format!(
                     "confirm {id} {choice:?} {}",
-                    password.as_ref().map_or("-", |p| p.as_str())
+                    password.as_ref().map_or("-", |p| p.expose())
                 ),
                 Reply::Cancel { id } => format!("cancel {id}"),
             })

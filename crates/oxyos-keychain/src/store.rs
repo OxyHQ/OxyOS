@@ -20,7 +20,7 @@ use crate::roster::{Entry, Head};
 use crate::seal::{self, NONCE_LENGTH};
 use crate::secret;
 use crate::wire::{b64_secret, unb64_fixed, unb64_secret, ItemId, MemberId, VaultId};
-use crate::{Error, Result, SecretString};
+use crate::{Error, Result, Secret};
 use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -79,9 +79,9 @@ struct Sealed {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MemberFile {
-    box_secret: SecretString,
+    box_secret: Secret,
     id: MemberId,
-    signing_seed: SecretString,
+    signing_seed: Secret,
 }
 
 /// This machine's member: its id in the vault and its keys.
@@ -302,9 +302,9 @@ impl Unlocked {
     pub fn put_member(&self, id: &MemberId, keys: &KeyPairs) -> Result<()> {
         let (signing, boxing) = keys.secrets();
         let file = MemberFile {
-            box_secret: SecretString::from(b64_secret(&*boxing)),
+            box_secret: Secret::from(b64_secret(&*boxing)),
             id: id.clone(),
-            signing_seed: SecretString::from(b64_secret(&*signing)),
+            signing_seed: Secret::from(b64_secret(&*signing)),
         };
         self.put(Record::Member, &secret::json(&file)?)
     }

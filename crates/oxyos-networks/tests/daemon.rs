@@ -196,7 +196,7 @@ fn a_protected_network_takes_its_password_and_keeps_no_wrong_one() {
         })
     );
     assert_eq!(manager.join("Vecinos", None), Err(Failure::NeedsPassword));
-    let wrong = Secret::new("hunter23!".into());
+    let wrong = Secret::new("hunter23!");
     assert_eq!(
         manager.join("Vecinos", Some(&wrong)),
         Err(Failure::WrongPassword)
@@ -208,7 +208,7 @@ fn a_protected_network_takes_its_password_and_keeps_no_wrong_one() {
         "the wrong one deleted: {held}"
     );
     assert_eq!(held["attempts"][0]["psk"], "hunter23!");
-    let right = Secret::new("hunter22!".into());
+    let right = Secret::new("hunter22!");
     manager.join("Vecinos", Some(&right)).unwrap();
     let held = daemon.held();
     assert_eq!(held["active"], "Vecinos");
@@ -248,12 +248,12 @@ fn a_known_network_joins_as_saved_and_takes_a_new_password() {
     );
     // A mistyped replacement does not take the saved password's place.
     assert_eq!(
-        manager.join("LukeSkyRouter", Some(&Secret::new("mistyped123".into()))),
+        manager.join("LukeSkyRouter", Some(&Secret::new("mistyped123"))),
         Err(Failure::WrongPassword)
     );
     assert_eq!(daemon.held()["connections"][0]["psk"], "old password");
     manager
-        .join("LukeSkyRouter", Some(&Secret::new("correct horse".into())))
+        .join("LukeSkyRouter", Some(&Secret::new("correct horse")))
         .unwrap();
     let held = daemon.held();
     assert_eq!(

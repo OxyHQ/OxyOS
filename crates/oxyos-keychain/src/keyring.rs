@@ -59,7 +59,7 @@ pub struct Keyring {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Plain {
-    generations: BTreeMap<String, crate::SecretString>,
+    generations: BTreeMap<String, crate::Secret>,
 }
 
 impl Keyring {
@@ -140,7 +140,7 @@ impl Keyring {
                 .map(|(generation, key)| {
                     (
                         generation.to_string(),
-                        crate::SecretString::from(b64_secret(key.bytes())),
+                        crate::Secret::from(b64_secret(key.bytes())),
                     )
                 })
                 .collect(),

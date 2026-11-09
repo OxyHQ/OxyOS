@@ -118,7 +118,7 @@ impl PasskeyPrompts for Shared {
                 if !verifies {
                     service.told.push(format!("{id} acknowledged"));
                     service.done(id);
-                } else if password.as_ref().is_some_and(|p| p.as_str() == PASSWORD) {
+                } else if password.as_ref().is_some_and(|p| p.expose() == PASSWORD) {
                     service.told.push(match choice {
                         Some(choice) => format!("{id} verified, account {choice}"),
                         None => format!("{id} verified"),
