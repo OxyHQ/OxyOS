@@ -79,8 +79,8 @@ struct AccessibilityHooks {
 // `focus` if it is a node, else the first node inside it (as VoiceOver moves into a container).
 // An item of a collection has its place in it: by the collection's and the item's own
 // `accessibilityCollection` and `accessibilityCollectionItem` (a list showing only some of its
-// items says where each is among them all), else a `listitem` among the `listitem`s of its
-// nearest `list`, as VoiceOver and TalkBack say a row ("3 of 21").
+// items says where each is among them all), else a `listitem` (or an `option`) among the items of
+// its nearest `list`, as VoiceOver and TalkBack say a row ("3 of 21").
 std::vector<AccessibleNode> accessibilityTree(const ViewTree& tree, facebook::react::Tag root,
                                              facebook::react::Tag focus = -1,
                                              const AccessibilityHooks* hooks = nullptr);

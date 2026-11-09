@@ -158,6 +158,53 @@ pub const LOADER_CONF: &str =
 
 /// The recovery's entry on the EFI system partition.
 pub const RECOVERY_ENTRY: &str = "oxyos-recovery.conf";
+
+/// Safe Mode's entries (ADR 0054, decision 10): `oxyos-safe-mode-<kernel version>.conf`, one
+/// beside each kernel's own.
+pub const SAFE_MODE_PREFIX: &str = "oxyos-safe-mode-";
+/// What the startup picker shows for one.
+pub const SAFE_MODE_TITLE: &str = "OxyOS Safe Mode";
+/// Its sort key: after the recovery's (`oxyos-recovery`), so that once every kernel has failed the
+/// recovery, never Safe Mode, is the first entry that may start.
+pub const SAFE_MODE_SORT_KEY: &str = "oxyos-safe-mode";
+/// What it adds to the kernel's command line, which the session reads as it starts
+/// (`oxyos_compositor::safe_mode`).
+pub const SAFE_MODE_PARAMETER: &str = "oxyos.safe-mode=1";
+
+/// Safe Mode's entry's file name for the kernel `version`.
+pub fn safe_mode_entry_name(version: &str) -> String {
+    format!("{SAFE_MODE_PREFIX}{version}.conf")
+}
+
+/// A kernel's Safe Mode entry, made from the kernel's own as kernel-install wrote it: the same
+/// kernel, initramfs and command line, its title *OxyOS Safe Mode*, its sort key after the
+/// recovery's, and `oxyos.safe-mode=1` at the end of its command line. None for an entry with no
+/// kernel or no command line, which is no kernel's.
+pub fn safe_mode_entry(kernel_entry: &str) -> Option<String> {
+    let mut entry = format!("title      {SAFE_MODE_TITLE}\nsort-key   {SAFE_MODE_SORT_KEY}\n");
+    let (mut linux, mut options) = (false, false);
+    for line in kernel_entry.lines() {
+        let (key, rest) = line
+            .trim_start()
+            .split_once(char::is_whitespace)
+            .map_or((line.trim(), ""), |(key, rest)| (key, rest.trim()));
+        match key {
+            // Its own title and place in the picker.
+            "title" | "sort-key" => continue,
+            "linux" => linux = true,
+            "options" => {
+                options = true;
+                entry.push_str(&format!("options    {rest} {SAFE_MODE_PARAMETER}\n"));
+                continue;
+            }
+            _ => {}
+        }
+        entry.push_str(line);
+        entry.push('\n');
+    }
+    (linux && options).then_some(entry)
+}
+
 /// The recovery's kernel and initramfs on the EFI system partition, from its root.
 pub const RECOVERY_DIRECTORY: &str = "oxyos-recovery";
 

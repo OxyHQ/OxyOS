@@ -27,6 +27,8 @@ function caller(session: Session, domain: PlatformDomain) {
 }
 
 export type Direction = 'output' | 'input';
+/** What Activity Monitor shows: each view reads what its columns need. */
+export type ActivityView = 'cpu' | 'memory' | 'energy' | 'disk' | 'network';
 
 export function createFrameworks(session: Session) {
   const call = (domain: PlatformDomain) => caller(session, domain);
@@ -49,6 +51,16 @@ export function createFrameworks(session: Session) {
     join: (ssid: string, options?: CallOptions) => net({ join: { ssid } }, options),
     forget: (id: string, options?: CallOptions) => net({ forget: { id } }, options),
     setWifi: (enabled: boolean, options?: CallOptions) => net({ wifi: { enabled } }, options),
+    /** A known network's private Wi-Fi address; the network joined is joined again with it
+        (ADR 0038, 8 November 2026). */
+    setPrivateAddress: (id: string, mode: 'fixed' | 'rotating' | 'off', options?: CallOptions) =>
+      net({ privateAddress: { id, mode } }, options),
+    /** What resetting the network settings would remove and keep; nothing changes. */
+    resetPreview: (options?: CallOptions) => net({ networkResetPreview: {} }, options),
+    /** Removes the saved networks and VPNs this person may, with their passwords. */
+    reset: (options?: CallOptions) => net({ networkReset: {} }, options),
+    /** Wi-Fi Diagnostics, run once: the link, the router, the internet, DNS. */
+    diagnose: (options?: CallOptions) => net({ wifiDiagnostics: {} }, options),
   };
 
   /** Bluetooth (docs/adr/0055-bluetooth.mdx): the `bluetooth` grant, or `shell`. */
@@ -105,6 +117,11 @@ export function createFrameworks(session: Session) {
     selectInputSource: (id: string, options?: CallOptions) => st({ selectInputSource: { id } }, options),
     /** The account's decisions on its applications' capabilities (`privacy`). */
     privacy: (options?: CallOptions) => st({ privacy: {} }, options),
+    /** Those decisions as told: by `privacy`'s answers, and again, unasked, when they changed
+        elsewhere (an application granted a capability as it registered its login item, or one
+        running in the background or no longer; docs/adr/0060-login-items-and-background-
+        activity.mdx). Not asked as it is first followed: the page that shows it asks. */
+    decisions: state.privacy as Followed<Json[]>,
     decide: (id: string, capability: string, granted: boolean, options?: CallOptions) =>
       st({ decide: { id, capability, granted } }, options),
   };
@@ -123,7 +140,28 @@ export function createFrameworks(session: Session) {
     open: (id: string, options?: CallOptions) => sto({ open: { id } }, options),
   };
 
-  return { network, bluetooth, power, audio, settings, store };
+  /**
+   * The machine's use and every process's (docs/adr/0063-activity-monitor.mdx): the `activity`
+   * grant (Activity Monitor). `sample` is followed: its first follower begins the session's
+   * sampling of `setView`'s view, every two seconds while the follower's window is shown, and its
+   * last ends it. A process is named by its pid and its start (`started`, as a sample gives it).
+   */
+  const act = call('activity');
+  const activity = {
+    available,
+    sample: state.activity as Followed<Json>,
+    setView: (view: ActivityView) => session.activityView(view),
+    /** Quits one of the person's processes, citing the press that confirmed it (SIGKILL with `force`). */
+    quit: (pid: number, started: number, force: boolean, options?: CallOptions) =>
+      act({ activityQuit: { pid, started, force } }, options),
+    /** Quits an application the session launched, as the dock does (`force`: Force Quit). */
+    quitApp: (id: string, force: boolean, options?: CallOptions) => act({ activityQuitApp: { id, force } }, options),
+    /** One process's details: its parent, memory, open files and ports, control group. */
+    inspect: (pid: number, started: number, options?: CallOptions) =>
+      act({ activityInspect: { pid, started } }, options),
+  };
+
+  return { network, bluetooth, power, audio, settings, store, activity };
 }
 
 export type Frameworks = ReturnType<typeof createFrameworks>;

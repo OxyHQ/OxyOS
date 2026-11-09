@@ -12,6 +12,8 @@ import { createChooser, type FileChooserModule } from './chooser.ts';
 import { createDrag, type DragModule } from './drag.ts';
 import { createFiles, createFileService, type FilesModule } from './files.ts';
 import { createFrameworks } from './frameworks.ts';
+import { createKeychain, type KeychainModule } from './keychain.ts';
+import type { PasskeyModule } from './passkeys.ts';
 import { createNotifications } from './notifications.ts';
 import { createPasteboard } from './pasteboard.ts';
 import { createSession, type SystemModule } from './session.ts';
@@ -21,9 +23,18 @@ export type { Capability, Permission } from './application.ts';
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
-export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type { ActivityView, CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type {
+  AuthenticationResponseJSON,
+  CreationOptionsJSON,
+  RegistrationResponseJSON,
+  RequestOptionsJSON,
+} from './passkeys.ts';
+export type { BackgroundItem, BackgroundItemStatus, QuitAnswer, QuitHandler, QuitReason } from './application.ts';
+export type { Credential, KeychainModules, SaveResult } from './keychain.ts';
 export type { ChooserRequest, OpenPanelOptions, SavePanelOptions } from './chooser.ts';
 export type {
+  BackupRef,
   FileEvent,
   FileInfo,
   FileTag,
@@ -51,7 +62,14 @@ export const api: number = runtime?.getConstants().api ?? 0;
 export const session = createSession(TurboModuleRegistry.get('OxyOSSystem') as SystemModule | null, DeviceEventEmitter);
 
 const frameworks = createFrameworks(session);
-export const { network, bluetooth, power, audio, settings, store } = frameworks;
+export const { network, bluetooth, power, audio, settings, store, activity } = frameworks;
+
+/** The keychain (docs/adr/0050-keychain-autofill-and-passkeys.mdx): asking to save a login, and
+    passkeys, the platform's authenticator. */
+export const keychain = createKeychain({
+  keychain: TurboModuleRegistry.get('OxyOSKeychain') as KeychainModule | null,
+  passkeys: TurboModuleRegistry.get('OxyOSAccountSession') as PasskeyModule | null,
+});
 
 /** Copying and pasting text (docs/adr/0007-clipboard.mdx). */
 export const pasteboard = createPasteboard(NativeOxyOSClipboard, DeviceEventEmitter);
@@ -82,6 +100,10 @@ export const fileService = createFileService(
 /** Items, places, the Trash, watching and tags (docs/adr/0028-file-access.mdx). */
 export const files = createFiles(fileService);
 
-/** This application: what the session started it as and to open, opening a URL elsewhere, and its
-    permissions (docs/adr/0030-installing-applications.mdx, decision 8). */
-export const application = createApplication(NativeOxyOSApplication, session);
+/** This application (docs/adr/0058-the-platform-api.mdx, decision 1): what the session started it
+    as and to open, opening a URL elsewhere, and its permissions (docs/adr/0030-installing-
+    applications.mdx, decision 8); its login item and background activity
+    (docs/adr/0060-login-items-and-background-activity.mdx), and its answer when the session asks it
+    to quit before logging out, restarting or shutting down
+    (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). */
+export const application = createApplication(NativeOxyOSApplication, session, DeviceEventEmitter);

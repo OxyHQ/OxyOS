@@ -2898,7 +2898,7 @@ fn window_events_convert_field_by_field() {
         output: 2,
         index: 1,
         last: true,
-        text: PreeditText::new("horizon").unwrap(),
+        text: PreeditText::new("ocean").unwrap(),
     })
     .unwrap();
     assert_eq!(
@@ -2910,7 +2910,7 @@ fn window_events_convert_field_by_field() {
         ),
         (OXYOS_EVENT_OUTPUT_WALLPAPER, 2, 1, OXYOS_WALLPAPER_LAST)
     );
-    assert_eq!(&wallpaper.text[..8], b"horizon\0");
+    assert_eq!(&wallpaper.text[..6], b"ocean\0");
     let removed = convert(&Event::OutputRemoved { output: 2 }).unwrap();
     assert_eq!(
         (removed.kind, removed.code),
@@ -4029,17 +4029,21 @@ fn the_header_matches_the_wallpaper_abi() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers");
     let json = catalog_json(&oxyos_wallpaper::Catalog::read(&root), "es-ES");
-    assert_eq!(json["default"], "oxyos");
+    assert_eq!(json["default"], "solar-gradients");
     assert_eq!(json["categories"][0]["id"], "dynamic");
-    let horizon = json["categories"][0]["wallpapers"]
-        .as_array()
-        .unwrap()
+    let dynamic = json["categories"][0]["wallpapers"].as_array().unwrap();
+    let solar = dynamic
         .iter()
-        .find(|w| w["id"] == "horizon")
+        .find(|w| w["id"] == "solar-gradients")
         .unwrap();
-    assert_eq!(horizon["name"], "Horizonte");
-    assert_eq!(horizon["automatic"], "sun");
-    assert!(horizon["preview"].as_str().unwrap().starts_with("file:///"));
+    assert_eq!(solar["name"], "Solar Gradients");
+    assert_eq!(solar["automatic"], "sun");
+    assert!(solar["preview"].as_str().unwrap().starts_with("file:///"));
+    // Solar Gradients is the one that follows the sun: Horizon was withdrawn (ADR 0048).
+    assert_eq!(
+        dynamic.iter().filter(|w| w["automatic"] == "sun").count(),
+        1
+    );
     // Not a URI: refused, said.
     let bad = CString::new("relative/a.png").unwrap();
     // SAFETY: a NUL-terminated string and no buffer.
@@ -4595,6 +4599,10 @@ fn the_header_matches_the_system_shortcuts_abi() {
             OXYOS_GESTURE_OVERLAY_APP_EXPOSE.into(),
         ),
         (
+            "OXYOS_GESTURE_OVERLAY_LAUNCHPAD",
+            OXYOS_GESTURE_OVERLAY_LAUNCHPAD.into(),
+        ),
+        (
             "OXYOS_MANAGE_HIDE_APPLICATION",
             OXYOS_MANAGE_HIDE_APPLICATION.into(),
         ),
@@ -4834,7 +4842,7 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         server
             .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
             .unwrap();
-        (0..6)
+        (0..7)
             .map(|_| server.recv_request().unwrap().0)
             .collect::<Vec<_>>()
     });
@@ -4876,9 +4884,14 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
         // App Exposé's windows moved into their views (ADR 0045), and its surface the one the
         // swipe down drives (ADR 0046); a value the protocol does not have is refused unsent.
         assert_eq!(oxyos_client_move_windows_to_views(client, 3, true), 0);
-        assert_eq!(oxyos_client_set_gesture_overlay(client, 3, 3), -1);
+        assert_eq!(oxyos_client_set_gesture_overlay(client, 3, 4), -1);
         assert_eq!(
             oxyos_client_set_gesture_overlay(client, 3, OXYOS_GESTURE_OVERLAY_APP_EXPOSE),
+            0
+        );
+        // Launchpad's, the pinch's (version 33).
+        assert_eq!(
+            oxyos_client_set_gesture_overlay(client, 4, OXYOS_GESTURE_OVERLAY_LAUNCHPAD),
             0
         );
         let requests = compositor.join().unwrap();
@@ -4910,6 +4923,10 @@ fn the_shell_shows_windows_live_through_the_c_abi() {
                 Request::SetGestureOverlay {
                     surface: 3,
                     overlay: oxyos_protocol::GestureOverlay::AppExpose,
+                },
+                Request::SetGestureOverlay {
+                    surface: 4,
+                    overlay: oxyos_protocol::GestureOverlay::Launchpad,
                 },
             ]
         );
@@ -5563,6 +5580,10 @@ fn the_header_matches_the_files_abi() {
         i64::from(OXYOS_FILES_NO_NETWORK)
     );
     assert_eq!(
+        define("OXYOS_FILES_NO_BACKUPS"),
+        i64::from(OXYOS_FILES_NO_BACKUPS)
+    );
+    assert_eq!(
         define("OXYOS_FILES_NO_PERSONS_FILES"),
         i64::from(OXYOS_FILES_NO_PERSONS_FILES)
     );
@@ -5618,259 +5639,6 @@ fn the_header_matches_the_files_abi() {
     assert!(HEADER.contains("void oxyos_files_free(OxyOSFiles* files);"));
     assert!(HEADER.contains("void oxyos_files_grant_the_persons_files(OxyOSFiles* files);"));
     assert!(HEADER.contains("void oxyos_files_reply_free(OxyOSFilesReply* reply);"));
-}
-
-/// A reply's id, JSON and bytes, freed.
-///
-/// # Safety
-/// `reply` is a live reply.
-#[allow(unsafe_code)]
-unsafe fn files_reply(reply: *mut crate::files::OxyOSFilesReply) -> (u64, String, Vec<u8>) {
-    use crate::files::*;
-    assert!(!reply.is_null());
-    // SAFETY: a live reply, read before it is freed.
-    unsafe {
-        let mut length = 0;
-        let json = oxyos_files_reply_json(reply, &mut length);
-        let text = std::slice::from_raw_parts(json.cast::<u8>(), length + 1);
-        assert_eq!(text[length], 0, "NUL-terminated");
-        let text = String::from_utf8(text[..length].to_vec()).unwrap();
-        let mut count = 0;
-        let bytes = oxyos_files_reply_bytes(reply, &mut count);
-        let bytes = std::slice::from_raw_parts(bytes, count).to_vec();
-        let id = oxyos_files_reply_id(reply);
-        oxyos_files_reply_free(reply);
-        (id, text, bytes)
-    }
-}
-
-/// The file service through the C ABI, for a home and an application the test makes: the only
-/// test that sets the user's directories, which the service reads once, as it starts.
-#[test]
-fn files_are_read_written_trashed_and_watched_through_the_c_abi() {
-    use crate::files::*;
-    let home = std::env::temp_dir().join(format!("oxyos-ffi-files-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&home);
-    std::fs::create_dir_all(home.join("Documents")).unwrap();
-    std::fs::write(home.join("Documents/notes.txt"), "notes").unwrap();
-    let home = std::fs::canonicalize(&home).unwrap();
-    std::env::set_var("HOME", &home);
-    std::env::set_var("XDG_DATA_HOME", home.join(".local/share"));
-    std::env::set_var("XDG_CONFIG_HOME", home.join(".config"));
-    std::env::set_var("XDG_CACHE_HOME", home.join(".cache"));
-    std::env::set_var("USER", "ffi-test");
-    let id = "so.oxy.ffi";
-    // SAFETY: a live service, and requests and buffers that outlive each call.
-    unsafe {
-        assert!(oxyos_files_new("../x".as_ptr().cast(), 4, std::ptr::null(), 0).is_null());
-        let files = oxyos_files_new(id.as_ptr().cast(), id.len(), std::ptr::null(), 0);
-        assert!(!files.is_null());
-        assert!(home.join(".local/share/oxyos/apps/so.oxy.ffi").is_dir());
-        assert!(home.join(".cache/oxyos/apps/so.oxy.ffi").is_dir());
-        let fd = oxyos_files_fd(files);
-        assert!(fd >= 0);
-        let call = |json: String, bytes: &[u8]| {
-            files_reply(oxyos_files_call(
-                files,
-                json.as_ptr().cast(),
-                json.len(),
-                bytes.as_ptr(),
-                bytes.len(),
-            ))
-        };
-        let ask = |id: u64, json: String| {
-            assert_eq!(
-                oxyos_files_request(
-                    files,
-                    id,
-                    json.as_ptr().cast(),
-                    json.len(),
-                    std::ptr::null(),
-                    0
-                ),
-                0
-            );
-        };
-        // A reply, waited for on the descriptor as the host waits.
-        let take = || {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            loop {
-                let reply = oxyos_files_take(files);
-                if !reply.is_null() {
-                    return files_reply(reply);
-                }
-                assert!(std::time::Instant::now() < deadline, "no reply");
-                let mut ready = [rustix::event::PollFd::from_borrowed_fd(
-                    std::os::fd::BorrowedFd::borrow_raw(fd),
-                    rustix::event::PollFlags::IN,
-                )];
-                let wait = rustix::event::Timespec {
-                    tv_sec: 0,
-                    tv_nsec: 50_000_000,
-                };
-                let _ = rustix::event::poll(&mut ready, Some(&wait));
-            }
-        };
-        let documents = format!(
-            "file://{}/",
-            home.join(".local/share/oxyos/apps/so.oxy.ffi").display()
-        );
-        let (_, paths, _) = call(r#"{"op":"paths"}"#.into(), &[]);
-        assert!(
-            paths.contains(&format!(r#""documentDirectory":"{documents}""#)),
-            "{paths}"
-        );
-        // Bytes in and out, at once.
-        let data = format!("{documents}data.bin");
-        let (_, written, _) = call(
-            format!(r#"{{"op":"write","uri":"{data}","encoding":"bytes"}}"#),
-            &[0, 1, 2, 255],
-        );
-        assert_eq!(written, r#"{"ok":true,"value":null}"#);
-        let (id0, read, bytes) = call(
-            format!(r#"{{"op":"read","uri":"{data}","encoding":"bytes"}}"#),
-            &[],
-        );
-        assert_eq!(
-            (id0, read.as_str(), bytes),
-            (0, r#"{"ok":true,"value":null}"#, vec![0, 1, 2, 255])
-        );
-        let (_, refused, _) = call(r#"{"op":"read","uri":"file:///etc/passwd"}"#.into(), &[]);
-        assert!(refused.contains(r#""error":"refused""#), "{refused}");
-        // In order, through the queue, by id.
-        let notes = format!("file://{}/Documents/notes.txt", home.display());
-        ask(7, r#"{"op":"watchTrash"}"#.into());
-        let (seven, watch, _) = take();
-        assert_eq!(seven, 7);
-        assert!(watch.contains(r#""value":1"#), "{watch}");
-        ask(8, format!(r#"{{"op":"trash","uris":["{notes}"]}}"#));
-        let mut heard = [take(), take()];
-        heard.sort();
-        assert_eq!(heard[0].0, 0);
-        assert_eq!(heard[0].1, r#"{"watch":1}"#);
-        assert_eq!(heard[1].0, 8);
-        assert!(heard[1].1.contains(r#""ok":true"#), "{heard:?}");
-        assert!(home.join(".local/share/Trash/files/notes.txt").exists());
-        assert!(
-            oxyos_files_call(files, [0xffu8].as_ptr().cast(), 1, std::ptr::null(), 0).is_null()
-        );
-        assert_eq!(
-            oxyos_files_request(files, 9, [0xffu8].as_ptr().cast(), 1, std::ptr::null(), 0),
-            OXYOS_ERROR
-        );
-        assert_eq!(
-            oxyos_files_request(files, 0, "{}".as_ptr().cast(), 2, std::ptr::null(), 0),
-            OXYOS_ERROR
-        );
-        assert!(oxyos_files_take(files).is_null());
-        // A file opened for a request's body: its descriptor and size; nothing outside.
-        let mut size = 0;
-        let fd = oxyos_files_open_read(files, data.as_ptr().cast(), data.len(), &mut size);
-        assert!(fd >= 0 && size == 4);
-        let mut read = Vec::new();
-        std::io::Read::read_to_end(
-            &mut std::fs::File::from(
-                <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd),
-            ),
-            &mut read,
-        )
-        .unwrap();
-        assert_eq!(read, [0, 1, 2, 255]);
-        let outside = "file:///etc/passwd";
-        assert_eq!(
-            oxyos_files_open_read(files, outside.as_ptr().cast(), outside.len(), &mut size),
-            OXYOS_ERROR
-        );
-        // Tags (docs/adr/0049-file-tags.mdx): the index started by a watch and asked, an item
-        // tagged, read, found and its change heard; where the temporary directory keeps no
-        // `user.` attributes, the change says so and the rest is skipped.
-        std::fs::write(home.join("Documents/report.txt"), "report").unwrap();
-        let report = format!("file://{}/Documents/report.txt", home.display());
-        let folder = format!("file://{}/Documents/", home.display());
-        // A reply with this id, the events taken meanwhile kept.
-        let mut events = Vec::new();
-        let reply_to = |id: u64, events: &mut Vec<String>| loop {
-            let (got, json, _) = take();
-            if got == id {
-                return json;
-            }
-            events.push(json);
-        };
-        ask(10, r#"{"op":"watchTags"}"#.into());
-        let watch = reply_to(10, &mut events);
-        let watch: u64 = serde_json::from_str::<serde_json::Value>(&watch).unwrap()["value"]
-            .as_u64()
-            .expect("a watch");
-        ask(11, r#"{"op":"tagNames"}"#.into());
-        assert_eq!(reply_to(11, &mut events), r#"{"ok":true,"value":[]}"#);
-        let (_, called, _) = call(r#"{"op":"tagged","name":"Work"}"#.into(), &[]);
-        assert!(called.contains(r#""error":"invalid""#), "{called}");
-        let (_, invalid, _) = call(
-            format!(r#"{{"op":"changeTags","uris":["{report}"],"add":[{{"name":"a,b"}}]}}"#),
-            &[],
-        );
-        assert!(invalid.contains(r#""error":"invalid""#), "{invalid}");
-        let (_, changed, _) = call(
-            format!(
-                r#"{{"op":"changeTags","uris":["{report}","file:///etc/passwd"],"add":[{{"name":"Work","color":"red"}},{{"name":"Q3"}}],"remove":[]}}"#
-            ),
-            &[],
-        );
-        if changed.contains(r#""error":"unsupported""#) {
-            eprintln!("skipped: the temporary directory keeps no user. extended attributes");
-        } else {
-            assert_eq!(
-                changed,
-                format!(
-                    r#"{{"ok":true,"value":[{{"ok":true,"result":"{report}","uri":"{report}"}},{{"error":"refused","message":"refused: /etc/passwd is outside the home, the mounted volumes and the application's folders","ok":false,"uri":"file:///etc/passwd"}}]}}"#
-                )
-            );
-            // No Mac's attribute on it: the names alone are kept.
-            let tags = r#"[{"color":null,"name":"Work"},{"color":null,"name":"Q3"}]"#;
-            let (_, held, _) = call(format!(r#"{{"op":"tagsIn","uri":"{folder}"}}"#), &[]);
-            assert_eq!(
-                held,
-                format!(r#"{{"ok":true,"value":{{"{report}":{tags}}}}}"#)
-            );
-            let (_, of, _) = call(
-                format!(r#"{{"op":"tagsOf","uris":["{report}","{folder}gone.txt"]}}"#),
-                &[],
-            );
-            assert_eq!(of, format!(r#"{{"ok":true,"value":[{tags},null]}}"#));
-            // The index heard it.
-            let heard = format!(r#"{{"watch":{watch}}}"#);
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while !events.contains(&heard) {
-                assert!(std::time::Instant::now() < deadline, "{events:?}");
-                let (id, json, _) = take();
-                assert_eq!(id, 0);
-                events.push(json);
-            }
-            ask(12, r#"{"op":"tagged","name":"work"}"#.into());
-            let found = reply_to(12, &mut events);
-            assert!(
-                found.contains(&format!(r#""uri":"{report}""#))
-                    && found.contains(r#""isDirectory":false"#)
-                    && found.contains(r#""size":6"#)
-                    && found.contains(tags),
-                "{found}"
-            );
-            ask(13, r#"{"op":"tagNames"}"#.into());
-            assert_eq!(
-                reply_to(13, &mut events),
-                r#"{"ok":true,"value":[{"count":1,"name":"Q3"},{"count":1,"name":"Work"}]}"#
-            );
-            // In the Trash, an item's tags come with it.
-            let (_, trashed, _) = call(format!(r#"{{"op":"trash","uris":["{report}"]}}"#), &[]);
-            assert!(trashed.contains(r#""ok":true"#), "{trashed}");
-            let (_, held, _) = call(r#"{"op":"trashed"}"#.into(), &[]);
-            assert!(held.contains(&format!(r#""tags":{tags}"#)), "{held}");
-        }
-        let (_, unwatched, _) = call(format!(r#"{{"op":"unwatch","watch":{watch}}}"#), &[]);
-        assert_eq!(unwatched, r#"{"ok":true,"value":null}"#);
-        oxyos_files_free(files);
-    }
-    std::fs::remove_dir_all(home).unwrap();
 }
 
 /// The painter's structs and calls as the header lays them out (docs/adr/0031, decision 12).
@@ -7686,6 +7454,219 @@ fn a_search_request_and_its_answer_cross_the_abi() {
             })
             .collect();
         assert_eq!(sent, text);
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_background_item_and_its_state_cross_the_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_BACKGROUND_ITEM_STATE",
+            i64::from(OXYOS_EVENT_BACKGROUND_ITEM_STATE),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_LOGIN_ITEM",
+            i64::from(OXYOS_BACKGROUND_ITEM_LOGIN_ITEM),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_BACKGROUND",
+            i64::from(OXYOS_BACKGROUND_ITEM_BACKGROUND),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_STATUS",
+            i64::from(OXYOS_BACKGROUND_ITEM_STATUS),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_REGISTER",
+            i64::from(OXYOS_BACKGROUND_ITEM_REGISTER),
+        ),
+        (
+            "OXYOS_BACKGROUND_ITEM_UNREGISTER",
+            i64::from(OXYOS_BACKGROUND_ITEM_UNREGISTER),
+        ),
+        (
+            "OXYOS_BACKGROUND_NOT_REGISTERED",
+            i64::from(OXYOS_BACKGROUND_NOT_REGISTERED),
+        ),
+        (
+            "OXYOS_BACKGROUND_ENABLED",
+            i64::from(OXYOS_BACKGROUND_ENABLED),
+        ),
+        (
+            "OXYOS_BACKGROUND_REQUIRES_APPROVAL",
+            i64::from(OXYOS_BACKGROUND_REQUIRES_APPROVAL),
+        ),
+        (
+            "OXYOS_BACKGROUND_NOT_PERMITTED",
+            i64::from(OXYOS_BACKGROUND_NOT_PERMITTED),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    assert_eq!(
+        oxyos_protocol::BackgroundItemKind::Background as u8,
+        OXYOS_BACKGROUND_ITEM_BACKGROUND
+    );
+    assert_eq!(
+        oxyos_protocol::BackgroundStatus::RequiresApproval as u8,
+        OXYOS_BACKGROUND_REQUIRES_APPROVAL
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);"
+    ));
+    let state = convert(&Event::BackgroundItemState {
+        serial: 0,
+        kind: oxyos_protocol::BackgroundItemKind::Background,
+        status: oxyos_protocol::BackgroundStatus::RequiresApproval,
+    })
+    .unwrap();
+    assert_eq!(
+        (state.kind, state.code, state.detail, state.flag),
+        (
+            OXYOS_EVENT_BACKGROUND_ITEM_STATE,
+            0,
+            u32::from(OXYOS_BACKGROUND_ITEM_BACKGROUND),
+            OXYOS_BACKGROUND_REQUIRES_APPROVAL
+        )
+    );
+
+    let directory = std::env::temp_dir().join(format!(
+        "oxyos-client-ffi-background-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        server.recv_request().unwrap().0
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        // An unknown kind or action sends nothing.
+        assert_eq!(oxyos_client_background_item(client, 6, 3, 2), OXYOS_ERROR);
+        assert_eq!(oxyos_client_background_item(client, 6, 1, 4), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_background_item(
+                client,
+                6,
+                OXYOS_BACKGROUND_ITEM_LOGIN_ITEM,
+                OXYOS_BACKGROUND_ITEM_REGISTER
+            ),
+            0
+        );
+        assert_eq!(
+            compositor.join().unwrap(),
+            Request::BackgroundItem {
+                serial: 6,
+                kind: oxyos_protocol::BackgroundItemKind::LoginItem,
+                action: oxyos_protocol::BackgroundItemAction::Register,
+            }
+        );
+        oxyos_client_close(client);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn safe_mode_crosses_the_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_SAFE_MODE"),
+        i64::from(OXYOS_EVENT_SAFE_MODE)
+    );
+    let told = convert(&Event::SafeMode {}).unwrap();
+    assert_eq!(told.kind, OXYOS_EVENT_SAFE_MODE);
+}
+
+#[test]
+fn a_request_to_quit_and_its_answer_cross_the_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_QUIT_REQUESTED",
+            i64::from(OXYOS_EVENT_QUIT_REQUESTED),
+        ),
+        (
+            "OXYOS_SESSION_END_LOG_OUT",
+            i64::from(OXYOS_SESSION_END_LOG_OUT),
+        ),
+        (
+            "OXYOS_SESSION_END_RESTART",
+            i64::from(OXYOS_SESSION_END_RESTART),
+        ),
+        (
+            "OXYOS_SESSION_END_SHUT_DOWN",
+            i64::from(OXYOS_SESSION_END_SHUT_DOWN),
+        ),
+        (
+            "OXYOS_QUIT_REQUESTS_VERSION",
+            i64::from(OXYOS_QUIT_REQUESTS_VERSION),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    assert_eq!(
+        oxyos_protocol::SessionEnd::Restart as u32,
+        OXYOS_SESSION_END_RESTART
+    );
+    assert!(HEADER.contains(
+        "int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);"
+    ));
+    let told = convert(&Event::QuitRequested {
+        serial: 7,
+        reason: oxyos_protocol::SessionEnd::ShutDown,
+    })
+    .unwrap();
+    assert_eq!(
+        (told.kind, told.code, told.detail),
+        (OXYOS_EVENT_QUIT_REQUESTED, 7, OXYOS_SESSION_END_SHUT_DOWN)
+    );
+    let flags = convert(&Event::Modifiers {
+        surface: 4,
+        modifiers: oxyos_protocol::MODIFIER_ALT,
+    })
+    .unwrap();
+    assert_eq!(
+        (flags.kind, flags.surface, flags.modifiers),
+        (OXYOS_EVENT_MODIFIERS, 4, oxyos_protocol::MODIFIER_ALT)
+    );
+
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-quit-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        server.recv_request().unwrap().0
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_reply_to_quit(client, 7, 0), 0);
+        assert_eq!(
+            compositor.join().unwrap(),
+            Request::QuitReply {
+                serial: 7,
+                quit: false
+            }
+        );
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
