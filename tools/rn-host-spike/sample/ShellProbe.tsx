@@ -681,14 +681,10 @@ function SessionShell() {
   }, [listsTold]);
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
   const locked = !!state?.locked;
-  // Whom the session is for: the account's display name and username, else the full name the
-  // system keeps (passwd's GECOS, written from the same profile); never the Unix user's name.
+  // Whom the session is for: the account's display name and username, from the accounts'
+  // service's snapshot alone; never a name of the machine's (passwd's GECOS, the Unix user's).
   const accountSnapshot = useAccountSnapshot();
-  const systemFullName = state?.user?.fullName;
-  const user = React.useMemo(
-    () => sessionUserFrom(accountSnapshot, systemFullName),
-    [accountSnapshot, systemFullName],
-  );
+  const user = React.useMemo(() => sessionUserFrom(accountSnapshot), [accountSnapshot]);
   const capsLock = !!state?.capsLock;
   // The account's PIN (ADR 0020 decision 2), asked of the accounts' service as the session locks
   // and after each answer (a PIN locked out on the way): which field the lock screen shows. Not
