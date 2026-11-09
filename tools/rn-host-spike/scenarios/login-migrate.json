@@ -117,22 +117,13 @@
       }
     },
     {
-      "name": "From a Backup, Continue pressed",
+      "name": "From a Backup, Continue: where the backups are, the disks the service finds",
       "do": [
         "a11y-action",
         [
           "activate",
           "Continue"
         ]
-      ],
-      "allow_unchanged": true,
-      "expect": {}
-    },
-    {
-      "name": "where the backups are: the disks the service finds",
-      "do": [
-        "wait",
-        1500
       ],
       "allow_unchanged": true,
       "expect": {
