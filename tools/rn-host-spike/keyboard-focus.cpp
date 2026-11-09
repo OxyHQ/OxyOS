@@ -29,7 +29,8 @@ bool unreachable(const ShadowView& view, bool isRoot) {
 
 bool disabled(const ViewProps& props) { return props.accessibilityState && props.accessibilityState->disabled; }
 
-bool focusableItself(const ShadowView& view) {
+// A stop of the keyboard's by its own props, whatever its size.
+bool stopItself(const ShadowView& view) {
   if (componentName(view) == "AndroidTextInput") {
     auto input = std::dynamic_pointer_cast<const AndroidTextInputProps>(view.props);
     return input && input->editable;
@@ -39,7 +40,11 @@ bool focusableItself(const ShadowView& view) {
   // A control the assistive technology does not reach (a backdrop that closes a panel when
   // pressed, `accessible={false}`) is no stop of the keyboard's either: a Mac's key view loop and
   // VoiceOver go through the same controls.
-  if (!androidViewPropsOf(*view.props).focusable || !props->accessible) return false;
+  return androidViewPropsOf(*view.props).focusable && props->accessible;
+}
+
+bool focusableItself(const ShadowView& view) {
+  if (!stopItself(view)) return false;
   const auto& size = view.layoutMetrics.frame.size;
   return size.width > 0 && size.height > 0;
 }
@@ -90,6 +95,11 @@ bool focusable(const ViewTree& tree, Tag tag) {
     if (i + 1 < path.size() && (ownSurface(name) || isModal(name))) break;
   }
   return focusableItself(tree.views().at(tag).view);
+}
+
+bool focusableOnceShown(const ViewTree& tree, Tag tag) {
+  auto it = tree.views().find(tag);
+  return it != tree.views().end() && stopItself(it->second.view);
 }
 
 bool editableInput(const ViewTree& tree, Tag tag) {

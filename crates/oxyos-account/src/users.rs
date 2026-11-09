@@ -23,12 +23,28 @@
 //!   there, so every later system-wide authorization agrees with OxyOS's. One is made with
 //!   `usermod --append --groups`; `userdel` takes a removed user out of the group with it.
 //!
+//! - **Its full name** ([`Users::set_full_name`]): `usermod --comment`, passwd's GECOS field, set
+//!   to what the person is called (the account's display name, else its username) when the account
+//!   is set up, when its profile is read anew online, and when the service starts, so that the
+//!   system's own tools (`getent`, `finger`, anything reading `pw_gecos`) name the person as OxyOS
+//!   does. The user's name (`oxy-…`) stays an identifier no one is shown. Made only of what GECOS
+//!   can hold ([`gecos_full_name`]), and written only when it differs.
+//! - **A new home's first file** ([`Users::seed_home`]): what a setup chose for the account before
+//!   any session of it existed (its appearance), written into the home `useradd` just made, as the
+//!   skeleton is: the directories and the file the user's own, at the modes the session would make
+//!   them with (0755 and 0644 under its 022 umask), each opened without following a link.
+//!
 //! Users are read from `/etc/passwd` (passwd(5)), where `useradd` writes them, and groups from
 //! `/etc/group` (group(5)). A name another account database holds is refused by `useradd` itself
 //! ("already exists").
 //!
 //! [`SystemUsers::with_prefix`] runs the same tools on another root's files (`--prefix`), which
 //! they do without privileges: the tests make real users, verifiers and homes that way.
+//!
+//! - **Made again from a backup** ([ADR 0059](../../docs/adr/0059-backups.mdx), decision 7): a
+//!   restored account's group (`groupadd --gid`) and user (`useradd --uid --gid`, no home: the
+//!   backup's is restored) with the numbers they had, so the files restored with their owners are
+//!   theirs; its password locked, as a new user's is, until it is set up again online.
 
 use crate::id::UserName;
 use crate::secret::Secret;
@@ -79,10 +95,17 @@ pub trait Users {
     fn lock(&self, name: &UserName) -> Result<(), UsersError>;
     /// Every session and process of the user ended (logind's).
     fn end_sessions(&self, name: &UserName) -> Result<(), UsersError>;
+    /// The user's full name (passwd's GECOS) made `full_name` as [`gecos_full_name`] makes it one;
+    /// whether it changed (it is not written when it already was).
+    fn set_full_name(&self, name: &UserName, full_name: &str) -> Result<bool, UsersError>;
     /// Whether the user is one of the machine's administrators: a member of [`ADMINISTRATORS`].
     fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError>;
     /// The user made one of the machine's administrators.
     fn make_administrator(&self, name: &UserName) -> Result<(), UsersError>;
+    /// `contents` written at `file` (relative, without `..`) in the home of `user`, which a setup
+    /// just made and no session has used: its directories made as needed, the directories made and
+    /// the file the user's. Removing the user removes it with the home.
+    fn seed_home(&self, user: &UnixUser, file: &Path, contents: &[u8]) -> Result<(), UsersError>;
 }
 
 /// The group whose members administer the machine: Debian's `sudo`, polkit's administrators there
@@ -103,9 +126,40 @@ pub fn verifier_password(password: &Secret) -> bool {
         && !bytes.iter().any(|b| matches!(b, 0 | b'\n' | b'\r'))
 }
 
+/// The longest full name written to GECOS, in characters: longer names are cut, as a login window
+/// cuts what it cannot show.
+pub const MAX_FULL_NAME_CHARS: usize = 128;
+
+/// `name` as passwd's GECOS field can hold it: one line, without the `:` that separates passwd's
+/// fields or the `,` that separates GECOS's own (the full name is its first), each such character
+/// and every control character a space, runs of spaces one, trimmed, at most
+/// [`MAX_FULL_NAME_CHARS`] characters.
+pub fn gecos_full_name(name: &str) -> String {
+    let spaced: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || c == ':' || c == ',' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    spaced
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_FULL_NAME_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned()
+}
+
 pub struct SystemUsers {
     prefix: Option<PathBuf>,
     pub(crate) useradd: PathBuf,
+    pub(crate) groupadd: PathBuf,
     pub(crate) chpasswd: PathBuf,
     pub(crate) userdel: PathBuf,
     pub(crate) usermod: PathBuf,
@@ -124,6 +178,7 @@ impl SystemUsers {
         Self {
             prefix: None,
             useradd: "/usr/sbin/useradd".into(),
+            groupadd: "/usr/sbin/groupadd".into(),
             chpasswd: "/usr/sbin/chpasswd".into(),
             userdel: "/usr/sbin/userdel".into(),
             usermod: "/usr/sbin/usermod".into(),
@@ -141,6 +196,50 @@ impl SystemUsers {
 
     fn passwd(&self) -> PathBuf {
         self.etc("passwd")
+    }
+
+    /// A restored account's group, `name` with the number `gid` it had on the computer its backup
+    /// is of ([ADR 0059](../../docs/adr/0059-backups.mdx), decision 7).
+    pub fn make_group(&self, name: &UserName, gid: u32) -> Result<(), UsersError> {
+        let output = run(
+            "groupadd",
+            self.command(&self.groupadd)
+                .args(["--gid", &gid.to_string(), "--"])
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => Ok(()),
+            // groupadd(8): 4, the gid is in use; 9, the name is.
+            Some(4 | 9) => Err(UsersError::Exists),
+            _ => Err(failed("groupadd", &output)),
+        }
+    }
+
+    /// A restored account's user, `name` with the uid it had, in its group `gid` made by
+    /// [`SystemUsers::make_group`]; no home is made (the backup's is restored) and its password is
+    /// locked, as a new user's is, until it is set up again online.
+    pub fn make_user(&self, name: &UserName, uid: u32, gid: u32) -> Result<UnixUser, UsersError> {
+        let output = run(
+            "useradd",
+            self.command(&self.useradd)
+                .args([
+                    "--no-create-home",
+                    "--uid",
+                    &uid.to_string(),
+                    "--gid",
+                    &gid.to_string(),
+                    "--",
+                ])
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => {}
+            // useradd(8): 4, the uid is in use; 9, the name is.
+            Some(4 | 9) => return Err(UsersError::Exists),
+            _ => return Err(failed("useradd", &output)),
+        }
+        self.lookup(name)?
+            .ok_or_else(|| UsersError::Failed(format!("useradd made no user {name}")))
     }
 
     fn etc(&self, file: &str) -> PathBuf {
@@ -183,8 +282,8 @@ fn run(tool: &str, command: &mut Command) -> Result<std::process::Output, UsersE
         .map_err(|error| UsersError::Failed(format!("{tool} cannot run: {error}")))
 }
 
-/// `name`'s entry in a passwd(5) file.
-pub fn passwd_entry(passwd: &Path, name: &str) -> Result<Option<UnixUser>, UsersError> {
+/// `name`'s entry in a passwd(5) file, its seven fields; none if it has no such user.
+fn passwd_fields(passwd: &Path, name: &str) -> Result<Option<Vec<String>>, UsersError> {
     let text = std::fs::read_to_string(passwd)
         .map_err(|error| UsersError::Failed(format!("{}: {error}", passwd.display())))?;
     for line in text.lines() {
@@ -192,20 +291,39 @@ pub fn passwd_entry(passwd: &Path, name: &str) -> Result<Option<UnixUser>, Users
         if fields.first() != Some(&name) {
             continue;
         }
-        let number = |index: usize| fields.get(index).and_then(|field| field.parse().ok());
-        return match (fields.len(), number(2), number(3)) {
-            (7, Some(uid), Some(gid)) => Ok(Some(UnixUser {
-                uid,
-                gid,
-                home: PathBuf::from(fields[5]),
-            })),
-            _ => Err(UsersError::Failed(format!(
+        if fields.len() != 7 {
+            return Err(UsersError::Failed(format!(
                 "{}: {name}'s entry is malformed",
                 passwd.display()
-            ))),
-        };
+            )));
+        }
+        return Ok(Some(fields.into_iter().map(str::to_owned).collect()));
     }
     Ok(None)
+}
+
+/// `name`'s entry in a passwd(5) file.
+pub fn passwd_entry(passwd: &Path, name: &str) -> Result<Option<UnixUser>, UsersError> {
+    let Some(fields) = passwd_fields(passwd, name)? else {
+        return Ok(None);
+    };
+    match (fields[2].parse(), fields[3].parse()) {
+        (Ok(uid), Ok(gid)) => Ok(Some(UnixUser {
+            uid,
+            gid,
+            home: PathBuf::from(&fields[5]),
+        })),
+        _ => Err(UsersError::Failed(format!(
+            "{}: {name}'s entry is malformed",
+            passwd.display()
+        ))),
+    }
+}
+
+/// `name`'s GECOS field in a passwd(5) file (its full name, then other fields after commas); none
+/// if it has no such user.
+pub fn passwd_gecos(passwd: &Path, name: &str) -> Result<Option<String>, UsersError> {
+    Ok(passwd_fields(passwd, name)?.map(|mut fields| fields.swap_remove(4)))
 }
 
 /// The members of `group` in a group(5) file, its fourth field; none if it has no such group.
@@ -348,6 +466,28 @@ impl Users for SystemUsers {
         }
     }
 
+    fn set_full_name(&self, name: &UserName, full_name: &str) -> Result<bool, UsersError> {
+        let wanted = gecos_full_name(full_name);
+        match passwd_gecos(&self.passwd(), name.as_str())? {
+            None => return Err(UsersError::Missing),
+            Some(gecos) if gecos == wanted => return Ok(false),
+            Some(_) => {}
+        }
+        let output = run(
+            "usermod",
+            self.command(&self.usermod)
+                .arg("--comment")
+                .arg(&wanted)
+                .arg("--")
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(6) => Err(UsersError::Missing),
+            _ => Err(failed("usermod", &output)),
+        }
+    }
+
     fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError> {
         Ok(group_members(&self.etc("group"), ADMINISTRATORS)?
             .is_some_and(|members| members.iter().any(|member| member == name.as_str())))
@@ -366,4 +506,67 @@ impl Users for SystemUsers {
             _ => Err(failed("usermod", &output)),
         }
     }
+
+    fn seed_home(&self, user: &UnixUser, file: &Path, contents: &[u8]) -> Result<(), UsersError> {
+        // Another root's users are not this system's to give files to: the tests' own, unowned.
+        let (home, owner) = match &self.prefix {
+            Some(prefix) => (
+                prefix.join(user.home.strip_prefix("/").unwrap_or(&user.home)),
+                None,
+            ),
+            None => (user.home.clone(), Some((user.uid, user.gid))),
+        };
+        seed(&home, file, contents, owner)
+            .map_err(|error| UsersError::Failed(format!("{}: {error}", home.join(file).display())))
+    }
+}
+
+/// Writes `contents` at `file` under `home`, each directory and the file opened without following
+/// a link (`O_NOFOLLOW`), the ones made given to `owner`.
+fn seed(
+    home: &Path,
+    file: &Path,
+    contents: &[u8],
+    owner: Option<(u32, u32)>,
+) -> std::io::Result<()> {
+    use rustix::fs::{fchmod, mkdirat, open, openat, Mode, OFlags};
+    use std::path::Component;
+    let invalid = || std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a file in a home");
+    let mut parts = Vec::new();
+    for component in file.components() {
+        match component {
+            Component::Normal(part) => parts.push(part),
+            _ => return Err(invalid()),
+        }
+    }
+    let name = parts.pop().ok_or_else(invalid)?;
+    let directory = OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY | OFlags::CLOEXEC;
+    let give = |fd: &std::os::fd::OwnedFd, mode: u32| -> std::io::Result<()> {
+        fchmod(fd, Mode::from_raw_mode(mode))?;
+        if let Some((uid, gid)) = owner {
+            std::os::unix::fs::fchown(fd, Some(uid), Some(gid))?;
+        }
+        Ok(())
+    };
+    let mut at = open(home, directory, Mode::empty())?;
+    for part in parts {
+        let made = match mkdirat(&at, part, Mode::from_raw_mode(0o755)) {
+            Ok(()) => true,
+            Err(rustix::io::Errno::EXIST) => false,
+            Err(error) => return Err(error.into()),
+        };
+        let next = openat(&at, part, directory, Mode::empty())?;
+        if made {
+            give(&next, 0o755)?;
+        }
+        at = next;
+    }
+    let written = openat(
+        &at,
+        name,
+        OFlags::WRONLY | OFlags::CREATE | OFlags::TRUNC | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o644),
+    )?;
+    give(&written, 0o644)?;
+    std::fs::File::from(written).write_all(contents)
 }

@@ -23,9 +23,20 @@ The machine's Oxy session, for an application the session launched (docs/adr/002
 | `account.accessToken` | `(reason: TokenReason, options?: CallOptions): Promise<AccessToken \| null>` | A short token for this application alone, or null when there is none (offline, signed out). Rejects with `invalid` for a reason that is not one, `unavailable` without a session. |
 | `account.lock` | `(): Promise<void>` | Locks the session (the person signs in again on the lock screen, with Oxy online): only while this application's window is the active one; `notPermitted` otherwise. |
 
+## `activity`
+
+| Member | Signature | What it does |
+| --- | --- | --- |
+| `activity.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
+| `activity.sample` | `Followed<Json>` | The machine's use and every process's, sampled every two seconds while followed. |
+| `activity.setView` | `(view: ActivityView): void` | Which view the samples are of: what its columns need (`cpu`, `memory`, `energy`, ...). |
+| `activity.quit` | `(pid: number, started: number, force: boolean, options?: CallOptions): Promise<Json>` | Quits one of the person's processes, citing the press that confirmed it (SIGKILL with `force`). |
+| `activity.quitApp` | `(id: string, force: boolean, options?: CallOptions): Promise<Json>` | Quits an application the session launched, as the dock does (`force`: Force Quit). |
+| `activity.inspect` | `(pid: number, started: number, options?: CallOptions): Promise<Json>` | One process's details: its parent, memory, open files and ports, control group. |
+
 ## `application`
 
-This application: what the session started it as and to open, opening a URL elsewhere, and its permissions (docs/adr/0030-installing-applications.mdx, decision 8).
+This application (docs/adr/0058-the-platform-api.mdx, decision 1): what the session started it as and to open, opening a URL elsewhere, and its permissions (docs/adr/0030-installing-applications.mdx, decision 8); its login item and background activity (docs/adr/0060-login-items-and-background-activity.mdx), and its answer when the session asks it to quit before logging out, restarting or shutting down (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
 
 | Member | Signature | What it does |
 | --- | --- | --- |
@@ -39,6 +50,8 @@ This application: what the session started it as and to open, opening a URL else
 | `application.open` | `(url: string, options?: CallOptions): Promise<void>` | Opens `url` with the application whose entry declares its scheme (the platform's Settings at a page for `oxyos-settings:`), citing the person's latest press or key. Rejects with `needsInput` without one, `invalid` for a file (opened by its type) or text that names no scheme, `failed` (reason `notOpened`) where the session opened nothing, `unavailable` where this window cannot ask. |
 | `application.permission` | `(capability: Capability): Permission` | Whether it has `capability` now, without asking. |
 | `application.requestPermission` | `(capability: Capability, options?: CallOptions): Promise<Permission>` | Asks the person for `capability` at first use, in the system's sheet (only after an input of theirs in the application); answers from the account's decision once it was made. |
+| `application.quitRequests` | `boolean` | Whether the session asks this application before it ends (protocol version 38). |
+| `application.onQuitRequest` | `(handler: QuitHandler): () => void` | Asked before the session logs out, restarts or shuts down: `'quit'`, and the application ends; `'cancel'`, and nothing ends. Returns what unregisters it. |
 | `application.grants.length` | `number` | Gets the length of the array. This is a number one higher than the highest element defined in an array. |
 | `application.grants.toString` | `(): string` | Returns a string representation of an array. |
 | `application.grants.toLocaleString` | `(): string / (locales: string \| string[], options?: Intl.NumberFormatOptions & Intl.DateTimeFormatOptions): string` | Returns a string representation of an array. The elements are converted to string using their toLocaleString methods. |
@@ -69,6 +82,18 @@ This application: what the session started it as and to open, opening a URL else
 | `application.grants.toSorted` | `(compareFn?: ((a: string, b: string) => number) \| undefined): string[]` | Copies and sorts the array. |
 | `application.grants.toSpliced` | `(start: number, deleteCount: number, ...items: string[]): string[] / (start: number, deleteCount?: number): string[]` | Copies an array and removes elements while, if necessary, inserting new elements in their place, returning the remaining elements. Copies an array and removes elements while returning the remaining elements. |
 | `application.grants.with` | `(index: number, value: string): string[]` | Copies an array, then overwrites the value at the provided index with the given value. If the index is negative, then it replaces from the end of the array |
+| `application.loginItem.available` | `boolean` | Whether the session can be asked (protocol version 33). |
+| `application.loginItem.status` | `(options?: CallOptions): Promise<BackgroundItemStatus>` | How it stands now. |
+| `application.loginItem.register` | `(options?: CallOptions): Promise<"enabled">` | Registers it: resolves `'enabled'`, or rejects (`notPermitted`, with `reason` `'requiresApproval'` when the person turned it off; `failed` when it was not registered; `unavailable`; `cancelled`). |
+| `application.loginItem.unregister` | `(options?: CallOptions): Promise<BackgroundItemStatus>` | Unregisters it: how it then stands. |
+| `application.loginItem.current` | `(): BackgroundItemStatus \| null` | The last state told, or null before the first. |
+| `application.loginItem.subscribe` | `(listener: (state: BackgroundItemStatus) => void): () => void` | Follows it; the function returned stops following. |
+| `application.backgroundActivity.available` | `boolean` | Whether the session can be asked (protocol version 33). |
+| `application.backgroundActivity.status` | `(options?: CallOptions): Promise<BackgroundItemStatus>` | How it stands now. |
+| `application.backgroundActivity.register` | `(options?: CallOptions): Promise<"enabled">` | Registers it: resolves `'enabled'`, or rejects (`notPermitted`, with `reason` `'requiresApproval'` when the person turned it off; `failed` when it was not registered; `unavailable`; `cancelled`). |
+| `application.backgroundActivity.unregister` | `(options?: CallOptions): Promise<BackgroundItemStatus>` | Unregisters it: how it then stands. |
+| `application.backgroundActivity.current` | `(): BackgroundItemStatus \| null` | The last state told, or null before the first. |
+| `application.backgroundActivity.subscribe` | `(listener: (state: BackgroundItemStatus) => void): () => void` | Follows it; the function returned stops following. |
 
 ## `audio`
 
@@ -83,6 +108,23 @@ The sound's devices (docs/adr/0056-sound-devices.mdx): `settings` or `shell`.
 | `audio.setVolume` | `(direction: Direction, volume: number, options?: CallOptions): Promise<Json>` | Sets the chosen output's or input's volume, 0 to 1 (decision 7: its one owner). |
 | `audio.setMuted` | `(direction: Direction, muted: boolean, options?: CallOptions): Promise<Json>` | Mutes or unmutes the chosen output or input (decision 7: its one owner). |
 | `audio.setBalance` | `(balance: number, options?: CallOptions): Promise<Json>` | Sets the output's balance, -1 (left) to 1 (right). |
+
+## `backup`
+
+Backups (docs/adr/0059-backups.mdx): the backup service's state, followed as `{backup: State}` (`{backup: null}` while the service is not there; State: `{automatic, destinations, excluded, running, lastBackup, nextBackup, held, administrator, inMenuBar}`), told to the shell (its `shell` grant: the menu bar's backup item) and Settings (`settings`: its Backups page). Both back up now and skip a backup; Settings alone lists the disks that can be added, adds a disk or a share, removes a destination, sets the excluded items and Back Up Automatically. Each cites the press that asked; the service decides who is an administrator.
+
+| Member | Signature | What it does |
+| --- | --- | --- |
+| `backup.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
+| `backup.state` | `Followed<{ backup: Json \| null; }>` | The backup service's state as the session tells it, asked as it is first followed. |
+| `backup.backUpNow` | `(options?: CallOptions): Promise<Json>` | Backs up now, to every destination. |
+| `backup.stop` | `(options?: CallOptions): Promise<Json>` | Skips the backup running. |
+| `backup.disks` | `(options?: CallOptions): Promise<Json>` | The disks that can be added as a destination (Settings alone). |
+| `backup.addDisk` | `(uuid: string, password: string \| null, options?: CallOptions): Promise<Json>` | Adds the disk `uuid`, encrypted with `password` (null: not encrypted). |
+| `backup.addShare` | `(share: string, sharePassword: string \| null, password: string \| null, options?: CallOptions): Promise<Json>` | Adds the network share `share`, signed in to with `sharePassword`, encrypted with `password`. |
+| `backup.remove` | `(id: string, options?: CallOptions): Promise<Json>` | Removes the destination `id`; its backups stay on it. |
+| `backup.setExcluded` | `(paths: readonly string[], options?: CallOptions): Promise<Json>` | The items of the home left out of every backup. |
+| `backup.setAutomatic` | `(enabled: boolean, options?: CallOptions): Promise<Json>` | Back Up Automatically, on or off. |
 
 ## `bluetooth`
 
@@ -155,6 +197,24 @@ Items, places, the Trash, watching and tags (docs/adr/0028-file-access.mdx).
 | `files.tags.tagged` | `(name: string, options?: CallOptions): Promise<TaggedItem[]>` | The items tagged `name`, from the index of the person's tagged items. |
 | `files.tags.names` | `(options?: CallOptions): Promise<{ name: string; count: number; }[]>` | Every tag's name, and how many items have it. |
 | `files.tags.onChange` | `(listener: () => void): () => void` | Follows the index of tagged items. |
+| `files.backups.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
+| `files.backups.state` | `(options?: CallOptions): Promise<any>` | The service's state: its destinations, the last and next backups. |
+| `files.backups.onChange` | `(listener: () => void): () => void` | Follows the service's state; the function returned stops following. |
+| `files.backups.versions` | `(uri: string, options?: CallOptions): Promise<any[]>` | The backups that hold a version of `uri`. |
+| `files.backups.contents` | `(backup: BackupRef, folder: string, options?: CallOptions): Promise<any[]>` | What the folder `uri` held in `backup`. |
+| `files.backups.restore` | `(backup: BackupRef, uri: string, options?: CallOptions & { to?: string \| null; replace?: boolean; onProgress?: (progress: any) => void; }): Promise<any>` | Restores `uri` as `backup` held it, written by this process as the person: beside what is there (or in the folder `to`) unless `replace`; resolves with what was written. Its progress is told as a transfer's; aborted, the service stops it and it rejects with `cancelled`. |
+
+## `keychain`
+
+The keychain (docs/adr/0050-keychain-autofill-and-passkeys.mdx): asking to save a login, and passkeys, the platform's authenticator.
+
+| Member | Signature | What it does |
+| --- | --- | --- |
+| `keychain.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
+| `keychain.savePassword` | `(credential: Credential, options?: CallOptions): Promise<SaveResult>` |  |
+| `keychain.passkeys.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
+| `keychain.passkeys.create` | `(options: CreationOptionsJSON, call?: CallOptions): Promise<RegistrationResponseJSON>` |  |
+| `keychain.passkeys.get` | `(options: RequestOptionsJSON, call?: CallOptions): Promise<AuthenticationResponseJSON>` |  |
 
 ## `network`
 
@@ -168,6 +228,10 @@ Wi-Fi and networks (docs/adr/0038-networks.mdx): the `network` grant, or `shell`
 | `network.join` | `(ssid: string, options?: CallOptions): Promise<Json>` | Joins `ssid`; a password, if it needs one, is asked in the system's sheet. |
 | `network.forget` | `(id: string, options?: CallOptions): Promise<Json>` | Forgets the known network `id`: OxyOS no longer joins it on its own. |
 | `network.setWifi` | `(enabled: boolean, options?: CallOptions): Promise<Json>` | Turns Wi-Fi on or off (decision 7: its one owner). |
+| `network.setPrivateAddress` | `(id: string, mode: "fixed" \| "rotating" \| "off", options?: CallOptions): Promise<Json>` | A known network's private Wi-Fi address; the network joined is joined again with it (ADR 0038, 8 November 2026). |
+| `network.resetPreview` | `(options?: CallOptions): Promise<Json>` | What resetting the network settings would remove and keep; nothing changes. |
+| `network.reset` | `(options?: CallOptions): Promise<Json>` | Removes the saved networks and VPNs this person may, with their passwords. |
+| `network.diagnose` | `(options?: CallOptions): Promise<Json>` | Wi-Fi Diagnostics, run once: the link, the router, the internet, DNS. |
 
 ## `notifications`
 
@@ -224,6 +288,8 @@ The session's search index (docs/adr/0051-search.mdx).
 | `search.status` | `(options?: CallOptions): Promise<any>` | What the index holds and is doing, once. |
 | `search.state` | `Followed<{ [x: string]: unknown; }>` | What the index holds and is doing (`{indexing, items, partial, rebuilding, found, ...}`), followed: told by the index as it changes, only while something follows it. |
 | `search.rebuild` | `(options?: CallOptions): Promise<void>` | Discards the index and builds it again from the files (Settings alone); the old one answers until the new one is ready. |
+| `search.storage` | `(options?: CallOptions): Promise<any>` | Settings › Storage (docs/adr/0062-storage.mdx; Settings alone): what the home's files occupy by kind, `{home, kinds: {KIND: {files, bytes}}, indexing, partial}`. |
+| `search.largest` | `(query?: { limit?: number; }, options?: CallOptions): Promise<any>` | The home's largest files, the largest first, as a question's items (`{items}`). |
 
 ## `settings`
 
@@ -241,7 +307,12 @@ The session's settings: updates (`updates`), input sources (`settings`), privacy
 | `settings.inputSources` | `Followed<Json>` | The input sources in effect and the input methods the engine has (ADR 0041). |
 | `settings.selectInputSource` | `(id: string, options?: CallOptions): Promise<Json>` | Chooses the input source `id`, citing the press or key that chose it. |
 | `settings.privacy` | `(options?: CallOptions): Promise<Json>` | The account's decisions on its applications' capabilities (`privacy`). |
+| `settings.decisions` | `Followed<Json[]>` | Those decisions as told: by `privacy`'s answers, and again, unasked, when they changed elsewhere (an application granted a capability as it registered its login item, or one running in the background or no longer; docs/adr/0060-login-items-and-background- activity.mdx). Not asked as it is first followed: the page that shows it asks. |
 | `settings.decide` | `(id: string, capability: string, granted: boolean, options?: CallOptions): Promise<Json>` | Records the account's decision on `capability` for the application `id` (`privacy`). |
+| `settings.storage` | `(options?: CallOptions): Promise<Json>` | Settings › Storage (docs/adr/0062-storage.mdx): the session's measurement of the volume, the system's image, the Trash and each application, asked as the page shows it (`{storage: {volume, system, trash, apps}}`). |
+| `settings.reveal` | `(uri: string, options?: CallOptions): Promise<Json>` | Shows an item in the file manager, citing the press that asked (`{revealed: {}}`). |
+| `settings.uninstall` | `(id: string, options?: CallOptions): Promise<Json>` | Removes an application through the store's uninstall, confirmed in the system's sheet (`{uninstalled: {id}}` or `{cancelled: {}}`). |
+| `settings.resetApplication` | `(id: string, options?: CallOptions): Promise<Json>` | Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx): confirmed in the system's sheet, the application quit and its own data erased (`{reset: {id}}`). |
 
 ## `shell`
 
@@ -257,6 +328,12 @@ What only the session's shell does: the system's sheets, AutoFill's list, the em
 | `shell.autofill` | `Followed<Json \| null>` | AutoFill's list the session tells this shell to draw at a field's caret, null for none. The application whose field it is never sees it. |
 | `shell.chooseAutofill` | `(index: number, options?: CallOptions): Promise<void>` | Picks the AutoFill item `index`, citing the press that chose it. |
 | `shell.showEmojiPicker` | `(options?: CallOptions): Promise<void>` | Shows the emoji picker, citing the press or key that asked. |
+| `shell.answerPasskey` | `(sheet: number, choice: number \| undefined, password: string): void` | A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the passkey chosen and the Oxy account's password the person typed, to the session alone, which hands them to the accounts' service, never to the application. |
+| `shell.resetApplication` | `(sheet: number, id: string): void` | An application that quit (docs/adr/0061-crashes-and-resetting-an-application.mdx): its notice's Reset… answers the notice no and asks the session to reset it, which asks the person in a sheet of its own and opens it again once it is reset. |
+| `shell.choosePowerKey` | `(sheet: number, choice: string): void` | The power key's sheet (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 7): its Restart and Sleep answer it, the session taking them only for the sheet it shows. |
+| `shell.setReopenWindows` | `(enabled: boolean): void` | Reopen windows when logging back in, as the person toggled it in the session's question: their `reopen_windows`, which the session keeps. |
+| `shell.endSession` | `(action: string, confirm: boolean, options?: CallOptions): Promise<void>` | Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the shell's Oxy menu and the login screen's buttons. The session decides: it asks its own question (`confirm`), every application, then logind. Resolves once it answered (`{confirming}`, `{ending: {action}}`), rejects with its refusal. |
+| `shell.sleep` | `(options?: CallOptions): Promise<void>` | Sleeps the computer at once (`{sleeping}`). |
 
 ## `sounds`
 
@@ -298,6 +375,7 @@ The application's own window: its state and operations, its menus, its keys and 
 | `windows.menus.onChoose` | `(listener: (choice: { serial: number; index: number; }) => void): () => void` | The person chose the entry `index` of the commit `serial` in the shell's bar. |
 | `windows.keys.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
 | `windows.keys.onKey` | `(listener: (event: KeyEvent) => boolean \| void): () => void` |  |
+| `windows.keys.onModifiers` | `(listener: (modifiers: Modifiers) => void): () => void` | The modifiers held as they change (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): Option going down or up told at once, with no key or move after it. |
 | `windows.editing.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
 | `windows.editing.state` | `Followed<{ [x: string]: unknown; } \| null>` |  |
 | `windows.editing.perform` | `(action: string): boolean` | Does `action` on the focused text input: whether it did. |

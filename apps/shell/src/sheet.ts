@@ -20,6 +20,26 @@
  * device (`bluetooth-display`, which only Cancel answers: the session takes it away once paired),
  * asks for the code the device shows or its PIN (`bluetooth-code`) and says a connection failed
  * (`bluetooth-failed`). The code typed goes to the session alone, as a password does.
+ *
+ * An application asking to save a login it has just used (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 5), the session asks the person (`save-password`): the application, by its id (named
+ * as the registry names it), the username and the website it names, never the password. Save
+ * saves it in the account's keychain; Not Now, Escape or the application going saves nothing.
+ *
+ * An application creating or using a passkey (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 7), the session asks the person to verify (`passkey`): "Use your passkey for
+ * github.com?" or "Create a passkey for …", the application asking (by its id, named as the
+ * registry names it), the account (a chooser when several passkeys match) and the Oxy account's
+ * password, typed in the sheet's own secure field, which goes to the session alone and on to the
+ * accounts' service, never to the application. A wrong one asks again saying so; too many say how
+ * long to wait. A relying party where the person already has one (`excluded`) or has none
+ * (`none`) is only said, with one button.
+ *
+ * An application that quit unexpectedly again within ten minutes
+ * (docs/adr/0061-crashes-and-resetting-an-application.mdx), the session says so (`crash`), its
+ * keyboard on Reopen: Reopen (the answer), Ignore, Reset… (which asks the session to reset it, and
+ * the session asks the person in a sheet of its own, `reset`) and Report…, which shows the report
+ * the session wrote, kept on this computer, to copy. Nothing is ever sent anywhere.
  */
 
 import type { Language, ShellMessages } from "./messages";
@@ -48,7 +68,61 @@ export type SheetText =
   | { kind: "bluetooth-service"; name: string; device: BluetoothKind; service: BluetoothService }
   | { kind: "bluetooth-display"; name: string; device: BluetoothKind; code: string }
   | { kind: "bluetooth-code"; name: string; device: BluetoothKind; code: BluetoothCodeKind }
-  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string };
+  | { kind: "bluetooth-failed"; name: string; device: BluetoothKind; reason: string }
+  // AutoFill's "ask to save" (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): `id`
+  // the asking application's desktop entry id.
+  | { kind: "save-password"; id: string; username: string; domain?: string }
+  // An application that quit unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx):
+  // `times` in the last ten minutes, its report and where the session keeps it, shown at the notice
+  // or at the report (the notification's Report…).
+  | {
+      kind: "crash";
+      id: string;
+      name: string;
+      times: number;
+      report: string;
+      file?: string;
+      show: "notice" | "report";
+    }
+  // Resetting an application: what is erased, and whether it quits first.
+  | { kind: "reset"; id: string; name: string; running: boolean }
+  // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): `id` the asking
+  // application's desktop entry id, `rpId` the relying party (a domain name).
+  | PasskeySheet
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+  // the session's question, with its countdown (`seconds`: the session goes on by itself once they
+  // pass) and Reopen windows' state; the power key's choice; and what kept the end from happening.
+  | { kind: "end-session"; action: SessionEndAction; seconds: number; reopenWindows: boolean }
+  | { kind: "power-key"; reopenWindows: boolean }
+  | { kind: "end-session-cancelled"; action: SessionEndAction; application: string }
+  | { kind: "end-session-timed-out"; action: SessionEndAction; application: string }
+  | {
+      kind: "end-session-failed";
+      action: SessionEndAction | "sleep";
+      reason: "notPermitted" | "unavailable" | "failed" | string;
+    };
+
+/** What a passkey's sheet asks: to make one, to use one, or only says one is there already or none
+    is. */
+export type PasskeyMode = "create" | "get" | "excluded" | "none";
+
+export type PasskeySheet = {
+  kind: "passkey";
+  mode: PasskeyMode;
+  id: string;
+  rpId: string;
+  userName?: string;
+  choices: { userName: string; displayName: string }[];
+  /** The password given was not right. */
+  incorrect: boolean;
+  /** Too many were not: seconds to wait. */
+  retryAfter?: number;
+  /** Asked again, the account the person had chosen. */
+  chosen?: number;
+};
+
+/** How the session ends: restarting the computer, shutting it down, or logging out. */
+export type SessionEndAction = "restart" | "shutDown" | "logOut";
 
 /** What a paired device that is not trusted asks to use. */
 export type BluetoothService = "audio" | "input" | "phone" | "files" | "network" | "other";
@@ -101,7 +175,39 @@ export type SheetView = {
   /** A field for a pairing code, whose text is the answer (`accept` enabled once it is a valid
       one, Return submitting it): its label, and what it takes. */
   codeField?: { label: string; kind: BluetoothCodeKind };
+  /** A passkey's chooser (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the accounts the
+      person may use, the first chosen until they choose another. Its rows' label is the list's. */
+  choices?: { label: string; rows: { title: string; detail: string }[] };
+  /** Which password the field takes: a Wi-Fi network's (8 to 63 bytes, or 64 hexadecimal digits),
+      or the Oxy account's (anything not empty). */
+  passwordKind?: "wifi" | "account";
+  /** What else the sheet offers, beside its answer (an application that quit: Reset…, Report…):
+      buttons of their own at its foot's start. */
+  actions?: { id: SheetAction; label: string }[];
+  /** A report to show (an application that quit): its title, its text, its buttons' names, and
+      whether the sheet opens at it. */
+  report?: { title: string; text: string; copy: string; copied: string; done: string; first: boolean };
+  /** Whether the keyboard starts on its answer, a Mac's default button (Space presses it). */
+  focusAnswer?: boolean;
+  /** Whether Return presses its answer, as a Mac's default button: the session's question to
+      restart, shut down or log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). */
+  defaultAnswer?: boolean;
+  /** A checkbox under its words (Reopen windows when logging back in): its label, its state as the
+      session told it, and its state as said with the sheet. Toggled, the shell tells the session. */
+  checkbox?: { label: string; checked: boolean; on: string; off: string };
+  /** A countdown in place of `body`, counted down by the shell each second from `seconds`: what
+      happens by itself if the person does nothing. The session keeps the deadline. */
+  countdown?: { seconds: number; text: (seconds: number) => string };
 };
+
+/** Whether what the password field holds can be submitted, by the password it takes. */
+export function submittablePassword(password: string, kind: "wifi" | "account" = "wifi"): boolean {
+  return kind === "account" ? password.length > 0 : validWifiPassword(password);
+}
+
+/** What a sheet offers beside its answer: an application that quit's Reset… and Report…, the
+    power key's Restart and Sleep. */
+export type SheetAction = "reset" | "report" | "restart" | "sleep";
 
 /** A capability's name, in the catalogue's language; its own name for one OxyOS does not know. */
 export function capabilityLabel(name: string, messages: ShellMessages): string {
@@ -340,6 +446,123 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         codeField: { label: pin ? w.bluetoothPinField : w.bluetoothCodeField, kind: pin ? "pin" : "passkey" },
       };
     }
+    case "passkey":
+      return passkeyView(sheet, messages, names);
+    case "save-password":
+      return {
+        title: w.savePassword(names[sheet.id] ?? sheet.id),
+        body: sheet.domain ? `${sheet.username} · ${sheet.domain}` : sheet.username,
+        lines: [{ label: w.savePasswordNote }],
+        accept: w.save,
+        refuse: w.notNow,
+        destructive: false,
+      };
+    case "crash": {
+      const again = sheet.times > 1;
+      return {
+        title: again ? w.crashAgain(sheet.name) : w.crash(sheet.name),
+        body: again ? w.crashAgainBody(sheet.times) : w.crashBody,
+        lines: [],
+        accept: w.reopen,
+        refuse: w.ignore,
+        destructive: false,
+        actions: [
+          { id: "reset", label: w.resetButtonEllipsis },
+          { id: "report", label: w.reportButton },
+        ],
+        report: {
+          title: w.reportTitle(sheet.name),
+          text: sheet.report,
+          copy: w.copy,
+          copied: w.copied,
+          done: w.done,
+          first: sheet.show === "report",
+        },
+        focusAnswer: true,
+      };
+    }
+    case "reset":
+      return {
+        title: w.reset(sheet.name),
+        body: sheet.running ? `${w.resetBody(sheet.name)} ${w.resetQuits(sheet.name)}` : w.resetBody(sheet.name),
+        lines: [],
+        accept: w.resetButton,
+        refuse: w.cancel,
+        destructive: true,
+      };
+    case "end-session": {
+      const p = messages.power;
+      const text = p.countdown[sheet.action];
+      const seconds = Math.max(0, Math.round(sheet.seconds));
+      return {
+        title: p.question[sheet.action],
+        body: text(seconds),
+        lines: [],
+        accept: sheet.action === "restart" ? p.restartNow : sheet.action === "shutDown" ? p.shutDownButton : p.logOutButton,
+        refuse: w.cancel,
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+        checkbox: { label: p.reopenWindows, checked: sheet.reopenWindows, on: p.reopenWindowsOn, off: p.reopenWindowsOff },
+        countdown: { seconds, text },
+      };
+    }
+    case "power-key": {
+      // A Mac's power button: Restart and Sleep at the foot's start, Cancel, and Shut Down, the
+      // default; no countdown (decision 7).
+      const p = messages.power;
+      return {
+        title: p.question.shutDown,
+        body: "",
+        lines: [],
+        accept: p.shutDownButton,
+        refuse: w.cancel,
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+        checkbox: { label: p.reopenWindows, checked: sheet.reopenWindows, on: p.reopenWindowsOn, off: p.reopenWindowsOff },
+        actions: [
+          { id: "restart", label: p.restartNow },
+          { id: "sleep", label: p.sleep },
+        ],
+      };
+    }
+    case "end-session-cancelled":
+      return {
+        title: messages.power.cancelled[sheet.action](sheet.application),
+        body: "",
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
+    case "end-session-timed-out":
+      return {
+        title: messages.power.timedOut[sheet.action](sheet.application),
+        body: messages.power.tryAgain[sheet.action](sheet.application),
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
+    case "end-session-failed": {
+      const p = messages.power;
+      const action = sheet.action in p.failed ? sheet.action : "shutDown";
+      return {
+        title: p.failed[action],
+        body: sheet.reason === "notPermitted" ? p.notPermitted[action] : p.unavailable,
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
+    }
     case "bluetooth-failed":
       return {
         title: w.bluetoothFailed(sheet.name),
@@ -357,6 +580,25 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
   }
 }
 
+/** Whether the keyboard starts on a sheet's answer, its default button, as a Mac's alert starts:
+    an application that quit's notice (Reopen), and the session's question to restart, shut down or
+    log out, the power key's choice and what kept one from happening (docs/adr/0064-sleep-restart-
+    shut-down-and-log-out.mdx). Any other starts on its first control, Cancel. */
+export function startsOnAnswer(sheet: SheetText): boolean {
+  switch (sheet.kind) {
+    case "crash":
+      return sheet.show === "notice";
+    case "end-session":
+    case "power-key":
+    case "end-session-cancelled":
+    case "end-session-timed-out":
+    case "end-session-failed":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Sheets waiting, the first shown: the session may ask several (an update's consents in turn). */
 export type SheetQueue = { sheet: number; text: SheetText }[];
 
@@ -368,4 +610,50 @@ export function sheetArrived(queue: SheetQueue, sheet: number, text: string): Sh
 
 export function sheetGone(queue: SheetQueue, sheet: number): SheetQueue {
   return queue.filter((s) => s.sheet !== sheet);
+}
+
+/** A passkey's sheet: what it asks, for which relying party, by which application. */
+function passkeyView(sheet: PasskeySheet, messages: ShellMessages, names: Record<string, string>): SheetView {
+  const w = messages.sheet;
+  const app = names[sheet.id] ?? sheet.id;
+  const requested = w.passkeyRequestedBy(app);
+  const tells = sheet.mode === "excluded" || sheet.mode === "none";
+  if (tells) {
+    return {
+      title: sheet.mode === "excluded" ? w.passkeyExcluded(sheet.rpId) : w.passkeyNone(sheet.rpId),
+      body: `${sheet.mode === "excluded" ? w.passkeyExcludedBody : w.passkeyNoneBody} ${requested}`,
+      lines: [],
+      accept: w.ok,
+      refuse: "",
+      destructive: false,
+    };
+  }
+  const create = sheet.mode === "create";
+  const several = !create && sheet.choices.length > 1;
+  const account = create ? sheet.userName : (sheet.choices[0]?.userName ?? sheet.userName);
+  const error =
+    sheet.retryAfter !== undefined
+      ? w.passkeyThrottled(sheet.retryAfter)
+      : sheet.incorrect
+        ? w.passkeyIncorrect
+        : undefined;
+  return {
+    title: create ? w.passkeyCreate(sheet.rpId) : w.passkeyGet(sheet.rpId),
+    body: [several ? "" : account ? w.passkeyAccount(account) : "", create ? w.passkeyCreateBody : "", requested]
+      .filter(Boolean)
+      .join(" "),
+    lines: [],
+    accept: w.passkeyContinue,
+    refuse: w.cancel,
+    destructive: false,
+    password: { label: w.passkeyField, show: w.showPassword, hide: w.hidePassword },
+    passwordKind: "account",
+    error,
+    choices: several
+      ? {
+          label: w.passkeyChoose,
+          rows: sheet.choices.map((choice) => ({ title: choice.userName, detail: choice.displayName })),
+        }
+      : undefined,
+  };
 }

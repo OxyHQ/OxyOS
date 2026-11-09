@@ -5,25 +5,60 @@
  * background, is the wallpaper; the login screen is a lock surface of its own, the only thing the
  * compositor shows and reaches. The accounts are the accounts' service's; the password goes
  * through the compositor to the login program, never further into JavaScript; a PIN likewise, said
- * as one. Adding an account runs the Oxy SDK's own sign-in (SetupSignIn.tsx) and hands the
- * credential, the password and the PIN chosen to the accounts' service through the host
- * (`OxyOSAccountSession`), never keeping any of them here.
+ * as one. Adding an account is the setup assistant in the Oxy SDK's own frame with its own sign-in
+ * (SetupAssistant.tsx), which hands the credential, the password and the PIN chosen to the
+ * accounts' service through the host (`OxyOSAccountSession`), never keeping any of them here, the
+ * service's stages told as they come (`OxyOSAccountSetupStage`) and a wait Oxy asked for
+ * (`OxyOSAccountSetupWaiting`). At the first setup, the assistant's Transfer Your Data step
+ * migrates from a backup through the host (`OxyOSMigration`, docs/adr/0059-backups.mdx), the backup
+ * password going straight on to the migration service.
  */
 import * as React from 'react';
-import { StyleSheet, TurboModuleRegistry, View } from 'react-native';
+import { DeviceEventEmitter, StyleSheet, TurboModuleRegistry, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useOxyOSShell } from './oxyos/shell-state';
-import { LoginScreen, type LoginActions, type SetupActions } from '../../../apps/login/src/LoginScreen';
+import {
+  LoginScreen,
+  type LoginActions,
+  type MigrationActions,
+  type SetupActions,
+  type SetupProgress,
+} from '../../../apps/login/src/LoginScreen';
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
-import { enrollAnswerFrom, platformFrom } from '../../../apps/login/src/setup';
-import { SetupSignIn } from './SetupSignIn';
+import { enrollAnswerFrom, platformFrom, stageFrom } from '../../../apps/login/src/setup';
+import { isPowerKey, loginPowerRequest } from '../../../apps/login/src/power';
+import { SetupAssistantFrame } from './SetupAssistant';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useSessionLocale } from './oxyos/locale';
 import { useShellWallpaper } from './oxyos/wallpaper';
+
+/** The session's vocabulary (the host's `OxyOSSystem`): the login screen's Sleep, Restart and Shut
+    Down, answered by `OxyOSSystemAnswer` naming the request's serial. */
+const system = TurboModuleRegistry.get<{ request(json: string): number }>('OxyOSSystem');
+
+/** One request of the session's vocabulary, citing the latest press; its answer, or a failure. */
+function askSession(request: Record<string, unknown>): Promise<unknown> {
+  if (!system) return Promise.resolve({ failed: { reason: 'unavailable' } });
+  return new Promise((resolve) => {
+    const serial = system.request(JSON.stringify(request));
+    if (!serial) {
+      resolve({ failed: { reason: 'notSent' } });
+      return;
+    }
+    const subscription = DeviceEventEmitter.addListener(
+      'OxyOSSystemAnswer',
+      ({ serial: answered, answer }: { serial: number; answer: unknown }) => {
+        if (answered !== serial) return;
+        subscription.remove();
+        resolve(answer);
+      },
+    );
+  });
+}
 
 /** How long the network may take to answer before setup says it needs it. */
 const REACH_MS = 5000;
@@ -47,20 +82,69 @@ async function reachable(api: string): Promise<boolean> {
 const accountSession = TurboModuleRegistry.get<{
   getConstants(): { setup: boolean };
   platform(): unknown;
-  enroll(password: string | null, pin: string | null): Promise<unknown>;
+  enroll(password: string | null, pin: string | null, appearance: string | null): Promise<unknown>;
   secondFactor(code: string): Promise<unknown>;
+  retryEnrollment(): Promise<unknown>;
   endEnrollment(): void;
 }>('OxyOSAccountSession');
+
+/** A call of the setup, what the service tells as it goes given to `progress` while it runs: its
+    stages (`OxyOSAccountSetupStage`) and a wait Oxy asked for (`OxyOSAccountSetupWaiting`). */
+async function withProgress(call: () => Promise<unknown>, progress: SetupProgress) {
+  const stages = DeviceEventEmitter.addListener('OxyOSAccountSetupStage', (event: { stage?: unknown }) => {
+    const stage = stageFrom(event?.stage);
+    if (stage) progress.stage(stage);
+  });
+  const waits = DeviceEventEmitter.addListener(
+    'OxyOSAccountSetupWaiting',
+    (event: { retryAfterSeconds?: unknown }) => {
+      if (typeof event?.retryAfterSeconds === 'number') progress.waiting(event.retryAfterSeconds);
+    },
+  );
+  try {
+    return enrollAnswerFrom(await call());
+  } finally {
+    stages.remove();
+    waits.remove();
+  }
+}
 
 /** Setting an account up through the host: the accounts' service's platform and its setup. */
 const setupActions: SetupActions | undefined =
   accountSession && accountSession.getConstants().setup
     ? {
         platform: () => platformFrom(accountSession.platform()),
-        SignIn: SetupSignIn,
-        enroll: async (password, pin) => enrollAnswerFrom(await accountSession.enroll(password, pin)),
-        secondFactor: async (code) => enrollAnswerFrom(await accountSession.secondFactor(code)),
+        Assistant: SetupAssistantFrame,
+        enroll: ({ password, pin, appearance }, progress) => {
+          // What the setup sends, for the log; never the secrets.
+          console.info(`[setup] enroll with ${password ? 'the password' : 'no password'} and ${pin ? 'a PIN' : 'no PIN'}, ${appearance}`);
+          return withProgress(() => accountSession.enroll(password, pin, appearance), progress);
+        },
+        secondFactor: (code, progress) => withProgress(() => accountSession.secondFactor(code), progress),
+        retry: (progress) => {
+          console.info('[setup] try again with what the service kept');
+          return withProgress(() => accountSession.retryEnrollment(), progress);
+        },
         end: () => accountSession.endEnrollment(),
+      }
+    : undefined;
+
+const migrationModule = TurboModuleRegistry.get<{
+  getConstants(): { available: boolean };
+  disks(): Promise<unknown>;
+  backups(source: object, password: string, sharePassword: string | null): Promise<unknown>;
+  migrate(repository: string, snapshot: string, progress: (told: unknown) => void): Promise<unknown>;
+  end(): void;
+}>('OxyOSMigration');
+
+/** Migrating from a backup through the host: the migration service's conversation. */
+const migrationActions: MigrationActions | undefined =
+  migrationModule && migrationModule.getConstants().available
+    ? {
+        disks: () => migrationModule.disks(),
+        backups: (source, password, sharePassword) => migrationModule.backups(source, password, sharePassword),
+        migrate: (repository, snapshot, progress) => migrationModule.migrate(repository, snapshot, progress),
+        end: () => migrationModule.end(),
       }
     : undefined;
 
@@ -83,6 +167,19 @@ export default function LoginSession() {
   React.useEffect(() => {
     if (answer?.outcome === 'rejected') setAccounts(accountsFrom(shell.accounts()));
   }, [answer?.id]);
+  // The power key, pressed at the login screen (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
+  // decision 8): the session tells it unasked, and the login screen shows its choice.
+  const [powerKey, setPowerKey] = React.useState(0);
+  React.useEffect(() => {
+    if (!system) return undefined;
+    const subscription = DeviceEventEmitter.addListener(
+      'OxyOSSystemAnswer',
+      ({ serial, answer: told }: { serial: number; answer: unknown }) => {
+        if (serial === 0 && isPowerKey(told)) setPowerKey((count) => count + 1);
+      },
+    );
+    return () => subscription.remove();
+  }, []);
   // The catalog's default, as the login screen's session tells it (docs/adr/0048-wallpapers.mdx).
   const wallpaper = useShellWallpaper(state?.wallpaper);
   const actions: LoginActions = {
@@ -92,8 +189,12 @@ export default function LoginSession() {
     capsLock: !!state?.capsLock,
     online: (api) => reachable(api ?? state?.oxyApi ?? 'https://api.oxy.so'),
     setup: setupActions,
+    migration: migrationActions,
     reloadAccounts: () => setAccounts(accountsFrom(shell.accounts())),
     announce: (text, polite) => shell.announce(text, polite),
+    // Sleep, Restart and Shut Down at the foot, at once (nobody is signed in), citing the press.
+    power: system ? (action) => askSession(loginPowerRequest(action)) : undefined,
+    powerKey,
   };
   const { Surface, Masked } = oxyosShell;
   return (
@@ -103,7 +204,15 @@ export default function LoginSession() {
           <Wallpaper wallpaper={wallpaper} decorative />
           {state?.locked && (
             <Surface kind="lock" style={StyleSheet.absoluteFill}>
-              <LoginScreen accounts={accounts} actions={actions} wallpaper={wallpaper} now={now} Masked={Masked} />
+              <LoginScreen
+                accounts={accounts}
+                actions={actions}
+                wallpaper={wallpaper}
+                now={now}
+                Masked={Masked}
+                safeMode={state?.safeMode === true}
+                keyboard={oxyosShell.keyboard}
+              />
             </Surface>
           )}
         </View>

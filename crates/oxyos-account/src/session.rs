@@ -16,6 +16,8 @@
 //!   child and its user's:
 //!
 //!   ```text
+//!   → {"present": {}}                                                       as it connects
+//!   ← "accepted" | {"refused": {"reason": "notPermitted"}}, then closed
 //!   → {"register": {"desktopEntryId": "so.oxy.dropsea", "system": true}}   + the child's pidfd
 //!   ← "registered" | {"refused": {"reason"}}
 //!   → {"check": {"password", "local": "accepted" | "rejected"}}          the lock's online check
@@ -29,6 +31,13 @@
 //!   A registration lives while its process does (the service watches the pidfd) and while the
 //!   registrar's connection stays open: the session keeps one for its life, and closing it drops
 //!   every registration made on it.
+//!
+//!   A registrar verified is kept ([`VERIFIED`]: its process by pid and start time, the file it
+//!   runs and its parent's by device and inode), so the service started again (a package upgrade
+//!   restarts it) still knows a session whose program's file the upgrade replaced: the session
+//!   connects again and registers what still runs ([`RegistrarThread`]), and the service takes it
+//!   if the kernel shows the same process running the same file under the same parent. Nothing the
+//!   session says counts, and a boot keeps nothing.
 //! - **An application** is a process whose pidfd is a live registration's, of the registrar's
 //!   user. Anything else (another user, a process nobody registered, a child of a launched one)
 //!   is refused. It may ask, any number of times on one connection:
@@ -49,10 +58,12 @@
 //!   ```
 //!
 //!   `Snapshot` is the SDK's `OxyHostSnapshot`: `{"status": "signed_in" | "signed_out" |
-//!   "unavailable", "revision", "account": {"id", "handle", "displayName"?, "avatar"?} | null,
-//!   "online"}`. A token is the application's own (Settings and the shell, registered as system
-//!   applications, are OxyOS's; any other by its desktop entry id); null offline, signed out or
-//!   refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
+//!   "unavailable", "revision", "account": {"id", "handle", "displayName"?, "avatar"?,
+//!   "picture"?, "languages"?} | null, "online"}`, `picture` the account's picture on this machine
+//!   (its avatar's image, a file the session reads, [`crate::store`]), `languages` the account's
+//!   locales, primary first, as the platform last read them online. A token is the application's own (Settings and the shell,
+//!   registered as system applications, are OxyOS's; any other by its desktop entry id); null
+//!   offline, signed out or refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
 //!   of the peer's own account. So are `erasePreview` and `eraseAll`, erasing the machine
 //!   ([ADR 0054](../../docs/adr/0054-recovery-and-erasing.mdx), [`erase`](crate::erase)): an
 //!   erase is refused `notAdministrator`, `wrongPassword`, `throttled` (with `retryAfter`, in
@@ -85,9 +96,10 @@
 use crate::api::OxyApi;
 use crate::erase::{ErasePreview, Eraser, Erasing, Refusal};
 use crate::ipc::{Connection, MAX_MESSAGE};
+use crate::keychain::passkey::{PasskeyAssertion, PasskeyCreate, PasskeyCreated, PasskeyGet};
 use crate::keychain::{
     self, AuditView, CodeView, EnrollmentView, Field, ItemInput, ItemKind, ItemSummary, ItemView,
-    JoinMethod, MemberView, Status, Suggestion,
+    JoinMethod, MemberView, SaveConfirmation, SaveLogin, Status, Suggestion,
 };
 use crate::pidfd::{self, Program};
 use crate::platform::{self, Checked, Local, Platform, Snapshot, Token, TokenReason};
@@ -111,8 +123,9 @@ pub const SESSION_PROGRAM: &str = "/usr/bin/oxyos-session";
 
 /// How long an application's connection waits for its next message.
 pub const IDLE: Duration = Duration::from_secs(60);
-/// Registrar connections of one user at once.
-pub const MAX_REGISTRARS: usize = 4;
+/// Registrar connections of one user at once: the session keeps four (its launches', AutoFill's,
+/// the save confirmations' and the passkey prompts'), and the lock's check makes one while it asks.
+pub const MAX_REGISTRARS: usize = 6;
 /// Application connections of one user at once.
 pub const MAX_APPLICATION_CONNECTIONS: usize = 16;
 
@@ -122,12 +135,21 @@ pub const LOGIN_PROGRAM: &str = "/usr/libexec/oxyos/oxyos-login";
 pub const MAX_REGISTRATIONS: usize = 512;
 /// Subscriptions of one registration at once.
 pub const MAX_SUBSCRIPTIONS: usize = 4;
+/// How long an application's `savePassword` waits for the person's answer in the session's sheet:
+/// past it, nothing is saved and the sheet is withdrawn.
+pub const SAVE_WAIT: Duration = Duration::from_secs(120);
+/// Bytes of a username or a password an application asks to save.
+pub const MAX_SAVED_USERNAME: usize = 512;
+pub const MAX_SAVED_PASSWORD: usize = 1024;
 
 const _: () = assert!(MAX_MESSAGE >= 4096);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Request {
+    /// The registrar presenting itself as its connection opens: answered `"accepted"` if the
+    /// kernel's word on it says it is one, refused `notPermitted` (and closed) if not.
+    Present {},
     #[serde(rename_all = "camelCase")]
     Register {
         desktop_entry_id: String,
@@ -221,6 +243,35 @@ pub enum Request {
     KeychainCode {
         item_id: String,
     },
+    // Saving a credential (ADR 0050 decision 5, `crate::keychain`): an application asks, the
+    // registrar's connection that takes confirmations (`confirmSaves`) asks the person and answers
+    // each (`saveDecision`).
+    SavePassword {
+        username: Secret,
+        password: Secret,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<String>,
+    },
+    ConfirmSaves {},
+    SaveDecision {
+        id: String,
+        save: bool,
+    },
+    // Passkeys (ADR 0050 step 5, `crate::keychain::passkey`): any registered application's.
+    PasskeyCreate(PasskeyCreate),
+    PasskeyGet(PasskeyGet),
+    // The registrar's prompts connection.
+    PasskeyPrompts {},
+    PasskeyConfirm {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        choice: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<Secret>,
+    },
+    PasskeyCancel {
+        id: String,
+    },
     ErasePreview {},
     EraseAll {
         password: Secret,
@@ -287,7 +338,7 @@ pub enum Reason {
     Conflict,
     /// An erase asked by an account that is not one of the machine's administrators.
     NotAdministrator,
-    /// An erase of a machine without a recovery.
+    /// An erase of a machine without a recovery; a save with no session to ask the person in.
     Unavailable,
     // The local sign-in's (`crate::pin`).
     WrongPin,
@@ -301,11 +352,20 @@ pub enum Reason {
     NoPin,
     /// The account has an authenticator: set it up again at the login screen.
     SecondFactorRequired,
+    // Passkeys', as WebAuthn's errors (`crate::keychain::passkey`).
+    /// `NotAllowedError`: cancelled, not verified, timed out, no passkey, or a relying party the
+    /// application may not use, all alike.
+    NotAllowed,
+    /// `InvalidStateError`: an excluded credential is in the keychain.
+    InvalidState,
+    /// `NotSupportedError`: no algorithm OxyOS makes (ES256).
+    NotSupported,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Answer {
+    Accepted,
     Registered,
     Refused {
         reason: Reason,
@@ -354,6 +414,18 @@ pub enum Answer {
     KeychainAudit(AuditView),
     KeychainLeft,
     KeychainCode(CodeView),
+    // Saving a credential (`crate::keychain`): the application's answers, and what the
+    // confirmations' connection is told.
+    Saved {},
+    NotSaved {},
+    ConfirmingSaves,
+    ConfirmSave(SaveConfirmation),
+    SaveWithdrawn {
+        id: String,
+    },
+    PasskeyCreated(PasskeyCreated),
+    PasskeyAssertion(PasskeyAssertion),
+    PasskeyPromptsOpen,
     ErasePreview(ErasePreview),
     Erasing(Erasing),
     LocalSignIn(platform::LocalView),
@@ -416,7 +488,36 @@ pub struct Registrars {
     pub parent: PathBuf,
     /// Both programs' owner and the parent's user: root (the tests', their own user).
     pub owner: u32,
+    /// Where the service keeps the registrars it verified this boot ([`VERIFIED`]), so that one
+    /// still running when the service starts again is known though an upgrade replaced its
+    /// program's file since; None: only the files as they are now are taken.
+    pub verified: Option<PathBuf>,
 }
+
+/// Where the service keeps the registrars it verified, one file per process: the service's own,
+/// 0700, under `/run` (so a boot starts with none), and kept when the service restarts
+/// (`RuntimeDirectoryPreserve=yes`).
+pub const VERIFIED: &str = "/run/oxyos/accountd/registrars";
+
+/// A registrar the service verified, as the kernel showed it then: the process (by its pid and
+/// start time, one process for the whole boot), the file it ran (by device and inode: a file
+/// replaced since is still held by the process running it, so its inode is never another file's
+/// meanwhile), and the same of its parent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Verified {
+    uid: u32,
+    started: u64,
+    device: u64,
+    inode: u64,
+    parent: i32,
+    parent_started: u64,
+    parent_device: u64,
+    parent_inode: u64,
+}
+
+/// How large a kept registrar's file may be.
+const VERIFIED_LIMIT: u64 = 4096;
 
 impl Registrars {
     pub fn new(program: PathBuf, parent: PathBuf) -> Self {
@@ -424,27 +525,135 @@ impl Registrars {
             program,
             parent,
             owner: 0,
+            verified: None,
         }
     }
 
+    /// The registrars this boot's service verified are kept in `directory` ([`VERIFIED`]).
+    pub fn remembering(mut self, directory: PathBuf) -> Self {
+        self.verified = Some(directory);
+        self
+    }
+
     /// Whether `pidfd`'s process runs the session program and its parent, of the owner's user,
-    /// the login program; judged while it lives.
-    fn runs_program(&self, pidfd: &OwnedFd) -> bool {
-        let (Ok(program), Ok(parent)) = (Program::at(&self.program), Program::at(&self.parent))
-        else {
-            return false;
-        };
-        pidfd::while_alive(pidfd, |pid| {
+    /// the login program; judged while it lives. A process that does is kept ([`Verified`]); one
+    /// whose program's file an upgrade replaced since (it runs the file it was verified running,
+    /// no longer at the program's path) is known by what was kept of it: the same process, the
+    /// same file, the same parent running the same file, every one read again from the kernel.
+    /// Nothing the peer says counts.
+    fn verify(&self, pidfd: &OwnedFd) -> bool {
+        let program = Program::at(&self.program).ok();
+        let parent = Program::at(&self.parent).ok();
+        let observed = pidfd::while_alive(pidfd, |pid| {
             let running = Program::of_process(pid)?;
             let status = pidfd::status(pid)?;
             let started_by = Program::of_process(status.parent)?;
             let starter = pidfd::status(status.parent)?;
-            Ok(running.is(&program, self.owner)
-                && started_by.is(&parent, self.owner)
-                && starter.uid == self.owner)
-        })
-        .is_some_and(|(_, verified)| verified)
+            let seen = Verified {
+                uid: status.uid,
+                started: pidfd::started(pid)?,
+                device: running.device,
+                inode: running.inode,
+                parent: status.parent,
+                parent_started: pidfd::started(status.parent)?,
+                parent_device: started_by.device,
+                parent_inode: started_by.inode,
+            };
+            // Root's files, written by no one else, the parent root's: what was verified once is
+            // still that.
+            let kept = running.is(&running, self.owner)
+                && started_by.is(&started_by, self.owner)
+                && starter.uid == self.owner;
+            let now = kept
+                && program.is_some_and(|program| running.is(&program, self.owner))
+                && parent.is_some_and(|parent| started_by.is(&parent, self.owner));
+            Ok((seen, kept, now))
+        });
+        let Some((pid, (seen, kept, now))) = observed else {
+            return false;
+        };
+        if now {
+            self.remember(pid, &seen);
+            return true;
+        }
+        kept && self.recall(pid) == Some(seen)
     }
+
+    /// Keeps `seen`, the verified registrar `pid`, and forgets those whose process is gone.
+    fn remember(&self, pid: i32, seen: &Verified) {
+        let Some(directory) = &self.verified else {
+            return;
+        };
+        if let Err(error) = write_verified(directory, pid, seen) {
+            eprintln!(
+                "oxyos-accountd: {}: a registrar not kept: {error}",
+                directory.display()
+            );
+        }
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(other) = name.to_str().and_then(|name| name.parse::<i32>().ok()) else {
+                continue;
+            };
+            if other == pid {
+                continue;
+            }
+            let gone = match self.recall(other) {
+                Some(kept) => pidfd::started(other).ok() != Some(kept.started),
+                None => true,
+            };
+            if gone {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    /// What was kept of the registrar `pid`, if the service kept it: a file of the service's own
+    /// user in its own directory, written by no one else.
+    fn recall(&self, pid: i32) -> Option<Verified> {
+        use std::io::Read;
+        use std::os::unix::fs::MetadataExt;
+        let directory = self.verified.as_ref()?;
+        let me = rustix::process::geteuid().as_raw();
+        let ours =
+            |metadata: &std::fs::Metadata| metadata.uid() == me && metadata.mode() & 0o077 == 0;
+        let dir = std::fs::symlink_metadata(directory).ok()?;
+        if !dir.is_dir() || !ours(&dir) {
+            return None;
+        }
+        let path = directory.join(pid.to_string());
+        let file = std::fs::symlink_metadata(&path).ok()?;
+        if !file.is_file() || !ours(&file) {
+            return None;
+        }
+        let mut text = String::new();
+        std::fs::File::open(&path)
+            .ok()?
+            .take(VERIFIED_LIMIT)
+            .read_to_string(&mut text)
+            .ok()?;
+        serde_json::from_str(&text).ok()
+    }
+}
+
+/// `seen` written whole for `pid` in `directory`: a file made beside it, then renamed over it.
+fn write_verified(directory: &Path, pid: i32, seen: &Verified) -> io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let text = serde_json::to_vec(seen).map_err(io::Error::other)?;
+    let making = directory.join(format!(".{pid}.new"));
+    let _ = std::fs::remove_file(&making);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&making)?;
+    file.write_all(&text)?;
+    drop(file);
+    std::fs::rename(&making, directory.join(pid.to_string()))
 }
 
 /// A process the session launched, while it runs and its registrar's connection is open.
@@ -489,6 +698,45 @@ pub struct Sessions<A, U> {
     /// Application connections open, by uid.
     open_applications: Mutex<Vec<u32>>,
     next: AtomicU64,
+    saves: Saves,
+    /// [`SAVE_WAIT`], in milliseconds (shorter in the tests).
+    save_wait: AtomicU64,
+}
+
+/// Saving a credential (ADR 0050 decision 5): the session's connection that asks the person, one
+/// per user, and the applications' requests waiting for their answer. Locked in this order when
+/// both are: `pending`, then `confirmers`.
+#[derive(Default)]
+struct Saves {
+    confirmers: Mutex<std::collections::HashMap<u32, Confirmer>>,
+    pending: Mutex<std::collections::HashMap<String, PendingSave>>,
+    next: AtomicU64,
+}
+
+/// A registrar connection that takes save confirmations: what it is to be told, and what wakes it.
+struct Confirmer {
+    registrar: u64,
+    outbox: Arc<Mutex<std::collections::VecDeque<Answer>>>,
+    wake: Arc<OwnedFd>,
+}
+
+impl Confirmer {
+    fn tell(&self, answer: Answer) {
+        self.outbox
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push_back(answer);
+        let _ = rustix::io::write(&*self.wake, &1u64.to_ne_bytes());
+    }
+}
+
+/// An application's request to save, waiting for the person's answer.
+struct PendingSave {
+    uid: u32,
+    desktop_entry_id: String,
+    /// The confirmations' connection it was asked on: only it answers.
+    registrar: u64,
+    decided: std::sync::mpsc::SyncSender<bool>,
 }
 
 /// Takes one of `uid`'s places among `open`, if it has fewer than `limit`.
@@ -543,6 +791,20 @@ pub enum Event {
         not_signed_out: usize,
     },
     EraseRefused(Reason),
+    /// An application's login saved once the person said yes in the session's sheet (the
+    /// application's desktop entry id; never what was saved).
+    Saved {
+        id: String,
+    },
+    /// The person said no, or did not answer in time.
+    NotSaved {
+        id: String,
+    },
+    /// An application's request to save refused, and why.
+    SaveRefused {
+        id: String,
+        reason: Reason,
+    },
     Refused(Reason),
     /// Settings changed the local sign-in (`setPin`, `removePin`, `passwordOn`, `passwordOff`),
     /// or was refused.
@@ -562,7 +824,17 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
             open_registrars: Mutex::new(Vec::new()),
             open_applications: Mutex::new(Vec::new()),
             next: AtomicU64::new(1),
+            saves: Saves::default(),
+            save_wait: AtomicU64::new(SAVE_WAIT.as_millis() as u64),
         }
+    }
+
+    /// How long a save waits for the person's answer ([`SAVE_WAIT`]).
+    pub fn set_save_wait(&self, wait: Duration) {
+        self.save_wait.store(
+            u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
     }
 
     pub fn platform(&self) -> &Arc<Platform<A, U>> {
@@ -613,7 +885,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
         let Ok(Some(enrollment)) = self.platform.enrollment_of(peer.uid) else {
             return Kind::Refused;
         };
-        if !self.registrars.runs_program(&pidfd) {
+        if !self.registrars.verify(&pidfd) {
             return Kind::Refused;
         }
         if !take(&self.open_registrars, peer.uid, MAX_REGISTRARS) {
@@ -750,6 +1022,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                 return Ok(());
             };
             let answer = match request {
+                Some(Request::Present {}) => Answer::Accepted,
                 Some(Request::Register {
                     desktop_entry_id,
                     system,
@@ -793,6 +1066,18 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     }
                     continue;
                 }
+                // The session's prompts connection: from now on, the passkey sheets to show.
+                Some(Request::PasskeyPrompts {}) => {
+                    let Some(keychains) = self.platform.keychains() else {
+                        connection.send(&Answer::refused(Reason::Locked))?;
+                        continue;
+                    };
+                    return keychains.serve_prompts(
+                        enrollment.uid,
+                        enrollment.user.as_str(),
+                        connection,
+                    );
+                }
                 Some(request) if keychain::is_registrar_request(&request) => {
                     match self.platform.keychains() {
                         Some(keychains) => {
@@ -801,10 +1086,248 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                         None => Answer::refused(Reason::Locked),
                     }
                 }
+                // From here on this connection takes the save confirmations of its user's
+                // applications (ADR 0050 decision 5), and does nothing else: one that registered
+                // launches keeps doing that alone.
+                Some(Request::ConfirmSaves {}) => {
+                    if !mine.is_empty() {
+                        Answer::refused(Reason::InvalidRequest)
+                    } else {
+                        return self.confirm_saves(connection, id, enrollment.uid);
+                    }
+                }
                 Some(_) => Answer::refused(Reason::NotPermitted),
                 None => Answer::refused(Reason::InvalidRequest),
             };
             connection.send(&answer)?;
+        }
+    }
+
+    /// The registrar connection `registrar` takes `uid`'s save confirmations until it closes:
+    /// each application's `savePassword` is told it as `{"confirmSave": …}` (never the password),
+    /// a request that ended unanswered as `{"saveWithdrawn": {"id"}}`, and it answers each
+    /// `{"saveDecision": {"id", "save"}}`. A user has one at a time. Closing it answers every
+    /// request it was asked `notSaved`.
+    fn confirm_saves(&self, connection: &Connection, registrar: u64, uid: u32) -> io::Result<()> {
+        let wake = Arc::new(eventfd()?);
+        let outbox = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+        {
+            let mut confirmers = self
+                .saves
+                .confirmers
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if confirmers.contains_key(&uid) {
+                drop(confirmers);
+                return connection.send(&Answer::refused(Reason::TooMany));
+            }
+            confirmers.insert(
+                uid,
+                Confirmer {
+                    registrar,
+                    outbox: outbox.clone(),
+                    wake: wake.clone(),
+                },
+            );
+        }
+        let served = (|| -> io::Result<()> {
+            connection.send(&Answer::ConfirmingSaves)?;
+            loop {
+                let mut fds = [
+                    PollFd::new(connection, PollFlags::IN),
+                    PollFd::new(&*wake, PollFlags::IN),
+                ];
+                match poll(&mut fds, None) {
+                    Ok(_) => {}
+                    Err(rustix::io::Errno::INTR) => continue,
+                    Err(error) => return Err(error.into()),
+                }
+                let (message, woken) = (!fds[0].revents().is_empty(), !fds[1].revents().is_empty());
+                if woken {
+                    drain(&wake);
+                    loop {
+                        let next = outbox.lock().unwrap_or_else(|p| p.into_inner()).pop_front();
+                        let Some(told) = next else { break };
+                        connection.send(&told)?;
+                    }
+                }
+                if !message {
+                    continue;
+                }
+                match connection.receive::<Request>()? {
+                    None => return Ok(()),
+                    Some(Some(Request::SaveDecision { id, save })) => {
+                        let pending = self.saves.pending.lock().unwrap_or_else(|p| p.into_inner());
+                        // Only the request this connection was asked, of its own user.
+                        if let Some(waiting) = pending
+                            .get(&id)
+                            .filter(|waiting| waiting.uid == uid && waiting.registrar == registrar)
+                        {
+                            let _ = waiting.decided.try_send(save);
+                        }
+                    }
+                    Some(_) => connection.send(&Answer::refused(Reason::InvalidRequest))?,
+                }
+            }
+        })();
+        {
+            let mut confirmers = self
+                .saves
+                .confirmers
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if confirmers
+                .get(&uid)
+                .is_some_and(|confirmer| confirmer.registrar == registrar)
+            {
+                confirmers.remove(&uid);
+            }
+        }
+        // Nobody is left to answer what it was asked: not saved.
+        for waiting in self
+            .saves
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values()
+            .filter(|waiting| waiting.registrar == registrar)
+        {
+            let _ = waiting.decided.try_send(false);
+        }
+        served
+    }
+
+    /// An application's request to save a login it has just used (ADR 0050 decision 5): never on
+    /// its word. The keychain must be unlocked and a vault's member; the session's sheet asks the
+    /// person, naming the application and the username; only their yes, within [`SAVE_WAIT`],
+    /// saves it, associated with the application's desktop entry id (and `domain`'s URL). One
+    /// request of an application waits at a time.
+    fn save_password(
+        &self,
+        registration: &Registration,
+        username: Secret,
+        password: Secret,
+        domain: Option<String>,
+        log: &mut impl FnMut(&Event),
+    ) -> Answer {
+        let uid = registration.uid;
+        let app = registration.desktop_entry_id.as_str();
+        let domain = match domain.as_deref().map(keychain::saved_domain) {
+            None => None,
+            Some(Some(domain)) => Some(domain),
+            Some(None) => return Answer::refused(Reason::InvalidRequest),
+        };
+        if !keychain::savable_text(username.expose(), MAX_SAVED_USERNAME)
+            || password.is_empty()
+            || password.expose().len() > MAX_SAVED_PASSWORD
+        {
+            return Answer::refused(Reason::InvalidRequest);
+        }
+        let Some(keychains) = self.platform.keychains() else {
+            return Answer::refused(Reason::Locked);
+        };
+        let Ok(Some(enrollment)) = self.platform.enrollment_of(uid) else {
+            return Answer::refused(Reason::Failed);
+        };
+        let user = enrollment.user.as_str();
+        if let Err(reason) = keychains.may_save(uid, user) {
+            log(&Event::SaveRefused {
+                id: app.to_owned(),
+                reason,
+            });
+            return Answer::refused(reason);
+        }
+        let (id, decided, registrar) = {
+            let mut pending = self.saves.pending.lock().unwrap_or_else(|p| p.into_inner());
+            if pending
+                .values()
+                .any(|waiting| waiting.uid == uid && waiting.desktop_entry_id == app)
+            {
+                log(&Event::SaveRefused {
+                    id: app.to_owned(),
+                    reason: Reason::TooMany,
+                });
+                return Answer::refused(Reason::TooMany);
+            }
+            let confirmers = self
+                .saves
+                .confirmers
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let Some(confirmer) = confirmers.get(&uid) else {
+                log(&Event::SaveRefused {
+                    id: app.to_owned(),
+                    reason: Reason::Unavailable,
+                });
+                return Answer::refused(Reason::Unavailable);
+            };
+            let id = self.saves.next.fetch_add(1, Ordering::SeqCst).to_string();
+            let (decide, decided) = std::sync::mpsc::sync_channel(1);
+            pending.insert(
+                id.clone(),
+                PendingSave {
+                    uid,
+                    desktop_entry_id: app.to_owned(),
+                    registrar: confirmer.registrar,
+                    decided: decide,
+                },
+            );
+            confirmer.tell(Answer::ConfirmSave(SaveConfirmation {
+                id: id.clone(),
+                desktop_entry_id: app.to_owned(),
+                username: Secret::new(username.expose()),
+                domain: domain.clone(),
+            }));
+            (id, decided, confirmer.registrar)
+        };
+        let decision = decided.recv_timeout(Duration::from_millis(
+            self.save_wait.load(Ordering::Relaxed),
+        ));
+        self.saves
+            .pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&id);
+        let save = match decision {
+            Ok(save) => save,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // The sheet goes: nothing will be saved for it.
+                if let Some(confirmer) = self
+                    .saves
+                    .confirmers
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(&uid)
+                    .filter(|confirmer| confirmer.registrar == registrar)
+                {
+                    confirmer.tell(Answer::SaveWithdrawn { id });
+                }
+                false
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => false,
+        };
+        if !save {
+            log(&Event::NotSaved { id: app.to_owned() });
+            return Answer::NotSaved {};
+        }
+        let login = SaveLogin {
+            desktop_entry_id: app.to_owned(),
+            username,
+            password,
+            domain,
+        };
+        match keychains.save(uid, user, &login) {
+            Ok(()) => {
+                log(&Event::Saved { id: app.to_owned() });
+                Answer::Saved {}
+            }
+            Err(reason) => {
+                log(&Event::SaveRefused {
+                    id: app.to_owned(),
+                    reason,
+                });
+                Answer::refused(reason)
+            }
         }
     }
 
@@ -952,6 +1475,28 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     | Request::RemovePin { .. }
                     | Request::SetPasswordSignIn { .. }),
                 ) => self.change_local(uid, request, log),
+                Some(Request::SavePassword {
+                    username,
+                    password,
+                    domain,
+                }) => self.save_password(registration, username, password, domain, log),
+                // Passkeys (ADR 0050 decision 7): any registered application, for the relying
+                // parties associated with it, each verified by the person on the session's sheet.
+                Some(request) if keychain::is_passkey_request(&request) => {
+                    match (self.platform.keychains(), self.platform.enrollment_of(uid)) {
+                        (Some(keychains), Ok(Some(enrollment))) => {
+                            let gone = || hung_up(connection) || !self.live(registration);
+                            let asker = keychain::Asker {
+                                desktop_entry_id: &registration.desktop_entry_id,
+                                pid: registration.pid,
+                                gone: &gone,
+                            };
+                            keychains.passkey(uid, enrollment.user.as_str(), &asker, request)
+                        }
+                        (None, _) => Answer::refused(Reason::Locked),
+                        _ => Answer::refused(Reason::Failed),
+                    }
+                }
                 // The keychain is Settings' alone to manage (ADR 0050 decision 5), and AutoFill
                 // the registrar's: any other application never learns whether it holds anything.
                 Some(request) if keychain::is_keychain_request(&request) => {
@@ -1108,6 +1653,15 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
     }
 }
 
+/// Whether the peer of `connection` closed it (a ceremony it asked for is then abandoned).
+fn hung_up(connection: &Connection) -> bool {
+    let mut fds = [PollFd::new(connection, PollFlags::RDHUP)];
+    matches!(poll(&mut fds, Some(&rustix::time::Timespec { tv_sec: 0, tv_nsec: 0 })), Ok(n) if n > 0)
+        && fds[0]
+            .revents()
+            .intersects(PollFlags::RDHUP | PollFlags::HUP | PollFlags::ERR)
+}
+
 /// Whether a registration is Settings', registered as a system application: the one that may
 /// remove its account and erase the machine.
 fn is_settings(registration: &Registration) -> bool {
@@ -1180,6 +1734,21 @@ impl Registrar {
 }
 
 impl Registrar {
+    /// Presents the session: the service answers whether it takes this connection's process for
+    /// the session's registrar.
+    pub fn present(&self) -> io::Result<Result<(), Reason>> {
+        self.connection.send(&Request::Present {})?;
+        match self.connection.receive::<Answer>()? {
+            Some(Some(Answer::Accepted)) => Ok(Ok(())),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
+            Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
+            None => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the service closed the connection",
+            )),
+        }
+    }
+
     /// Locks the session's keychain (the session locked).
     pub fn keychain_lock(&self) -> io::Result<Result<(), Reason>> {
         self.connection.send(&Request::KeychainLock {})?;
@@ -1234,11 +1803,14 @@ pub fn check(socket: &Path, password: Secret, local: Local) -> io::Result<Checke
 }
 
 /// The session's registrar, on a thread of its own: a launch hands it the process and goes on,
-/// never waiting for the service. It keeps one connection for the session's life. Each process
-/// it was given is registered on it while the process lives; if the service goes (restarted), it
-/// connects again (after 1, 2, 4, 8 and 16 s, then at the next launch) and registers again every
-/// process still running. Without the service nothing is registered, and applications simply get
-/// no token.
+/// never waiting for the service. It keeps one connection for the session's life, presents the
+/// session on it (`present`), and registers on it each process it was given while the process
+/// lives. If the service goes (restarted: a package upgrade does it) or does not take the session,
+/// it connects again, with waits doubling from 1 s to [`RECONNECT_MAX`] ([`RECONNECT_REFUSED_MAX`]
+/// while the service refuses it), and at each launch, for as long as the session runs: it never
+/// gives up. Connected again, it registers every process still running. What it could not do is
+/// said once per outage and cause, and its end is said too. Without the service nothing is
+/// registered, and applications simply get no token meanwhile.
 pub struct RegistrarThread {
     launches: std::sync::mpsc::Sender<Job>,
     wake: std::os::unix::net::UnixStream,
@@ -1251,14 +1823,32 @@ enum Job {
     KeychainLock,
 }
 
-/// The waits before connecting again to a service that went.
-const RECONNECT: [Duration; 5] = [
-    Duration::from_secs(1),
-    Duration::from_secs(2),
-    Duration::from_secs(4),
-    Duration::from_secs(8),
-    Duration::from_secs(16),
-];
+/// The longest wait before connecting again to a service that is not there.
+pub const RECONNECT_MAX: Duration = Duration::from_secs(30);
+/// The longest wait before presenting the session again to a service that refused it (one
+/// started since, that knows it, may take it).
+pub const RECONNECT_REFUSED_MAX: Duration = Duration::from_secs(300);
+
+/// The wait before the `attempt`th attempt (from 0) to connect again: 1 s, doubling, up to
+/// [`RECONNECT_MAX`] (or [`RECONNECT_REFUSED_MAX`] if the service `refused` the session); never
+/// none.
+pub fn reconnect_wait(attempt: u32, refused: bool) -> Duration {
+    let most = if refused {
+        RECONNECT_REFUSED_MAX
+    } else {
+        RECONNECT_MAX
+    };
+    Duration::from_secs(1u64 << attempt.min(16)).min(most)
+}
+
+/// Why the registrar is not connected.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Outage {
+    /// The service could not be reached, or its connection broke.
+    Unreachable(String),
+    /// The service refused the session.
+    Refused(Reason),
+}
 
 impl RegistrarThread {
     /// The registrar of the service at `socket`; `log` says what it could not do.
@@ -1292,6 +1882,88 @@ impl RegistrarThread {
     }
 }
 
+/// A connection to the service at `socket`, the session presented on it and every process of
+/// `live` registered on it again.
+fn reconnect(
+    socket: &Path,
+    live: &[(String, bool, OwnedFd)],
+    log: &dyn Fn(&str),
+) -> Result<Registrar, Outage> {
+    let registrar = Registrar::connect(socket)
+        .map_err(|error| Outage::Unreachable(format!("{}: {error}", socket.display())))?;
+    match registrar.present() {
+        Ok(Ok(())) => {}
+        Ok(Err(reason)) => return Err(Outage::Refused(reason)),
+        Err(error) => {
+            return Err(Outage::Unreachable(format!(
+                "presenting the session: {error}"
+            )))
+        }
+    }
+    for (id, system, pidfd) in live {
+        if !register_one(&registrar, id, *system, pidfd, log) {
+            return Err(Outage::Unreachable(format!(
+                "the connection ended registering {id}"
+            )));
+        }
+    }
+    Ok(registrar)
+}
+
+/// The registrar's state between connections.
+struct Connecting {
+    /// The next attempt, and how many were made since the connection was lost.
+    retry: Option<(std::time::Instant, u32)>,
+    /// Why it is not connected, as said last (None: connected, or never tried).
+    said: Option<Outage>,
+}
+
+impl Connecting {
+    /// An attempt failed for `outage`: said if it is news, and the next one set.
+    fn failed(&mut self, outage: Outage, log: &dyn Fn(&str)) {
+        let attempt = self.retry.map_or(0, |(_, made)| made);
+        let wait = reconnect_wait(attempt, matches!(outage, Outage::Refused(_)));
+        if self.said.as_ref() != Some(&outage) {
+            match &outage {
+                Outage::Unreachable(why) => log(&format!(
+                    "{why}; launches are registered once it is back \
+                     (trying again in {} s, and at each launch)",
+                    wait.as_secs()
+                )),
+                Outage::Refused(reason) => log(&format!(
+                    "it refused the session: {reason:?}; launches are not \
+                     registered (trying again in {} s, and at each launch)",
+                    wait.as_secs()
+                )),
+            }
+            self.said = Some(outage);
+        }
+        self.retry = Some((std::time::Instant::now() + wait, attempt.saturating_add(1)));
+    }
+
+    /// Connected: said if it was not before.
+    fn connected(&mut self, registered: usize, log: &dyn Fn(&str)) {
+        if self.said.take().is_some() {
+            log(&format!(
+                "connected again; its {registered} running applications \
+                 registered again"
+            ));
+        }
+        self.retry = None;
+    }
+
+    /// The connection was lost: tried again after a second (a service restarting is back by
+    /// then), then with the waits.
+    fn lost(&mut self, log: &dyn Fn(&str)) {
+        let outage = Outage::Unreachable("the service closed the session's connection".into());
+        if self.said.as_ref() != Some(&outage) {
+            log("it closed the session's connection: connecting again");
+            self.said = Some(outage);
+        }
+        self.retry = Some((std::time::Instant::now() + reconnect_wait(0, false), 0));
+    }
+}
+
 fn registrar_thread(
     socket: &Path,
     launches: &std::sync::mpsc::Receiver<Job>,
@@ -1302,32 +1974,12 @@ fn registrar_thread(
     use std::time::Instant;
     let mut live: Vec<(String, bool, OwnedFd)> = Vec::new();
     let mut registrar: Option<Registrar> = None;
-    // The next attempt to connect again, and how many were made since the service went.
-    let mut retry: Option<(Instant, usize)> = None;
-    let mut said_unreachable = false;
-    let connect = |live: &[(String, bool, OwnedFd)], said: &mut bool| -> Option<Registrar> {
-        let registrar = match Registrar::connect(socket) {
-            Ok(registrar) => registrar,
-            Err(error) => {
-                if !std::mem::replace(said, true) {
-                    log(&format!(
-                        "the accounts' service at {}: {error}; launches are not registered",
-                        socket.display()
-                    ));
-                }
-                return None;
-            }
-        };
-        *said = false;
-        for (id, system, pidfd) in live {
-            if !register_one(&registrar, id, *system, pidfd, log) {
-                return None;
-            }
-        }
-        Some(registrar)
+    let mut state = Connecting {
+        retry: None,
+        said: None,
     };
     loop {
-        let timeout = retry.map(|(at, _)| {
+        let timeout = state.retry.map(|(at, _)| {
             let wait = at.saturating_duration_since(Instant::now());
             rustix::time::Timespec {
                 tv_sec: wait.as_secs() as i64,
@@ -1345,8 +1997,10 @@ fn registrar_thread(
         );
         if let Err(error) = poll(&mut fds, timeout.as_ref()) {
             if error != rustix::io::Errno::INTR {
+                // Never a reason to stop registering: said, and waited on again after a moment.
                 log(&format!("waiting: {error}"));
-                return;
+                drop(fds);
+                std::thread::sleep(Duration::from_secs(1));
             }
             continue;
         }
@@ -1363,8 +2017,9 @@ fn registrar_thread(
         if lost {
             // The service closed the connection (it stopped): its registrations went with it.
             registrar = None;
-            retry = Some((Instant::now() + RECONNECT[0], 0));
+            state.lost(log);
         }
+        let mut launched = false;
         if woke {
             let mut bytes = [0u8; 64];
             // The session let go of its registrar: it is ending.
@@ -1378,7 +2033,7 @@ fn registrar_thread(
                         if let Some(connected) = &registrar {
                             if !lock_keychain(connected, log) {
                                 registrar = None;
-                                retry = Some((Instant::now() + RECONNECT[0], 0));
+                                state.lost(log);
                             }
                         }
                         continue;
@@ -1387,23 +2042,22 @@ fn registrar_thread(
                 if let Some(connected) = &registrar {
                     if !register_one(connected, &id, system, &pidfd, log) {
                         registrar = None;
-                        retry = Some((Instant::now() + RECONNECT[0], 0));
+                        state.lost(log);
                     }
                 }
                 live.push((id, system, pidfd));
-            }
-            // Not connected and not waiting to: a launch is the time to try again.
-            if registrar.is_none() && retry.is_none() {
-                registrar = connect(&live, &mut said_unreachable);
+                launched = true;
             }
         }
-        if let Some((at, made)) = retry {
-            if Instant::now() >= at {
-                registrar = connect(&live, &mut said_unreachable);
-                retry = match (&registrar, RECONNECT.get(made + 1)) {
-                    (Some(_), _) | (None, None) => None,
-                    (None, Some(wait)) => Some((Instant::now() + *wait, made + 1)),
-                };
+        // Not connected: a launch is a time to try again, as is the wait's end.
+        let due = state.retry.is_some_and(|(at, _)| Instant::now() >= at);
+        if registrar.is_none() && (launched || due || state.retry.is_none() && woke) {
+            match reconnect(socket, &live, log) {
+                Ok(connected) => {
+                    state.connected(live.len(), log);
+                    registrar = Some(connected);
+                }
+                Err(outage) => state.failed(outage, log),
             }
         }
     }

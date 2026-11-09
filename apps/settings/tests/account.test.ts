@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accountName, accountSnapshotFrom, accountView, initialsOf, pictureOf } from "../src/account.ts";
+import { accountName, accountSnapshotFrom, accountView, initialsOf, localPicture, pictureOf } from "../src/account.ts";
 import { messagesFor } from "../src/messages.ts";
 
 const ada = { id: "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", handle: "ada", displayName: "Ada Lovelace" };
@@ -70,4 +70,18 @@ test("the account's words in both languages", () => {
   assert.equal(en.removeTitle("Ada"), "Remove Ada from this computer?");
   assert.equal(es.removeTitle("Ada"), "¿Eliminar a Ada de este ordenador?");
   assert.equal(es.handle("ada"), "@ada");
+});
+
+test("the account's picture is the one the platform keeps on this computer, else none", () => {
+  const snapshot = accountSnapshotFrom({
+    status: "signed_in",
+    revision: 2,
+    online: false,
+    account: { id: "a", handle: "ada", displayName: "Ada", avatar: "01a1-file", picture: "/var/lib/oxyos/pictures/oxy-a-01a1-file" },
+  });
+  const view = accountView(snapshot);
+  assert.equal(view?.kind === "signed_in" ? view.picture : undefined, "file:///var/lib/oxyos/pictures/oxy-a-01a1-file");
+  assert.equal(localPicture("relative/path"), null);
+  assert.equal(localPicture(undefined), null);
+  assert.equal(localPicture("/a b/c#d"), "file:///a%20b/c%23d");
 });

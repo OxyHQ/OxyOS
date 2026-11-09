@@ -10,6 +10,12 @@ export interface Spec extends TurboModule {
   hasString(): Promise<boolean>;
   /** Whether the compositor took the copy. */
   setString(text: string): Promise<boolean>;
+  /**
+   * A password or a code (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): marked
+   * sensitive, so no clipboard manager keeps it, and cleared after 90 seconds if still there
+   * (docs/adr/0007-clipboard.mdx, decision 6). Whether the compositor took it; false for nothing.
+   */
+  setSensitiveString(text: string): Promise<boolean>;
   /** The text, or "" where there is none or the compositor refused the paste. */
   getString(): Promise<string>;
   addListener(eventName: string): void;

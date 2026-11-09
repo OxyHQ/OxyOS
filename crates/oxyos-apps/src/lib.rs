@@ -13,6 +13,7 @@
 //! [`Launcher::launch`]). A policy's id is never another directory's: a user's entry cannot take
 //! a system application's name.
 
+pub mod data;
 mod runtimes;
 mod watch;
 pub use runtimes::{installed as installed_runtimes, runtime, InstalledRuntime, RUNTIMES};
@@ -42,6 +43,9 @@ pub struct Grants {
     /// `bluetooth`: it sees Bluetooth, discovers, pairs, connects, forgets and renames devices
     /// (Settings; docs/adr/0055-bluetooth.mdx).
     pub bluetooth: bool,
+    /// `activity`: it follows the machine's use and every process's, inspects them and quits the
+    /// person's own (Activity Monitor; docs/adr/0063-activity-monitor.mdx).
+    pub activity: bool,
 }
 
 impl Grants {
@@ -57,6 +61,7 @@ impl Grants {
                 "privacy" => &mut grants.privacy,
                 "network" => &mut grants.network,
                 "bluetooth" => &mut grants.bluetooth,
+                "activity" => &mut grants.activity,
                 other => return Err(Error(format!("{other:?} is not a system grant"))),
             };
             if *grant {
@@ -79,6 +84,7 @@ impl Grants {
             ("privacy", self.privacy),
             ("network", self.network),
             ("bluetooth", self.bluetooth),
+            ("activity", self.activity),
         ]
         .into_iter()
         .filter(|(_, granted)| *granted)
@@ -96,6 +102,7 @@ impl Grants {
             privacy: self.privacy || other.privacy,
             network: self.network || other.network,
             bluetooth: self.bluetooth || other.bluetooth,
+            activity: self.activity || other.activity,
         }
     }
 }
@@ -753,6 +760,34 @@ pub fn cache_directory(id: &str) -> Option<PathBuf> {
     )
 }
 
+/// An application's own data on this account (docs/adr/0062-storage.mdx, decision 3): its data
+/// directory ([`data_directory`]) and its cache directory ([`cache_directory`]), and nothing else
+/// of the account's. The one definition of what is an application's own: Settings › Storage
+/// measures it, uninstalling removes it, and resetting the application clears it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnData {
+    /// What it keeps: its documents and its storage (Expo's document directory, AsyncStorage).
+    pub data: PathBuf,
+    /// What it may make again, and the system may delete (Expo's cache directory).
+    pub caches: PathBuf,
+}
+
+impl OwnData {
+    /// `id`'s own data, with the environment as it is; none for an id that is not one, or without
+    /// a home.
+    pub fn of(id: &str) -> Option<OwnData> {
+        Some(OwnData {
+            data: data_directory(id)?,
+            caches: cache_directory(id)?,
+        })
+    }
+
+    /// Its directories: the data's, then the caches'.
+    pub fn directories(&self) -> [&Path; 2] {
+        [&self.data, &self.caches]
+    }
+}
+
 /// `id`'s directory under the base directory `variable` names (`$HOME/<fallback>` without it),
 /// with the environment as `env` gives it.
 fn base_directory(
@@ -808,6 +843,16 @@ fn system_entry(
     trusted: &dyn Fn(&Path) -> bool,
 ) -> Result<Option<Application>, Error> {
     let entry = &system.entry;
+    // Not there (an upgrade between removing and installing it, say): missing, not anyone's. Its
+    // directory is a source the registry follows ([`sources`]), so it is read again once it is.
+    if std::fs::symlink_metadata(entry)
+        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Err(Error(format!(
+            "{}: the policy's entry is not there (yet): listed once it is",
+            entry.display()
+        )));
+    }
     if real_path(entry).as_deref() != Some(entry.as_path()) || !trusted(entry) {
         return Err(Error(format!(
             "{}: the policy's entry is not an administrator's",
@@ -1315,6 +1360,38 @@ fn pinned(
 /// one no application declares its type for.
 pub const FILE_MANAGER: &str = "so.oxy.dropsea";
 
+/// The file manager's URL that shows `item` (a `file://` URL) selected in its folder, as Finder's
+/// *Show in Finder* does: Dropsea's `files` URL (docs/adr/0051-search.mdx, decision 10), the folder
+/// and the item each percent-encoded as JavaScript's `encodeURIComponent` encodes them, as the
+/// shell's Spotlight writes the same URL.
+pub fn reveal_url(item: &str) -> String {
+    let trimmed = item.trim_end_matches('/');
+    // Its folder as the shell's `parentOf` writes it: no slash at its end, the root `file:///`.
+    let folder = match trimmed.rfind('/') {
+        Some(at) if at >= "file:///".len() => &trimmed[..at],
+        _ => "file:///",
+    };
+    format!(
+        "dropsea://files?uri={}&select={}",
+        uri_component(folder),
+        uri_component(item)
+    )
+}
+
+/// `text` as `encodeURIComponent` encodes it: every byte but a letter, a digit or one of
+/// `-_.!~*'()` percent-encoded.
+fn uri_component(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
 /// A file's `file://` URL: its absolute path, every byte but an unreserved one or `/`
 /// percent-encoded (RFC 3986), as Android's `Uri.fromFile` makes one.
 pub fn file_url(path: &Path) -> String {
@@ -1358,6 +1435,99 @@ enum Start<'a> {
     Chooser { shown: &'a str, development: bool },
 }
 
+/// The most of an application's own report of how it ended that the session reads: what is past
+/// it is cut (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 2).
+pub const REPORT_BYTES: usize = 32 * 1024;
+
+/// The file a process is started with to say why it ends, when it ends for a fault
+/// (`OXYOS_CRASH_REPORT`, docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 2): made
+/// by the session, empty and the user's alone, before the process starts, so that the process only
+/// opens it, never makes a file anywhere. The Bloom host writes into it as it ends for a fatal
+/// JavaScript error or a fatal signal; a process that ends any other way leaves it empty. Removed
+/// when dropped.
+#[derive(Debug)]
+pub struct ReportFile(PathBuf);
+
+impl ReportFile {
+    /// A new empty file `name` in `directory`, readable and writable by the user alone.
+    pub fn create(directory: &Path, name: &str) -> std::io::Result<Self> {
+        use std::os::unix::fs::OpenOptionsExt;
+        let path = directory.join(name);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)?;
+        Ok(Self(path))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+
+    /// What it holds, at most [`REPORT_BYTES`] of it (a line saying so when more was cut), none
+    /// when it is empty or cannot be read.
+    pub fn read(&self) -> Option<String> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        std::fs::File::open(&self.0)
+            .ok()?
+            .take(REPORT_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        let cut = bytes.len() > REPORT_BYTES;
+        bytes.truncate(REPORT_BYTES);
+        let mut text = String::from_utf8_lossy(&bytes).trim_end().to_string();
+        if text.is_empty() {
+            return None;
+        }
+        if cut {
+            text.push_str("\n[the rest was cut]");
+        }
+        Some(text)
+    }
+}
+
+impl Drop for ReportFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// A process the launcher started, and how it ended (docs/adr/0061-crashes-and-resetting-an-
+/// application.mdx, decision 1).
+#[derive(Clone, Debug)]
+pub struct Exited {
+    pub pid: u32,
+    pub launched: Launched,
+    /// Its status, if it could be waited for.
+    pub status: Option<std::process::ExitStatus>,
+    /// How long it ran, from its start until it was found ended.
+    pub ran: std::time::Duration,
+    /// The session asked it to end (the person's force quit, a quit before a reset, a file chooser
+    /// whose request ended, the session ending): however it then ended, it did not fail.
+    pub asked: bool,
+    /// What it said of its end in its [`ReportFile`], if it said anything.
+    pub report: Option<String>,
+}
+
+impl Exited {
+    /// Whether it ended abnormally: on its own, the session never having asked, with a status
+    /// that is not success (an exit status other than 0, or a signal).
+    pub fn abnormal(&self) -> bool {
+        !self.asked && self.status.is_some_and(|status| !status.success())
+    }
+}
+
+/// A process the launcher started, while it runs.
+struct Started {
+    process: std::process::Child,
+    launched: Launched,
+    at: std::time::Instant,
+    asked: bool,
+    report: Option<ReportFile>,
+}
+
 /// The processes a session started for applications (docs/adr/0013-launching-applications.mdx).
 pub struct Launcher {
     pub runtime: Runtime,
@@ -1373,7 +1543,14 @@ pub struct Launcher {
     /// ([`administrator_written`]; the tests' own rule in tests).
     trusted: Box<dyn Fn(&Path) -> bool>,
     /// Each process started, and what it was launched as, until it exits.
-    children: Vec<(std::process::Child, Launched)>,
+    children: Vec<Started>,
+    /// Where each process's [`ReportFile`] is made ([`Launcher::with_crash_reports`]); none, none
+    /// is given.
+    reports: Option<PathBuf>,
+    /// The number the next report file is named by.
+    next_report: u64,
+    /// Applications not started while they are being reset ([`Launcher::hold`]).
+    held: std::collections::BTreeSet<String>,
     /// The development compositor's grants by id ([`Launcher::with_fixture_grants`]).
     fixture_grants: Vec<(String, Grants)>,
     /// Told of each verified application started ([`Launcher::with_registrar`]); none, nothing
@@ -1391,9 +1568,35 @@ impl Launcher {
             installed: None,
             trusted: Box::new(administrator_written),
             children: Vec::new(),
+            reports: None,
+            next_report: 0,
+            held: std::collections::BTreeSet::new(),
             fixture_grants: Vec::new(),
             registrar: None,
         }
+    }
+
+    /// Each process started is given a [`ReportFile`] in `directory` (made the user's alone if it
+    /// is not there), which is read as it is reaped ([`Exited::report`]).
+    pub fn with_crash_reports(mut self, directory: PathBuf) -> std::io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&directory)?;
+        self.reports = Some(directory);
+        Ok(self)
+    }
+
+    /// `id` is not started until [`Launcher::release`]: its data is being erased
+    /// (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 5), and nothing of it may
+    /// run meanwhile, however it is asked for.
+    pub fn hold(&mut self, id: &str) {
+        self.held.insert(id.to_string());
+    }
+
+    pub fn release(&mut self, id: &str) {
+        self.held.remove(id);
     }
 
     /// Each system or installed application started is told to `registrar` as it starts (a
@@ -1434,6 +1637,19 @@ impl Launcher {
     /// gives none (the session says why as it starts, [`Policy::system`]).
     fn policy(&self) -> Policy {
         Policy::read(&self.policy, &*self.trusted).unwrap_or_default()
+    }
+
+    /// The application `id` as the registry lists it now, if it does.
+    pub fn application(&self, id: &str) -> Option<Application> {
+        let policy = self.policy();
+        find(
+            &self.directories,
+            &self.languages,
+            &policy,
+            self.installed.as_deref(),
+            &*self.trusted,
+            id,
+        )
     }
 
     /// Starts the application `id` if the registry lists it; the pid it runs as. A system
@@ -1536,13 +1752,51 @@ impl Launcher {
     /// Ends at once a process it started (SIGKILL): the person's force quit
     /// (docs/adr/0034-the-dock.mdx), which the application is told nothing of and cannot refuse.
     /// A process it did not start is never ended: false. It is reaped once it exits.
-    pub fn force_quit(&self, pid: u32) -> bool {
-        if !self.children.iter().any(|(child, _)| child.id() == pid) {
-            return false;
+    pub fn force_quit(&mut self, pid: u32) -> bool {
+        self.signal(pid, rustix::process::Signal::KILL)
+    }
+
+    /// Asks every process it started for the application `id` to end (SIGTERM), as the session
+    /// ending does: a quit before its data is erased (docs/adr/0061-crashes-and-resetting-an-
+    /// application.mdx, decision 5), every one of its processes by its launch record, never by a
+    /// name. The pids asked.
+    pub fn quit(&mut self, id: &str) -> Vec<u32> {
+        let pids: Vec<u32> = self
+            .children
+            .iter()
+            .filter(|child| child.launched.id == id)
+            .map(|child| child.process.id())
+            .collect();
+        for pid in &pids {
+            self.signal(*pid, rustix::process::Signal::TERM);
         }
-        rustix::process::Pid::from_raw(pid as i32).is_some_and(|pid| {
-            rustix::process::kill_process(pid, rustix::process::Signal::KILL).is_ok()
-        })
+        pids
+    }
+
+    /// Ends at once a process it started (SIGKILL), one asked to quit that did not in time. False
+    /// for a process it did not start.
+    pub fn kill(&mut self, pid: u32) -> bool {
+        self.signal(pid, rustix::process::Signal::KILL)
+    }
+
+    /// Whether a process it started for `id` runs.
+    pub fn runs(&self, id: &str) -> bool {
+        self.children.iter().any(|child| child.launched.id == id)
+    }
+
+    /// Sends `signal` to a process it started, noting the session asked it to end; false for one
+    /// it did not start.
+    fn signal(&mut self, pid: u32, signal: rustix::process::Signal) -> bool {
+        let Some(child) = self
+            .children
+            .iter_mut()
+            .find(|child| child.process.id() == pid)
+        else {
+            return false;
+        };
+        child.asked = true;
+        rustix::process::Pid::from_raw(pid as i32)
+            .is_some_and(|pid| rustix::process::kill_process(pid, signal).is_ok())
     }
 
     fn launch_opening(&mut self, id: &str, opened: Option<&Path>) -> Result<u32, Error> {
@@ -1553,6 +1807,9 @@ impl Launcher {
     }
 
     fn start(&mut self, id: &str, how: Start) -> Result<u32, Error> {
+        if self.held.contains(id) {
+            return Err(Error(format!("{id} is being reset")));
+        }
         let policy = self.policy();
         let application = find(
             &self.directories,
@@ -1626,6 +1883,24 @@ impl Launcher {
             }
             Start::Launch => None,
         };
+        // Where it says why it ends, if it ends for a fault (docs/adr/0061, decision 2).
+        let report = match &self.reports {
+            Some(directory) => {
+                self.next_report += 1;
+                let made = ReportFile::create(directory, &format!("launch-{}", self.next_report));
+                match made {
+                    Ok(report) => {
+                        command.env("OXYOS_CRASH_REPORT", report.path());
+                        Some(report)
+                    }
+                    Err(error) => {
+                        eprintln!("[apps] {id} has no report file: {error}");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
         let child = command
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
@@ -1657,23 +1932,39 @@ impl Launcher {
             (Some(Err(error)), _) => eprintln!("[apps] {id} not registered: its pidfd: {error}"),
             _ => {}
         }
-        self.children.push((child, launched));
+        self.children.push(Started {
+            process: child,
+            launched,
+            at: std::time::Instant::now(),
+            asked: false,
+            report,
+        });
         Ok(pid)
     }
 
-    /// Forgets the processes that exited (they are waited for, so none lingers); the pid of
-    /// each and what it was launched as.
-    pub fn reap(&mut self) -> Vec<(u32, Launched)> {
+    /// Forgets the processes that exited (they are waited for, so none lingers): each, what it was
+    /// launched as and how it ended.
+    pub fn reap(&mut self) -> Vec<Exited> {
         let mut exited = Vec::new();
         let mut index = 0;
         while index < self.children.len() {
-            match self.children[index].0.try_wait() {
-                Ok(None) => index += 1,
-                _ => {
-                    let (child, launched) = self.children.remove(index);
-                    exited.push((child.id(), launched));
+            let status = match self.children[index].process.try_wait() {
+                Ok(None) => {
+                    index += 1;
+                    continue;
                 }
-            }
+                Ok(Some(status)) => Some(status),
+                Err(_) => None,
+            };
+            let child = self.children.remove(index);
+            exited.push(Exited {
+                pid: child.process.id(),
+                ran: child.at.elapsed(),
+                asked: child.asked,
+                report: child.report.as_ref().and_then(ReportFile::read),
+                launched: child.launched,
+                status,
+            });
         }
         exited
     }
@@ -1683,43 +1974,41 @@ impl Launcher {
     pub fn running(&self) -> impl Iterator<Item = (u32, &Launched)> {
         self.children
             .iter()
-            .map(|(child, launched)| (child.id(), launched))
+            .map(|child| (child.process.id(), &child.launched))
     }
 
     /// What a running process it started was launched as, by pid.
     pub fn application_of(&self, pid: u32) -> Option<&Launched> {
         self.children
             .iter()
-            .find(|(child, _)| child.id() == pid)
-            .map(|(_, launched)| launched)
+            .find(|child| child.process.id() == pid)
+            .map(|child| &child.launched)
     }
 
     /// Asks a process it started to end (SIGTERM): a file chooser whose request ended. It is
     /// reaped once it exits.
-    pub fn terminate(&self, pid: u32) {
-        if !self.children.iter().any(|(child, _)| child.id() == pid) {
-            return;
-        }
-        if let Some(pid) = rustix::process::Pid::from_raw(pid as i32) {
-            let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
-        }
+    pub fn terminate(&mut self, pid: u32) {
+        self.signal(pid, rustix::process::Signal::TERM);
     }
 
     /// Stops every process it started: asked first (SIGTERM), then killed after `grace`.
     pub fn end(&mut self, grace: std::time::Duration) {
-        for (child, _) in &self.children {
-            if let Some(pid) = rustix::process::Pid::from_raw(child.id() as i32) {
-                let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
-            }
+        let pids: Vec<u32> = self
+            .children
+            .iter()
+            .map(|child| child.process.id())
+            .collect();
+        for pid in pids {
+            self.signal(pid, rustix::process::Signal::TERM);
         }
         let deadline = std::time::Instant::now() + grace;
         while !self.children.is_empty() && std::time::Instant::now() < deadline {
             self.reap();
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        for (child, _) in &mut self.children {
-            let _ = child.kill();
-            let _ = child.wait();
+        for child in &mut self.children {
+            let _ = child.process.kill();
+            let _ = child.process.wait();
         }
         self.children.clear();
     }

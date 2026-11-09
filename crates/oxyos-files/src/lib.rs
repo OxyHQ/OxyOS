@@ -11,7 +11,9 @@
 //!   listing, digests and open files, by `file://` URI ([`uri`]).
 //! - [`entries`] lists a folder and renames items, never replacing one.
 //! - [`trash`] moves items to the Trash as the freedesktop.org Trash specification (1.0) says,
-//!   and lists, restores and removes what it holds.
+//!   lists, restores and removes what it holds, says what it occupies and erases what has been
+//!   in it too long.
+//! - [`usage`]: what a tree occupies on the disk, as `du` counts it.
 //! - [`places`]: the home, its favourite folders (the XDG user directories) and the volumes.
 //! - [`tags`]: the person's tags on their items (a desktop's Finder tags), in the items' extended
 //!   attributes as freedesktop.org and a Mac keep them; [`tag_index`] finds every tagged item.
@@ -21,6 +23,9 @@
 //!   watchers say it, and whether the Trash or the volumes changed, through inotify and the mount
 //!   table.
 //! - [`transfer`]: downloads into a file and uploads of one, through `oxyos-net`.
+//! - [`backups`]: the person's backups, asked of the backup service (docs/adr/0059-backups.mdx):
+//!   where they are kept, an item's versions, what a folder held; [`restore`] writes an item got
+//!   back from one, as the person, beside what is there or in its place.
 //! - [`Service`] (the `service` feature, with `transfer`) answers requests on the caller's thread (`expo-file-system`'s synchronous calls)
 //!   or in order on a thread of its own, and says the changes watched, through one descriptor the
 //!   Bloom host polls (`OxyOSFiles`).
@@ -29,10 +34,14 @@ use std::fmt;
 use std::io;
 
 pub mod access;
+#[cfg(feature = "service")]
+pub mod backups;
 pub mod entries;
 pub mod mime;
 mod mounts;
 pub mod places;
+#[cfg(feature = "service")]
+pub mod restore;
 mod scope;
 #[cfg(feature = "service")]
 pub mod service;
@@ -42,6 +51,7 @@ pub mod tags;
 pub mod transfer;
 pub mod trash;
 pub mod uri;
+pub mod usage;
 pub mod volume;
 pub mod watch;
 
@@ -86,6 +96,11 @@ pub enum Error {
     Cancelled,
     /// A transfer the network could not make, or whose server refused it: the reason.
     Network(String),
+    /// The capability it needs was not granted to the application (docs/adr/0058-the-platform-api.mdx,
+    /// decision 4): the reason.
+    NotPermitted(String),
+    /// What it needs is not there now (the backup service, a backup's disk): the reason.
+    Unavailable(String),
     /// Anything else the system answered.
     Io(io::Error),
 }
@@ -108,6 +123,8 @@ impl Error {
             Error::Unsupported(_) => "unsupported",
             Error::Cancelled => "cancelled",
             Error::Network(_) => "network",
+            Error::NotPermitted(_) => "not-permitted",
+            Error::Unavailable(_) => "unavailable",
             Error::Io(_) => "io",
         }
     }
@@ -126,9 +143,11 @@ impl fmt::Display for Error {
             Error::InvalidName => f.write_str("not a name an item can have"),
             Error::CrossDevice => f.write_str("on another volume"),
             Error::Denied => f.write_str("not allowed by the system"),
-            Error::Invalid(reason) | Error::Unsupported(reason) | Error::Network(reason) => {
-                f.write_str(reason)
-            }
+            Error::Invalid(reason)
+            | Error::Unsupported(reason)
+            | Error::Network(reason)
+            | Error::NotPermitted(reason)
+            | Error::Unavailable(reason) => f.write_str(reason),
             Error::Cancelled => f.write_str("cancelled"),
             Error::Io(error) => write!(f, "{error}"),
         }
@@ -176,6 +195,8 @@ pub fn valid_name(name: &str) -> Result<(), Error> {
 
 #[cfg(all(test, feature = "service"))]
 mod access_tests;
+#[cfg(all(test, feature = "service"))]
+mod backup_tests;
 #[cfg(test)]
 mod mounts_tests;
 #[cfg(all(test, feature = "service"))]

@@ -55,3 +55,27 @@ test("AutoFill's pick and the emoji picker resolve once the session answered; a 
   await assert.rejects(emoji, (error) => isPlatformError(error, 'needsInput') && error.domain === 'shell');
   assert.deepEqual(sent, [{ chooseAutofill: { index: 2 } }, { showEmoji: {} }]);
 });
+
+test("a passkey, the power key's choice, Reset… and Reopen windows go to the session; the end of the session is answered", async () => {
+  const { shell, sent, answered, emit } = played();
+  emit('OxyOSSheet', { sheet: 6, text: '{"kind":"passkey"}' });
+  shell.answerPasskey(6, 1, 'pw');
+  shell.answerPasskey(7, undefined, 'pw');
+  shell.choosePowerKey(8, 'restart');
+  shell.setReopenWindows(true);
+  emit('OxyOSSheet', { sheet: 9, text: '{"kind":"crash"}' });
+  shell.resetApplication(9, 'so.oxy.chat');
+  assert.deepEqual(answered, [[9, false]]);
+  assert.deepEqual(shell.sheets.current(), []);
+  const ending = shell.endSession('restart', true);
+  emit('OxyOSSystemAnswer', { serial: sent.length, answer: { refused: { reason: 'needsInput' } } });
+  await assert.rejects(ending, (error) => isPlatformError(error, 'needsInput'));
+  assert.deepEqual(sent, [
+    { passkey: { sheet: 6, choice: 1, password: 'pw' } },
+    { passkey: { sheet: 7, password: 'pw' } },
+    { powerKeyChoice: { sheet: 8, choice: 'restart' } },
+    { reopenWindows: { enabled: true } },
+    { resetApplication: { id: 'so.oxy.chat', reopen: true } },
+    { endSession: { action: 'restart', confirm: true } },
+  ]);
+});

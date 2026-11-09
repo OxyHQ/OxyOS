@@ -27,10 +27,20 @@
 //! COMMAND, if given, starts once the shells' panels have set the work areas windows are placed
 //! in. An output plugged in gets a shell of its own; one unplugged, its shell stopped. With a shell
 //! COMMAND may be left out: the session is the desktop alone. Without one it is required. The
-//! session ends when either exits, on Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then
-//! asked to stop). A shell
-//! that exits while the session is locked is started again, at most once a second: until it
-//! shows the lock screen, the compositor's covers are all there is to see.
+//! session ends when COMMAND exits, when a shell exits with status 0 while unlocked, on
+//! Ctrl+Alt+Backspace, or on SIGINT or SIGTERM (they are then asked to stop). A shell that quits
+//! unexpectedly, or exits while the session is locked, is started again
+//! (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6): at once the first time,
+//! then after a wait that doubles each time it fails again within a minute of its start, up to a
+//! minute, never in a loop and never given up on; the applications go on running meanwhile, and
+//! locked, until it shows the lock screen, the compositor's covers are all there is to see.
+//!
+//! An application that quits unexpectedly (ADR 0061) is reported in the person's
+//! `$XDG_STATE_HOME/oxyos/crash-reports` with what it said of its end (`OXYOS_CRASH_REPORT`, a file
+//! the session made for it in its own folder of the runtime directory) and told: a notification
+//! about it, then the system's sheet when it quits again within ten minutes. The shell and Settings
+//! ask the session to reset one (`resetApplication`), which it confirms in its sheet, quits and
+//! erases whole.
 //!
 //! The shell's dock and launcher start applications (docs/adr/0013-launching-applications.mdx):
 //! the shell asks for an id, and the session starts it if its registry (`oxyos-apps`) lists it, a
@@ -64,6 +74,13 @@
 //! turn. Bluetooth (docs/adr/0055-bluetooth.mdx) is BlueZ's, through the session alone: on and
 //! off, discovery while Settings' Bluetooth page holds it, connecting, pairing (the session is
 //! BlueZ's default pairing agent, its questions the shell's sheets), forgetting and renaming.
+//! AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) is the accounts' service's keychain,
+//! asked on registrar connections of the session's own off the turn (`autofill.rs`): a field's
+//! suggestions and the person's pick, and an application's request to save a login asked in the
+//! shell's sheet; a session the login program did not start has no registrar, and no AutoFill.
+//! Backups (docs/adr/0059-backups.mdx) are the system's backup service's (`oxyos-backupd`), which
+//! the session follows on one connection for the menu bar's item and Settings, holding its
+//! scheduled backups while Low Power Mode is on; not at the login screen.
 //!
 //! The pointer crosses between the outputs where they meet, and is shown on the cursor plane of
 //! the display it is on, in the shape the surface under it wants: the display's own arrow, or the
@@ -84,8 +101,10 @@
 //! starts the person's session. Nothing is launched, sleep is not held, and the first frame on a
 //! display is told to the login program, which tells the service manager.
 
+mod autofill;
 mod cursor_file;
 mod installd;
+mod passkeys;
 
 use oxyos_compositor::displays::{Connector, Displays, Heads};
 use oxyos_compositor::settings::{self, Settings};
@@ -97,6 +116,7 @@ use rustix::fd::BorrowedFd;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Read;
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -116,8 +136,6 @@ const SHELL_DEADLINE: Duration = Duration::from_secs(60);
 const PAM_SERVICE: &str = "oxyos";
 /// The PAM service the lock checks the account's PIN under (`/etc/pam.d/oxyos-pin`).
 const PAM_PIN_SERVICE: &str = "oxyos-pin";
-/// A shell that exits while locked is started again, but no sooner than this after the last.
-const SHELL_RESTART: Duration = Duration::from_secs(1);
 /// The longest a turn waits when nothing is due: the session wakes for its devices, its clients,
 /// its displays and its children exiting, and for what is due on a clock (the sun an automatic
 /// appearance follows, a shell started again); this only bounds a wait that something missed.
@@ -332,6 +350,14 @@ fn main() -> Result<()> {
         read
     };
     compositor.records = false;
+    // Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): the start the person chose
+    // in the picker, read once from the kernel's command line; the shell and the login screen are
+    // told as they connect, and show it for the whole session.
+    let safe_mode = oxyos_compositor::safe_mode::this_start();
+    if safe_mode {
+        eprintln!("[session] Safe Mode: the system's own parts alone");
+        compositor.scene.set_safe_mode();
+    }
     // What it does record: a turn that took longer than a refresh, and where the time went.
     compositor.slow_turns = true;
     // Applied before any client connects, so each is told them with its Welcome.
@@ -526,12 +552,34 @@ fn main() -> Result<()> {
     for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(signal, stop.clone())?;
     }
+    // Where each process the session starts says why it ends, if it ends for a fault
+    // (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 2): the session's own
+    // folder in the runtime directory, the user's alone, gone with the session.
+    let reports = runtime.join(format!("oxyos-{}-reports", std::process::id()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&reports)
+        .or_else(|error| match error.kind() {
+            std::io::ErrorKind::AlreadyExists => Ok(()),
+            _ => Err(error),
+        })?;
+    let _reports = RemoveTreeOnDrop(reports.clone());
     // The session's shells first, on their own socket, granted `shell`: one on each output.
     let shell_socket = runtime.join(format!("oxyos-{}-shell", std::process::id()));
     let _shell_socket = RemoveOnDrop(shell_socket.clone());
-    let mut shells: BTreeMap<OutputId, std::process::Child> = BTreeMap::new();
+    let mut shells: BTreeMap<OutputId, Shell> = BTreeMap::new();
+    let mut shell_spawner = ShellSpawner {
+        socket: shell_socket.clone(),
+        reports: reports.clone(),
+        started: 0,
+    };
     if let Some(shell_command) = &shell_command {
-        shells = start_shells(&mut compositor, &listener, &shell_socket, shell_command)?;
+        shells = start_shells(
+            &mut compositor,
+            &listener,
+            &mut shell_spawner,
+            shell_command,
+        )?;
     }
     let mut signed_in: Option<Instant> = None;
     // The screen reader's socket, only when the session has one (ADR 0014).
@@ -575,6 +623,17 @@ fn main() -> Result<()> {
         (!greeter).then(|| installd::Installd::start(PathBuf::from(oxyos_install::ipc::SOCKET)));
     // The store's, Settings' and applications' requests to install, update, remove and use
     // capabilities (ADR 0030): over the same service, each confirmed in the shell's sheet.
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the applications' own, decided by their launch records and their account's decisions. The
+    // login screen has none.
+    let mut background = (!greeter).then(|| {
+        let mut background =
+            oxyos_compositor::background::BackgroundActivity::new(installed.clone());
+        if safe_mode {
+            background.set_safe_mode();
+        }
+        background
+    });
     let mut installs = if greeter {
         None
     } else {
@@ -585,6 +644,30 @@ fn main() -> Result<()> {
         compositor.wakers.push(installs.wake_fd()?);
         Some(installs)
     };
+    // Settings › Storage (docs/adr/0062-storage.mdx): the volume, the system's, the Trash's and
+    // each application's, measured when Settings asks and never otherwise; an item shown in the
+    // file manager. The login screen has none.
+    let mut storage = if greeter {
+        None
+    } else {
+        match oxyos_files::Scope::for_user() {
+            Ok(scope) => {
+                let mut storage = oxyos_compositor::storage::Storage::new(
+                    scope,
+                    std::sync::Arc::new(oxyos_compositor::storage::MachineDisk),
+                    PathBuf::from(oxyos_install::ipc::SOCKET),
+                )?;
+                storage.set_locale(&settings.locale());
+                storage.list_applications(oxyos_apps::Listing::read(None));
+                compositor.wakers.push(storage.wake_fd()?);
+                Some(storage)
+            }
+            Err(error) => {
+                eprintln!("[session] Storage has no home to measure: {error}");
+                None
+            }
+        }
+    };
     // Wi-Fi and networks (ADR 0038): the shell's and Settings' requests, over the system's
     // NetworkManager, as the session's user (polkit decides). The login screen has none yet.
     let mut networks = if greeter {
@@ -593,6 +676,28 @@ fn main() -> Result<()> {
         let networks = oxyos_compositor::networks::Networks::on_bus(None)?;
         compositor.wakers.push(networks.wake_fd()?);
         Some(networks)
+    };
+    // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the accounts'
+    // service's sheets verifying each passkey an application makes or uses. The login screen has
+    // none.
+    let mut passkeys = if greeter {
+        None
+    } else {
+        match oxyos_account::keychain::passkey::PasskeySheets::spawn(
+            accountd_session_socket(),
+            |said| eprintln!("[session] passkeys: {said}"),
+        ) {
+            Ok(sheets) => {
+                compositor.wakers.push(sheets.wake_fd()?);
+                Some(oxyos_compositor::passkeys::Passkeys::new(Box::new(
+                    passkeys::Sheets(sheets),
+                )))
+            }
+            Err(error) => {
+                eprintln!("[session] no passkey sheets: {error}; no passkey is verified");
+                None
+            }
+        }
     };
     // Search (docs/adr/0051-search.mdx): the user's index, this program's child (`--search-service`,
     // its standard input a socket only this program holds), started with the session after its
@@ -630,12 +735,40 @@ fn main() -> Result<()> {
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
     };
+    // Activity Monitor (docs/adr/0063-activity-monitor.mdx): the machine's use and every process's,
+    // sampled only while its window is shown. The login screen has none.
+    let mut activity = if greeter {
+        None
+    } else {
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        compositor.wakers.push(activity.wake_fd()?);
+        Some(activity)
+    };
+    // Backups (docs/adr/0059-backups.mdx): the menu bar's backup item and Settings › Backups,
+    // over the system's backup service (followed on one connection, waited for while it is not
+    // there), its scheduled backups held while Low Power Mode is on. The login screen has none.
+    let mut backups = match power.as_ref() {
+        Some(power) => {
+            let backups = oxyos_compositor::backups::Backups::new(
+                PathBuf::from(oxyos_backup::ipc::SOCKET),
+                power.low_power(),
+            )?;
+            compositor.wakers.push(backups.wake_fd()?);
+            Some(backups)
+        }
+        None => None,
+    };
     // Input methods (ADR 0041): fcitx5 run headless, the session its frontend. The login screen
     // has the keyboard layout only.
     let mut input_methods = if greeter {
         None
     } else {
-        oxyos_compositor::input_methods::for_session(&mut compositor, &settings, &runtime)
+        oxyos_compositor::input_methods::for_session(
+            &mut compositor,
+            &settings,
+            &runtime,
+            safe_mode,
+        )
     };
     let mut versions = Versions::default();
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): any application asks, the
@@ -660,17 +793,69 @@ fn main() -> Result<()> {
         oxyos_apps::languages(),
     )
     .with_installed(installed)
-    .with_registrar(Box::new(Registered));
+    .with_registrar(Box::new(Registered))
+    .with_crash_reports(reports.join("applications"))?;
+    // Applications that quit unexpectedly, and resetting one (docs/adr/0061-crashes-and-resetting-
+    // an-application.mdx): the person's reports (none at the login screen, whose user is no one),
+    // the notice, the sheet, and the resets Settings and the shell ask for.
+    let mut crashes = oxyos_compositor::crashes::Crashes::new(
+        (!greeter)
+            .then(oxyos_compositor::crashes::Reports::of_user)
+            .flatten(),
+        oxyos_compositor::crashes::system_description(),
+    );
+    crashes.set_locale(&settings.locale());
+    let mut shell_restarts = oxyos_compositor::crashes::ShellRestarts::default();
+    // What an erasure a crash interrupted left aside (docs/adr/0061, decision 5), deleted off the
+    // turn; never at the login screen, whose user is no one.
+    if !greeter {
+        std::thread::spawn(|| {
+            if let Err(error) = oxyos_apps::data::sweep(&oxyos_apps::data::bases()) {
+                eprintln!("[session] what resets left is not all deleted: {error}");
+            }
+        });
+    }
     // The applications the person opens at login (docs/adr/0034-the-dock.mdx), in their order, as
     // the session starts; none on the login screen. One the registry no longer lists is said and
     // passed over.
-    if !greeter {
+    // In Safe Mode none is (docs/adr/0054-recovery-and-erasing.mdx, decision 10), and the list stays
+    // the person's for the next normal start.
+    if safe_mode && !greeter {
+        eprintln!("[session] Safe Mode: nothing opened at login");
+    } else if !greeter {
         for id in &settings.preferences().open_at_login {
             match launcher.launch(id) {
                 Ok(pid) => eprintln!("[session] opened {id} at login ({pid})"),
                 Err(error) => eprintln!("[session] {id} not opened at login: {error}"),
             }
         }
+        // Reopen windows when logging back in (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+        // what ran as the person last logged out, restarted or shut down, read once; what was
+        // opened at login already is not opened twice.
+        if let Some(path) = oxyos_compositor::session_end::reopen_path() {
+            for id in oxyos_compositor::session_end::take_reopen(&path) {
+                if settings.preferences().open_at_login.contains(&id) {
+                    continue;
+                }
+                match launcher.launch(&id) {
+                    Ok(pid) => eprintln!("[session] reopened {id} at login ({pid})"),
+                    Err(error) => eprintln!("[session] {id} not reopened at login: {error}"),
+                }
+            }
+        }
+    }
+    // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+    // logind on a thread of its own, its power key held from now on, so logind never turns the
+    // machine off at a press; the login screen's too.
+    let mut ending = oxyos_compositor::session_end::SessionEnding::new(
+        oxyos_compositor::session_end::Logind::System,
+        greeter,
+        (!greeter)
+            .then(oxyos_compositor::session_end::reopen_path)
+            .flatten(),
+    )?;
+    if let Some(wake) = ending.wake_fd() {
+        compositor.wakers.push(wake?);
     }
     // The dock's Trash (docs/adr/0034-the-dock.mdx): what the user's Trashes hold, told to the
     // shell, and emptied when the person asks and accepts; none on the login screen.
@@ -688,7 +873,25 @@ fn main() -> Result<()> {
             }
         }
     };
-    let mut shell_started = Instant::now();
+    // AutoFill and saving passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decisions 5
+    // and 6): the accounts' service's keychain, on registrar connections of the session's own, each
+    // on a thread of its own. Only a session the login program started is the service's registrar
+    // (ADR 0020, step 5): any other is refused, and AutoFill stays off. The login screen has none.
+    let mut autofill = if greeter {
+        None
+    } else {
+        let socket = accountd_session_socket();
+        let provider = autofill::provider(socket.clone())?;
+        compositor.wakers.push(provider.wake_fd()?);
+        let saves = autofill::saves(socket)?;
+        compositor.wakers.push(saves.0.wake_fd()?);
+        Some(
+            oxyos_compositor::autofill::Autofill::new(Box::new(provider))
+                .with_saves(Box::new(saves)),
+        )
+    };
+    // When a shell that quit is started again (docs/adr/0061, decision 6).
+    let mut shell_due = Instant::now();
     // Whether the session was locked at the end of the last turn: locking, its keychain locks too
     // (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 2).
     let mut was_locked = compositor.scene.is_locked();
@@ -702,23 +905,30 @@ fn main() -> Result<()> {
                 displays.follow(&mut card, &mut compositor, settings.preferences())?;
             for output in removed {
                 if let Some(mut shell) = shells.remove(&output) {
-                    end(&mut shell)?;
+                    end(&mut shell.child)?;
                 }
             }
             if let Some(shell_command) = &shell_command {
                 for output in added {
-                    shells.insert(output, spawn_shell(&shell_socket, shell_command, output)?);
+                    shells.insert(output, shell_spawner.spawn(shell_command, output)?);
                 }
             }
         }
-        for (pid, launched) in launcher.reap() {
-            eprintln!("[session] {} exited", launched.id);
-            choosers.exited(&mut compositor.scene, pid);
-            compositor.forget_chooser(pid);
-            if let Some(note) = versions.exited(pid, &launched) {
+        let exits = launcher.reap();
+        for exit in &exits {
+            eprintln!(
+                "[session] {} exited ({})",
+                exit.launched.id,
+                oxyos_compositor::crashes::reason(exit.status)
+            );
+            choosers.exited(&mut compositor.scene, exit.pid);
+            compositor.forget_chooser(exit.pid);
+            if let Some(note) = versions.exited(exit.pid, &exit.launched) {
                 installd.as_ref().inspect(|i| i.note(note));
             }
         }
+        // Those that quit unexpectedly: reported, and the person told (docs/adr/0061).
+        crashes.exited(&mut compositor.scene, &exits);
         // An installed version showing its first window (ADR 0030, decision 10).
         if versions.awaiting() {
             for note in versions.shown(&compositor.pids_showing_windows()) {
@@ -726,6 +936,8 @@ fn main() -> Result<()> {
             }
         }
         if let Some(trash) = trash.as_mut() {
+            // Empty Trash Automatically, as the person has it (docs/adr/0062-storage.mdx).
+            trash.set_empty_automatically(settings.preferences().empty_trash_automatically);
             trash.serve(&mut compositor.scene);
             // Its sound now, not a turn later.
             compositor.play_sounds();
@@ -739,6 +951,75 @@ fn main() -> Result<()> {
             compositor.flush();
             compositor.ending = true;
         }
+        // Sleep, restart, shut down and log out (ADR 0064), before the store, which takes the
+        // requests left: each application named by its launch record for the person.
+        {
+            let names: BTreeMap<ClientId, String> = compositor
+                .scene
+                .applications()
+                .into_iter()
+                .map(|client| {
+                    let launched = compositor
+                        .peers
+                        .get(&client)
+                        .and_then(|peer| launcher.application_of(peer.pid as u32))
+                        .map(|launched| launched.name.clone());
+                    let name = launched
+                        .or_else(|| compositor.scene.application(client).map(str::to_owned));
+                    (client, name.unwrap_or_default())
+                })
+                .collect();
+            let running: Vec<String> = launcher
+                .running()
+                .map(|(_, launched)| launched.id.clone())
+                .collect();
+            let served = ending.serve(
+                &mut compositor,
+                &mut settings,
+                &|client| names.get(&client).cloned().unwrap_or_default(),
+                &running,
+            );
+            if served.log_out {
+                eprintln!("[session] logging out, as the person asked");
+                compositor.flush();
+                compositor.ending = true;
+            }
+        }
+        // AutoFill (ADR 0050): after the sign-out, so a session that is ending neither fills nor
+        // asks anything; before the store, which takes the requests left (the shell's press on a
+        // suggestion). The scene offers and fills nothing while locked.
+        if let Some(autofill) = autofill.as_mut().filter(|_| !compositor.ending) {
+            autofill.serve(&mut compositor);
+        }
+        // Resetting an application and the crash notices' answers (docs/adr/0061), before the
+        // store, which takes the requests left: what the person reopens is started as any launch.
+        crashes.set_locale(&settings.locale());
+        let served = crashes.serve(&mut compositor.scene, &mut launcher, greeter);
+        // What a reset application donated to the index goes with its data (decision 5).
+        if let Some(search) = search.as_mut() {
+            for id in &served.reset {
+                search.forget_application(id);
+            }
+        }
+        for id in served.open {
+            match launcher.launch(&id) {
+                Ok(pid) => {
+                    eprintln!("[session] reopened {id} ({pid})");
+                    if let Some(note) = launcher
+                        .application_of(pid)
+                        .and_then(|l| versions.launched(pid, l))
+                    {
+                        installd.as_ref().inspect(|i| i.note(note));
+                    }
+                }
+                Err(error) => eprintln!("[session] {id} not reopened: {error}"),
+            }
+        }
+        // Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+        // service's prompts shown, the shell's answers taken, before the store takes the rest.
+        if let Some(passkeys) = passkeys.as_mut() {
+            passkeys.serve(&mut compositor);
+        }
         // Input sources (ADR 0041), before the store, which takes the requests left.
         if let Some(methods) = input_methods.as_mut() {
             methods.serve(&mut compositor, &mut settings, settings::now());
@@ -746,17 +1027,25 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
-        // Battery and energy (ADR 0057), before the store, which takes the requests left.
+        // Battery and energy (ADR 0057) and Activity Monitor (ADR 0063), before the store, which
+        // takes the requests left.
+        let running: Vec<oxyos_power::energy::Running> = launcher
+            .running()
+            .map(|(pid, launched)| oxyos_power::energy::Running {
+                pid,
+                id: launched.id.clone(),
+                name: launched.name.clone(),
+            })
+            .collect();
         if let Some(power) = power.as_mut() {
-            let running: Vec<oxyos_power::energy::Running> = launcher
-                .running()
-                .map(|(pid, launched)| oxyos_power::energy::Running {
-                    pid,
-                    id: launched.id.clone(),
-                    name: launched.name.clone(),
-                })
-                .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        if let Some(activity) = activity.as_mut() {
+            activity.serve(&mut compositor, &running, power.as_mut());
+        }
+        // Backups (ADR 0059), before the store, which takes the requests left.
+        if let Some(backups) = backups.as_mut() {
+            backups.serve(&mut compositor.scene, settings.preferences());
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
@@ -779,6 +1068,30 @@ fn main() -> Result<()> {
                 compositor.controls.as_mut(),
             ) {
                 controls.bluetooth_is(&mut compositor.scene, status);
+            }
+        }
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the store, which takes the
+        // requests left: an item revealed opens the file manager as the shell's URLs do.
+        if let Some(storage) = storage.as_mut() {
+            storage.set_locale(&settings.locale());
+            for reveal in storage.serve(&mut compositor.scene) {
+                let opened = match launcher.open_url(&reveal.url) {
+                    Ok((id, pid)) => {
+                        eprintln!("[session] revealed in {id} ({pid}): {}", reveal.url);
+                        if let Some(note) = launcher
+                            .application_of(pid)
+                            .and_then(|l| versions.launched(pid, l))
+                        {
+                            installd.as_ref().inspect(|i| i.note(note));
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("[session] {} not opened: {error}", reveal.url);
+                        false
+                    }
+                };
+                storage.revealed(&mut compositor.scene, &reveal, opened);
             }
         }
         if let Some(installs) = installs.as_mut() {
@@ -1046,10 +1359,25 @@ fn main() -> Result<()> {
                     privacy: launched.grants.privacy,
                     network: launched.grants.network,
                     bluetooth: launched.grants.bluetooth,
+                    activity: launched.grants.activity,
                     ..Grants::default()
                 },
             })
         });
+        // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx),
+        // after Settings' changes of Open at Login: each application's asks, and its process in the
+        // background ended when it loses the right.
+        if let Some(background) = background.as_mut() {
+            for pid in background.serve(
+                &mut compositor,
+                &mut settings,
+                &|pid| launcher.application_of(pid).cloned(),
+                installs.as_mut(),
+                settings::now(),
+            ) {
+                launcher.terminate(pid);
+            }
+        }
         // Search's asks, once every client that asked is named by its launch record: who asked is
         // told the index with each.
         if let Some(search) = search.as_mut() {
@@ -1070,20 +1398,39 @@ fn main() -> Result<()> {
         }
         let mut exited = None;
         for (output, shell) in shells.iter_mut() {
-            if let Some(status) = shell.try_wait()? {
+            if let Some(status) = shell.child.try_wait()? {
                 exited = Some((*output, status));
                 break;
             }
         }
         if let Some((output, status)) = exited {
-            if !compositor.scene.is_locked() {
+            let shell = shells.remove(&output).expect("it exited");
+            let ran = shell.started.elapsed();
+            if status.success() && !compositor.scene.is_locked() {
                 eprintln!("[session] the shell of output {output} exited ({status})");
                 break Ok(());
             }
-            // Failing closed: the session stays locked, under the covers, until the shell is
-            // back and shows the lock screen.
-            eprintln!("[session] the shell of output {output} exited ({status}) while locked");
-            shells.remove(&output);
+            // Quit unexpectedly, or while locked: started again, at once the first time and then
+            // ever later, never in a loop (docs/adr/0061, decision 6). Locked, it fails closed: the
+            // session stays locked, under the covers, until the shell is back and shows the lock
+            // screen.
+            let wait = shell_restarts.quit(ran);
+            shell_due = Instant::now() + wait;
+            eprintln!(
+                "[session] the shell of output {output} exited ({status}){}: started again in {} ms",
+                if compositor.scene.is_locked() { " while locked" } else { "" },
+                wait.as_millis()
+            );
+            if !status.success() && !greeter {
+                crashes.note_shell(&oxyos_apps::Exited {
+                    pid: shell.child.id(),
+                    launched: shell_launched(),
+                    status: Some(status),
+                    ran,
+                    asked: false,
+                    report: shell.report.as_ref().and_then(oxyos_apps::ReportFile::read),
+                });
+            }
         }
         if let Some(shell_command) = &shell_command {
             let missing = compositor
@@ -1091,10 +1438,9 @@ fn main() -> Result<()> {
                 .iter()
                 .map(|screen| screen.id)
                 .find(|output| !shells.contains_key(output));
-            if let Some(output) = missing.filter(|_| shell_started.elapsed() >= SHELL_RESTART) {
+            if let Some(output) = missing.filter(|_| Instant::now() >= shell_due) {
                 eprintln!("[session] starting the shell of output {output} again");
-                shell_started = Instant::now();
-                shells.insert(output, spawn_shell(&shell_socket, shell_command, output)?);
+                shells.insert(output, shell_spawner.spawn(shell_command, output)?);
             }
         }
         if compositor.ending || stop.load(Ordering::Relaxed) {
@@ -1128,6 +1474,13 @@ fn main() -> Result<()> {
         if let Some(deadline) = search.as_ref().and_then(|search| search.deadline()) {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
+        // The next item in the Trash reaching its 30 days, while the Trash empties itself.
+        if let Some(due) = trash.as_ref().and_then(|trash| trash.deadline()) {
+            wait = wait.min(
+                due.duration_since(std::time::SystemTime::now())
+                    .unwrap_or_default(),
+            );
+        }
         if let Some(since) = signed_in {
             wait = wait.min(SIGNED_IN_SPLASH.saturating_sub(since.elapsed()));
         }
@@ -1137,7 +1490,15 @@ fn main() -> Result<()> {
                 .iter()
                 .any(|screen| !shells.contains_key(&screen.id));
         if shell_missing {
-            wait = wait.min(SHELL_RESTART.saturating_sub(shell_started.elapsed()));
+            wait = wait.min(shell_due.saturating_duration_since(Instant::now()));
+        }
+        // The question's deadline, or the applications' to quit (ADR 0064).
+        if let Some(due) = ending.wait() {
+            wait = wait.min(due);
+        }
+        // A reset waiting for its application to quit (docs/adr/0061, decision 5).
+        if let Some(deadline) = crashes.deadline() {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
         if let Some(crossing) = settings.next_crossing() {
             let seconds = u64::try_from(crossing.saturating_sub(settings::now())).unwrap_or(0);
@@ -1151,6 +1512,8 @@ fn main() -> Result<()> {
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
+    // Its hold on scheduled backups goes with its connection.
+    drop(backups);
     // Recorded as ended; power-saver let go as it goes.
     if let Some(power) = power.as_mut() {
         power.end();
@@ -1160,7 +1523,7 @@ fn main() -> Result<()> {
     // The search service ends as its standard input closes.
     drop(search);
     for shell in shells.values_mut() {
-        end(shell)?;
+        end(&mut shell.child)?;
     }
     if let Some(reader) = reader.as_mut() {
         end(reader)?;
@@ -1189,20 +1552,20 @@ fn drain(mut waker: &std::os::unix::net::UnixStream) {
 fn start_shells(
     compositor: &mut Compositor,
     listener: &Listener,
-    socket: &std::path::Path,
+    spawner: &mut ShellSpawner,
     command: &[OsString],
-) -> Result<BTreeMap<OutputId, std::process::Child>> {
-    let shell_listener = Listener::bind(socket)?;
+) -> Result<BTreeMap<OutputId, Shell>> {
+    let shell_listener = Listener::bind(&spawner.socket)?;
     shell_listener.set_nonblocking(true)?;
     compositor.shell_listener = Some(shell_listener);
     let mut shells = BTreeMap::new();
     for screen in &compositor.screens {
-        shells.insert(screen.id, spawn_shell(socket, command, screen.id)?);
+        shells.insert(screen.id, spawner.spawn(command, screen.id)?);
     }
     let deadline = Instant::now() + SHELL_DEADLINE;
     loop {
         for (output, shell) in shells.iter_mut() {
-            if let Some(status) = shell.try_wait()? {
+            if let Some(status) = shell.child.try_wait()? {
                 return Err(format!(
                     "the shell of output {output} exited ({status}) before its panels were shown"
                 )
@@ -1211,7 +1574,7 @@ fn start_shells(
         }
         if Instant::now() > deadline {
             for shell in shells.values_mut() {
-                end(shell)?;
+                end(&mut shell.child)?;
             }
             return Err("the shells' panels were not shown in time".into());
         }
@@ -1296,39 +1659,83 @@ impl Versions {
     }
 }
 
-/// The session's shell of `output`, on `socket`.
-fn spawn_shell(
-    socket: &std::path::Path,
-    command: &[OsString],
-    output: OutputId,
-) -> Result<std::process::Child> {
-    let mut shell = Command::new(command.first().ok_or(USAGE)?);
-    shell
-        .args(&command[1..])
-        .arg("--shell")
-        .arg(output.to_string())
-        .env("OXYOS_COMPOSITOR_SOCKET", socket)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY");
-    // A Bloom host's bundle is known to its JavaScript by its source's URL, beside its assets: a
-    // package's compiled bundle by the source its manifest names (ADR 0030).
-    if let Some(bundle) = command
-        .get(1)
-        .map(std::path::Path::new)
-        .filter(|b| b.is_file())
-    {
-        let url = oxyos_apps::script_url(bundle);
-        shell.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
-    }
-    let child = shell.spawn()?;
-    // OxyOS itself, to the accounts' service: its pidfd opened before anything could reap it.
-    if let Some(registrar) = REGISTRAR.get() {
-        match oxyos_account::pidfd::open(child.id()) {
-            Ok(pidfd) => registrar.register(SHELL_ID, true, pidfd),
-            Err(error) => eprintln!("[session] the shell is not registered: {error}"),
+/// A shell the session started: its process, when, and where it says why it ends.
+struct Shell {
+    child: std::process::Child,
+    started: Instant,
+    report: Option<oxyos_apps::ReportFile>,
+}
+
+/// What the session's shells are started with: their socket, and the folder their report files
+/// are made in (docs/adr/0061, decision 2).
+struct ShellSpawner {
+    socket: PathBuf,
+    reports: PathBuf,
+    started: u64,
+}
+
+impl ShellSpawner {
+    /// The session's shell of `output`.
+    fn spawn(&mut self, command: &[OsString], output: OutputId) -> Result<Shell> {
+        let mut shell = Command::new(command.first().ok_or(USAGE)?);
+        shell
+            .args(&command[1..])
+            .arg("--shell")
+            .arg(output.to_string())
+            .env("OXYOS_COMPOSITOR_SOCKET", &self.socket)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        // A Bloom host's bundle is known to its JavaScript by its source's URL, beside its assets: a
+        // package's compiled bundle by the source its manifest names (ADR 0030).
+        if let Some(bundle) = command
+            .get(1)
+            .map(std::path::Path::new)
+            .filter(|b| b.is_file())
+        {
+            let url = oxyos_apps::script_url(bundle);
+            shell.env("OXYOS_SCRIPT_URL", format!("file://{}", url.display()));
         }
+        self.started += 1;
+        let report =
+            match oxyos_apps::ReportFile::create(&self.reports, &format!("shell-{}", self.started))
+            {
+                Ok(report) => {
+                    shell.env("OXYOS_CRASH_REPORT", report.path());
+                    Some(report)
+                }
+                Err(error) => {
+                    eprintln!("[session] the shell has no report file: {error}");
+                    None
+                }
+            };
+        let child = shell.spawn()?;
+        // OxyOS itself, to the accounts' service: its pidfd opened before anything could reap it.
+        if let Some(registrar) = REGISTRAR.get() {
+            match oxyos_account::pidfd::open(child.id()) {
+                Ok(pidfd) => registrar.register(SHELL_ID, true, pidfd),
+                Err(error) => eprintln!("[session] the shell is not registered: {error}"),
+            }
+        }
+        Ok(Shell {
+            child,
+            started: Instant::now(),
+            report,
+        })
     }
-    Ok(child)
+}
+
+/// The shell, as its reports name it.
+fn shell_launched() -> oxyos_apps::Launched {
+    oxyos_apps::Launched {
+        id: SHELL_ID.to_string(),
+        name: "OxyOS".to_string(),
+        grants: oxyos_apps::Grants::default(),
+        origin: oxyos_apps::Origin::System,
+        capabilities: BTreeMap::new(),
+        opened: None,
+        chooser: false,
+        url: None,
+    }
 }
 
 /// Starts the screen reader (`on`) or stops it, if it is not so already: the user's switch
@@ -1673,6 +2080,15 @@ struct RemoveOnDrop(PathBuf);
 impl Drop for RemoveOnDrop {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// A folder of the session's own, removed with all it holds as the session ends.
+struct RemoveTreeOnDrop(PathBuf);
+
+impl Drop for RemoveTreeOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 

@@ -8,7 +8,9 @@ order: 21
 
 Status: **accepted**. Builds on [ADR 0009](./0009-session-shell) (the session's shell).
 
-**7 November 2026: the sun chooses among a catalog wallpaper's variants** ([ADR 0048](./0048-wallpapers)). *Solar Gradients* was Apple's macOS wallpaper, imported from a HEIC the owner supplied; it was not OxyOS's to ship and is gone, with `OXYOS_WALLPAPER` and the shell's own frame 8. A wallpaper of the system's catalog (`/usr/share/oxyos/wallpapers`, `OXYOS_WALLPAPERS`) whose *Automatic* is `sun` tags each variant with the sun's elevation and azimuth, as the frames were tagged, and this decision's rule chooses among them (`crates/oxyos-wallpaper` through `oxyos_wallpaper_show`, for the display the session told the choice of). OxyOS's own `horizon` is such a wallpaper. The moment is fixed for scenarios by `OXYOS_WALLPAPER_NOW`, which replaces `OXYOS_SOLAR_NOW`. What follows is the decision as it was taken.
+**7 November 2026: the sun chooses among a catalog wallpaper's variants** ([ADR 0048](./0048-wallpapers)). *Solar Gradients* was Apple's macOS wallpaper, imported from a HEIC the owner supplied; it was not OxyOS's to ship and is gone, with `OXYOS_WALLPAPER` and the shell's own frame 8. A wallpaper of the system's catalog (`/usr/share/oxyos/wallpapers`, `OXYOS_WALLPAPERS`) whose *Automatic* is `sun` tags each variant with the sun's elevation and azimuth, as the frames were tagged, and this decision's rule chooses among them (`crates/oxyos-wallpaper` through `oxyos_wallpaper_show`, for the display the session told the choice of). OxyOS's own `horizon` was such a wallpaper (withdrawn on 8 November 2026 for Solar Gradients, below). The moment is fixed for scenarios by `OXYOS_WALLPAPER_NOW`, which replaces `OXYOS_SOLAR_NOW`. What follows is the decision as it was taken.
+
+**8 November 2026:** the default wallpaper is again *Solar Gradients*, now OxyOS's own procedural work whose sixteen variants follow the sun by this decision's rule ([ADR 0048](./0048-wallpapers)). It is the one wallpaper that follows the sun: Horizon is withdrawn, and a choice kept of it reads as Solar Gradients' *Automatic*.
 
 ## Problem
 

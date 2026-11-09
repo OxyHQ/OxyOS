@@ -83,7 +83,7 @@ A program of this repository that the image needs is built from the Cargo worksp
 
 | Program | Package | What |
 | --- | --- | --- |
-| `tools/oxyos-recovery` | `oxyos-recovery` | The development installer, the recovery, arming an erase, counting boots, and their units ([ADR 0054](./adr/0054-recovery-and-erasing)) |
+| `tools/oxyos-recovery` | `oxyos-recovery` | The development installer, the recovery, arming an erase, counting boots, and their units; Safe Mode's boot entries, written beside each kernel's by its kernel-install plugin (`91-oxyos-safe-mode.install`) ([ADR 0054](./adr/0054-recovery-and-erasing)) |
 
 ### OxyOS's patched Debian packages
 
@@ -108,6 +108,7 @@ A machine installed by hand (the ThinkPad) takes the same packages from `package
 | `includes.chroot_after_packages/usr/lib/oxyos/apt-setup` + unit | Each boot of the live system, an installed system's first: rewrites `sources.list` as deb822 `debian.sources` (and drops live-build's `oxyos.list`, which would repeat the security suite), then removes itself. POSIX `sh` and executable: the check script fails an included script that is not (the first built image's boot found it failing on every boot, `203/EXEC`). |
 | `preseed/preseed.cfg.chroot` | The firmware packages' licence acceptance, while they are installed. |
 | `includes.chroot_after_packages/etc/cryptsetup-initramfs/conf-hook`, `etc/initramfs-tools/conf.d/oxyos-umask` | An installed system's install key goes into its initramfs (`KEYFILE_PATTERN`), which is made readable by root alone (`UMASK=0077`): the first boot unlocks the root without a password until setup replaces the key ([ADR 0023](./adr/0023-installing-oxyos), decision 3). |
+| `includes.chroot_after_packages/etc/polkit-1/rules.d/50-oxyos-boot-loader-entry.rules` | Which boot entry the next start takes (logind's `SetRebootToBootLoaderEntry`, which polkit gives any process of the active session) asks an administrator's authentication: no application restarts the machine into Safe Mode or the recovery ([ADR 0054](./adr/0054-recovery-and-erasing), decision 10). |
 | `bootloaders/` | live-build bootloader templates and OxyOS splash artwork. |
 
 New hooks are POSIX `sh` (`set -e`, `P:` progress lines) and must pass `sh -n`; the check script runs it on every hook.
@@ -202,7 +203,7 @@ The amd64 image from the same commit is unchanged by the arm64 work: the same 38
 
 ### Installing, the recovery and erasing (`--recovery`)
 
-`--recovery` (UEFI or Secure Boot) runs one machine through ADR 0054's whole life, on a blank 24 GiB virtual disk under the run's directory (never a disk of the host) and with its firmware's variables kept from start to start: the development installer from the live medium (encrypted, a development user, a recovery key); the installed system through shim and systemd-boot, the disk's password typed at Plymouth's field over QMP; the recovery reached by Space held on a USB keyboard at the boot menu, and by three starts cut off at the password prompt; *Erase All Content and Settings* armed by `oxyos-erase.service` and carried out by the recovery; *Erase and Reinstall* from the recovery's menu; and after each erase a first boot with no user, a new LUKS2 volume that neither old secret opens, and the recovery untouched. The installed system's and the recovery's consoles are asked for through the firmware's OEM strings (`io.systemd.boot.kernel-cmdline-extra`: `console=ttyS0`, and systemd's debug shell on a second serial port for the checks), not in the image. Each start's screens, both serial logs and QEMU's log are under `acceptance/<image>/recovery-<firmware>/recovery/`. Results: [ADR 0054](./adr/0054-recovery-and-erasing#results).
+`--recovery` (UEFI or Secure Boot) runs one machine through ADR 0054's whole life, on a blank 24 GiB virtual disk under the run's directory (never a disk of the host) and with its firmware's variables kept from start to start: the development installer from the live medium (encrypted, a development user, a recovery key); the installed system through shim and systemd-boot, the disk's password typed at Plymouth's field over QMP; the recovery reached by Space held on a USB keyboard at the boot menu, and by three starts cut off at the password prompt; *Erase All Content and Settings* armed by `oxyos-erase.service` and carried out by the recovery; *Erase and Reinstall* from the recovery's menu; Safe Mode chosen at the boot menu (its kernel's command line with `oxyos.safe-mode=1`, no try spent, the next start normal); and after each erase a first boot with no user, a new LUKS2 volume that neither old secret opens, and the recovery untouched. The installed system's and the recovery's consoles are asked for through the firmware's OEM strings (`io.systemd.boot.kernel-cmdline-extra`: `console=ttyS0`, and systemd's debug shell on a second serial port for the checks), not in the image. Each start's screens, both serial logs and QEMU's log are under `acceptance/<image>/recovery-<firmware>/recovery/`. Results: [ADR 0054](./adr/0054-recovery-and-erasing#results).
 
 ### Static checks
 

@@ -1,0 +1,334 @@
+{
+ "about": "Wi-Fi Diagnostics (docs/adr/0038-networks.mdx, 8 November 2026) from Settings' Wi-Fi page, over a NetworkManager played on the run's own bus with the network behind it (the router's echoes and ARP, the resolver, the daemon's connectivity check), each probe counted: nothing is probed until the sheet opens; it runs once, showing the link as the daemon has it (signal, channel, band and width, rate, security, access point, address in use), the router's verdict and its median round trip, the internet not checked where no check is set up, and oxy.so resolved with its time; nothing runs while it stays open; Check Again, after the router stops answering echoes, the resolver fails and a check finds a sign-in page, says each as measured, with no time made up; closed, nothing runs. At 1.25.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "outputs": "1600x1000@1.25",
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse",
+    "frequency": 5180,
+    "bssid": "A0:B1:C2:D3:E4:F5",
+    "rate": 866,
+    "max_rate": 1201,
+    "width": 80
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "secrets": [
+  "correct horse"
+ ],
+ "steps": [
+  {
+   "name": "Settings with the network grant: its pages there once the session told it the network",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Wi-Fi"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi's page",
+   "do": [
+    "wait_named",
+    [
+     "Details of “LukeSkyRouter”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "Wi-Fi Diagnostics…"
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "Nothing is probed until asked",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "probes": [],
+     "connectivity_checks": 0
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Wi-Fi Diagnostics…",
+   "do": [
+    "press_named",
+    "Wi-Fi Diagnostics…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-diagnostics": 1,
+     "touchEnd@wifi-diagnostics": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Run once as it opens: the link as the daemon has it, the router answering its three echoes, the internet not checked (no connectivity check set up), oxy.so resolved; each probe once",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "LukeSkyRouter",
+     "Good · 73%",
+     "Channel 36, 5 GHz, 80 MHz · 866 Mb/s · WPA2 Personal",
+     "Access point A0:B1:C2:D3:E4:F5 · Wi-Fi address F4:A4:75:12:34:56",
+     "Router 192.168.8.1",
+     "Answers",
+     "3 of 3 answered in 1.2 ms",
+     "Not checked",
+     "No connectivity check is set up on this computer.",
+     "Resolved",
+     "oxy.so in 14 ms · Servers 192.168.8.1"
+    ],
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so"
+     ],
+     "connectivity_checks": 0
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Left open: nothing runs again",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so"
+     ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "The router stops answering echoes, still answering ARP",
+   "do": [
+    "network",
+    {
+     "router": {
+      "answers": false,
+      "neighbour": true
+     }
+    }
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {}
+   }
+  },
+  {
+   "name": "The resolver fails",
+   "do": [
+    "network",
+    {
+     "resolver": {
+      "does": "fails",
+      "ms": 30
+     }
+    }
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {}
+   }
+  },
+  {
+   "name": "A connectivity check set up finds a sign-in page",
+   "do": [
+    "network",
+    {
+     "connectivity": {
+      "check": true,
+      "state": 2
+     }
+    }
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {}
+   }
+  },
+  {
+   "name": "Check Again",
+   "do": [
+    "press_named",
+    "Check Again"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-diagnostics-again": 1,
+     "touchEnd@wifi-diagnostics-again": 1
+    }
+   }
+  },
+  {
+   "name": "Said as measured: the router there but silent, a sign-in page, oxy.so not resolved, no time made up; each probe once more, the neighbour table asked as no echo came back",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Doesn't answer pings",
+     "0 of 3 answered · It answers for its address, but not to pings.",
+     "Sign-in required",
+     "A sign-in page blocks the internet.",
+     "Failed",
+     "oxy.so couldn't be resolved"
+    ],
+    "absent": [
+     "1.2 ms",
+     "Resolved"
+    ],
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so",
+      "ping 192.168.8.1",
+      "neighbour 192.168.8.1",
+      "resolve oxy.so"
+     ],
+     "connectivity_checks": 1
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Done",
+   "do": [
+    "press_named",
+    "Done"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-diagnostics-done": 1,
+     "touchEnd@wifi-diagnostics-done": 1
+    }
+   }
+  },
+  {
+   "name": "Closed: nothing runs",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Check Again"
+    ],
+    "network": {
+     "probes": [
+      "ping 192.168.8.1",
+      "resolve oxy.so",
+      "ping 192.168.8.1",
+      "neighbour 192.168.8.1",
+      "resolve oxy.so"
+     ],
+     "connectivity_checks": 1
+    },
+    "react": {}
+   }
+  }
+ ]
+}

@@ -2,6 +2,7 @@
 
 #include <react/renderer/core/propsConversions.h>
 
+#include <atomic>
 #include <cmath>
 #include <map>
 
@@ -26,10 +27,19 @@ ExpoBlurViewProps::ExpoBlurViewProps(const PropsParserContext& context, const Ex
 
 namespace oxyos {
 
+namespace {
+std::atomic<bool> reduced{false};
+}  // namespace
+
+void setReducedTransparency(bool value) { reduced.store(value, std::memory_order_relaxed); }
+bool reducedTransparency() { return reduced.load(std::memory_order_relaxed); }
+
 bool isExpoBlurView(const std::string& name) { return name == ExpoBlurViewComponentName; }
 
 std::optional<ExpoBlurTarget> expoBlurTarget(const ShadowView& view) {
   if (!view.componentName || !isExpoBlurView(view.componentName)) return std::nullopt;
+  // Transparency reduced: its tint alone, nothing blurred.
+  if (reducedTransparency()) return std::nullopt;
   auto props = std::static_pointer_cast<const ExpoBlurViewProps>(view.props);
   // As ExpoBlurView.configureBlurView: no target, or the method "none", blurs nothing; Dimezis'
   // view is given the intensity divided by the reduction factor as its radius.
