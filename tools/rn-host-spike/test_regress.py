@@ -356,3 +356,27 @@ class LaunchToContent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GlidesOnlySlow(unittest.TestCase):
+    """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
+
+    @staticmethod
+    def frames(*points):
+        return [{"t": int(ms * 1e6), "y": y} for ms, y in points]
+
+    def test_a_spline_sampled_unevenly_only_slows(self):
+        # Android's fling slows; frames late or early change each frame's step, not its trend.
+        self.assertEqual(regress.glide_speeding(self.frames((0, 0), (16, 40), (40, 95), (48, 112), (80, 170), (96, 195))), [])
+
+    def test_rounding_to_pixels_near_its_end_is_no_speeding(self):
+        # At 1.25 offsets fall on 0.8 px: a slow end alternates steps of 0.8 and 1.6.
+        self.assertEqual(regress.glide_speeding(self.frames((0, 100), (16, 101.6), (32, 102.4), (48, 104.0), (64, 104.8))), [])
+
+    def test_a_glide_begun_again_fails(self):
+        self.assertEqual(regress.glide_speeding(self.frames((0, 0), (16, 40), (32, 70), (48, 92), (64, 140))),
+                         [(3, 1375, 3000)])
+
+    def test_upwards_too(self):
+        self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
+                         [(2, -1875, -3125)])

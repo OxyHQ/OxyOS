@@ -1,0 +1,415 @@
+{
+  "about": "Type-select in a Bloom menu in a compositor popup (sample/App.tsx's DropdownMenu, whose rows are Reply, Forward, Archive, Move to folder, Mark as unread, Delete and More actions; ADR 0039; Bloom's popup navigation, on an output at 1.25 (1600×1000), as macOS and the WAI-ARIA menu pattern have it): a letter makes the next enabled row that starts with it active, so the same letter again, once the query's 500 ms have passed, goes on to the next such row and round to the first; letters typed together are one query; a letter no row starts with leaves the active row. Return chooses the active row once and Escape chooses nothing; either closes the menu and gives the keyboard back to its trigger. Each step checks the row the assistive technology holds active, exactly the keys React receives, what each surface was delivered and the keyboard's surface.",
+  "window": [
+    1024,
+    560
+  ],
+  "layout": "us",
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "open the menu with a press: it grabs the pointer and has the keyboard",
+      "do": [
+        "press",
+        [
+          939,
+          411
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "touchStart@open-menu": 1,
+          "touchEnd@open-menu": 1
+        },
+        "popup_events": {
+          "open@message-actions": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1,
+            "leave": 1,
+            "focus.out": 1
+          },
+          "2": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "m: the first row that starts with it, Move to folder, active; the key reaches the menu once and nothing else",
+      "do": [
+        "type",
+        "m"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 1
+        },
+        "delivered": {
+          "2": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Move to folder",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a moment later, so the query begins again",
+      "do": [
+        "wait",
+        700
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "m again: the next row that starts with it, Mark as unread",
+      "do": [
+        "type",
+        "m"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 1
+        },
+        "delivered": {
+          "2": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Mark as unread",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "popup": [
+            {
+              "name": "Move to folder",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a moment later again",
+      "do": [
+        "wait",
+        700
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "m once more: More actions, the row with a submenu, active and its submenu not opened",
+      "do": [
+        "type",
+        "m"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 1
+        },
+        "delivered": {
+          "2": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "absent": [
+          "Copy link"
+        ],
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "More actions",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "and a moment later",
+      "do": [
+        "wait",
+        700
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {}
+      }
+    },
+    {
+      "name": "m goes round to the first that starts with it, Move to folder",
+      "do": [
+        "type",
+        "m"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 1
+        },
+        "delivered": {
+          "2": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Move to folder",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "two letters typed together are one query: ma, Mark as unread",
+      "do": [
+        "type",
+        "ma"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 2
+        },
+        "delivered": {
+          "2": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Mark as unread",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a letter no row starts with leaves the active row where it is",
+      "do": [
+        "type",
+        "z"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 1
+        },
+        "delivered": {
+          "2": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Mark as unread",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Return chooses Mark as unread, once: the menu closes and the keyboard is back on its trigger",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Mark as unread"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {
+          "close@2": 1
+        },
+        "a11y_events": {
+          "focus@open-menu": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "2": {
+            "key.press": 1,
+            "key.release": 1,
+            "focus.out": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "the menu again, with a press on its trigger",
+      "do": [
+        "press",
+        [
+          939,
+          411
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "react": {
+          "touchStart@open-menu": 1,
+          "touchEnd@open-menu": 1
+        },
+        "popup_events": {
+          "open@message-actions": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "leave": 1,
+            "focus.out": 1
+          },
+          "3": {
+            "focus.in": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "d: Delete active",
+      "do": [
+        "type",
+        "d"
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 3,
+        "react": {
+          "key@message-actions": 1
+        },
+        "delivered": {
+          "3": {
+            "text": 1
+          }
+        },
+        "popup_events": {},
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Delete",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it choosing nothing: Mark as unread still the choice, the keyboard back on its trigger",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Mark as unread"
+        ],
+        "absent": [
+          "Chosen: Delete"
+        ],
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {
+          "close@3": 1
+        },
+        "a11y_events": {
+          "focus@open-menu": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "3": {
+            "key.press": 1,
+            "key.release": 1,
+            "focus.out": 1
+          }
+        }
+      }
+    }
+  ]
+}

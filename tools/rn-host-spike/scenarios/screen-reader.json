@@ -1,5 +1,5 @@
 {
-  "about": "The session's screen reader (ADR 0014) on sample/A11yProbe.tsx, in Spanish, its voice a record of what it says: its keys, Ctrl+Alt with Right, Left or Space, reach it alone (React sees none of them) and move its cursor through the elements that have something to say, each said as name, value, state and role; Space activates the element under the cursor, whose announcement is said at once, interrupting; a live region's change is said politely; the element an application focuses is said and takes the cursor, which then moves on from it. Without the compositor taking the reader's keys, nothing is said and nothing is activated.",
+  "about": "The session's screen reader (ADR 0014) on sample/A11yProbe.tsx, in Spanish, its voice a record of what it says: its keys, Ctrl+Alt with Right, Left or Space, reach it alone (React sees none of them) and move its cursor through the elements that have something to say, each said as name, value, state and role; Space activates the element under the cursor, whose announcement is said at once, interrupting; a live region's change is said politely; the element an application focuses is said and takes the cursor, which then moves on from it. Without the compositor taking the reader's keys, nothing is said and nothing is activated. From the last element, Next says nothing and leaves the cursor there; Previous then goes back through every element in reading order, the list's rows and the list itself among them, to the first, before which it says nothing, and Next from there goes on again. Each of those steps checks what was said, exactly, that React received nothing and that the window was delivered only the modifiers held with the reader's arrows.",
   "locale": "es_ES.UTF-8",
   "module": "A11yProbe",
   "window": [480, 560],
@@ -9,31 +9,31 @@
       "name": "Ctrl+Alt+Right: the first element, said",
       "do": ["key", [29, 56, 106]],
       "allow_unchanged": true,
-      "expect": {"react": {}, "spoken": [{"text": "Volumen, regulador", "interrupting": true}]}
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": [{"text": "Volumen, regulador", "interrupting": true}]}
     },
     {
       "name": "on to the live region's text",
       "do": ["key", [29, 56, 106]],
       "allow_unchanged": true,
-      "expect": {"react": {}, "spoken": ["Nivel 5"]}
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Nivel 5"]}
     },
     {
       "name": "on to Guardar, a button",
       "do": ["key", [29, 56, 106]],
       "allow_unchanged": true,
-      "expect": {"react": {}, "spoken": ["Guardar, botón"]}
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Guardar, botón"]}
     },
     {
       "name": "Ctrl+Alt+Space activates it: its announcement is said at once",
       "do": ["key", [29, 56, 57]],
       "allow_unchanged": true,
-      "expect": {"react": {"click@save": 1}, "spoken": [{"text": "Guardado", "interrupting": true}]}
+      "expect": {"react": {"click@save": 1}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": [{"text": "Guardado", "interrupting": true}]}
     },
     {
       "name": "Ctrl+Alt+Left: back to the level",
       "do": ["key", [29, 56, 105]],
       "allow_unchanged": true,
-      "expect": {"react": {}, "spoken": ["Nivel 5"]}
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Nivel 5"]}
     },
     {
       "name": "the level changes: the live region is said politely",
@@ -53,7 +53,127 @@
       "name": "the cursor moves on from what was focused",
       "do": ["key", [29, 56, 106]],
       "allow_unchanged": true,
-      "expect": {"react": {}, "spoken": ["Abrir diálogo, botón"]}
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Abrir diálogo, botón"]}
+    },
+    {
+      "name": "Ctrl+Alt+Right on the last element, Abrir diálogo: nothing after it, nothing said, the cursor stays; only the modifiers reach the window",
+      "do": ["key", [29, 56, 106]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": []}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Nota",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Nota, hola ñandú, campo de texto"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 12, the list's rows from the last",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 12"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 11",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 11"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 10",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 10"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 9",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 9"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 8",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 8"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 7",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 7"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 6",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 6"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 5",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 5"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 4",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 4"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 3",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 3"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 2",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 2"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Fila 1",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Fila 1"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Lista",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Lista, área de desplazamiento"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Guardar",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Guardar, botón"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Nivel 6",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Nivel 6"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to Volumen",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Volumen, regulador"]}
+    },
+    {
+      "name": "Ctrl+Alt+Left on the first element: nothing before it, nothing said",
+      "do": ["key", [29, 56, 105]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": []}
+    },
+    {
+      "name": "Ctrl+Alt+Right from it: the next element again, the level",
+      "do": ["key", [29, 56, 106]],
+      "allow_unchanged": true,
+      "expect": {"react": {}, "delivered": {"1": {"key.press": 2, "key.release": 2}}, "spoken": ["Nivel 6"]}
     }
   ]
 }

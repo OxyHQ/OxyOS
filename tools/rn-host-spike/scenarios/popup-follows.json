@@ -1,0 +1,63 @@
+{
+  "about": "A menu open while the shell moves and resizes its window, at scale 1 (popup-follows-scaled.json is the same at 1.25): the sample app's menu (sample/App.tsx) opens at its trigger with the keyboard; moving the window moves the menu with it in the same frame, without placing it again; resizing lays the window out again and the compositor places the menu at its trigger anew (it fits right of it in the narrower window); growing it back places it twice, its anchor first kept within the frame still shown, then at its trigger once the larger frame is. Through all of it the menu keeps the keyboard and nothing is delivered to either surface; then Home reaches the menu once and makes its first row active, and a press on a row chooses it, closing the menu with the keyboard back on its trigger. Each step checks the window's and the menu's rectangles, the keyboard's surface, exactly the React events, the popup's events and what each surface was delivered.",
+  "window": [1024, 560],
+  "steps": [
+    {
+      "name": "the menu opens at its trigger, its top edge where the trigger's is drawn",
+      "do": ["press", [939, 411]],
+      "expect": {
+        "popups": 1, "focus_surface": 2,
+        "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
+        "popup_events": {"open@message-actions": 1},
+        "window_rect": [128, 80, 1024, 560], "popup_rect": [745, 473, 266, 222],
+        "frame_px": {"window": [1024, 560], "popup": [266, 222]}
+      }
+    },
+    {
+      "name": "the shell moves the window: the menu moves with it, not placed again",
+      "do": ["move-window", [-100, -20]],
+      "expect": {
+        "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {}, "delivered": {},
+        "window_rect": [28, 60, 1024, 560], "popup_rect": [645, 453, 266, 222]
+      }
+    },
+    {
+      "name": "the shell resizes the window: the host lays it out again and the menu is placed at its trigger anew, right of it, under the pointer, which enters it",
+      "do": ["resize-window", [900, 520]],
+      "expect": {
+        "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {"reposition@message-actions": 1}, "delivered": {"2": {"enter": 1}},
+        "window_rect": [28, 60, 900, 520], "popup_rect": [899, 453, 266, 222],
+        "frame_px": {"window": [900, 520]}
+      }
+    },
+    {
+      "name": "the shell grows the window back: the menu is placed again, at its trigger, once the larger frame is shown, and the pointer leaves it",
+      "do": ["resize-window", [1024, 560]],
+      "expect": {
+        "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {"reposition@message-actions": 2}, "delivered": {"2": {"leave": 1}},
+        "window_rect": [28, 60, 1024, 560], "popup_rect": [645, 453, 266, 222],
+        "frame_px": {"window": [1024, 560]}
+      }
+    },
+    {
+      "name": "Home reaches the menu once, which kept the keyboard through the moves: its first row active",
+      "do": ["key", 102],
+      "expect": {
+        "popups": 1, "focus_surface": 2, "react": {"key@message-actions": 1}, "popup_events": {},
+        "delivered": {"2": {"key.press": 1, "key.release": 1}},
+        "at": {"popup": [{"role": "MenuItem", "name": "Reply", "state": ["focused"]}]},
+        "popup_rect": [645, 453, 266, 222]
+      }
+    },
+    {
+      "name": "the menu still takes its rows' presses where they are, and closes with the keyboard back on its trigger",
+      "do": ["press-popup", [60, 80]],
+      "expect": {
+        "popups": 0, "focus_surface": 1, "texts": ["Chosen: Archive"],
+        "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1},
+        "popup_events": {"close@2": 1}, "a11y_events": {"focus@open-menu": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "2": {"enter": 1, "focus.out": 1, "press": 1, "release": 1}}
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "about": "touchpad-hold.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same flick and glide, each scroll event stamped when it was dispatched, and the same resting fingers stopping the second glide under them.",
+  "about": "touchpad-hold.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same flick and glide, each scroll event stamped when it was dispatched, and the same resting fingers stopping the second glide under them, and a click the third. Every glide's frames only slow.",
   "module": "GlideProbe",
   "window": [
     600,
@@ -93,6 +93,26 @@
         "texts": [
           "Glide 2: scrolls stamped rising yes, momentum stamped yes"
         ],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a third flick, and a click where the fingers were 150 ms after the lift: the glide stops where the click finds it, its momentum ending once, no scroll after it, the click a press of the list's own",
+      "do": ["flick_press", [150, 150, 120, 6, 60, 150]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [8, 40],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1,
+          "touchStart@list": 1,
+          "touchEnd@list": 1
+        },
+        "delivered": {"1": {"scroll": 7, "press": 1, "release": 1}},
+        "glide": {"view": "list", "velocity": [900, 1500], "pressed": true},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 3: scrolls stamped rising yes, momentum stamped yes"],
         "focus_surface": 1
       }
     }
