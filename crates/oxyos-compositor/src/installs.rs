@@ -24,7 +24,7 @@
 use crate::stop::{identity, Stop};
 use oxyos_compositor_core::{ClientId, Scene};
 use oxyos_install::ipc::{Answer, Request};
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;

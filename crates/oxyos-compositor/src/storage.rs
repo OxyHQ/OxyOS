@@ -24,7 +24,7 @@ use oxyos_compositor_core::scene::SystemRequest;
 use oxyos_compositor_core::{ClientId, Scene};
 use oxyos_files::{trash, usage, Scope};
 use oxyos_install::ipc::{Answer, Request};
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};

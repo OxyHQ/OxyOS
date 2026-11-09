@@ -22,7 +22,7 @@ fn service(
     connections: usize,
     answer: impl Fn(&Value) -> Vec<Value> + Send + 'static,
 ) -> std::thread::JoinHandle<Vec<Value>> {
-    let listener = Listener::bind(socket).unwrap();
+    let listener = Listener::bind(socket, oxyos_account::ipc::MODE).unwrap();
     std::thread::spawn(move || {
         let mut received = Vec::new();
         for _ in 0..connections {
@@ -136,7 +136,7 @@ fn a_subscription_hands_each_snapshot_once_and_says_when_it_ends() {
     let (socket, dir) = socket_path("session");
     let (go, wait) = std::sync::mpsc::channel::<()>();
     let wait = std::sync::Mutex::new(wait);
-    let listener = Listener::bind(&socket).unwrap();
+    let listener = Listener::bind(&socket, oxyos_account::ipc::MODE).unwrap();
     let served = std::thread::spawn(move || {
         let connection = listener.accept().unwrap();
         assert_eq!(

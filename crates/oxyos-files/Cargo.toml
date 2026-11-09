@@ -29,7 +29,7 @@ oxyos-net = { path = "../oxyos-net", optional = true }
 oxyos-apps = { path = "../oxyos-apps" }
 # The backup service's socket (docs/adr/0059-backups.mdx): SOCK_SEQPACKET, one JSON message per
 # packet, a pipe handed over with a message, as every OxyOS service's.
-oxyos-install = { path = "../oxyos-install" }
+oxyos-service-socket = { path = "../oxyos-service-socket" }
 # A folder got back from a backup comes as a tar archive, read by the proven crate (its own
 # extraction is not used: every item is checked here before it is written, never through a link).
 tar = { version = "0.4", default-features = false }

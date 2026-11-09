@@ -853,7 +853,8 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
 
     /// What the peer of `connection` is, from the kernel's word on it.
     pub fn classify(&self, connection: &Connection) -> Kind {
-        let (Ok(peer), Ok(pidfd)) = (connection.peer(), connection.peer_pidfd()) else {
+        let (Ok(peer), Ok(pidfd)) = (connection.peer(), pidfd::peer_pidfd(connection.as_fd()))
+        else {
             return Kind::Refused;
         };
         let Some(peer_pid) = pidfd::pid(pidfd.as_fd()).ok().flatten() else {
@@ -1018,7 +1019,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
             if !message_waiting {
                 continue;
             }
-            let Some((request, fds)) = connection.receive_with::<Request>()? else {
+            let Some((request, fd)) = connection.receive_with_fd::<Request>()? else {
                 return Ok(());
             };
             let answer = match request {
@@ -1033,7 +1034,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                         registrar_pid,
                         &desktop_entry_id,
                         system,
-                        fds,
+                        fd,
                     );
                     log(&match &answer {
                         Ok(pid) => Event::Registered {
@@ -1331,7 +1332,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
         }
     }
 
-    /// Registers the process `fds` hands over, if it is the registrar's own child, of its user.
+    /// Registers the process `pidfd` hands over, if it is the registrar's own child, of its user.
     fn register(
         &self,
         registrar: u64,
@@ -1339,12 +1340,11 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
         registrar_pid: i32,
         desktop_entry_id: &str,
         system: bool,
-        mut fds: Vec<OwnedFd>,
+        pidfd: Option<OwnedFd>,
     ) -> Result<i32, Reason> {
-        if fds.len() != 1 || !valid_entry_id(desktop_entry_id) {
+        let Some(pidfd) = pidfd.filter(|_| valid_entry_id(desktop_entry_id)) else {
             return Err(Reason::InvalidRequest);
-        }
-        let pidfd = fds.remove(0);
+        };
         let (pid, status) =
             pidfd::while_alive(&pidfd, pidfd::status).ok_or(Reason::InvalidRequest)?;
         if status.parent != registrar_pid || status.uid != uid {
@@ -1714,7 +1714,7 @@ impl Registrar {
         system: bool,
         pidfd: BorrowedFd<'_>,
     ) -> io::Result<Result<(), Reason>> {
-        self.connection.send_with(
+        self.connection.send_with_fd(
             &Request::Register {
                 desktop_entry_id: desktop_entry_id.to_owned(),
                 system,

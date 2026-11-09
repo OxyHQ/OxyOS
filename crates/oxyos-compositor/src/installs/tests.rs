@@ -6,8 +6,8 @@ use oxyos_install::install::{
     AvailableUpdate, Committed, Listed, Plan, PlannedCapability, UpdateState, Updated,
 };
 use oxyos_install::ipc::PlanAnswer;
-use oxyos_install::socket::Listener;
 use oxyos_install::state::Consent;
+use oxyos_service_socket::Listener;
 use std::sync::{Arc, Mutex};
 
 #[test]

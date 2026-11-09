@@ -4,7 +4,7 @@
 use super::*;
 use crate::fetch::{self as fetching, FetchError};
 use crate::ipc::{self as service, Answer, Reason, Request};
-use crate::socket::Connection;
+use oxyos_service_socket::Connection;
 use std::sync::Arc;
 
 const ID: &str = "so.oxy.notes";
@@ -308,86 +308,4 @@ fn the_fetcher_writes_only_for_its_peer_and_only_what_it_may() {
     assert_eq!(answer["failed"]["reason"], "not permitted");
     assert_eq!(rustix::fs::fstat(&memory).unwrap().st_size, 0);
     thread.join().unwrap();
-}
-
-#[test]
-fn a_services_socket_appears_only_listening() {
-    use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
-    let dir = std::env::temp_dir().join(format!("oxyos-install-socket-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let socket = dir.join("socket");
-    let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
-    inotify::add_watch(&watch, &dir, WatchFlags::CREATE | WatchFlags::MOVED_TO).unwrap();
-    // Made, then made again over the one a run before left: each time the name appears only by
-    // a rename of a socket already listening, never by its bind (a connection between a bind and
-    // its listen would be refused).
-    for _ in 0..2 {
-        let listener = crate::socket::Listener::bind(&socket, 0o600).unwrap();
-        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
-        let mut reader = inotify::Reader::new(&watch, &mut buffer);
-        let mut named = Vec::new();
-        while let Ok(event) = reader.next() {
-            if event.file_name().map(|name| name.to_bytes()) == Some(b"socket".as_slice()) {
-                named.push(event.events());
-            }
-        }
-        assert_eq!(named, [ReadFlags::MOVED_TO]);
-        let connected = Connection::connect(&socket).unwrap();
-        let accepted = listener.accept().unwrap();
-        drop((connected, accepted));
-    }
-    // Nothing of the making is left beside it.
-    let left: Vec<_> = std::fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name())
-        .collect();
-    assert_eq!(left, [std::ffi::OsString::from("socket")]);
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// The service's last message, sent just before it closes, is read before the end, with a
-/// descriptor or without: the kernel can report the end with it still queued
-/// (`oxyos-seqpacket`). Many rounds, since each one is a race. The client polls (its socket
-/// non-blocking), where the race is widest; a waiting receive goes through the same read.
-#[test]
-fn the_last_message_before_the_end_is_read_before_the_end() {
-    fn polled<T>(receive: impl Fn() -> std::io::Result<T>) -> T {
-        loop {
-            match receive() {
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::hint::spin_loop()
-                }
-                received => break received.unwrap(),
-            }
-        }
-    }
-    for round in 0..2000u32 {
-        let (client, server) = Connection::pair().unwrap();
-        rustix::io::ioctl_fionbio(std::os::fd::AsFd::as_fd(&client), true).unwrap();
-        let with_descriptor = round % 2 == 1;
-        let sender = std::thread::spawn(move || {
-            if with_descriptor {
-                let null = File::open("/dev/null").unwrap();
-                server
-                    .send_with_fd(&round, std::os::fd::AsFd::as_fd(&null))
-                    .unwrap();
-            } else {
-                server.send(&round).unwrap();
-            }
-            // Shut down, not only closed: a process another test forks meanwhile may hold a copy
-            // of the descriptor until it executes.
-            rustix::net::shutdown(
-                std::os::fd::AsFd::as_fd(&server),
-                rustix::net::Shutdown::Both,
-            )
-            .unwrap();
-        });
-        let heard =
-            polled(|| client.receive_with_fd::<u32>()).map(|(message, fd)| (message, fd.is_some()));
-        assert_eq!(heard, Some((Some(round), with_descriptor)), "round {round}");
-        sender.join().unwrap();
-        assert!(polled(|| client.receive::<u32>()).is_none());
-    }
 }

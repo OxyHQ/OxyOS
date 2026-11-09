@@ -36,8 +36,8 @@ use oxyos_install::compile::Hermesc;
 use oxyos_install::fetch::{self, FetcherClient, LocalRepository};
 use oxyos_install::install::{self, Installer, Machine};
 use oxyos_install::ipc::{self, Outcome};
-use oxyos_install::socket::{Listener, Peer};
 use oxyos_install::state::{Layout, STATE_DIRECTORY};
+use oxyos_service_socket::{Listener, Peer};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -131,7 +131,7 @@ fn client(options: &Options, request: &str) -> Result<(), String> {
         serde_json::from_str(request).map_err(|e| format!("the request is not JSON: {e}"))?;
     let watching = request.get("watchUpdates").is_some();
     let socket = options.socket.clone().unwrap_or_else(|| ipc::SOCKET.into());
-    let connection = oxyos_install::socket::Connection::connect(&socket)
+    let connection = oxyos_service_socket::Connection::connect(&socket)
         .map_err(|e| format!("{}: {e}", socket.display()))?;
     connection.send(&request).map_err(|e| e.to_string())?;
     loop {

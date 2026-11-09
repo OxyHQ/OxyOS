@@ -5,8 +5,8 @@
 
 use super::*;
 use oxyos_compositor_core::Grants;
-use oxyos_install::socket::Listener;
 use oxyos_protocol::Event as Told;
+use oxyos_service_socket::Listener;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::time::Instant;

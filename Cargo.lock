@@ -2598,7 +2598,7 @@ dependencies = [
  "oxyos-apps",
  "oxyos-keychain",
  "oxyos-preferences",
- "oxyos-seqpacket",
+ "oxyos-service-socket",
  "psl",
  "rand_core 0.6.4",
  "ring",
@@ -2667,6 +2667,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "oxyos-seqpacket",
+ "oxyos-service-socket",
  "rustix",
  "zeroize",
 ]
@@ -2677,7 +2678,7 @@ version = "0.1.0"
 dependencies = [
  "jiff",
  "oxyos-account",
- "oxyos-install",
+ "oxyos-service-socket",
  "rustix",
  "serde",
  "serde_json",
@@ -2691,7 +2692,7 @@ name = "oxyos-backupd"
 version = "0.1.0"
 dependencies = [
  "oxyos-backup",
- "oxyos-install",
+ "oxyos-service-socket",
  "rustix",
  "serde_json",
 ]
@@ -2743,13 +2744,13 @@ dependencies = [
  "oxyos-gestures",
  "oxyos-gpu-device",
  "oxyos-image",
- "oxyos-install",
  "oxyos-intl",
  "oxyos-ipc",
  "oxyos-net",
  "oxyos-paint",
  "oxyos-preferences",
  "oxyos-protocol",
+ "oxyos-service-socket",
  "oxyos-solar",
  "oxyos-wallpaper",
  "png",
@@ -2791,6 +2792,7 @@ dependencies = [
  "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
+ "oxyos-service-socket",
  "oxyos-solar",
  "oxyos-sound",
  "oxyos-vector",
@@ -2842,9 +2844,9 @@ dependencies = [
  "md-5",
  "oxyos-apps",
  "oxyos-backup",
- "oxyos-install",
  "oxyos-net",
  "oxyos-preferences",
+ "oxyos-service-socket",
  "plist",
  "rustix",
  "serde_json",
@@ -2928,7 +2930,7 @@ name = "oxyos-install"
 version = "0.1.0"
 dependencies = [
  "oxyos-package",
- "oxyos-seqpacket",
+ "oxyos-service-socket",
  "ring",
  "rustix",
  "serde",
@@ -2940,6 +2942,7 @@ name = "oxyos-installd"
 version = "0.1.0"
 dependencies = [
  "oxyos-install",
+ "oxyos-service-socket",
  "rustix",
  "serde_json",
 ]
@@ -3097,7 +3100,6 @@ dependencies = [
  "oxyos-gpu",
  "oxyos-input",
  "oxyos-input-methods",
- "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
  "oxyos-networks",
@@ -3106,6 +3108,7 @@ dependencies = [
  "oxyos-protocol",
  "oxyos-search",
  "oxyos-seat",
+ "oxyos-service-socket",
  "oxyos-sound",
  "oxyos-vt",
  "rustix",
@@ -3241,6 +3244,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-service-socket"
+version = "0.1.0"
+dependencies = [
+ "oxyos-seqpacket",
+ "rustix",
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "oxyos-session"
 version = "0.1.0"
 dependencies = [
@@ -3263,6 +3277,7 @@ dependencies = [
  "oxyos-protocol",
  "oxyos-search",
  "oxyos-seat",
+ "oxyos-service-socket",
  "oxyos-sound",
  "rustix",
  "serde_json",

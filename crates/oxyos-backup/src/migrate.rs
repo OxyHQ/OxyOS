@@ -34,7 +34,7 @@ use crate::disks::Disk;
 use crate::engine::Stop;
 use crate::restore::{Folder, Listing, Refusal, Restorer, Source, Step};
 use oxyos_account::store::Store as Accounts;
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};

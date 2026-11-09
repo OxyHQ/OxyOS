@@ -9,7 +9,7 @@ use oxyos_backup::ipc;
 use oxyos_backup::policy::{self, Sources};
 use oxyos_backup::service::{self, Options, Service};
 use oxyos_backup::store::STATE_DIRECTORY;
-use oxyos_install::socket::Listener;
+use oxyos_service_socket::Listener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

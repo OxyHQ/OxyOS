@@ -14,7 +14,7 @@
 
 use super::fail;
 use oxyos_account::Secret;
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_int, CStr};
 use std::path::{Path, PathBuf};
@@ -495,7 +495,7 @@ pub unsafe extern "C" fn oxyos_migration_free(migration: *mut OxyOSMigration) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxyos_install::socket::Listener;
+    use oxyos_service_socket::Listener;
     use serde_json::{json, Value};
 
     /// A directory of the test's own for a socket (a socket's path holds at most 107 bytes).
@@ -642,7 +642,7 @@ mod tests {
             .expect("OXYOS_MIGRATION_MESSAGE_MAX is defined");
         assert_eq!(
             defined.trim().parse::<usize>().unwrap(),
-            oxyos_install::socket::MAX_MESSAGE
+            oxyos_service_socket::MAX_MESSAGE
         );
         for declared in [
             "oxyos_migration_new(",

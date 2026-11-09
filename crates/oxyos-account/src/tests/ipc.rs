@@ -48,7 +48,7 @@ impl Service {
             Setup::new(api, FakeUsers::default(), store).with_platform(platform_client()),
         ));
         let socket = dir.path().join("socket");
-        let listener = Listener::bind(&socket).unwrap();
+        let listener = Listener::bind(&socket, crate::ipc::MODE).unwrap();
         let log = Arc::new(Mutex::new(Vec::new()));
         let thread = {
             let platform = platform.clone();
@@ -302,57 +302,6 @@ fn a_conversation_takes_one_setup() {
     assert!(matches!(outcome, Outcome::Enrolled(_)));
     let (turn, _) = conversation.answer(Some(enroll(PASSWORD)));
     assert_eq!(turn, Turn::End(Answer::refused(Reason::InvalidRequest)));
-}
-
-#[test]
-fn the_socket_replaces_an_old_socket_never_another_file() {
-    let dir = TempDir::new("ipc-bind");
-    let socket = dir.path().join("socket");
-    drop(Listener::bind(&socket).unwrap());
-    Listener::bind(&socket).unwrap();
-    let file = dir.path().join("file");
-    std::fs::write(&file, "keep").unwrap();
-    assert!(Listener::bind(&file).is_err());
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "keep");
-}
-
-#[test]
-fn the_socket_appears_only_listening() {
-    use rustix::fs::inotify::{self, CreateFlags, ReadFlags, WatchFlags};
-    let dir = TempDir::new("ipc-listening");
-    let socket = dir.path().join("socket");
-    let watch = inotify::init(CreateFlags::NONBLOCK | CreateFlags::CLOEXEC).unwrap();
-    inotify::add_watch(
-        &watch,
-        dir.path(),
-        WatchFlags::CREATE | WatchFlags::MOVED_TO,
-    )
-    .unwrap();
-    // Made, then made again over the one a run before left: each time the name appears only by
-    // a rename of a socket already listening, never by its bind (a connection between a bind and
-    // its listen would be refused).
-    for _ in 0..2 {
-        let listener = Listener::bind(&socket).unwrap();
-        let mut buffer = [std::mem::MaybeUninit::<u8>::uninit(); 4096];
-        let mut reader = inotify::Reader::new(&watch, &mut buffer);
-        let mut named = Vec::new();
-        while let Ok(event) = reader.next() {
-            if event.file_name().map(|name| name.to_bytes()) == Some(b"socket".as_slice()) {
-                named.push(event.events());
-            }
-        }
-        assert_eq!(named, [ReadFlags::MOVED_TO]);
-        let connected = Connection::connect(&socket).unwrap();
-        let accepted = listener.accept().unwrap();
-        drop((connected, accepted));
-    }
-    // Nothing of the making is left beside it.
-    let left: Vec<_> = std::fs::read_dir(dir.path())
-        .unwrap()
-        .flatten()
-        .map(|entry| entry.file_name())
-        .collect();
-    assert_eq!(left, [std::ffi::OsString::from("socket")]);
 }
 
 #[test]
@@ -631,64 +580,6 @@ fn the_pin_wire_format_is_the_documented_one() {
         serde_json::to_string(&enroll).unwrap(),
         r#"{"enroll":{"deviceId":"d","deviceSecret":"s","accountId":"a","pin":"1234"}}"#
     );
-}
-
-/// The service's last message, sent just before it closes, is read before the end, with a
-/// descriptor or without: the kernel can report the end with it still queued
-/// (`oxyos-seqpacket`). Many rounds, since each one is a race. The client polls (its socket
-/// non-blocking), where the race is widest; a waiting receive goes through the same read. Each
-/// receive here zeroes a message's buffer, so few rounds meet the race: `oxyos-seqpacket`'s own
-/// test is the one that meets it often.
-#[test]
-fn the_last_message_before_the_end_is_read_before_the_end() {
-    fn polled<T>(receive: impl Fn() -> std::io::Result<T>) -> T {
-        loop {
-            match receive() {
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::hint::spin_loop()
-                }
-                received => break received.unwrap(),
-            }
-        }
-    }
-    let dir = TempDir::new("last-message");
-    let socket = dir.path().join("socket");
-    let listener = Listener::bind(&socket).unwrap();
-    for round in 0..2000u32 {
-        let client = Connection::connect(&socket).unwrap();
-        rustix::io::ioctl_fionbio(std::os::fd::AsFd::as_fd(&client), true).unwrap();
-        let service = listener.accept().unwrap();
-        let with_descriptor = round % 2 == 1;
-        let sender = std::thread::spawn(move || {
-            if with_descriptor {
-                let null = std::fs::File::open("/dev/null").unwrap();
-                service
-                    .send_with(&round, std::os::fd::AsFd::as_fd(&null))
-                    .unwrap();
-            } else {
-                service.send(&round).unwrap();
-            }
-            // Shut down, not only closed: a process another test forks meanwhile may hold a copy
-            // of the descriptor until it executes.
-            rustix::net::shutdown(
-                std::os::fd::AsFd::as_fd(&service),
-                rustix::net::Shutdown::Both,
-            )
-            .unwrap();
-        });
-        let heard = if with_descriptor {
-            polled(|| client.receive_with::<u32>()).map(|(message, fds)| (message, fds.len()))
-        } else {
-            polled(|| client.receive::<u32>()).map(|message| (message, 0))
-        };
-        assert_eq!(
-            heard,
-            Some((Some(round), usize::from(with_descriptor))),
-            "round {round}"
-        );
-        sender.join().unwrap();
-        assert!(polled(|| client.receive::<u32>()).is_none());
-    }
 }
 
 /// A setup by the QR, as the login screen sends it: its PIN, no password.

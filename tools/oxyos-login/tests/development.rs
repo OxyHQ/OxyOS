@@ -68,7 +68,7 @@ enum Oxy {
 
 /// Answers every `list` with Ada alone, and each `check` as `oxy` says.
 fn accounts(socket: &Path, verifier: PathBuf, oxy: Oxy) {
-    let listener = Listener::bind(socket).unwrap();
+    let listener = Listener::bind(socket, oxyos_account::ipc::MODE).unwrap();
     std::thread::spawn(move || loop {
         let Ok(connection) = listener.accept() else {
             return;
