@@ -18,7 +18,7 @@ fn socket_path() -> PathBuf {
 
 /// A service answering one connection's one message with `answer`; the message it received.
 fn service(socket: &Path, answer: Value) -> std::thread::JoinHandle<Value> {
-    let listener = Listener::bind(socket).unwrap();
+    let listener = Listener::bind(socket, oxyos_account::ipc::MODE).unwrap();
     std::thread::spawn(move || {
         let connection = listener.accept().unwrap();
         let message = connection.receive::<Value>().unwrap().unwrap().unwrap();

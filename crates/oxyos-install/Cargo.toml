@@ -9,7 +9,8 @@ publish.workspace = true
 # The package's manifest, signatures and tree checks, and its strict JSON reader, which the
 # store's TUF metadata is read with too.
 oxyos-package = { path = "../oxyos-package" }
-oxyos-seqpacket = { path = "../oxyos-seqpacket" }
+# Its socket and its fetcher's: the services' own (SOCK_SEQPACKET, JSON, the peer's credentials).
+oxyos-service-socket = { path = "../oxyos-service-socket" }
 # Ed25519 for the TUF metadata's signatures and SHA-256 for its hashes: the crate rustls already
 # brings, as oxyos-package uses it.
 ring = "0.17"

@@ -36,7 +36,7 @@ use oxyos_backup::ipc;
 use oxyos_backup::migrate::{self, Migration};
 use oxyos_backup::restore::Restorer;
 use oxyos_backupd::Arguments as Service;
-use oxyos_install::socket::{Connection, Listener};
+use oxyos_service_socket::{Connection, Listener};
 use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;

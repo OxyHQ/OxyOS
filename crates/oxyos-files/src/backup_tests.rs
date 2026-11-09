@@ -18,7 +18,7 @@ use oxyos_backup::disks::Played;
 use oxyos_backup::engine::Engine;
 use oxyos_backup::policy::Sources;
 use oxyos_backup::service::{self as backupd, Options};
-use oxyos_install::socket::{Connection, Listener};
+use oxyos_service_socket::{Connection, Listener};
 use serde_json::{json, Value};
 use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};

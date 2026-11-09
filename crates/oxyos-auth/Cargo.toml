@@ -12,6 +12,8 @@ libc = "0.2"
 zeroize = "1"
 # One message a packet on the greeter's socket, its last never lost to its end.
 oxyos-seqpacket = { path = "../oxyos-seqpacket" }
+# Making its socket in place, as the services make theirs.
+oxyos-service-socket = { path = "../oxyos-service-socket" }
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process", "pipe", "net", "fs"] }
 
 [dev-dependencies]

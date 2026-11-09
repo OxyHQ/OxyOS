@@ -12,7 +12,7 @@
 //! Times are milliseconds since the epoch, as everything else the files service says.
 
 use crate::Error;
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
 use serde_json::{json, Value};

@@ -23,7 +23,7 @@ use crate::machine::Manifest;
 use crate::policy::{self, Sources};
 use crate::share;
 use crate::store::{self, Config, Destination, Failure, Keys, Kind, Record, Store};
-use oxyos_install::socket::{Connection, Peer};
+use oxyos_service_socket::{Connection, Peer};
 use rustix::fd::{AsFd, OwnedFd};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -875,7 +875,7 @@ impl Service {
                         lock(&self.shared.watchers).push((number, sender));
                         watcher = Some(number);
                         let sending = connection.try_clone()?;
-                        sending.set_send_timeout(std::time::Duration::from_secs(2))?;
+                        sending.set_send_timeout(Some(std::time::Duration::from_secs(2)))?;
                         let service = self.clone();
                         let administrator = self.administrator(peer.uid);
                         connection.send(&Answer::Status(self.status(administrator)))?;

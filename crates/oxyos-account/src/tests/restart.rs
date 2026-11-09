@@ -42,7 +42,7 @@ struct Run {
 
 impl Run {
     fn start(machine: &Machine, path: &Path, registrars: Registrars) -> Self {
-        let listener = crate::ipc::Listener::bind(path).unwrap();
+        let listener = crate::ipc::Listener::bind(path, crate::ipc::MODE).unwrap();
         let sessions = Arc::new(Sessions::new(
             machine.platform.clone(),
             registrars,

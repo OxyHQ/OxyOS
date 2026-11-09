@@ -18,7 +18,7 @@ use oxyos_backup::engine::{Backup, Engine, Location, Repository, Stop};
 use oxyos_backup::machine::{self, Manifest};
 use oxyos_backup::migrate::Migration;
 use oxyos_backup::restore::{Refusal, Restorer, Source, Step};
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use serde_json::{json, Value};
 use std::fs;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};

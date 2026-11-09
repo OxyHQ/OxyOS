@@ -10,7 +10,7 @@
 //! Without the service (a development machine) notes are dropped, said once.
 
 use oxyos_install::ipc::Request;
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -195,7 +195,7 @@ fn ask(connection: &Connection, request: &Request) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxyos_install::socket::Listener;
+    use oxyos_service_socket::Listener;
 
     /// A service that answers every request and records it, as the install service would.
     fn service(path: &std::path::Path) -> mpsc::Receiver<(usize, Request)> {

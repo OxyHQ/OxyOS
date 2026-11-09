@@ -92,7 +92,7 @@ mod tests {
             accounts_json_at(&socket).is_err(),
             "no service, no accounts"
         );
-        let listener = Listener::bind(&socket).unwrap();
+        let listener = Listener::bind(&socket, oxyos_account::ipc::MODE).unwrap();
         let service = std::thread::spawn(move || {
             let connection = listener.accept().unwrap();
             assert!(matches!(

@@ -30,6 +30,8 @@ oxyos-sound = { path = "../oxyos-sound" }
 oxyos-input-methods = { path = "../oxyos-input-methods" }
 # The install service, for the store's, Settings' and applications' requests (ADR 0030).
 oxyos-install = { path = "../oxyos-install" }
+# The services' sockets it asks (install, backup), as each service serves them.
+oxyos-service-socket = { path = "../oxyos-service-socket" }
 # What a file chooser's answer may name, by the rule applications' files follow (ADR 0029,
 # decision 8; ADR 0028), without the service's transfers.
 oxyos-files = { path = "../oxyos-files", default-features = false }

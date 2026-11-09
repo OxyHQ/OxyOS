@@ -59,7 +59,7 @@ pub(super) struct Socket {
 pub(super) fn service(api: FakeApi) -> Socket {
     let machine = machine_as(api, PASSWORD, Some(me()));
     let path = machine.dir.path().join("session");
-    let listener = crate::ipc::Listener::bind(&path).unwrap();
+    let listener = crate::ipc::Listener::bind(&path, crate::ipc::MODE).unwrap();
     let system = Arc::new(FakeSystem::default());
     let sessions = Arc::new(Sessions::new(
         machine.platform.clone(),
@@ -558,7 +558,7 @@ fn the_registrar_checks_its_own_accounts_password() {
 fn a_program_that_is_not_the_session_program_registers_nothing() {
     let machine = machine_as(FakeApi::default(), PASSWORD, Some(me()));
     let path = machine.dir.path().join("session");
-    let listener = crate::ipc::Listener::bind(&path).unwrap();
+    let listener = crate::ipc::Listener::bind(&path, crate::ipc::MODE).unwrap();
     // The session program is another file than the test's.
     let sessions = Arc::new(Sessions::new(
         machine.platform.clone(),
@@ -603,7 +603,7 @@ fn the_session_program_not_started_by_the_login_program_registers_nothing() {
     // login program.
     let machine = machine_as(FakeApi::default(), PASSWORD, Some(me()));
     let path = machine.dir.path().join("session");
-    let listener = crate::ipc::Listener::bind(&path).unwrap();
+    let listener = crate::ipc::Listener::bind(&path, crate::ipc::MODE).unwrap();
     let sessions = Arc::new(Sessions::new(
         machine.platform.clone(),
         Registrars {
