@@ -1429,5 +1429,7 @@ pub unsafe extern "C" fn oxyos_account_enrollment_free(enrollment: *mut OxyOSAcc
     }
 }
 
+pub mod passkeys;
+
 #[cfg(test)]
 mod tests;

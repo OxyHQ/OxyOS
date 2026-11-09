@@ -16,6 +16,7 @@ mod ime;
 mod input_sources;
 mod launch;
 mod lock;
+mod passkeys;
 mod pasteboard;
 mod played_network;
 mod png;
@@ -195,6 +196,10 @@ struct Session {
     /// the fixture keychain (autofill.rs), and the director's handle on it.
     autofill: Option<oxyos_compositor::autofill::Autofill>,
     autofill_keychain: Option<std::rc::Rc<std::cell::RefCell<autofill::FixtureKeychain>>>,
+    /// `--passkey-fixture ID`: passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+    /// decision 7) asked by the fixture accounts' service (passkeys.rs), and the director's handle.
+    passkeys: Option<oxyos_compositor::passkeys::Passkeys>,
+    passkey_service: Option<std::rc::Rc<std::cell::RefCell<passkeys::FixtureService>>>,
     /// The save confirmations' waker among the compositor's (`--autofill-saves`).
     pub autofill_saves_waker: Option<std::os::fd::RawFd>,
     /// The clients of applications the shell launched (not the director's own): what they are
@@ -354,6 +359,8 @@ impl Session {
             input_sources: None,
             autofill: None,
             autofill_keychain: None,
+            passkeys: None,
+            passkey_service: None,
             autofill_saves_waker: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
@@ -756,6 +763,21 @@ impl Session {
         // requests left.
         if let Some(autofill) = self.autofill.as_mut() {
             autofill.serve(&mut self.compositor);
+        }
+        // Passkeys' sheets, the fixture asking once its application has a client, before the
+        // install service takes the requests left.
+        if let (Some(passkeys), Some(service)) =
+            (self.passkeys.as_mut(), self.passkey_service.as_ref())
+        {
+            if service.borrow().pid.is_none() {
+                let application = service.borrow().application.clone();
+                let pid = self.compositor.peers.iter().find_map(|(client, peer)| {
+                    (self.compositor.scene.application(*client) == Some(application.as_str()))
+                        .then_some(peer.pid)
+                });
+                service.borrow_mut().pid = pid;
+            }
+            passkeys.serve(&mut self.compositor);
         }
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();

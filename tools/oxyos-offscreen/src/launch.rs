@@ -834,6 +834,9 @@ pub struct Launch {
     /// `--autofill-fixture ID`: AutoFill answered by the fixture keychain, its items associated
     /// with the application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
     pub autofill_fixture: Option<String>,
+    /// `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for the
+    /// application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7).
+    pub passkey_fixture: Option<String>,
     /// `--autofill-saves`: with `--autofill-fixture`, applications' requests to save a login are
     /// asked of the person as the session asks them: told by the accounts' service at
     /// `OXYOS_ACCOUNTD_SESSION_SOCKET` (a run's played one), asked in the shell's sheet, answered
@@ -1067,6 +1070,7 @@ impl Launch {
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
         let mut autofill_fixture = None;
+        let mut passkey_fixture = None;
         let mut autofill_saves = false;
         let mut shell = None;
         let mut file_chooser = None;
@@ -1188,6 +1192,14 @@ impl Launch {
                         crate::ime::Layout::named(layout)
                             .ok_or_else(|| format!("--im-candidates {layout:?}\n{USAGE}"))?,
                     );
+                    continue;
+                }
+                // `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for
+                // the application ID (passkeys.rs); documented here, the usage line left to the
+                // changes queued that rewrite it.
+                Some("--passkey-fixture") => {
+                    let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    passkey_fixture = Some(id.to_string());
                     continue;
                 }
                 Some("--autofill-fixture") => {
@@ -1862,6 +1874,7 @@ impl Launch {
                 input_method,
                 im_candidates,
                 autofill_fixture,
+                passkey_fixture,
                 autofill_saves,
                 shell,
                 file_chooser,
@@ -2253,6 +2266,20 @@ fn shell_json(compositor: &Compositor) -> String {
         compositor.scene.is_locked(),
         compositor.signed_in
     )
+}
+
+/// Passkeys' sheets during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
+/// `--passkey-fixture`: what the fixture accounts' service was answered so far, in order (never a
+/// password); none without it.
+fn passkeys_json(session: &Session) -> Option<String> {
+    let service = session.passkey_service.as_ref()?;
+    let told: Vec<String> = service
+        .borrow()
+        .told
+        .iter()
+        .map(|told| json_string(told))
+        .collect();
+    Some(format!("{{\"told\":[{}]}}", told.join(",")))
 }
 
 /// AutoFill during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
@@ -5207,6 +5234,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
         )?);
     }
+    if let Some(application) = &launch.passkey_fixture {
+        // Passkeys' sheets as the session shows them, the accounts' service the fixture's.
+        let service = std::rc::Rc::new(std::cell::RefCell::new(
+            crate::passkeys::FixtureService::new(application.clone()),
+        ));
+        session.passkeys = Some(oxyos_compositor::passkeys::Passkeys::new(Box::new(
+            crate::passkeys::Shared(service.clone()),
+        )));
+        session.passkey_service = Some(service);
+    }
     if let Some(application) = &launch.autofill_fixture {
         // AutoFill as the session serves it, its keychain the fixture's.
         let keychain = std::rc::Rc::new(std::cell::RefCell::new(
@@ -6247,6 +6284,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.gpu_frames(CLIENT).0,
             session.compositor.gpu_frames(CLIENT).1,
         ));
+        // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
+        // added to the step's result as one more field.
+        if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
+            if step.ends_with('}') {
+                step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
+            }
+        }
         snapshots.push(snapshot(
             &session.compositor,
             out,
