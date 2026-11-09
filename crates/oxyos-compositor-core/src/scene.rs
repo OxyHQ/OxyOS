@@ -557,6 +557,9 @@ pub struct Scene {
     /// What applications asked of their login items and background activity
     /// (docs/adr/0060-login-items-and-background-activity.mdx).
     background: background::Background,
+    /// The session's keys and the applications asked to quit before it ends
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+    session_ending: session_end::SessionEnding,
     /// The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
     safe_mode: bool,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
@@ -1221,6 +1224,7 @@ impl Scene {
         self.forget_system_requests(client);
         self.forget_searcher(client);
         self.forget_background_items(client);
+        self.forget_session_end_client(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
@@ -1832,6 +1836,10 @@ impl Scene {
                 kind,
                 action,
             } => self.background_item_request(client, serial, kind, action),
+            Request::QuitReply { serial, quit } => {
+                self.quit_reply(client, serial, quit);
+                Ok(())
+            }
             Request::ChooseFiles {
                 serial,
                 surface,
@@ -3689,6 +3697,10 @@ impl Scene {
                     },
                 );
             }
+            // Modifiers already held as it takes the keyboard (a menu opened with Option down).
+            if self.modifiers() != 0 {
+                self.tell_modifiers(new);
+            }
         }
         self.focus = key;
         self.update_active();
@@ -4692,10 +4704,36 @@ impl Scene {
         if modifier_of(key) == 0 {
             return;
         }
+        let before = self.modifiers();
         if pressed {
             self.modifier_keys.insert(key);
         } else {
             self.modifier_keys.remove(&key);
+        }
+        if self.modifiers() != before {
+            if let Some(focus) = self.focus {
+                self.tell_modifiers(focus);
+            }
+        }
+    }
+
+    /// Tells the surface with the keyboard the modifiers held now, as a Mac's `flagsChanged:`
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx: a menu's alternates follow Option the
+    /// instant it goes down or up): a client of version 38 or newer, as they change and as it takes
+    /// the keyboard with some held.
+    fn tell_modifiers(&mut self, focus: SurfaceKey) {
+        if self
+            .version_of(focus.client)
+            .is_some_and(|version| version >= oxyos_protocol::QUIT_REQUESTS_VERSION)
+        {
+            let modifiers = self.modifiers();
+            self.emit(
+                focus.client,
+                Event::Modifiers {
+                    surface: focus.id,
+                    modifiers,
+                },
+            );
         }
     }
 
@@ -5194,6 +5232,9 @@ pub use search::{SearchAsk, MAX_SEARCH_ASKS, SEARCH_VERSION};
 /// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
 mod background;
 pub use background::{BackgroundItemRequest, BACKGROUND_VERSION};
+/// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+mod session_end;
+pub use session_end::{QuitReplied, SessionKey, KEY_POWER};
 /// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
 mod safe_mode;
 pub use safe_mode::SAFE_MODE_VERSION;

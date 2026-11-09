@@ -431,6 +431,10 @@ fn requests() -> Vec<Request> {
             kind: BackgroundItemKind::Background,
             action: BackgroundItemAction::Register,
         },
+        Request::QuitReply {
+            serial: 15,
+            quit: true,
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -928,6 +932,14 @@ fn events() -> Vec<Event> {
             size: 61_440,
         },
         Event::SafeMode {},
+        Event::QuitRequested {
+            serial: 15,
+            reason: SessionEnd::Restart,
+        },
+        Event::Modifiers {
+            surface: 3,
+            modifiers: MODIFIER_ALT | MODIFIER_SHIFT,
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -3187,4 +3199,46 @@ fn version_37_system_data_is_only_version_37s() {
     assert!(write_event_for(&mut new, &event, 37).unwrap());
     assert!(read_event_for(&mut Cursor::new(new.clone()), 36).is_err());
     assert_eq!(read_event_for(&mut Cursor::new(new), 37).unwrap(), event);
+}
+
+#[test]
+fn version_38_quit_requests_are_only_version_38s() {
+    let reply = Request::QuitReply {
+        serial: 4,
+        quit: false,
+    };
+    assert_eq!(request_since(&reply), 38);
+    assert_eq!(QUIT_REQUESTS_VERSION, 38);
+    for reason in [
+        SessionEnd::LogOut,
+        SessionEnd::Restart,
+        SessionEnd::ShutDown,
+    ] {
+        let event = Event::QuitRequested { serial: 4, reason };
+        assert_eq!(event_since(&event), 38);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 37).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 38).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 37).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 38).unwrap(), event);
+    }
+    let flags = Event::Modifiers {
+        surface: 2,
+        modifiers: MODIFIER_ALT,
+    };
+    assert_eq!(event_since(&flags), 38);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &flags, 37).unwrap());
+    assert!(old.is_empty());
+}
+
+#[test]
+fn session_ends_are_a_closed_set() {
+    assert!(SessionEnd::from_raw(0).is_none());
+    assert!(SessionEnd::from_raw(4).is_none());
+    assert_eq!(SessionEnd::from_raw(1), Some(SessionEnd::LogOut));
+    assert_eq!(SessionEnd::from_raw(2), Some(SessionEnd::Restart));
+    assert_eq!(SessionEnd::from_raw(3), Some(SessionEnd::ShutDown));
 }

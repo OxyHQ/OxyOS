@@ -101,6 +101,10 @@ typedef struct OxyOSClient OxyOSClient;
 /* A long answer of the session's vocabulary whole (docs/adr/0063-activity-monitor.mdx, protocol
  * version 37). */
 #define OXYOS_EVENT_SYSTEM_DATA 167
+/* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, protocol version 38). */
+#define OXYOS_EVENT_QUIT_REQUESTED 168
+/* The modifiers held changed (protocol version 38), as a Mac's flagsChanged:. */
+#define OXYOS_EVENT_MODIFIERS 169
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -563,6 +567,14 @@ typedef struct OxyOSClient OxyOSClient;
  *   SYSTEM_DATA        the session's answer to the oxyos_client_system_request `code` (0: told
  *                      unasked) whole, `detail` bytes of JSON: oxyos_client_system_data gives it
  *                      (docs/adr/0063-activity-monitor.mdx, protocol version 37).
+ *   QUIT_REQUESTED     to an application: the person logs out, restarts or shuts down, and the
+ *                      session asks it to quit first; `code` the request's serial, `detail` why
+ *                      (OXYOS_SESSION_END_*). Answer with oxyos_client_reply_to_quit, then end the
+ *                      process if it quits (protocol version 38,
+ *                      docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+ *   MODIFIERS          to the surface with the keyboard: the modifiers held changed, or were held
+ *                      as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's
+ *                      flagsChanged: (protocol version 38).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -966,6 +978,16 @@ int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char
  * _REGISTER, _UNREGISTER); a BACKGROUND_ITEM_STATE naming `serial` answers. An error, sending
  * nothing, to a compositor of a version before 33. */
 int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);
+/* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): why it asks an
+ * application to quit (a QUIT_REQUESTED's `detail`), and the application's answer to the request
+ * `serial` (`quit` 1: it quits, ending its own process; 0: the whole end is cancelled), as a Mac's
+ * applicationShouldTerminate:. An error, sending nothing, to a compositor of a version before
+ * OXYOS_QUIT_REQUESTS_VERSION, which never asks. */
+#define OXYOS_SESSION_END_LOG_OUT 1
+#define OXYOS_SESSION_END_RESTART 2
+#define OXYOS_SESSION_END_SHUT_DOWN 3
+#define OXYOS_QUIT_REQUESTS_VERSION 38
+int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

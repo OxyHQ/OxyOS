@@ -8,6 +8,8 @@ order: 67
 
 Status: **accepted** (decided on 7 November 2026, at the platform author's request for "a good OS API, like macOS's or better"); step 1 implemented (the launch's capabilities asked in one place, the files service's transfers held to `network`); step 2's package implemented (`@oxyos/platform`, `sample/oxyos/platform/`, in the runtime's framework); the others to come, each its own pull request. Builds on [ADR 0001](./0001-native-platform-boundaries) (the session authority, grants), [ADR 0015](./0015-application-model) (an application never asks which platform it is on), [ADR 0030](./0030-installing-applications) (capabilities, decision 8; runtimes' `abi` and `api`, decision 2; the framework, decision 17) and [ADR 0033](./0033-protocol-versions) (a version only adds).
 
+**9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** the `application` framework gains `onQuitRequest(handler)`, a Mac's `applicationShouldTerminate:`: asked as the person logs out, restarts or shuts down, any handler's `'cancel'` cancels the whole end (protocol version 38's `QuitRequested` and `QuitReply`).
+
 ## Problem
 
 Every part of the platform an application can reach was added by the decision that needed it, each in the shape that decision chose. A survey of `main` (7bcf348a, 7 November 2026) found:

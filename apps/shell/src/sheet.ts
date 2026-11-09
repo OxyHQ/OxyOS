@@ -88,7 +88,19 @@ export type SheetText =
   | { kind: "reset"; id: string; name: string; running: boolean }
   // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): `id` the asking
   // application's desktop entry id, `rpId` the relying party (a domain name).
-  | PasskeySheet;
+  | PasskeySheet
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+  // the session's question, with its countdown (`seconds`: the session goes on by itself once they
+  // pass) and Reopen windows' state; the power key's choice; and what kept the end from happening.
+  | { kind: "end-session"; action: SessionEndAction; seconds: number; reopenWindows: boolean }
+  | { kind: "power-key"; reopenWindows: boolean }
+  | { kind: "end-session-cancelled"; action: SessionEndAction; application: string }
+  | { kind: "end-session-timed-out"; action: SessionEndAction; application: string }
+  | {
+      kind: "end-session-failed";
+      action: SessionEndAction | "sleep";
+      reason: "notPermitted" | "unavailable" | "failed" | string;
+    };
 
 /** What a passkey's sheet asks: to make one, to use one, or only says one is there already or none
     is. */
@@ -108,6 +120,9 @@ export type PasskeySheet = {
   /** Asked again, the account the person had chosen. */
   chosen?: number;
 };
+
+/** How the session ends: restarting the computer, shutting it down, or logging out. */
+export type SessionEndAction = "restart" | "shutDown" | "logOut";
 
 /** What a paired device that is not trusted asks to use. */
 export type BluetoothService = "audio" | "input" | "phone" | "files" | "network" | "other";
@@ -174,6 +189,15 @@ export type SheetView = {
   report?: { title: string; text: string; copy: string; copied: string; done: string; first: boolean };
   /** Whether the keyboard starts on its answer, a Mac's default button (Space presses it). */
   focusAnswer?: boolean;
+  /** Whether Return presses its answer, as a Mac's default button: the session's question to
+      restart, shut down or log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). */
+  defaultAnswer?: boolean;
+  /** A checkbox under its words (Reopen windows when logging back in): its label, its state as the
+      session told it, and its state as said with the sheet. Toggled, the shell tells the session. */
+  checkbox?: { label: string; checked: boolean; on: string; off: string };
+  /** A countdown in place of `body`, counted down by the shell each second from `seconds`: what
+      happens by itself if the person does nothing. The session keeps the deadline. */
+  countdown?: { seconds: number; text: (seconds: number) => string };
 };
 
 /** Whether what the password field holds can be submitted, by the password it takes. */
@@ -181,8 +205,9 @@ export function submittablePassword(password: string, kind: "wifi" | "account" =
   return kind === "account" ? password.length > 0 : validWifiPassword(password);
 }
 
-/** What a sheet offers beside its answer. */
-export type SheetAction = "reset" | "report";
+/** What a sheet offers beside its answer: an application that quit's Reset… and Report…, the
+    power key's Restart and Sleep. */
+export type SheetAction = "reset" | "report" | "restart" | "sleep";
 
 /** A capability's name, in the catalogue's language; its own name for one OxyOS does not know. */
 export function capabilityLabel(name: string, messages: ShellMessages): string {
@@ -465,6 +490,79 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         refuse: w.cancel,
         destructive: true,
       };
+    case "end-session": {
+      const p = messages.power;
+      const text = p.countdown[sheet.action];
+      const seconds = Math.max(0, Math.round(sheet.seconds));
+      return {
+        title: p.question[sheet.action],
+        body: text(seconds),
+        lines: [],
+        accept: sheet.action === "restart" ? p.restartNow : sheet.action === "shutDown" ? p.shutDownButton : p.logOutButton,
+        refuse: w.cancel,
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+        checkbox: { label: p.reopenWindows, checked: sheet.reopenWindows, on: p.reopenWindowsOn, off: p.reopenWindowsOff },
+        countdown: { seconds, text },
+      };
+    }
+    case "power-key": {
+      // A Mac's power button: Restart and Sleep at the foot's start, Cancel, and Shut Down, the
+      // default; no countdown (decision 7).
+      const p = messages.power;
+      return {
+        title: p.question.shutDown,
+        body: "",
+        lines: [],
+        accept: p.shutDownButton,
+        refuse: w.cancel,
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+        checkbox: { label: p.reopenWindows, checked: sheet.reopenWindows, on: p.reopenWindowsOn, off: p.reopenWindowsOff },
+        actions: [
+          { id: "restart", label: p.restartNow },
+          { id: "sleep", label: p.sleep },
+        ],
+      };
+    }
+    case "end-session-cancelled":
+      return {
+        title: messages.power.cancelled[sheet.action](sheet.application),
+        body: "",
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
+    case "end-session-timed-out":
+      return {
+        title: messages.power.timedOut[sheet.action](sheet.application),
+        body: messages.power.tryAgain[sheet.action](sheet.application),
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
+    case "end-session-failed": {
+      const p = messages.power;
+      const action = sheet.action in p.failed ? sheet.action : "shutDown";
+      return {
+        title: p.failed[action],
+        body: sheet.reason === "notPermitted" ? p.notPermitted[action] : p.unavailable,
+        lines: [],
+        accept: w.ok,
+        refuse: "",
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
+    }
     case "bluetooth-failed":
       return {
         title: w.bluetoothFailed(sheet.name),
@@ -479,6 +577,25 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         refuse: "",
         destructive: false,
       };
+  }
+}
+
+/** Whether the keyboard starts on a sheet's answer, its default button, as a Mac's alert starts:
+    an application that quit's notice (Reopen), and the session's question to restart, shut down or
+    log out, the power key's choice and what kept one from happening (docs/adr/0064-sleep-restart-
+    shut-down-and-log-out.mdx). Any other starts on its first control, Cancel. */
+export function startsOnAnswer(sheet: SheetText): boolean {
+  switch (sheet.kind) {
+    case "crash":
+      return sheet.show === "notice";
+    case "end-session":
+    case "power-key":
+    case "end-session-cancelled":
+    case "end-session-timed-out":
+    case "end-session-failed":
+      return true;
+    default:
+      return false;
   }
 }
 

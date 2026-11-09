@@ -17,6 +17,7 @@ import {
   inputSources,
   network,
   power,
+  session as sessionApi,
   sound as soundApi,
   useBackupState,
   useBluetoothState,
@@ -49,6 +50,7 @@ import type {
   ShellMenu,
   ShellMenuItem,
   ShellNotifications,
+  ShellPowerActions,
   ShellScreenshots,
   ShellSnapshot,
 } from '../../../apps/shell/src/model';
@@ -265,9 +267,12 @@ function ProbeShell({
   battery,
   backup,
   autofill,
+  powerActions,
 }: {
   /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
   autofill?: ShellAutofill;
+  /** Sleep, restart, shut down and log out (docs/adr/0064), asked of the session. */
+  powerActions?: ShellPowerActions;
   /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
   screenshots?: ShellScreenshots;
   /** The session's system sheet to show now (ADR 0030). */
@@ -318,6 +323,7 @@ function ProbeShell({
       battery={battery}
       backup={backup}
       autofill={autofill}
+      powerActions={powerActions}
     />
   );
 }
@@ -468,7 +474,16 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode, answerPasskey, resetApplication } = useSystemSheets();
+  const {
+    sheets,
+    answer,
+    answerPassword,
+    answerCode,
+    answerPasskey,
+    resetApplication,
+    choosePowerKey,
+    reopenWindows,
+  } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -888,6 +903,15 @@ function SessionShell() {
     }),
     [autofillTold],
   );
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+  // asked of the session, citing the menu's press; it decides, and asks its own question.
+  const powerActions: ShellPowerActions = React.useMemo(
+    () => ({
+      sleep: () => void sessionApi.sleep(),
+      endSession: (action, confirm) => void sessionApi.endSession(action, confirm),
+    }),
+    [],
+  );
   const first = dock ? sheets[0] : undefined;
   const sheet = React.useMemo(() => {
     const firstText = first ? readSheet(first.text) : null;
@@ -907,11 +931,17 @@ function SessionShell() {
       // An application that quit (docs/adr/0061): Reset… asks the session to reset it.
       act: (action: string) => {
         if (action === 'reset' && firstText.kind === 'crash') resetApplication(first.sheet, firstText.id);
+        // The power key's Restart and Sleep (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+        if ((action === 'restart' || action === 'sleep') && firstText.kind === 'power-key') {
+          choosePowerKey(first.sheet, action);
+        }
       },
+      // Reopen windows when logging back in, toggled: the session keeps it.
+      toggle: reopenWindows,
       // Its report copied, at the person's press, as any application copies (ADR 0007).
       copy: (text: string) => clipboard?.setString(text) ?? false,
     };
-  }, [first, registry, answer, answerPassword, answerCode, answerPasskey, resetApplication]);
+  }, [first, registry, answer, answerPassword, answerCode, answerPasskey, resetApplication, choosePowerKey, reopenWindows]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell
@@ -931,6 +961,7 @@ function SessionShell() {
       battery={battery}
       backup={backupMenu}
       autofill={autofill}
+      powerActions={powerActions}
     />
   );
 }

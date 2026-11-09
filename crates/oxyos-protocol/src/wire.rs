@@ -104,6 +104,12 @@ wire_enum! {
     BackgroundItemKind: u8 { LoginItem = 1, Background = 2 }
 }
 wire_enum! {
+    /// Why the session asks an application to quit (version 38,
+    /// docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the person logs out, restarts or
+    /// shuts the computer down.
+    SessionEnd: u8 { LogOut = 1, Restart = 2, ShutDown = 3 }
+}
+wire_enum! {
     /// What an application asks of one of its background items (version 33): how it stands,
     /// registering it, unregistering it.
     BackgroundItemAction: u8 { Status = 1, Register = 2, Unregister = 3 }

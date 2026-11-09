@@ -14,6 +14,7 @@ import type {
   ShellMenu,
   ShellNotification,
   ShellNotifications,
+  ShellPowerActions,
   ShellScreenshots,
   ShellSnapshot,
   ShellWallpaper,
@@ -39,12 +40,13 @@ import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
 import { AutofillWindow } from "./components/AutofillWindow";
 import { sourceName, switchedSource, type InputSourcesState } from "./input-sources";
-import type { SheetAction, SheetText } from "./sheet";
+import { startsOnAnswer, type SheetAction, type SheetText } from "./sheet";
 import { useShellMessages } from "./useShellMessages";
 import type { ShellMessages } from "./messages";
 import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
 import { showsBackupItem } from "./backup";
+import { personName } from "./session-user";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -136,6 +138,7 @@ export const Shell = memo(function Shell({
   battery,
   backup,
   autofill,
+  powerActions,
 }: {
   snapshot: ShellSnapshot;
   actions: ShellActions;
@@ -190,7 +193,13 @@ export const Shell = memo(function Shell({
     act?: (action: SheetAction) => void;
     /** Puts a report's text on the clipboard, at the person's press. */
     copy?: (text: string) => Promise<boolean> | boolean | void;
+    /** A sheet's checkbox toggled (Reopen windows when logging back in, docs/adr/0064-sleep-
+        restart-shut-down-and-log-out.mdx): the session keeps the person's choice. */
+    toggle?: (checked: boolean) => void;
   };
+  /** Sleep, restart, shut down and log out, where the platform's session does them
+      (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the Oxy menu's rows. */
+  powerActions?: ShellPowerActions;
   /** Screenshots, where the platform takes them (docs/adr/0024-system-shortcuts.mdx, decision 10):
       the interface the compositor opened from the keyboard, and the thumbnail of one saved. */
   screenshots?: ShellScreenshots;
@@ -883,6 +892,9 @@ export const Shell = memo(function Shell({
             overview={toggleOverview}
             launcher={toggleLauncher}
             canLock={!!lock}
+            powerActions={powerActions}
+            userName={lock ? personName(lock.user) : undefined}
+            menuKeyboard={keyboard}
             onCommand={menuCommand}
             power={controls?.power}
             network={controls?.network}
@@ -1143,13 +1155,15 @@ export const Shell = memo(function Shell({
         {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question
             to the person; only the shell's press answers it. It is modal, and has the keyboard as
             a Mac's alert does: nothing typed while it asks reaches the application behind it. */}
-        {/* An application that quit (docs/adr/0061) starts on Reopen, its default button. */}
+        {/* An application that quit (docs/adr/0061) starts on Reopen, its default button; the
+            session's question to restart, shut down or log out, and what it tells of one that did
+            not happen, on theirs (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). */}
         {sheet && !lock?.locked && (
           <Surface
             kind="overlay"
             style={WHOLE}
             keyboard
-            focusTarget={sheet.text.kind === "crash" && sheet.text.show === "notice" ? "system-sheet-accept" : undefined}
+            focusTarget={startsOnAnswer(sheet.text) ? "system-sheet-accept" : undefined}
           >
             <SystemSheet
               key={sheet.id}
@@ -1160,6 +1174,7 @@ export const Shell = memo(function Shell({
               answerCode={sheet.answerCode}
               answerPasskey={sheet.answerPasskey}
               act={sheet.act}
+              toggle={sheet.toggle}
               copy={sheet.copy}
               keyboard={platform.keyboard}
             />

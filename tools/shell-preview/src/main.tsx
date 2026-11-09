@@ -9,6 +9,7 @@ import { previewBluetooth, previewNetworks, previewSearch, previewSnapshot, prev
 import type {
   ShellActions,
   ShellControls,
+  ShellPowerActions,
 } from "../../../apps/shell/src/model";
 import { isProtected, type NetworkState } from "../../../apps/shell/src/network";
 import type { SoundState } from "../../../apps/shell/src/sound";
@@ -172,6 +173,15 @@ function Preview() {
     changeDevice(id, { busy: "disconnecting" });
     window.setTimeout(() => changeDevice(id, { busy: null, connected: false }), 600);
   };
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx),
+  // played: the session's question is shown as a session would show it, and nothing ever ends,
+  // sleeps or asks an application anything here.
+  const powerActions: ShellPowerActions = {
+    sleep: () => {},
+    endSession: (action, confirm) => {
+      if (confirm) ask({ kind: "end-session", action, seconds: 60, reopenWindows: true });
+    },
+  };
   const shownSheet = sheet && {
     id: sheet.id,
     text: sheet.text,
@@ -295,6 +305,7 @@ function Preview() {
             controls={controls}
             sheet={shownSheet ?? undefined}
             platform={platform}
+            powerActions={powerActions}
           />
         </BloomProvider>
       </SafeAreaProvider>

@@ -55,6 +55,7 @@ pub mod passkeys;
 pub mod power;
 pub mod safe_mode;
 pub mod search;
+pub mod session_end;
 pub mod settings;
 pub mod sign_out;
 pub mod sound_devices;
@@ -5352,6 +5353,9 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         Event::MenuItemActivated { surface, .. } => (surface, "menu.activated"),
         // Asked to close a window: the shell's, the close bubble's or Super+W's (ADR 0024).
         Event::CloseRequested { surface } => (surface, "close.requested"),
+        // Asked to quit as the person logs out, restarts or shuts down (docs/adr/0064-sleep-
+        // restart-shut-down-and-log-out.mdx): of no surface.
+        Event::QuitRequested { .. } => (0, "quit.requested"),
         // The person pressed one of its notifications, or an action of one (ADR 0026): of no
         // surface.
         Event::NotificationResponse { .. } => (0, "notification.response"),

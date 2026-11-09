@@ -8327,6 +8327,8 @@ mod safe_mode;
 mod screenshots;
 /// Search (docs/adr/0051-search.mdx).
 mod search;
+/// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+mod session_end;
 mod shortcuts;
 /// System sounds (docs/adr/0044-system-sounds.mdx).
 mod sounds;

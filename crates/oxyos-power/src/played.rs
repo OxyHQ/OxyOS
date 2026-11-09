@@ -18,7 +18,9 @@
 //!   itself);
 //! - power-profiles-daemon: `Profiles`, `ActiveProfile`, `HoldProfile`, `ReleaseProfile` and
 //!   `ProfileReleased`; a hold goes with the connection that took it, as the daemon's does;
-//! - logind: `CanSuspend` and `Suspend`, which counts.
+//! - logind: `CanSuspend` and `Suspend`, `CanReboot` and `Reboot`, `CanPowerOff` and `PowerOff`,
+//!   each call counted (none ever reaches a machine), `HandlePowerKey`, and `Inhibit`, whose
+//!   inhibitors held are said (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
 //!
 //! [`Played::act`] changes the machine (unplugged, a lower charge) and [`Played::describe`] says
 //! what the services hold, so a test asserts the machine's state, not only what was drawn.
@@ -119,9 +121,25 @@ pub struct Machine {
     /// none: the threshold's `enabled` as described, kept nowhere.
     #[serde(default)]
     pub state_dir: Option<PathBuf>,
-    /// What polkit refuses: `charge_limit`, `hold`, `suspend`.
+    /// What polkit refuses: `charge_limit`, `hold`, `suspend`, `reboot`, `power_off`.
     #[serde(default)]
     pub deny: Vec<String>,
+    /// What logind's `CanReboot` and `CanPowerOff` answer (`yes`, `no`, `challenge`, `na`).
+    #[serde(default = "can")]
+    pub can_reboot: String,
+    #[serde(default = "can")]
+    pub can_power_off: String,
+    /// logind's `HandlePowerKey`.
+    #[serde(default = "power_key")]
+    pub handle_power_key: String,
+}
+
+fn can() -> String {
+    "yes".into()
+}
+
+fn power_key() -> String {
+    "poweroff".into()
 }
 
 struct Hold {
@@ -139,6 +157,10 @@ struct Model {
     /// The person's profile, under any hold.
     chosen: String,
     suspends: u32,
+    reboots: u32,
+    power_offs: u32,
+    /// What each inhibitor taken inhibits, and its descriptor's other end, kept while played.
+    inhibitors: Vec<(String, std::os::unix::net::UnixStream)>,
     calls: Vec<String>,
 }
 
@@ -627,6 +649,66 @@ impl Logind {
         model.suspends += 1;
         Ok(())
     }
+
+    fn can_reboot(&self) -> String {
+        let model = self.model.lock().unwrap();
+        if model.denied("reboot") {
+            "no".into()
+        } else {
+            model.machine.can_reboot.clone()
+        }
+    }
+
+    fn reboot(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        let mut model = self.model.lock().unwrap();
+        model.calls.push(format!("Reboot {interactive}"));
+        if model.machine.can_reboot != "yes" || model.denied("reboot") {
+            return Err(zbus::fdo::Error::AccessDenied("Access denied".into()));
+        }
+        model.reboots += 1;
+        Ok(())
+    }
+
+    fn can_power_off(&self) -> String {
+        let model = self.model.lock().unwrap();
+        if model.denied("power_off") {
+            "no".into()
+        } else {
+            model.machine.can_power_off.clone()
+        }
+    }
+
+    fn power_off(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        let mut model = self.model.lock().unwrap();
+        model.calls.push(format!("PowerOff {interactive}"));
+        if model.machine.can_power_off != "yes" || model.denied("power_off") {
+            return Err(zbus::fdo::Error::AccessDenied("Access denied".into()));
+        }
+        model.power_offs += 1;
+        Ok(())
+    }
+
+    /// An inhibitor: the descriptor whose closing releases it, as logind's.
+    fn inhibit(
+        &self,
+        what: String,
+        _who: String,
+        _why: String,
+        mode: String,
+    ) -> zbus::fdo::Result<zbus::zvariant::OwnedFd> {
+        if mode != "block" && mode != "delay" {
+            return Err(zbus::fdo::Error::InvalidArgs(mode));
+        }
+        let (kept, given) = std::os::unix::net::UnixStream::pair()
+            .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+        self.model.lock().unwrap().inhibitors.push((what, kept));
+        Ok(std::os::fd::OwnedFd::from(given).into())
+    }
+
+    #[zbus(property)]
+    fn handle_power_key(&self) -> String {
+        self.model.lock().unwrap().machine.handle_power_key.clone()
+    }
 }
 
 /// The played machine's control (`so.oxy.OxyOS.PlayedPower` at [`CONTROL_PATH`]), for a test or a
@@ -728,6 +810,16 @@ fn act(
     Ok(())
 }
 
+/// Whether an inhibitor's holder still has its end open: reading ours would not end.
+fn held(kept: &std::os::unix::net::UnixStream) -> bool {
+    use rustix::event::{poll, PollFd, PollFlags};
+    let mut fds = [PollFd::new(kept, PollFlags::IN)];
+    !matches!(
+        poll(&mut fds, Some(&rustix::time::Timespec::default())),
+        Ok(1)
+    ) || fds[0].revents().is_empty()
+}
+
 fn describe(model: &Shared) -> Json {
     let model = model.lock().unwrap();
     json!({
@@ -743,6 +835,10 @@ fn describe(model: &Shared) -> Json {
             "profile": hold.profile, "reason": hold.reason, "application": hold.application,
         })).collect::<Vec<_>>(),
         "suspends": model.suspends,
+        "reboots": model.reboots,
+        "power_offs": model.power_offs,
+        // What each inhibitor still held inhibits (its holder's end open).
+        "inhibitors": model.inhibitors.iter().filter(|(_, kept)| held(kept)).map(|(what, _)| what.clone()).collect::<Vec<_>>(),
         "calls": model.calls,
     })
 }
@@ -764,6 +860,9 @@ impl Played {
             next_cookie: 0,
             chosen: "balanced".into(),
             suspends: 0,
+            reboots: 0,
+            power_offs: 0,
+            inhibitors: Vec::new(),
             calls: Vec::new(),
             machine: machine.clone(),
         }));

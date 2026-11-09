@@ -19,7 +19,7 @@ export type {
   RegistrationResponseJSON,
   RequestOptionsJSON,
 } from './passkeys.ts';
-export type { BackgroundItem, BackgroundItemStatus } from './application.ts';
+export type { BackgroundItem, BackgroundItemStatus, QuitAnswer, QuitHandler, QuitReason } from './application.ts';
 export type { Credential, KeychainModules, SaveResult } from './keychain.ts';
 
 const runtime = TurboModuleRegistry.get('OxyOSRuntime') as { getConstants(): { api: number } } | null;
@@ -33,7 +33,9 @@ const frameworks = createFrameworks(session);
 export const { network, bluetooth, power, audio, settings, store, activity } = frameworks;
 
 /** This application (docs/adr/0058-the-platform-api.mdx, decision 1): its login item and background
-    activity (docs/adr/0060-login-items-and-background-activity.mdx). */
+    activity (docs/adr/0060-login-items-and-background-activity.mdx), and its answer when the session
+    asks it to quit before logging out, restarting or shutting down
+    (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). */
 export const application = createApplication(
   TurboModuleRegistry.get('OxyOSApplication') as ApplicationModule | null,
   DeviceEventEmitter,

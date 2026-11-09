@@ -79,7 +79,10 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 36, Safe Mode (`SafeMode`, docs/adr/0054-recovery-and-erasing.mdx, decision 10), told to
 /// the shell and the login screen;
 /// version 37, a system answer as one sealed memory file (`SystemData`,
-/// docs/adr/0063-activity-monitor.mdx), sent only to a client of this version or newer.
+/// docs/adr/0063-activity-monitor.mdx), sent only to a client of this version or newer;
+/// version 38, the session asking applications to quit before it ends (`QuitRequested`,
+/// `QuitReply`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), both ways, and the
+/// modifiers held told to the surface with the keyboard as they change (`Modifiers`).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -102,6 +105,7 @@ const EVENTS_ADDED: Added = &[
     (33, 165..=165),
     (36, 166..=166),
     (37, 167..=167),
+    (38, 168..=169),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -124,6 +128,7 @@ const REQUESTS_ADDED: Added = &[
     (31, 164..=164),
     (32, 101..=101),
     (33, 165..=165),
+    (38, 168..=168),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

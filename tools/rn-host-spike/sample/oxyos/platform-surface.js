@@ -251,10 +251,21 @@ function createKeyboard() {
   const listeners = new Set();
   // The host calls this with each key press before the focused view, and waits for the answer.
   nativeKeyboard.setListener((event) => [...listeners].some((listener) => listener(event) === true));
+  // The modifiers held, as the compositor tells them when they change (protocol version 38, a Mac's
+  // flagsChanged:, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `{altKey, ctrlKey,
+  // metaKey, shiftKey}`, Option going down or up told at once, with no key or move after it.
+  const flagListeners = new Set();
+  DeviceEventEmitter.addListener('OxyOSModifiersChanged', (flags) => {
+    for (const listener of [...flagListeners]) listener(flags);
+  });
   return {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    subscribeModifiers(listener) {
+      flagListeners.add(listener);
+      return () => flagListeners.delete(listener);
     },
   };
 }
