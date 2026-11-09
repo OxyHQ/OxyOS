@@ -4,7 +4,7 @@
  *
  * The state: { windows: [{ id, appId, title, workspace, minimized, focused, launched, used, hidden }],
  * workspaces, active,
- * locked, user: { fullName } (passwd's GECOS full name, never the Unix user's name), capsLock, wallpaper, applications }: wallpaper what this
+ * locked, capsLock (no name of the person's: the shell's is the accounts' service's snapshot's alone), wallpaper, applications }: wallpaper what this
  * output's wallpaper shows now (docs/adr/0048-wallpapers.mdx, `useShellWallpaper` in wallpaper.js:
  * { key, uri, fit, color, slow }, null where the session told none); applications the session's
  * registry (ADR 0013), [{ id, name, icon: { uri } | { svg } | null, pinned: place | null, opens: [media
