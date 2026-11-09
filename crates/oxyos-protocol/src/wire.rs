@@ -97,6 +97,32 @@ wire_enum! {
     ApplicationListKind: u8 { Dock = 1, OpenAtLogin = 2, NotificationSoundsOff = 3 }
 }
 wire_enum! {
+    /// What an application registers with the session (version 33,
+    /// docs/adr/0060-login-items-and-background-activity.mdx), as a Mac's `SMAppService`: itself,
+    /// opened at login (the person's Open at Login list, ADR 0034), or its process, kept running in
+    /// the background once its window closes.
+    BackgroundItemKind: u8 { LoginItem = 1, Background = 2 }
+}
+wire_enum! {
+    /// Why the session asks an application to quit (version 38,
+    /// docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the person logs out, restarts or
+    /// shuts the computer down.
+    SessionEnd: u8 { LogOut = 1, Restart = 2, ShutDown = 3 }
+}
+wire_enum! {
+    /// What an application asks of one of its background items (version 33): how it stands,
+    /// registering it, unregistering it.
+    BackgroundItemAction: u8 { Status = 1, Register = 2, Unregister = 3 }
+}
+wire_enum! {
+    /// How one of an application's background items stands (version 33), as `SMAppService.Status`
+    /// says: not registered; registered and allowed; registered but turned off by the person (its
+    /// capability denied: registering again changes nothing until they allow it); or not the
+    /// client's to have (not an application the session launched, or one the platform gives no
+    /// capability: a development entry, ADR 0030, decision 7).
+    BackgroundStatus: u8 { NotRegistered = 1, Enabled = 2, RequiresApproval = 3, NotPermitted = 4 }
+}
+wire_enum! {
     /// A sound of the system's (docs/adr/0044-system-sounds.mdx), by what it means: items put in
     /// the Trash, the Trash emptied, a notification arriving. The session plays each from its
     /// sound theme; an application never sends one.
@@ -216,11 +242,12 @@ wire_enum! {
     ShortcutIntent: u8 { Toggle = 0, Open = 1, Close = 2 }
 }
 wire_enum! {
-    /// Which of the views a touchpad's vertical swipe drives a shell surface is
-    /// (docs/adr/0046-interactive-gestures.mdx, version 25): none, Mission Control's (three or four
-    /// fingers up) or App Exposé's (down). While a swipe drives it, such a surface arrives, and goes,
-    /// as far as the fingers have gone, its moved windows with it.
-    GestureOverlay: u8 { None = 0, MissionControl = 1, AppExpose = 2 }
+    /// Which of the views a touchpad's gesture drives a shell surface is
+    /// (docs/adr/0046-interactive-gestures.mdx, version 25): none, Mission Control's (fingers
+    /// swiped up) or App Exposé's (down); and since version 33 Launchpad's (the thumb and three
+    /// fingers pinched, the 8 November 2026 amendment). While a gesture drives it, such a surface
+    /// arrives, and goes, as far as the fingers have gone, its moved windows with it.
+    GestureOverlay: u8 { None = 0, MissionControl = 1, AppExpose = 2, Launchpad = 3 }
 }
 // No overlay is the default; `wire_enum!` derives its own set, so it is written here.
 #[allow(clippy::derivable_impls)]

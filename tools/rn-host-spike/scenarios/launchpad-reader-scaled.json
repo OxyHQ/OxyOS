@@ -67,7 +67,7 @@
    }
   },
   {
-   "name": "typing searches the applications as the search service finds them, by their names' words' beginnings: Atlas, Ajustes and Allo, the first highlighted; the search keeps the screen reader's focus and echoes the letter, then the results are said politely, once",
+   "name": "typing searches the applications as the search service finds them, by their names' words' beginnings: Atlas, Ajustes, Allo and Monitor de Actividad (Activity Monitor, by \"actividad\"), the first highlighted; the search keeps the screen reader's focus and echoes the letter, then the results are said politely, once",
    "do": [
     "keyboard",
     "a"
@@ -93,6 +93,11 @@
        "role": "Button",
        "name": "Allo",
        "state": []
+      },
+      {
+       "role": "Button",
+       "name": "Monitor de Actividad",
+       "state": []
       }
      ]
     },
@@ -102,14 +107,14 @@
       "interrupting": true
      },
      {
-      "text": "3 resultados",
+      "text": "4 resultados",
       "interrupting": false
      }
     ],
     "announcements": [
      {
       "politeness": "polite",
-      "text": "3 resultados",
+      "text": "4 resultados",
       "live": true
      }
     ]

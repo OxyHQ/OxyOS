@@ -1,0 +1,41 @@
+{
+ "about": "A glass-heavy window for perf.py's measure of Reduce transparency (docs/adr/0019-settings.mdx, docs/performance.mdx): sample/MaterialProbe.tsx's blur views over their targets and the lock screen's clock in its material, the clock moved on a minute so its last digit turns over several frames, each drawn again, Reduce transparency off: each frame blurs the clock's target under its glyphs.",
+ "module": "MaterialProbe",
+ "window": [
+  400,
+  480
+ ],
+ "preferences": {
+  "reduce_transparency": "false"
+ },
+ "steps": [
+  {
+   "name": "the window drawn whole once",
+   "do": [
+    "press",
+    [
+     390,
+     250
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the clock moved on a minute: its last digit turns over several frames, each drawn again",
+   "do": [
+    "press",
+    [
+     345,
+     455
+    ]
+   ],
+   "expect": {
+    "window_frames": [
+     8,
+     80
+    ]
+   }
+  }
+ ]
+}

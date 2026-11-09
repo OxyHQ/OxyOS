@@ -34,6 +34,7 @@
 #include "shell-surface.h"
 #include "svg.h"
 #include "memory.h"
+#include "crash-report.h"
 #include "report.h"
 #include "skia-gpu.h"
 #include "renderer.h"
@@ -45,6 +46,7 @@
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
+#include <algorithm>
 #include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -57,7 +59,6 @@
 #include <react/nativemodule/defaults/DefaultTurboModules.h>
 #include <react/renderer/componentregistry/ComponentDescriptorProviderRegistry.h>
 #include <react/renderer/components/image/ImageComponentDescriptor.h>
-#include <react/renderer/components/modal/ModalHostViewComponentDescriptor.h>
 #include <react/renderer/components/root/RootComponentDescriptor.h>
 #include <react/renderer/components/view/BaseViewEventEmitter.h>
 #include <react/renderer/components/scrollview/ScrollViewComponentDescriptor.h>
@@ -330,38 +331,44 @@ class Mounter : public SchedulerDelegate {
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
-// A fatal signal's report in the session's log: the signal and, for a bad access, the address it
-// touched; the thread it hit (by name: the JavaScript thread is the main one, Hermes' collector
-// is `hades`); the registers at the fault, which tell a bad pointer from a bad index; and the
-// stack, its frames' offsets to symbolise against the build's unstripped objects.
+// A fatal signal's report in the session's log, and in the report file the session gave
+// (crash-report.h): the signal and, for a bad access, the address it touched; the thread it hit (by
+// name: the JavaScript thread is the main one, Hermes' collector is `hades`); the registers at the
+// fault, which tell a bad pointer from a bad index; and the stack, its frames' offsets to symbolise
+// against the build's unstripped objects. Only async-signal-safe calls, into descriptors already
+// open.
 void crashed(int signal, siginfo_t* info, void* context) {
   void* frames[64];
   int count = backtrace(frames, 64);
   char thread[17] = {};
   prctl(PR_GET_NAME, thread, 0, 0, 0);
-  // A fault the kernel raised has an address (si_code > 0); a signal sent by a process, abort()'s
-  // among them, has its sender in the same storage instead.
-  if (info->si_code > 0 && signal != SIGABRT) {
-    dprintf(2, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
-            info->si_addr, static_cast<int>(gettid()), thread);
-  } else {
-    dprintf(2, "[host] fatal signal %d (code %d) sent by process %d, on thread %d '%s'\n", signal, info->si_code,
-            static_cast<int>(info->si_pid), static_cast<int>(gettid()), thread);
-  }
   const auto& machine = static_cast<const ucontext_t*>(context)->uc_mcontext;
+  for (int fd : {2, oxyos::crashReportFd()}) {
+    if (fd < 0) continue;
+    // A fault the kernel raised has an address (si_code > 0); a signal sent by a process, abort()'s
+    // among them, has its sender in the same storage instead.
+    if (info->si_code > 0 && signal != SIGABRT) {
+      dprintf(fd, "[host] fatal signal %d (code %d) at address %p, on thread %d '%s'\n", signal, info->si_code,
+              info->si_addr, static_cast<int>(gettid()), thread);
+    } else {
+      dprintf(fd, "[host] fatal signal %d (code %d) sent by process %d, on thread %d '%s'\n", signal,
+              info->si_code, static_cast<int>(info->si_pid), static_cast<int>(gettid()), thread);
+    }
 #if defined(__x86_64__)
-  const auto* r = machine.gregs;
-  dprintf(2,
-          "[host] rip %llx rsp %llx rbp %llx rax %llx rbx %llx rcx %llx rdx %llx rsi %llx rdi %llx r8 %llx r9 %llx "
-          "r10 %llx r11 %llx r12 %llx r13 %llx r14 %llx r15 %llx\n",
-          r[REG_RIP], r[REG_RSP], r[REG_RBP], r[REG_RAX], r[REG_RBX], r[REG_RCX], r[REG_RDX], r[REG_RSI], r[REG_RDI],
-          r[REG_R8], r[REG_R9], r[REG_R10], r[REG_R11], r[REG_R12], r[REG_R13], r[REG_R14], r[REG_R15]);
+    const auto* r = machine.gregs;
+    dprintf(fd,
+            "[host] rip %llx rsp %llx rbp %llx rax %llx rbx %llx rcx %llx rdx %llx rsi %llx rdi %llx r8 %llx r9 %llx "
+            "r10 %llx r11 %llx r12 %llx r13 %llx r14 %llx r15 %llx\n",
+            r[REG_RIP], r[REG_RSP], r[REG_RBP], r[REG_RAX], r[REG_RBX], r[REG_RCX], r[REG_RDX], r[REG_RSI],
+            r[REG_RDI], r[REG_R8], r[REG_R9], r[REG_R10], r[REG_R11], r[REG_R12], r[REG_R13], r[REG_R14],
+            r[REG_R15]);
 #elif defined(__aarch64__)
-  dprintf(2, "[host] pc %llx sp %llx", machine.pc, machine.sp);
-  for (int i = 0; i < 31; ++i) dprintf(2, " x%d %llx", i, machine.regs[i]);
-  dprintf(2, "\n");
+    dprintf(fd, "[host] pc %llx sp %llx", machine.pc, machine.sp);
+    for (int i = 0; i < 31; ++i) dprintf(fd, " x%d %llx", i, machine.regs[i]);
+    dprintf(fd, "\n");
 #endif
-  backtrace_symbols_fd(frames, count, 2);
+    backtrace_symbols_fd(frames, count, fd);
+  }
   _exit(128 + signal);
 }
 
@@ -452,6 +459,7 @@ bool deliverApplication(oxyos::HostServices& services) {
   bool busy = services.storage && services.storage->deliver();
   if (services.connectivity) busy |= services.connectivity->deliver();
   if (services.accountSession) busy |= services.accountSession->deliver();
+  if (services.migration) busy |= services.migration->deliver();
   return busy;
 }
 
@@ -464,6 +472,7 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
     fds.push_back(services.accountSession->fd());
     if (int subscription = services.accountSession->subscriptionFd(); subscription >= 0) fds.push_back(subscription);
   }
+  if (services.migration) fds.push_back(services.migration->fd());
   return fds;
 }
 
@@ -481,6 +490,8 @@ int main(int argc, char** argv) {
                  "            output's background, its OxyOSShellSurface regions panels and overlays\n";
     return 2;
   }
+  // The session's report file first, so that a fault from here on is said in it (crash-report.h).
+  oxyos::openCrashReport();
   reportFatalSignals();
   // The application this process runs, as its report and the session's log name it: the id the
   // session launched it with, else its module (the shell's always: an id in its environment is
@@ -501,7 +512,10 @@ int main(int argc, char** argv) {
   // given the region the keyboard; "popup-focus-first", the compositor's keyboard moves (its focus
   // in and out) held from a menu's opening until its tree is published with JavaScript's
   // accessibility focus, as a loaded machine reads the keyboard's enter on a menu after Bloom's
-  // move into it. Unset, nothing is forced.
+  // move into it; "window-focus-first", an application window's (never the shell's) commits mounted
+  // only at the host's frame, so a dialog's mount, the focus it asks for its default control
+  // (Bloom's `initialFocus`) and the host following it coming fall in one frame, before the dialog
+  // has measured itself and shown (decision 27). Unset, nothing is forced.
   const std::string testOrder = [] {
     const char* order = std::getenv("OXYOS_HOST_TEST_ORDER");
     return std::string(order ? order : "");
@@ -509,6 +523,7 @@ int main(int argc, char** argv) {
   const bool focusFirst = shellMode && testOrder == "focus-first";
   const bool grantFirst = shellMode && testOrder == "grant-first";
   const bool popupFocusFirst = shellMode && testOrder == "popup-focus-first";
+  const bool windowFocusFirst = !shellMode && testOrder == "window-focus-first";
   const bool windowed = outPath == "--window" || shellMode;
   const uint32_t output = shellMode && argc > 4 ? static_cast<uint32_t>(std::stoul(argv[4])) : 1;
   const char* socket = std::getenv("OXYOS_COMPOSITOR_SOCKET");
@@ -590,11 +605,15 @@ int main(int argc, char** argv) {
       std::move(runtime), loop, std::move(ownedTimerManager),
       [&](jsi::Runtime&, const JsErrorHandler::ProcessedError& error) noexcept {
         ++jsErrors;
-        std::cerr << "JS error: " << error.message << "\n";
+        std::ostringstream said;
+        said << error.message << "\n";
         for (const auto& frame : error.stack) {
-          std::cerr << "    at " << frame.methodName << " (" << frame.file.value_or("?") << ":"
-                    << frame.lineNumber.value_or(0) << ")\n";
+          said << "    at " << frame.methodName << " (" << frame.file.value_or("?") << ":"
+               << frame.lineNumber.value_or(0) << ")\n";
         }
+        // A fatal one ends the application, as React Native's release builds do (crash-report.h).
+        if (error.isFatal) oxyos::endForFatalJavaScriptError(said.str());
+        std::cerr << "JS error: " << said.str();
       });
   stage("instance created");
   timerManager.setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
@@ -694,7 +713,9 @@ int main(int argc, char** argv) {
                   if (name == "RNGestureHandlerModule" && gestures) return gestures->module(runtime, invoker);
                   if (auto module = oxyos::createHostModule(name, invoker, display, services)) return module;
                   if (auto module = DefaultTurboModules::getTurboModule(name, invoker)) return module;
-                  std::cerr << "[host] TurboModule unavailable: " << name << "\n";
+                  // One write: `std::cerr` writes each `<<` at once, and the session's other
+                  // processes write to the same log while an application starts.
+                  std::cerr << ("[host] TurboModule unavailable: " + name + "\n");
                   return nullptr;
                 }));
   });
@@ -702,6 +723,9 @@ int main(int argc, char** argv) {
   auto context = std::make_shared<ContextContainer>();
   context->insert(ImageManagerKey, std::make_shared<ImageManager>(context));
   context->insert(RuntimeSchedulerKey, std::weak_ptr<RuntimeScheduler>(instance->getRuntimeScheduler()));
+  // The window's size, which a modal starts at (modal.h); set as the surface is laid out.
+  auto modalScreen = std::make_shared<oxyos::ModalScreen>();
+  context->insert(oxyos::kModalScreenKey, modalScreen);
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
   toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
@@ -723,7 +747,8 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<oxyos::TextInputComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSPopupViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<OxyOSDropTargetViewComponentDescriptor>());
-  providers->add(concreteComponentDescriptorProvider<ModalHostViewComponentDescriptor>());
+  // React Native's Modal, laid out at the window's size from its first rendering (modal.h).
+  providers->add(concreteComponentDescriptorProvider<oxyos::ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoImageComponentDescriptor>());
@@ -778,7 +803,7 @@ int main(int argc, char** argv) {
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
-  mounter.mountAtFrame = focusFirst;
+  mounter.mountAtFrame = focusFirst || windowFocusFirst;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -787,6 +812,13 @@ int main(int argc, char** argv) {
   // As the session's shell: what it knows of windows and workspaces, told from the first event.
   oxyos::ShellState shellState(output);
   if (shellMode) shellState.followApplications();
+  // Settings follows the session's applications as the shell does (docs/adr/0030-installing-
+  // applications.mdx): Open at Login and Notifications name each as the registry does, one installed,
+  // updated or removed while Settings is open included (docs/adr/0060-login-items-and-background-
+  // activity.mdx). Watched once the window is granted `settings`.
+  std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> settingsApplications{
+      nullptr, oxyos_applications_watch_free};
+  bool settingsApplicationsAsked = false;
   if (windowed) {
     // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
     // shell's and the login screen's, by their package's id (the manifest beside the bundle).
@@ -927,6 +959,7 @@ int main(int argc, char** argv) {
   scheduler->registerSurface(surface);
   auto layOut = [&] {
     Size size{display.width, display.height};
+    modalScreen->size = size;
     surface.constraintLayout(LayoutConstraints{.minimumSize = size, .maximumSize = size},
                              LayoutContext{.pointScaleFactor = display.scale});
   };
@@ -1061,6 +1094,9 @@ int main(int argc, char** argv) {
     dragDrop.editsText(editing);
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
+        .copySensitive = [&window](uint64_t serial, const std::string& text) {
+          window->copySensitiveText(serial, text);
+        },
         .paste = [&window](uint64_t serial, std::function<void(std::string)> done) {
           window->pasteText(serial, std::move(done));
         },
@@ -1147,6 +1183,9 @@ int main(int argc, char** argv) {
     };
     services.clipboard = {
         .copy = [&window, &lastPress](const std::string& text) { return window->copyText(lastPress, text); },
+        .copySensitive = [&window, &lastPress](const std::string& text) {
+          return window->copySensitiveText(lastPress, text);
+        },
         .paste = [&window, &lastPress](std::function<void(std::string)> done) {
           window->pasteText(lastPress, std::move(done));
         },
@@ -1177,6 +1216,8 @@ int main(int argc, char** argv) {
     folly::dynamic toldShellState = nullptr;
     // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
+    // Reduce transparency as the session told it at connect: expo-blur's views blur nothing.
+    if (window) oxyos::setReducedTransparency(window->drawing().reduceTransparency);
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
     // The session's locale as JavaScript was last told it (docs/adr/0040-language-and-region.mdx):
@@ -1263,23 +1304,30 @@ int main(int argc, char** argv) {
     uint32_t controlSerial = 0;
     // Launches and the URLs the shell opens are numbered together: each LAUNCH_RESULT names one.
     uint32_t launchSerial = 0;
-    // An application's requests to open the platform's Settings at a page, by their serial, each
-    // told what the session answered (docs/adr/0019-settings.mdx).
-    std::map<uint32_t, std::function<void(bool, const std::string&)>> settingsOpens;
+    // An application's requests to open a URL (the platform's Settings at a page, or another
+    // application's, docs/adr/0058-the-platform-api.mdx, step 6), by their serial, each told what
+    // the session answered.
+    std::map<uint32_t, std::function<void(bool, const std::string&)>> urlOpens;
     if (!shellMode) {
-      services.openSettingsUrl = [&window, &lastPress, &launchSerial, &settingsOpens](
-                                     const std::string& url, std::function<void(bool, const std::string&)> done) {
-        if (!window) return done(false, "OxyOS opens Settings only from an application's window");
-        if (window->protocolVersion() < OXYOS_APPLICATION_OPENS_SETTINGS_VERSION) {
-          return done(false, "this session cannot open Settings for an application (protocol version " +
+      services.openUrl = [&window, &lastPress, &launchSerial, &urlOpens](
+                             const std::string& url, std::function<void(bool, const std::string&)> done) {
+        if (!window) return done(false, "OxyOS opens a URL only from an application's window");
+        // Settings' since version 27; any other scheme's since 34: an older compositor closes the
+        // connection for it.
+        std::string scheme = url.substr(0, url.find(':'));
+        std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+        uint32_t needs = scheme == OXYOS_PLATFORM_SETTINGS_SCHEME ? OXYOS_APPLICATION_OPENS_SETTINGS_VERSION
+                                                                  : OXYOS_APPLICATION_OPENS_URLS_VERSION;
+        if (window->protocolVersion() < needs) {
+          return done(false, "this session cannot open " + scheme + " links for an application (protocol version " +
                                  std::to_string(window->protocolVersion()) + ")");
         }
-        if (lastPress == 0) return done(false, "OxyOS opens Settings only for something the person did");
+        if (lastPress == 0) return done(false, "OxyOS opens a URL only for something the person did");
         ++launchSerial;
         bool sent = window->openUrl(launchSerial, lastPress, url);
         oxyos::Report::get().input("url.open", 0, folly::dynamic::object("url", url)("sent", sent));
-        if (!sent) return done(false, "the request to open Settings could not be sent");
-        settingsOpens[launchSerial] = std::move(done);
+        if (!sent) return done(false, "the request to open it could not be sent");
+        urlOpens[launchSerial] = std::move(done);
       };
       // The lock from an application (the Oxy SDK's sign in, docs/adr/0020-oxy-account-login.mdx):
       // only while its window is the active one, which the compositor checks too.
@@ -1498,6 +1546,16 @@ int main(int argc, char** argv) {
     oxyos::ChunkTexts screenshotPaths;
     uint32_t systemSerial = 0;
     std::map<uint32_t, std::string> askedCapabilities;
+    // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+    // the asks' serials, and whether this process may run on in the background once its window
+    // closes, as the session last said (an answer, or a change the person made), and whether it is.
+    uint32_t backgroundSerial = 0;
+    bool backgroundEnabled = false;
+    // The session asking it to quit before an end of the session
+    // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5): whether JavaScript
+    // answers (it registered a handler), and whether it answered quit, which ends the host.
+    bool quitHandled = false;
+    bool quitAnswered = false;
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
     // requests, assembled from chunks. A request and an answer cite the latest press or key, as
     // the session requires.
@@ -1558,6 +1616,31 @@ int main(int argc, char** argv) {
           return launchCapabilities.allows(capability);
         },
     };
+    // An application's window of a compositor that has them (protocol version 33) asks about its
+    // login item and background activity; the session decides, by its launch record.
+    if (!shellMode && window && window->protocolVersion() >= 33) {
+      services.backgroundItems.ask = [&window, &backgroundSerial](uint8_t kind, uint8_t action) -> uint32_t {
+        backgroundSerial = backgroundSerial == UINT32_MAX ? 1 : backgroundSerial + 1;
+        bool sent = window->backgroundItem(backgroundSerial, kind, action);
+        oxyos::Report::get().input("background.ask", 0,
+                                   folly::dynamic::object("kind", kind)("action", action)("sent", sent));
+        return sent ? backgroundSerial : 0;
+      };
+    }
+    // An application's window of a compositor that asks it to quit before logging out,
+    // restarting or shutting down (protocol version 38): JavaScript answers while it handles the
+    // question, the host at once otherwise.
+    if (!shellMode && window && window->protocolVersion() >= OXYOS_QUIT_REQUESTS_VERSION) {
+      services.quit.available = true;
+      services.quit.handles = [&quitHandled](bool handles) { quitHandled = handles; };
+      services.quit.reply = [&window, &quitAnswered](uint32_t serial, bool quit) {
+        bool sent = window->replyToQuit(serial, quit);
+        oxyos::Report::get().input("quit.replied", 0,
+                                   folly::dynamic::object("serial", serial)("quit", quit)("sent", sent));
+        if (sent && quit) quitAnswered = true;
+        return sent;
+      };
+    }
     window->onClipboardChanged([&instance, &window] {
       instance->callFunctionOnModule(
           "RCTDeviceEventEmitter", "emit",
@@ -1685,6 +1768,14 @@ int main(int argc, char** argv) {
     facebook::react::Tag modalFirstPending = -1;
     facebook::react::Tag lastScope = -1;
     uint32_t lastScopeSurface = 0;
+    // The application's last move of the keyboard's focus while it navigated, and what had the
+    // keyboard before it: a move into a modal the navigation had not followed yet (its default
+    // control, focused as it mounts: Bloom's dialog's `initialFocus`) leaves the keyboard there,
+    // and `from` is what the keyboard goes back to as the modal goes (docs/adr/0039-keyboard-access.mdx,
+    // decision 27).
+    struct ApplicationFocus {
+      facebook::react::Tag to = -1, from = -1;
+    } applicationFocus;
     // A dialog popup the keyboard went into from a control with its ring (a popover opened by Space
     // on its button), and that control, which has the keyboard back once the popup has gone.
     struct PopupReturn {
@@ -1735,9 +1826,28 @@ int main(int argc, char** argv) {
         return;
       }
       bool ring = keyboardFocus.ringShown();
-      if (was >= 0 && tree.views().count(was) && insideOf(scope, was) && scope != was) {
+      auto focused = keyboardFocus.focused();
+      bool came = was >= 0 && tree.views().count(was) && insideOf(scope, was) && scope != was;
+      if (came && focused >= 0 && insideOf(focused, scope)) {
+        // A modal came whose own control the application had already focused (a dialog's default
+        // button, focused in the commit that mounted it): that control keeps the keyboard, never the
+        // modal's first in its place (a destructive Delete before the default Cancel), and the
+        // keyboard goes back to what had it before as the modal goes.
+        auto back = applicationFocus.to == focused ? applicationFocus.from : -1;
+        bool outside = back >= 0 && tree.views().count(back) && !insideOf(back, scope);
+        keyboardFocus.remember(scope, outside ? back : -1, outside);
+      } else if (came && keyboardAfterMount >= 0 && tree.views().count(keyboardAfterMount) &&
+                 insideOf(keyboardAfterMount, scope)) {
+        // A modal came whose own control the application asked to focus before it could take the
+        // keyboard (a dialog's buttons until it has measured itself and shows, a frame later): the
+        // keyboard waits for that control (`keyboardAfterMount`), never the modal's first in its
+        // place, and goes back to what it was on as the modal goes. The modal's first has it if
+        // that control never can.
+        keyboardFocus.remember(scope, focused, ring);
+        modalFirstPending = ring ? scope : -1;
+      } else if (came) {
         // A modal came over what had the keyboard.
-        keyboardFocus.remember(scope, keyboardFocus.focused(), ring);
+        keyboardFocus.remember(scope, focused, ring);
         if (ring) {
           auto first = oxyos::focusables(tree, scope);
           moveKeyboardFocus(first.empty() ? -1 : first.front(), true, keyboardSurface);
@@ -1924,6 +2034,9 @@ int main(int argc, char** argv) {
         }
         auto target = keyboardFocus.next(navigationScope(event.surface), key == NavigationKey::Previous);
         if (target >= 0) moveKeyboardFocus(target, true, event.surface);
+        // The person moved the keyboard: a control the application asked for, not focusable yet, no
+        // longer takes it.
+        keyboardAfterMount = -1;
         return;
       }
       const auto& shadow = tree.views().at(keyboardFocus.focused()).view;
@@ -1996,15 +2109,18 @@ int main(int argc, char** argv) {
         popups.changed();
         shellSurfaces.changed();
         // While the keyboard is navigating, the application's focus moves (Bloom giving a closed
-        // menu's or dialog's trigger the focus back) take the keyboard's with them.
+        // menu's or dialog's trigger the focus back) take the keyboard's with them: its ring shows,
+        // or a modal came with it showing and waits for a control of its own (`modalFirstPending`).
         // A view not in the tree yet is created by that commit (a field mounted with the focus, the
         // login screen's for the account just chosen): its place is known once it is mounted.
         auto scope = navigationScope(keyboardSurface);
-        if (keyboardFocus.ringShown() && scope >= 0 && view.tag != keyboardFocus.focused()) {
+        if ((keyboardFocus.ringShown() || modalFirstPending == scope) && scope >= 0 &&
+            view.tag != keyboardFocus.focused()) {
           if (!tree.views().count(view.tag)) {
             keyboardAfterMount = view.tag;
           } else if (insideOf(view.tag, scope)) {
             if (oxyos::focusable(tree, view.tag)) {
+              applicationFocus = {view.tag, keyboardFocus.focused()};
               moveKeyboardFocus(view.tag, true, keyboardSurface);
             } else {
               keyboardAfterMount = view.tag;
@@ -2106,9 +2222,12 @@ int main(int argc, char** argv) {
         std::vector<std::pair<OxyOSEvent, std::string>> screenshots;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
-        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
-        std::vector<OxyOSEvent> sheetsGone, capabilityResults;
+        std::vector<std::pair<uint32_t, std::string>> systemAnswers, systemData, sheets, filesChosen, searchAnswers;
+        std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates, quitRequests;
         bool responded = false;
+        // The modifiers held, as the compositor last told them this turn (protocol version 38, a
+        // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
+        std::optional<uint8_t> modifiersHeld;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
@@ -2122,6 +2241,10 @@ int main(int argc, char** argv) {
                 if (auto text = systemTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
                   systemAnswers.emplace_back(event.code, std::move(*text));
                 }
+              }
+              // A long answer whole (ADR 0063), handed to JavaScript as text.
+              if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
+                if (auto text = window->systemData()) systemData.emplace_back(event.code, std::move(*text));
               }
               if (event.kind == OXYOS_EVENT_SEARCH_TEXT) {
                 if (auto text = searchTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
@@ -2141,6 +2264,9 @@ int main(int argc, char** argv) {
                 }
               }
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
+              if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
+              if (event.kind == OXYOS_EVENT_QUIT_REQUESTED && !shellMode) quitRequests.push_back(event);
+              if (event.kind == OXYOS_EVENT_MODIFIERS) modifiersHeld = event.modifiers;
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
@@ -2222,6 +2348,7 @@ int main(int argc, char** argv) {
               // takes focus off a control that is no text input (a press focuses inputs itself).
               if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && !withheld) {
                 modalFirstPending = -1;
+                keyboardAfterMount = -1;
               }
               if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS && !withheld &&
                   keyboardFocus.focused() >= 0) {
@@ -2360,9 +2487,59 @@ int main(int argc, char** argv) {
           diagnostics.setRefresh(refresh.periodMs());
           oxyos::Report::get().refresh(toldRefresh);
         }
+        // The modifiers held changed (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision
+        // 2): told to JavaScript as their own event, as a Mac's flagsChanged:, so the Oxy menu's
+        // alternates follow Option the instant it goes down or up, not at the next key or move.
+        if (modifiersHeld) {
+          uint8_t held = *modifiersHeld;
+          oxyos::Report::get().input("modifiers.changed", 0, folly::dynamic::object("modifiers", static_cast<int>(held)));
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSModifiersChanged",
+                                    folly::dynamic::object("altKey", (held & OXYOS_MODIFIER_ALT) != 0)(
+                                        "ctrlKey", (held & OXYOS_MODIFIER_CONTROL) != 0)(
+                                        "metaKey", (held & OXYOS_MODIFIER_SUPER) != 0)(
+                                        "shiftKey", (held & OXYOS_MODIFIER_SHIFT) != 0)));
+        }
+        // The session asks it to quit before logging out, restarting or shutting down
+        // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5), as a Mac asks
+        // `applicationShouldTerminate:`: JavaScript decides while it handles the question (an
+        // unsaved document asks to be saved, or cancels the whole end); otherwise it quits at once.
+        for (const auto& asked : quitRequests) {
+          const char* reason = asked.detail == OXYOS_SESSION_END_LOG_OUT  ? "logOut"
+                               : asked.detail == OXYOS_SESSION_END_RESTART ? "restart"
+                                                                            : "shutDown";
+          folly::dynamic told = folly::dynamic::object("serial", asked.code)("reason", reason);
+          oxyos::Report::get().input("quit.requested", 0, told);
+          if (quitHandled) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSQuitRequested", told));
+          } else if (services.quit.reply) {
+            services.quit.reply(asked.code, true);
+          }
+        }
+        // Answered quit (here or by JavaScript): it ends now, as for a close request, whatever its
+        // background activity, since the session is ending. Its answer was sent as it was given.
+        if (quitAnswered) {
+          std::cerr << "[host] " << applicationName << " quits: the session is ending\n";
+          break;
+        }
         if (closeRequested || closeAsked) {
           if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
-          break;
+          // Its background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+          // application the session allows runs on without its window, its JavaScript going on (a
+          // chat's connection, a sync), as a Mac's application with no window open keeps running;
+          // the session ends it when the person turns that off or another of its processes is
+          // already there. Any other ends with its window, as an Android activity finishes.
+          if (!backgroundEnabled || window->toplevelClosed()) break;
+          closeAsked = false;
+          window->closeToplevel();
+          services.appState = "background";
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("appStateDidChange", folly::dynamic::object("app_state", "background")));
+          oxyos::Report::get().input("background.entered", 0, folly::dynamic::object());
+          std::cerr << "[host] " << applicationName << " runs on in the background\n";
         }
         // The session's preferences (docs/adr/0019-settings.mdx), as React Native's own modules tell
         // a change on Android: the appearance (a configuration change), reduce motion; the rest to
@@ -2381,6 +2558,14 @@ int main(int argc, char** argv) {
             dirty = true;
           }
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
+          // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
+          // again), every one of them, though none of their props changed: the window is drawn
+          // again whole, as when the painter changes.
+          if (now.reduceTransparency != toldDrawing->reduceTransparency) {
+            oxyos::setReducedTransparency(now.reduceTransparency);
+            painterChanged = true;
+            dirty = true;
+          }
           emit("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;
@@ -2390,13 +2575,31 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
         }
+        // Settings' applications (`getApplications`): told to read them again as the registry
+        // changes, and once as the watch begins, for a change before it.
+        if (window && !shellMode && !settingsApplicationsAsked && window->settingsGranted()) {
+          settingsApplicationsAsked = true;
+          settingsApplications.reset(oxyos_applications_watch_new());
+          if (!settingsApplications) {
+            std::cerr << "[host] Settings' applications are not followed: " << oxyos_last_error() << "\n";
+          }
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+        } else if (settingsApplications && oxyos_applications_watch_changed(settingsApplications.get())) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+        }
         // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
         // Intl's default is already the new one (the window set it); JavaScript is told, and
         // expo-localization's module tells its listeners, as Android's configuration change does.
         if (window && window->locale() != toldLocale) {
           toldLocale = window->locale();
-          // The shell's applications by their names in the new language.
+          // The shell's applications by their names in the new language, and Settings'.
           if (shellMode) shellState.relocalize();
+          if (settingsApplications) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSApplicationsChanged"));
+          }
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSLocaleChanged",
                                                                folly::dynamic::object("locale", toldLocale)));
@@ -2421,6 +2624,17 @@ int main(int argc, char** argv) {
                                                                folly::dynamic::object("serial", serial)("answer", answer)));
           oxyos::Report::get().input("system", oxyos::Window::kToplevel,
                                      folly::dynamic::object("serial", serial)("answer", answer));
+        }
+        // A long answer (SystemData, docs/adr/0063-activity-monitor.mdx: Activity Monitor's samples, tens
+        // of kilobytes every two seconds) as the text the session wrote, which JavaScript parses
+        // itself (oxyos/system.js): Hermes' JSON.parse, never a folly::dynamic made into thousands
+        // of JSI values; the report records its size, not its text.
+        for (const auto& [serial, text] : systemData) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSystemAnswer",
+                                                               folly::dynamic::object("serial", serial)("text", text)));
+          oxyos::Report::get().input("system", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("serial", serial)("bytes", text.size()));
         }
         // Search (docs/adr/0051-search.mdx): the index's answers as it wrote them, JSON text the
         // window's search client reads (sample/oxyos/search.js).
@@ -2452,6 +2666,22 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSheetDismissed",
                                                                folly::dynamic::object("sheet", gone.code)));
+        }
+        // How its login item and background activity stand (docs/adr/0060-login-items-and-background-activity.mdx):
+        // an answer, or a change the person made (serial 0), to JavaScript; and whether it may run
+        // on without its window, which its close below follows.
+        for (const auto& state : backgroundStates) {
+          bool background = state.detail == OXYOS_BACKGROUND_ITEM_BACKGROUND;
+          if (background) backgroundEnabled = state.flag == OXYOS_BACKGROUND_ENABLED;
+          const char* status = state.flag == OXYOS_BACKGROUND_ENABLED             ? "enabled"
+                               : state.flag == OXYOS_BACKGROUND_REQUIRES_APPROVAL ? "requiresApproval"
+                               : state.flag == OXYOS_BACKGROUND_NOT_PERMITTED     ? "notPermitted"
+                                                                                  : "notRegistered";
+          folly::dynamic told = folly::dynamic::object("serial", state.code)(
+              "kind", background ? "background" : "loginItem")("status", status);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSBackgroundItemState", told));
+          oxyos::Report::get().input("background.state", 0, told);
         }
         for (const auto& result : capabilityResults) {
           auto asked = askedCapabilities.find(result.code);
@@ -2507,11 +2737,11 @@ int main(int argc, char** argv) {
         for (const auto& result : launchResults) {
           oxyos::Report::get().input("launch.result", 0,
                                      folly::dynamic::object("serial", result.code)("launched", result.flag != 0));
-          // An application's Settings opened at a page: its own answer.
-          if (auto asked = settingsOpens.find(result.code); asked != settingsOpens.end()) {
+          // An application's URL opened: its own answer.
+          if (auto asked = urlOpens.find(result.code); asked != urlOpens.end()) {
             auto done = std::move(asked->second);
-            settingsOpens.erase(asked);
-            done(result.flag != 0, result.flag != 0 ? "" : "the session did not open Settings");
+            urlOpens.erase(asked);
+            done(result.flag != 0, result.flag != 0 ? "" : "no application opened it");
             continue;
           }
           instance->callFunctionOnModule(
@@ -2752,11 +2982,15 @@ int main(int argc, char** argv) {
         followScope();
         if (modalFirstPending >= 0) {
           auto scope = navigationScope(keyboardSurface);
-          // The ring was showing as it came (it is set only then); a focus since (a press, an
-          // application's) ends the wait.
-          if (scope != modalFirstPending || keyboardFocus.focused() >= 0) {
+          // The ring was showing as it came (it is set only then); a focus in it since (a press, an
+          // application's) ends the wait, and a control of its own the application asked for, not
+          // laid out or shown yet, prolongs it.
+          auto focused = keyboardFocus.focused();
+          bool awaited = keyboardAfterMount >= 0 && tree.views().count(keyboardAfterMount) &&
+                         insideOf(keyboardAfterMount, scope);
+          if (scope != modalFirstPending || (focused >= 0 && insideOf(focused, scope))) {
             modalFirstPending = -1;
-          } else if (auto first = oxyos::focusables(tree, scope); !first.empty()) {
+          } else if (auto first = oxyos::focusables(tree, scope); !awaited && !first.empty()) {
             modalFirstPending = -1;
             moveKeyboardFocus(first.front(), true, keyboardSurface);
           }
@@ -2765,9 +2999,17 @@ int main(int argc, char** argv) {
           auto tag = keyboardAfterMount;
           keyboardAfterMount = -1;
           auto scope = navigationScope(keyboardSurface);
-          if (keyboardFocus.ringShown() && scope >= 0 && tag != keyboardFocus.focused() && tree.views().count(tag) &&
-              oxyos::focusable(tree, tag) && insideOf(tag, scope)) {
-            moveKeyboardFocus(tag, true, keyboardSurface);
+          if ((keyboardFocus.ringShown() || modalFirstPending == scope) && scope >= 0 &&
+              tag != keyboardFocus.focused() && tree.views().count(tag) && insideOf(tag, scope)) {
+            if (oxyos::focusable(tree, tag)) {
+              applicationFocus = {tag, keyboardFocus.focused()};
+              moveKeyboardFocus(tag, true, keyboardSurface);
+            } else if (modalFirstPending == scope && oxyos::focusableOnceShown(tree, tag)) {
+              // A control of a modal coming that is not laid out or shown yet (a dialog's buttons
+              // until it has measured itself, a frame later): the modal waits for it, and it takes
+              // the keyboard once it can, unless the person moves the keyboard first.
+              keyboardAfterMount = tag;
+            }
           }
         }
         // A shell region given the keyboard puts its focus where it asks (its `focusTarget`).
@@ -3082,7 +3324,8 @@ int main(int argc, char** argv) {
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
-                           editing.nextBlink(), oxyos::Memory::get().nextDeadline()}) {
+                           editing.nextBlink(), oxyos::Memory::get().nextDeadline(),
+                           services.accountSession ? services.accountSession->nextDeadline() : std::nullopt}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;
@@ -3093,6 +3336,9 @@ int main(int argc, char** argv) {
           for (int fd : applicationFds(services)) fds.push_back({fd, POLLIN, 0});
           if (int applications = shellMode ? shellState.applicationsFd() : -1; applications >= 0) {
             fds.push_back({applications, POLLIN, 0});
+          }
+          if (settingsApplications) {
+            fds.push_back({oxyos_applications_watch_fd(settingsApplications.get()), POLLIN, 0});
           }
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);

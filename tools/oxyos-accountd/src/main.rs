@@ -29,6 +29,8 @@
 //!   machine, for a development server);
 //! - `OXYOS_OXY_CLIENT_ID`: OxyOS's public client id, which the platform's sign-ins name; without
 //!   it nothing is set up (`notConfigured`) and passwords are not checked online;
+//! - `OXYOS_OXY_CLOUD`: Oxy's cloud, where an account's avatar is read from to be its picture,
+//!   `https://cloud.oxy.so` by default (a development server's may be plain HTTP to this machine);
 //! - `OXYOS_SESSION_PROGRAM`: the session program, `/usr/bin/oxyos-session` by default, the one
 //!   program that may register launches;
 //! - `OXYOS_LOGIN_PROGRAM`: the login program, `/usr/libexec/oxyos/oxyos-login` by default, whose
@@ -49,6 +51,8 @@
 //! error, the journal's; never a password, a secret, a code or a token.
 
 mod passwords;
+#[cfg(test)]
+mod unit_sandbox;
 
 use oxyos_account::api::{Attestation, HttpApi, PlatformClient};
 use oxyos_account::erase::{Eraser, Systemctl};
@@ -81,6 +85,7 @@ struct Options {
     socket: PathBuf,
     session_socket: PathBuf,
     api: String,
+    cloud: String,
     client_id: Option<String>,
     session_program: PathBuf,
     login_program: PathBuf,
@@ -102,6 +107,7 @@ fn options() -> Result<Options, String> {
         socket: ipc::SOCKET.into(),
         session_socket: session::SOCKET.into(),
         api: env("OXYOS_OXY_API").unwrap_or_else(|| oxyos_account::api::OXY_API.into()),
+        cloud: env("OXYOS_OXY_CLOUD").unwrap_or_else(|| oxyos_account::api::OXY_CLOUD.into()),
         client_id: env("OXYOS_OXY_CLIENT_ID"),
         session_program: env("OXYOS_SESSION_PROGRAM")
             .unwrap_or_else(|| session::SESSION_PROGRAM.into())
@@ -150,6 +156,9 @@ fn log(peer: &Peer, outcome: &Outcome) {
             enrolled.account, enrolled.user, enrolled.uid
         ),
         Outcome::Refused(error) => eprintln!("oxyos-accountd: {who}: setup refused: {error}"),
+        Outcome::Interrupted(error) => {
+            eprintln!("oxyos-accountd: {who}: setup failed, its sign-in kept for a retry: {error}")
+        }
         Outcome::SecondFactorRequired => {
             eprintln!("oxyos-accountd: {who}: setup waits for the authenticator's code")
         }
@@ -198,6 +207,15 @@ fn session_log(uid: u32, event: &Event) {
         ),
         Event::EraseRefused(reason) => {
             eprintln!("oxyos-accountd: uid {uid}'s Settings: the erase refused: {reason:?}")
+        }
+        Event::Saved { id } => {
+            eprintln!("oxyos-accountd: uid {uid}'s {id}: a login saved, as the person said")
+        }
+        Event::NotSaved { id } => {
+            eprintln!("oxyos-accountd: uid {uid}'s {id}: not saved, as the person said")
+        }
+        Event::SaveRefused { id, reason } => {
+            eprintln!("oxyos-accountd: uid {uid}'s {id}: not saved: {reason:?}")
         }
         Event::Refused(_) => {
             eprintln!("oxyos-accountd: uid {uid} on the session socket: not permitted")
@@ -262,6 +280,23 @@ impl Drop for Slot {
 
 type Service = Platform<HttpApi, SystemUsers>;
 
+/// `path` as a directory of the service's own, 0700: made if it is not there, refused if it is
+/// anything else (`Registrars` reads nothing from a directory that is not).
+fn own_directory(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => return Err(error),
+        _ => {}
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(std::io::Error::other(
+            "not a directory of the service's own",
+        ));
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
 /// The session socket: each connection classified by the kernel's word on its peer, then served
 /// on a thread of its own.
 fn sessions(listener: Listener, sessions: Arc<Sessions<HttpApi, SystemUsers>>) {
@@ -309,7 +344,7 @@ fn run() -> Result<(), String> {
     if !rustix::process::geteuid().is_root() {
         return Err("it runs as root: it makes users and sets their verifiers".into());
     }
-    let api = HttpApi::new(&options.api)?;
+    let api = HttpApi::new(&options.api)?.with_cloud(&options.cloud)?;
     let store = Store::open(&options.state)
         .map_err(|error| format!("{}: {error}", options.state.display()))?
         .with_pictures(&options.pictures);
@@ -333,6 +368,11 @@ fn run() -> Result<(), String> {
         Ok(None) => {}
         Err(error) => eprintln!("oxyos-accountd: the machine has no administrator: {error}"),
     }
+    // Each account's user named as its account is (passwd's GECOS): users set up before the
+    // service named them are named now.
+    if let Err(error) = setup.name_users() {
+        eprintln!("oxyos-accountd: the accounts' users are not named: {error}");
+    }
     let platform: Arc<Service> = Arc::new(Platform::new(setup));
     // The accounts' keychains, synced with OxyOS's own token for each account.
     let tokens = Arc::downgrade(&platform);
@@ -355,6 +395,11 @@ fn run() -> Result<(), String> {
         Memory::Locked,
     );
     platform.set_keychains(keychains);
+    // Each account's picture read where it is missing or out of date (accounts set up before
+    // pictures were kept), on a thread of its own: nothing waits for Oxy's cloud, and offline the
+    // last one read is shown.
+    let pictures = Arc::clone(&platform);
+    std::thread::spawn(move || pictures.refresh_pictures());
     let listener = Listener::bind(&options.socket)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;
     let session_listener = Listener::bind(&options.session_socket)
@@ -369,12 +414,28 @@ fn run() -> Result<(), String> {
         options.api,
         options.session_program.display()
     );
+    // The registrars verified this boot, beside the session socket (session::VERIFIED): a session
+    // running when the service starts again is known by them, though an upgrade replaced its
+    // program since.
+    let verified = options
+        .session_socket
+        .parent()
+        .unwrap_or(Path::new("/"))
+        .join("registrars");
+    if let Err(error) = own_directory(&verified) {
+        eprintln!(
+            "oxyos-accountd: {}: {error}: a session running when the service starts again is \
+             not known if an upgrade replaced its program",
+            verified.display()
+        );
+    }
     let session_service = Arc::new(Sessions::new(
         platform.clone(),
         Registrars::new(
             options.session_program.clone(),
             options.login_program.clone(),
-        ),
+        )
+        .remembering(verified),
         Eraser::new(
             Box::new(Systemctl::new()),
             Box::new(passwords::PamPasswords::new()),

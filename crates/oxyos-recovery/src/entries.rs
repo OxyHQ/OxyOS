@@ -85,6 +85,15 @@ impl Entry {
             .strip_prefix("oxyos-")
             .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()))
     }
+
+    /// One of Safe Mode's entries (ADR 0054, decision 10): `oxyos-safe-mode-<kernel version>`,
+    /// written beside its kernel's own. Never counted, condemned or given tries (choosing it spends
+    /// none, and a pending erase never makes it the default); it goes with its kernel.
+    pub fn is_safe_mode(&self) -> bool {
+        self.id
+            .strip_prefix(crate::layout::SAFE_MODE_PREFIX)
+            .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()))
+    }
 }
 
 fn parse_counter(counter: &str) -> Option<Tries> {
@@ -216,6 +225,122 @@ impl Entries {
         }
         self.flush()?;
         Ok(changed)
+    }
+
+    /// Safe Mode's entries.
+    pub fn safe_mode(&self) -> io::Result<Vec<Entry>> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(Entry::is_safe_mode)
+            .collect())
+    }
+
+    /// Writes Safe Mode's entry for the kernel `version` from the kernel's own, as kernel-install
+    /// wrote it (`<token>-<version>`, counted or not), whole or not at all: the `.new` file written
+    /// and flushed, then renamed, the directory flushed. Without the kernel's entry nothing is
+    /// written. The file written.
+    pub fn write_safe_mode(&self, token: &str, version: &str) -> io::Result<String> {
+        let entry = self.safe_mode_text(token, version)?;
+        let name = crate::layout::safe_mode_entry_name(version);
+        self.write_whole(&name, &entry)?;
+        Ok(name)
+    }
+
+    /// Safe Mode's entry for the kernel `version`, made from the kernel's own (`<token>-<version>`,
+    /// counted or not).
+    fn safe_mode_text(&self, token: &str, version: &str) -> io::Result<String> {
+        let id = format!("{token}-{version}");
+        let kernel = self
+            .list()?
+            .into_iter()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no entry {id}")))?;
+        let text = fs::read_to_string(self.directory.join(&kernel.file_name))?;
+        crate::layout::safe_mode_entry(&text).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} names no kernel or command line", kernel.file_name),
+            )
+        })
+    }
+
+    /// `text` as the entry `name`, whole or not at all: the `.new` file written and flushed, then
+    /// renamed, the directory flushed.
+    fn write_whole(&self, name: &str, text: &str) -> io::Result<()> {
+        let new = self.directory.join(format!("{name}.new"));
+        fs::write(&new, text)?;
+        fs::File::open(&new)?.sync_all()?;
+        fs::rename(&new, self.directory.join(name))?;
+        self.flush()
+    }
+
+    /// Safe Mode's entries as the kernels' are (ADR 0054, decision 10): one for every kernel whose
+    /// entry kernel-install wrote (`<token>-<version>`, the version beginning with a digit, counted
+    /// or not), written when it is missing or differs from what the kernel's entry makes, and one
+    /// whose kernel's entry is gone removed. What a machine converted before Safe Mode, or one
+    /// whose plugin was not installed when its kernels were, is brought to; run again, it changes
+    /// nothing. The files written and the ones removed.
+    pub fn sync_safe_mode(&self, token: &str) -> io::Result<(Vec<String>, Vec<String>)> {
+        let prefix = format!("{token}-");
+        let entries = self.list()?;
+        let versions: Vec<&str> = entries
+            .iter()
+            .filter(|entry| !entry.is_safe_mode())
+            .filter_map(|entry| entry.id.strip_prefix(&prefix))
+            .filter(|version| version.starts_with(|c: char| c.is_ascii_digit()))
+            .collect();
+        let mut written = Vec::new();
+        for version in &versions {
+            let text = self.safe_mode_text(token, version)?;
+            let name = crate::layout::safe_mode_entry_name(version);
+            if fs::read_to_string(self.directory.join(&name))
+                .ok()
+                .as_deref()
+                != Some(&text)
+            {
+                self.write_whole(&name, &text)?;
+                written.push(name);
+            }
+        }
+        let mut removed = Vec::new();
+        for entry in entries.iter().filter(|entry| entry.is_safe_mode()) {
+            let version = &entry.id[crate::layout::SAFE_MODE_PREFIX.len()..];
+            if !versions.contains(&version) {
+                fs::remove_file(self.directory.join(&entry.file_name))?;
+                removed.push(entry.file_name.clone());
+            }
+        }
+        if !removed.is_empty() {
+            self.flush()?;
+        }
+        Ok((written, removed))
+    }
+
+    /// Removes Safe Mode's entry for the kernel `version`: whether it was there.
+    pub fn remove_safe_mode_of(&self, version: &str) -> io::Result<bool> {
+        match fs::remove_file(
+            self.directory
+                .join(crate::layout::safe_mode_entry_name(version)),
+        ) {
+            Ok(()) => {
+                self.flush()?;
+                Ok(true)
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Removes every Safe Mode entry (an erase's kernels bring their own), returning their ids.
+    pub fn remove_safe_mode(&self) -> io::Result<Vec<String>> {
+        let mut removed = Vec::new();
+        for entry in self.safe_mode()? {
+            fs::remove_file(self.directory.join(&entry.file_name))?;
+            removed.push(entry.id);
+        }
+        self.flush()?;
+        Ok(removed)
     }
 
     /// Removes every OxyOS entry (a reinstall's kernels replace them), returning their ids.

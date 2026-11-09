@@ -34,10 +34,13 @@ import {
 import { useSessionLocale } from './oxyos/locale';
 import {
   available,
+  backup as systemBackup,
   session as systemSession,
   privacy,
+  storage as systemStorage,
   updates as systemUpdates,
   useInputSourcesState,
+  useBackupState,
   useUpdateState,
 } from './oxyos/system';
 import {
@@ -55,8 +58,25 @@ import {
   type AccountSnapshot,
 } from '../../../apps/settings/src/account';
 import { eraseOutcomeFrom, erasePreviewFrom, type EraseActions } from '../../../apps/settings/src/erase';
+import {
+  indexedOf,
+  largeFiles,
+  measuredOf,
+  removeOutcomeOf,
+  resetOutcomeOf,
+  type LargeFile,
+  type StorageActions,
+  type StorageMeasured,
+} from '../../../apps/settings/src/storage';
 import { localOutcomeFrom, localSignInFrom } from '../../../apps/settings/src/local-sign-in';
-import type { NetworkActions, NetworkState } from '../../../apps/settings/src/network';
+import type { KeychainPlatform } from '../../../apps/settings/src/passwords';
+import type {
+  DiagnosticsAnswer,
+  NetworkActions,
+  NetworkState,
+  PrivateAddressAnswer,
+  ResetAnswer,
+} from '../../../apps/settings/src/network';
 import type {
   BluetoothActions,
   BluetoothDevice,
@@ -75,15 +95,25 @@ import {
   type PowerState,
 } from '../../../apps/settings/src/battery';
 import {
+  backupDisksOf,
+  backupFailureOf,
+  backupStateOf,
+  type BackupActions,
+  type BackupState,
+} from '../../../apps/settings/src/backups';
+import {
   INPUT_METHODS,
   inputSourcesOf,
   parseInputSources,
   parseInputSourcesPreference,
 } from '../../../apps/settings/src/input-sources';
 import {
+  BACKUP_DEFAULTS,
   ENERGY_DEFAULTS,
+  GESTURE_DEFAULTS,
   PREFERENCE_KEYS,
   preferenceText,
+  swipeFingersOf,
   TRIAL_SECONDS,
   type Appearance,
   type DisplaysSnapshot,
@@ -125,6 +155,7 @@ const FIXTURE: SettingsSnapshot = {
     uiSounds: true,
     trackpadNaturalScrolling: true,
     mouseNaturalScrolling: false,
+    ...GESTURE_DEFAULTS,
     wallpaper: '',
     wallpaperAllDesktops: true,
     lockAfter: 5,
@@ -135,9 +166,12 @@ const FIXTURE: SettingsSnapshot = {
     doNotDisturb: false,
     notificationPreviews: 'unlocked',
     notificationSoundsOff: [],
+    openAtLogin: [],
     inputSources: [],
     inputSource: 'layout',
     ...ENERGY_DEFAULTS,
+    ...BACKUP_DEFAULTS,
+    emptyTrashAutomatically: false,
   },
   wallpapers: EMPTY_CATALOG,
   applications: [
@@ -223,9 +257,9 @@ const NETWORK_FIXTURE: NetworkState = {
       { ssid: 'Oficina', signal: 30, security: 'wpa', known: true, current: false, supported: true },
     ],
     known: [
-      { id: '6f1c2a4e-0b8d-4f3e-9a51-2d7c8e1b9f01', ssid: 'LukeSkyRouter', autoJoin: true },
-      { id: 'b2e94d17-5c3a-4a8f-8e6d-0f1a2b3c4d02', ssid: 'Oficina', autoJoin: true },
-      { id: 'd8a7c6b5-4e3f-4a2b-9c1d-0e9f8a7b6c03', ssid: 'Casa Abuela', autoJoin: true },
+      { id: '6f1c2a4e-0b8d-4f3e-9a51-2d7c8e1b9f01', ssid: 'LukeSkyRouter', autoJoin: true, privateAddress: 'fixed' },
+      { id: 'b2e94d17-5c3a-4a8f-8e6d-0f1a2b3c4d02', ssid: 'Oficina', autoJoin: true, privateAddress: 'fixed' },
+      { id: 'd8a7c6b5-4e3f-4a2b-9c1d-0e9f8a7b6c03', ssid: 'Casa Abuela', autoJoin: true, privateAddress: 'off' },
     ],
     details: {
       interface: 'wlp0s20f3',
@@ -299,6 +333,12 @@ function preferencesOf(values: Record<string, string>): Preferences {
     // (docs/adr/0042-scrolling.mdx, decision 6).
     trackpadNaturalScrolling: values[PREFERENCE_KEYS.trackpadNaturalScrolling] !== 'false',
     mouseNaturalScrolling: flag(PREFERENCE_KEYS.mouseNaturalScrolling),
+    // Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx): three fingers for each swipe
+    // unless the session keeps four or off, and Launchpad's pinch on unless it keeps it off.
+    missionControlSwipe: swipeFingersOf(values[PREFERENCE_KEYS.missionControlSwipe]),
+    appExposeSwipe: swipeFingersOf(values[PREFERENCE_KEYS.appExposeSwipe]),
+    desktopsSwipe: swipeFingersOf(values[PREFERENCE_KEYS.desktopsSwipe]),
+    launchpadPinch: values[PREFERENCE_KEYS.launchpadPinch] !== 'false',
     // The choice where Settings' window is (docs/adr/0048-wallpapers.mdx, decision 4).
     wallpaper: values[PREFERENCE_KEYS.wallpaper] ?? '',
     // On unless the session keeps it off.
@@ -314,6 +354,9 @@ function preferencesOf(values: Record<string, string>): Preferences {
       (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
     // The applications whose notifications are silent, as the session tells Settings them.
     notificationSoundsOff: (values[PREFERENCE_KEYS.notificationSoundsOff] ?? '').split(',').filter(Boolean),
+    // The applications opened at login, as the session tells Settings them (the dock's list too,
+    // docs/adr/0060-login-items-and-background-activity.mdx).
+    openAtLogin: (values[PREFERENCE_KEYS.openAtLogin] ?? '').split(',').filter(Boolean),
     // None added, the layout current, unless the session keeps others (docs/adr/0041-input-methods.mdx).
     inputSources: parseInputSourcesPreference(values[PREFERENCE_KEYS.inputSources]),
     inputSource: values[PREFERENCE_KEYS.inputSource] || 'layout',
@@ -326,6 +369,10 @@ function preferencesOf(values: Record<string, string>): Preferences {
     sleepBattery: minutesOf(values[PREFERENCE_KEYS.sleepBattery], ENERGY_DEFAULTS.sleepBattery),
     sleepAdapter: minutesOf(values[PREFERENCE_KEYS.sleepAdapter], ENERGY_DEFAULTS.sleepAdapter),
     dimOnBattery: values[PREFERENCE_KEYS.dimOnBattery] !== 'false',
+    // The menu bar's backup item (docs/adr/0059-backups.mdx): shown unless the person turned it off.
+    backupInMenuBar: values[PREFERENCE_KEYS.backupInMenuBar] !== 'false',
+    // Off unless the person turned it on (docs/adr/0062-storage.mdx).
+    emptyTrashAutomatically: flag(PREFERENCE_KEYS.emptyTrashAutomatically),
   };
 }
 
@@ -365,7 +412,14 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     setDisplays(native?.getDisplays() ?? null);
     return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
-  const applications = React.useMemo(() => native?.getApplications?.() ?? [], []);
+  // The session's applications as its registry names them, read again as the host says they changed
+  // (one installed, updated or removed while Settings is open, or the session's language changed).
+  const [applications, setApplications] = React.useState(() => native?.getApplications?.() ?? []);
+  React.useEffect(() => {
+    const read = () => setApplications(native?.getApplications?.() ?? []);
+    const subscription = DeviceEventEmitter.addListener('OxyOSApplicationsChanged', read);
+    return () => subscription.remove();
+  }, []);
   const system = React.useMemo(() => {
     if (!native) return FIXTURE.system;
     const told = native.getSystem();
@@ -479,6 +533,10 @@ function useInstallModel() {
   React.useEffect(() => {
     if (available && state) reload();
   }, [state, reload]);
+  // Told again, unasked, when it changed elsewhere: an application granted a capability as it
+  // registered, or one running in the background or no longer
+  // (docs/adr/0060-login-items-and-background-activity.mdx).
+  React.useEffect(() => (available ? privacy.subscribe(setApps) : undefined), []);
   const done = (answer: { refused?: { reason: string }; failed?: { reason: string } } | null) =>
     setFailed(answer?.refused?.reason ?? answer?.failed?.reason ?? null);
   // An update answers once it ended, with each application's outcome.
@@ -527,6 +585,11 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
       scan: () => {
         platformNetwork.scan().catch(() => {});
       },
+      setPrivateAddress: (id, mode) =>
+        platformNetwork.setPrivateAddress(id, mode) as Promise<unknown> as Promise<PrivateAddressAnswer>,
+      resetPreview: () => platformNetwork.resetPreview() as Promise<unknown> as Promise<ResetAnswer>,
+      resetNetwork: () => platformNetwork.reset() as Promise<unknown> as Promise<ResetAnswer>,
+      diagnose: () => platformNetwork.diagnose() as Promise<unknown> as Promise<DiagnosticsAnswer>,
     }),
     [],
   );
@@ -572,7 +635,7 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
             networks,
             known: state.wifi.known.some((k) => k.ssid === ssid)
               ? state.wifi.known
-              : [...state.wifi.known, { id: `fixture-${ssid}`, ssid, autoJoin: true }],
+              : [...state.wifi.known, { id: `fixture-${ssid}`, ssid, autoJoin: true, privateAddress: 'fixed' }],
           },
           };
         });
@@ -598,6 +661,28 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
         });
       },
       scan: () => {},
+      setPrivateAddress: async (id, mode) => {
+        const known = current.current.wifi.known.find((k) => k.id === id);
+        if (!known) throw { code: 'notFound' };
+        setFixture((state) => ({
+          ...state,
+          wifi: {
+            ...state.wifi,
+            known: state.wifi.known.map((k) => (k.id === id ? { ...k, privateAddress: mode } : k)),
+          },
+        }));
+        return { privateAddress: { mode, rejoined: current.current.wifi.current?.ssid === known.ssid } };
+      },
+      // Without a session there is no daemon to reset or to diagnose: said as such.
+      resetPreview: async () => {
+        throw { code: 'unavailable' };
+      },
+      resetNetwork: async () => {
+        throw { code: 'unavailable' };
+      },
+      diagnose: async () => {
+        throw { code: 'unavailable' };
+      },
     }),
     [],
   );
@@ -746,6 +831,32 @@ function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
   );
   if (!available) return { power: fixture, actions: local };
   return { power: told, actions: session };
+}
+
+/** Backups' requests of the session (docs/adr/0059-backups.mdx), each answered once the backup
+    service answered: why not, or null once done. */
+const backupActions: BackupActions = {
+  backUpNow: async () => backupFailureOf(await systemBackup.backUpNow(), 'backupNow'),
+  stop: async () => backupFailureOf(await systemBackup.stop(), 'backupStop'),
+  disks: async () => backupDisksOf(await systemBackup.disks()),
+  addDisk: async (uuid, password) => backupFailureOf(await systemBackup.addDisk(uuid, password), 'backupAddDisk'),
+  addShare: async (share, sharePassword, password) =>
+    backupFailureOf(await systemBackup.addShare(share, sharePassword, password), 'backupAddShare'),
+  remove: async (id) => backupFailureOf(await systemBackup.remove(id), 'backupRemove'),
+  setExcluded: async (paths) => backupFailureOf(await systemBackup.setExcluded(paths), 'backupExcluded'),
+  setAutomatic: async (enabled) => backupFailureOf(await systemBackup.setAutomatic(enabled), 'backupAutomatic'),
+};
+
+/**
+ * Backups (docs/adr/0059-backups.mdx): in a session, the backup service's state as the session
+ * tells Settings with its `settings` grant, read strictly (undefined until told, null while the
+ * service is not there), and its requests. Without a session there is no backup service, and no
+ * page.
+ */
+function useBackupModel(): { backup: BackupState | null | undefined; actions: BackupActions | undefined } {
+  const told = useBackupState() as { backup?: unknown } | null;
+  if (!available || told === null) return { backup: undefined, actions: undefined };
+  return { backup: backupStateOf(told.backup), actions: backupActions };
 }
 
 /**
@@ -979,6 +1090,101 @@ function useWallpaperModel(locale: string): {
   return { catalog, added, actions };
 }
 
+/** The reference ThinkPad's 512 GB disk, for the browser preview and a host outside a session. */
+const STORAGE_FIXTURE: StorageMeasured = {
+  name: 'OxyOS',
+  capacity: 512_110_190_592,
+  available: 301_465_014_272,
+  used: 185_039_413_248,
+  reserved: 25_605_763_072,
+  system: 9_664_217_088,
+  trash: 1_288_490_188,
+  apps: [
+    { id: 'so.oxy.mention', name: 'Mention', origin: 'installed', package: 48_234_496, data: 912_261_120, caches: 210_763_776, lastUsed: Date.now() - 2 * 86_400_000, removable: true },
+    { id: 'so.oxy.inbox', name: 'Inbox', origin: 'installed', package: 31_457_280, data: 402_653_184, caches: 52_428_800, lastUsed: Date.now() - 140 * 86_400_000, removable: true },
+    { id: 'so.oxy.allo', name: 'Allo', origin: 'installed', package: 27_262_976, data: 104_857_600, caches: 8_388_608, lastUsed: Date.now() - 3_600_000, removable: true },
+    { id: 'so.oxy.settings', name: 'Settings', origin: 'system', package: null, data: 1_048_576, caches: 0, lastUsed: null, removable: false },
+  ],
+};
+
+const LARGE_FILES_FIXTURE: LargeFile[] = [
+  { uri: 'file:///home/ana/Movies/Vacaciones.mov', name: 'Vacaciones.mov', location: 'Movies', size: 8_589_934_592, modified: Date.now() - 200 * 86_400_000, category: 'movie' },
+  { uri: 'file:///home/ana/Downloads/trixie.iso', name: 'trixie.iso', location: 'Downloads', size: 3_975_151_616, modified: Date.now() - 90 * 86_400_000, category: 'archive' },
+  { uri: 'file:///home/ana/Documents/Tesis.pdf', name: 'Tesis.pdf', location: 'Documents', size: 524_288_000, modified: Date.now() - 30 * 86_400_000, category: 'pdf' },
+];
+
+/**
+ * Settings › Storage (docs/adr/0062-storage.mdx): in a session, the session's measurement (its
+ * `settings` grant), the search index's sums and largest files, the file service's Trash and the
+ * store's uninstall, each asked when the page asks; without one, the reference ThinkPad's.
+ */
+function useStorageActions(): StorageActions {
+  return React.useMemo<StorageActions>(() => {
+    if (!available) {
+      let files = LARGE_FILES_FIXTURE;
+      let apps = STORAGE_FIXTURE.apps;
+      return {
+        measure: async () => ({ ...STORAGE_FIXTURE, apps }),
+        indexed: async () => ({
+          kinds: {
+            image: { files: 4_210, bytes: 21_474_836_480 },
+            movie: { files: 37, bytes: 30_064_771_072 },
+            pdf: { files: 312, bytes: 5_368_709_120 },
+            document: { files: 840, bytes: 2_147_483_648 },
+          },
+          indexing: false,
+          partial: false,
+        }),
+        largest: async (limit) => files.slice(0, limit),
+        reveal: async () => {},
+        trash: async (uri) => {
+          files = files.filter((file) => file.uri !== uri);
+        },
+        remove: async (id) => {
+          apps = apps.filter((app) => app.id !== id);
+          return 'removed';
+        },
+        reset: async (id) => {
+          apps = apps.map((app) => (app.id === id ? { ...app, data: 0, caches: 0 } : app));
+          return 'reset';
+        },
+      };
+    }
+    const failure = (answer: any) =>
+      new Error(answer?.refused?.reason ?? answer?.failed?.reason ?? 'failed');
+    const search = oxyosSurfaces.search as any;
+    return {
+      measure: async () => {
+        const answer = await systemStorage.measure();
+        const measured = measuredOf(answer);
+        if (!measured) throw failure(answer);
+        return measured;
+      },
+      indexed: async () => (search?.storage ? indexedOf(await search.storage()) : null),
+      // The index's state followed (it says when it is built further and when it is done), else
+      // its changes.
+      watchIndex: search?.state
+        ? (listener) => search.state.subscribe(() => listener())
+        : search?.watch
+          ? (listener) => search.watch(listener)
+          : undefined,
+      largest: async (limit) => (search?.largest ? largeFiles((await search.largest({ limit })).items ?? []) : []),
+      reveal: async (uri) => {
+        const answer: any = await systemStorage.reveal(uri);
+        if (!answer?.revealed) throw failure(answer);
+      },
+      trash: async (uri) => {
+        const files = oxyosSurfaces.files;
+        if (!files) throw new Error('unavailable');
+        const [moved] = await files.trash([uri]);
+        if (!moved?.ok) throw new Error(moved?.error ?? 'failed');
+      },
+      remove: async (id) => removeOutcomeOf(await systemStorage.remove(id)),
+      reset: async (id) => resetOutcomeOf(await systemStorage.reset(id)),
+    };
+  }, []);
+}
+
 /** The system's folder chooser (docs/adr/0028-file-access.mdx), through expo-file-system's picker:
     the folder's `file://` URI, or null when cancelled or refused. Settings › Spotlight's privacy. */
 async function chooseFolder(): Promise<string | null> {
@@ -1000,6 +1206,7 @@ const accountSession = TurboModuleRegistry.get<{
   remove(): Promise<unknown>;
   erasePreview(): Promise<unknown>;
   eraseAll(password: string): Promise<unknown>;
+  keychain(request: string): Promise<unknown>;
 }>('OxyOSAccountSession');
 const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOutcome => {
   if (done(answer)) return { done: true };
@@ -1030,6 +1237,36 @@ const eraseActions: EraseActions | undefined = accountSession
     }
   : undefined;
 
+/** Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): each
+    request handed to the host, which sends it to the accounts' service and forgets it, and a copy
+    marked sensitive, which the host clears after 90 seconds (docs/adr/0007-clipboard.mdx). */
+const clipboard = TurboModuleRegistry.get<{ setSensitiveString?(text: string): Promise<boolean> }>('OxyOSClipboard');
+const nativeWindow = TurboModuleRegistry.get<{
+  getConstants?(): { available?: boolean };
+  getState(): { active?: unknown };
+}>('OxyOSWindow');
+const keychainPlatform: KeychainPlatform | undefined =
+  accountSession && typeof accountSession.keychain === 'function'
+    ? {
+        ask: (request) => accountSession.keychain(JSON.stringify(request)),
+        copySensitive: async (text) => (clipboard?.setSensitiveString ? clipboard.setSensitiveString(text) : false),
+        // The window's activation as the host tells it (docs/adr/0016-windows.mdx): the lock leaves
+        // no window active, so Passwords asks again whether it may stay open.
+        watchActive: (listener) => {
+          const told = nativeWindow?.getConstants?.()?.available ? nativeWindow.getState() : null;
+          let active: boolean | null = typeof told?.active === 'boolean' ? told.active : null;
+          const subscription = DeviceEventEmitter.addListener('OxyOSWindowChanged', (state: { active?: unknown }) => {
+            if (typeof state?.active !== 'boolean' || state.active === active) return;
+            active = state.active;
+            listener(state.active);
+          });
+          // Not active already (another application is): said at once, so it is followed from now.
+          if (active === false) listener(false);
+          return () => subscription.remove();
+        },
+      }
+    : undefined;
+
 /** The machine's Oxy session as the platform's session host tells it (none outside a session). */
 function useAccount(): AccountSnapshot | null {
   const told = React.useSyncExternalStore(
@@ -1057,6 +1294,8 @@ export default function SettingsApp() {
   const bluetooth = useBluetoothModel();
   const sound = useSoundModel();
   const power = usePowerModel();
+  const backup = useBackupModel();
+  const storage = useStorageActions();
   const inputSources = useInputSources(model.snapshot, model.session);
   const snapshot: SettingsSnapshot = {
     ...model.snapshot,
@@ -1066,6 +1305,7 @@ export default function SettingsApp() {
     bluetooth: bluetooth.bluetooth,
     sound: sound.sound,
     power: power.power,
+    backup: backup.backup,
     inputSources,
     account: useAccount(),
   };
@@ -1077,12 +1317,15 @@ export default function SettingsApp() {
     bluetooth: bluetooth.actions,
     sound: sound.actions,
     power: power.actions,
+    backup: backup.actions,
     account: sessionHost ? accountActions : undefined,
     chooseFolder,
     // Settings › Spotlight (docs/adr/0051-search.mdx): the session's search index, which takes its
     // preferences from Settings alone.
     search: oxyosSurfaces.search,
+    storage,
     erase: sessionHost ? eraseActions : undefined,
+    keychain: sessionHost ? keychainPlatform : undefined,
   };
   // The session's locale, as it tells every client; the fixture's from its own preferences.
   const told = useSessionLocale();

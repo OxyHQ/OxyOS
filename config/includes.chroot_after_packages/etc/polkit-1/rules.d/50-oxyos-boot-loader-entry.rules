@@ -1,0 +1,10 @@
+// Which entry the boot loader starts next is an administrator's to choose, as a Mac's Startup Disk
+// is (docs/adr/0054-recovery-and-erasing.mdx, decision 10). logind lets any process of the active
+// session set it for itself (org.freedesktop.login1.set-reboot-to-boot-loader-entry, allow_active
+// yes): any application of the person's could restart the machine into Safe Mode or the recovery.
+// It asks an administrator's authentication instead.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.login1.set-reboot-to-boot-loader-entry") {
+        return polkit.Result.AUTH_ADMIN_KEEP;
+    }
+});

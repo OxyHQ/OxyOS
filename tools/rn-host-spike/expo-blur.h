@@ -4,6 +4,10 @@
 // `blurTargetId`) and a blur method (Dimezis' BlurView on Android), it is the target's content
 // under it blurred (a Gaussian whose radius is intensity / blurReductionFactor logical pixels),
 // then its tint, clipped to it. The target view draws its children as a plain view.
+//
+// With the session's Reduce transparency on (docs/adr/0019-settings.mdx), no blur view blurs: each
+// is its tint alone, as the method "none" draws it and as Bloom draws its own materials then. The
+// target is never read, so no blur pass is made and no damage near it widens.
 #pragma once
 
 #include <react/renderer/components/view/ConcreteViewShadowNode.h>
@@ -54,5 +58,10 @@ struct ExpoBlurTarget {
   float radius;
 };
 std::optional<ExpoBlurTarget> expoBlurTarget(const facebook::react::ShadowView& view);
+
+// The session's Reduce transparency, for every window of the process (the host sets it as the
+// session tells it): while on, `expoBlurTarget` is none for every view.
+void setReducedTransparency(bool reduced);
+bool reducedTransparency();
 
 }  // namespace oxyos

@@ -38,6 +38,30 @@ pub struct Moment {
     pub place: Option<oxyos_solar::Place>,
 }
 
+/// Where the sun a dynamic wallpaper follows is: the system time zone's place (ADR 0012), or the
+/// one `OXYOS_WALLPAPER_PLACE` gives (`LATITUDE,LONGITUDE` in degrees), which fixes it for the
+/// scenarios as `OXYOS_WALLPAPER_NOW` fixes the moment, whatever the machine's time zone.
+pub fn place() -> Option<oxyos_solar::Place> {
+    match std::env::var("OXYOS_WALLPAPER_PLACE") {
+        Ok(text) => parse_place(&text),
+        Err(_) => oxyos_solar::system_place(),
+    }
+}
+
+fn parse_place(text: &str) -> Option<oxyos_solar::Place> {
+    let (latitude, longitude) = text.split_once(',')?;
+    let (latitude, longitude): (f64, f64) = (
+        latitude.trim().parse().ok()?,
+        longitude.trim().parse().ok()?,
+    );
+    ((-90.0..=90.0).contains(&latitude) && (-180.0..=180.0).contains(&longitude)).then_some(
+        oxyos_solar::Place {
+            latitude,
+            longitude,
+        },
+    )
+}
+
 /// What a display draws.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shown {
