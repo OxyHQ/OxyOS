@@ -4,7 +4,7 @@
 # The applications the gate and a deploy build beside OxyOS: Bloom (its React Native is the runtime's,
 # ADR 0030, decision 17), and Dropsea's and Atlas's Expo projects. Commits of their main.
 BLOOM_REPO=https://github.com/OxyHQ/Bloom.git
-BLOOM_COMMIT=e3996b93573d143ba5d426413eaa9233e61c248b
+BLOOM_COMMIT=688b748acbd36e233097d064a8dac8912544b307
 DROPSEA_REPO=https://github.com/OxyHQ/Dropsea.git
 DROPSEA_COMMIT=a5c4bd44657dd1686178d3e3f1a1601db698bd03
 ATLAS_REPO=https://github.com/OxyHQ/Atlas.git
