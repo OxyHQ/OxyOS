@@ -163,9 +163,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   step (from the step before's settling to this one's), exactly and in order ("TERM", "INT"...),
   and whether it was still "running" once the step settled (SIGKILL is seen as not running);
 - backup: with the scenario's `backup` (the development backup service, `oxyos-offscreen
-  --play-backup`, on the run's own folders backing up its home, the session's backups for the menu
-  bar and Settings, docs/adr/0059-backups.mdx; `backups`, below, is an application's files
-  service's, backed up before the run), what
+  --play-backup`, on the run's own folders backing up its home, docs/adr/0059-backups.mdx) or its
+  `backups` (below: a real `oxyos-backupd --development`, the home backed up before the run), the
+  run's one backup service, as a machine has one: the session's backups for the menu bar and
+  Settings, and what the applications' files service asks (`OXYOS_BACKUPD_SOCKET`), what
   it holds once the step settled, as its `status` answers (`automatic`, `destinations` with each
   one's `name`, `available`, `backups`, `lastFailure`; `excluded`, `running`, `held`...), each key
   given matching ("{home}" in a text the run's home); a `backup` step acts on it: {"connect": uuid, "label"} and {"disconnect": uuid}
@@ -578,8 +579,10 @@ that sets or checks some.
 
 A scenario with `home` and `backups` has that home backed up before the run (docs/adr/0059-backups.mdx)
 by a real `oxyos-backupd --development` (beside oxyos-offscreen, on a played disk named
-`backups.disk`, "Backup Disk" by default, over the machine's restic), which the application's files
-service asks (`OXYOS_BACKUPD_SOCKET`): `backups.states` is a list of the home's states, each
+`backups.disk`, "Backup Disk" by default, over the machine's restic), the run's one backup service
+(never with `backup`): the session's (`--backup`, its menu bar item and Settings) and what every
+application's files service asks (`OXYOS_BACKUPD_SOCKET`), the one the session launched among them:
+`backups.states` is a list of the home's states, each
 {"items": {...}, "remove": [PATH, ...], "modified": SECONDS} changed from the one before (items as
 `home.items`, the first applied to `home.items`), each backed up in turn, a second or more apart;
 `backups.after` the change made once the last was taken. The service is stopped when the run ends. Every scenario runs in one fixed language, never the machine's
@@ -5229,7 +5232,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     home_uri = urllib.parse.quote(f"file://{home_root.root}", safe="-_.!~*'()") if home_root else "{home}"
     wanted_urls = [{**url, "url": url["url"].replace("{home}", home_uri)} if isinstance(url.get("url"), str) else url
                    for url in expect.get("urls_opened", [])]
-    if urls != wanted_urls:
+    # The session's, checked in the step itself: a step's look into the shell or an application it
+    # launched (`in_shell`, `in_launched`) shares the step's result, and does not check them again.
+    if not step.get("within") and urls != wanted_urls:
         fail(f"URLs opened: {urls}, expected {wanted_urls}")
     # Background activity (docs/adr/0060-login-items-and-background-activity.mdx): the processes the
     # session ended in the step, by application, exactly (a step that ends one and does not say so
@@ -5628,8 +5633,8 @@ def install_service(spec, machine, offscreen):
 def backup_service(spec, home_root, out, offscreen):
     """A real oxyos-backupd for a scenario (`backups`, the module's docstring), in its development
     mode (unprivileged, serving this user alone), backing the run's home up to a played disk: each
-    of `states` applied to the home and backed up in turn, then `after`. Its socket, and how to stop
-    it."""
+    of `states` applied to the home and backed up in turn, then `after`. Its socket, its played
+    disks' folder (the session's `--backup` takes both), and how to stop it."""
     import socket as sockets
     import tempfile
     backupd = pathlib.Path(offscreen).resolve().parent / "oxyos-backupd"
@@ -5696,7 +5701,7 @@ def backup_service(spec, home_root, out, offscreen):
     except Exception:
         stop()
         raise
-    return base / "s", stop
+    return base / "s", base / "volumes", stop
 
 
 # The run's install service (`install_service`): its state and log, for the final checks.
@@ -6388,6 +6393,9 @@ def main():
         # developer's machine's.
         power_arguments, stop_power = power_services(scenario["power"], out, options.offscreen)
         command += power_arguments
+    if "backup" in scenario and "backups" in scenario:
+        raise SystemExit(f"{options.scenario}: `backup` and `backups` are each the run's one backup service: "
+                         "a machine has one, which the session and its applications share")
     if "backup" in scenario:
         # The development backup service on the run's own folders (ADR 0059), backing up the
         # run's home: the session's backups are its, never the machine's.
@@ -6606,13 +6614,19 @@ def main():
     stop_backups = None
     env.pop("OXYOS_BACKUPD_SOCKET", None)
     if "backups" in scenario:
-        # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
-        backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
+        # The home's backups (docs/adr/0059-backups.mdx), the run's own service's: the session's
+        # (its menu bar item, Settings) and every application's, as a machine's one service is. A
+        # Dropsea the menu bar's Browse Backups opens asks the service the menu bar shows.
+        backups_socket, backups_volumes, stop_backups = backup_service(scenario["backups"], home_root, out,
+                                                                       options.offscreen)
         env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
+        command[2:2] = ["--backup", str(backups_socket), str(backups_volumes)]
     if "backup" in scenario:
         # The files the backup scenario adds to the run's home (made above), which its service
-        # backs up.
+        # backs up; the applications' files service asks it too, as the session does (never the
+        # machine's service).
         write_backup_files(scenario["backup"], home_root)
+        env["OXYOS_BACKUPD_SOCKET"] = backup_arguments[1]
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
