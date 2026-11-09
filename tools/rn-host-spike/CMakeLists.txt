@@ -419,7 +419,10 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/runtime.json DESTINATION .)
 # targets already pass -Wall -Werror -Wpedantic to what links them; this adds -Wextra and covers
 # the sources that link no React Native target (skia-check.cpp).
 option(OXYOS_WARNINGS_AS_ERRORS "Fail the build on a warning in the host's own sources" ON)
-set(OXYOS_WARNINGS -Wall -Wextra)
+# The baseline, what -Wextra found when it was turned on, off until fixed (a count only shrinks):
+# - missing-field-initializers: 51 sites (33 of them designated initializers) that leave fields to
+#   their default member initializers, on purpose.
+set(OXYOS_WARNINGS -Wall -Wextra -Wno-missing-field-initializers)
 if(OXYOS_WARNINGS_AS_ERRORS)
   list(APPEND OXYOS_WARNINGS -Werror)
 else()
