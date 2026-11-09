@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::scene::swipes::{FLICK, OVERLAY_DISTANCE};
-use crate::scene::{DrawingPreferences, SwipeDrive, SwipeRelease, SwipeRest};
+use crate::scene::{DrawingPreferences, SwipeDrive, SwipeRelease, SwipeRest, TrackpadGestures};
 use oxyos_protocol::{GestureOverlay, ShortcutIntent};
 
 const UP: u32 = 103;
@@ -393,6 +393,305 @@ fn a_swipe_across_slides_the_desktops_and_brings_the_one_beside_in() {
     shown_overlay(&mut h, GestureOverlay::MissionControl);
     swipe(&mut h, 3, 30, (-10, 0));
     assert_eq!(h.scene.workspaces(), (3, 0));
+}
+
+/// Whether the latest swipe drives the desktops.
+fn slides(h: &Harness) -> bool {
+    matches!(h.scene.swipe_drive(), Some(SwipeDrive::Spaces { .. }))
+}
+
+#[test]
+fn the_persons_choice_of_fingers_decides_what_each_swipe_does() {
+    // Settings › Trackpad › More Gestures (docs/adr/0046-interactive-gestures.mdx, amended 8
+    // November 2026).
+    let mut h = Harness::new();
+    dock(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.add_workspace();
+    h.scene.move_to_workspace(window, 0);
+    h.activate(window);
+    let at = h.rect(window);
+    h.scene.pointer_motion(at.x + 50, at.y + 50);
+    logged(&mut h);
+    // As shipped, three fingers, and four too, as on a Mac.
+    assert_eq!(h.scene.trackpad_gestures(), TrackpadGestures::default());
+    for fingers in [3, 4] {
+        begin(&mut h, fingers, 0);
+        update(&mut h, fingers, (0, -30), 100);
+        assert_eq!(
+            openness(&h).map(|(overlay, ..)| overlay),
+            Some(GestureOverlay::MissionControl)
+        );
+        h.scene.pointer_swipe(GesturePhase::Cancel, fingers, 0, 0);
+    }
+    logged(&mut h);
+    // Mission Control and App Exposé on four: three up or down do nothing, the shell told
+    // nothing and nothing driven; four do what they did.
+    h.scene.set_trackpad_gestures(TrackpadGestures {
+        mission_control: Some(4),
+        app_expose: Some(4),
+        ..TrackpadGestures::default()
+    });
+    for way in [-10, 10] {
+        swipe(&mut h, 3, 30, (0, way));
+        assert_eq!(h.scene.swipe_drive(), None);
+        assert!(intents_to(&logged(&mut h), SHELL).is_empty());
+    }
+    swipe(&mut h, 4, 20, (0, -10));
+    assert_eq!(
+        openness(&h).map(|(overlay, _, release)| (overlay, release.map(|r| r.to))),
+        Some((GestureOverlay::MissionControl, Some(1.0)))
+    );
+    swipe(&mut h, 4, 20, (0, 10));
+    assert_eq!(
+        openness(&h).map(|(overlay, ..)| overlay),
+        Some(GestureOverlay::AppExpose)
+    );
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [
+            (SystemShortcut::MissionControl, ShortcutIntent::Open),
+            (SystemShortcut::AppExpose, ShortcutIntent::Open)
+        ]
+    );
+    // Mission Control off: up does nothing with any fingers; App Exposé's down still does.
+    h.scene.set_trackpad_gestures(TrackpadGestures {
+        mission_control: None,
+        app_expose: Some(4),
+        ..TrackpadGestures::default()
+    });
+    for fingers in [3, 4] {
+        swipe(&mut h, fingers, 30, (0, -10));
+        assert_eq!(h.scene.swipe_drive(), None);
+    }
+    swipe(&mut h, 4, 20, (0, 10));
+    assert_eq!(
+        openness(&h).map(|(overlay, ..)| overlay),
+        Some(GestureOverlay::AppExpose)
+    );
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::AppExpose, ShortcutIntent::Open)]
+    );
+    // The desktops on four: three across nothing, four slide them; off, nothing.
+    h.scene.set_trackpad_gestures(TrackpadGestures {
+        desktops: Some(4),
+        ..TrackpadGestures::default()
+    });
+    swipe(&mut h, 3, 30, (-10, 0));
+    assert!(!slides(&h));
+    assert_eq!(h.scene.workspaces(), (2, 0));
+    assert!(to(&logged(&mut h), APP).is_empty());
+    swipe(&mut h, 4, 30, (-10, 0));
+    assert!(slides(&h));
+    assert_eq!(h.scene.workspaces(), (2, 1));
+    // The window's desktop went: it lost the keyboard, its activation and the pointer, and heard
+    // nothing of the fingers.
+    let events = logged(&mut h);
+    assert!(
+        to(&events, APP).iter().all(|event| matches!(
+            event,
+            Event::Focus { focused: false, .. }
+                | Event::Activated { active: false, .. }
+                | Event::Pointer {
+                    kind: PointerKind::Leave,
+                    ..
+                }
+        )),
+        "{:?}",
+        to(&events, APP)
+    );
+    h.scene.set_trackpad_gestures(TrackpadGestures {
+        desktops: None,
+        ..TrackpadGestures::default()
+    });
+    for fingers in [3, 4] {
+        swipe(&mut h, fingers, 30, (10, 0));
+        assert!(!slides(&h));
+    }
+    assert_eq!(h.scene.workspaces(), (2, 1));
+    // No swipe, chosen or not, reached the window under the fingers.
+    assert!(to(&logged(&mut h), APP).is_empty());
+}
+
+#[test]
+fn the_swipe_back_is_the_one_that_opens_it_with_its_fingers() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    shown_overlay(&mut h, GestureOverlay::MissionControl);
+    h.scene.set_trackpad_gestures(TrackpadGestures {
+        mission_control: Some(4),
+        app_expose: Some(4),
+        ..TrackpadGestures::default()
+    });
+    logged(&mut h);
+    // Three fingers down over Mission Control on four: nothing; four close it.
+    swipe(&mut h, 3, 20, (0, 10));
+    assert_eq!(h.scene.swipe_drive(), None);
+    assert!(intents_to(&logged(&mut h), SHELL).is_empty());
+    swipe(&mut h, 4, 20, (0, 10));
+    assert_eq!(openness(&h).unwrap().2.unwrap().to, 0.0);
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::MissionControl, ShortcutIntent::Close)]
+    );
+}
+
+/// A pinch of `fingers` from its spread to `percent` of it in `steps` even steps (by an even
+/// factor each, as fingers moving steadily do), one every 100 ms from `at` (ms), slowly; lifted
+/// at once after the last.
+fn pinch_at(h: &mut Harness, fingers: u8, percent: f64, steps: u32, at: u64) {
+    h.scene.set_input_time(at * MS);
+    h.scene
+        .pointer_pinch(GesturePhase::Begin, fingers, 65536, 0);
+    let mut scale = 1.0;
+    for step in 1..=steps {
+        scale = (percent / 100.0).powf(f64::from(step) / f64::from(steps));
+        h.scene.set_input_time((at + u64::from(step) * 100) * MS);
+        h.scene.pointer_pinch(
+            GesturePhase::Update,
+            fingers,
+            (scale * 65536.0).round() as u32,
+            0,
+        );
+    }
+    h.scene.pointer_pinch(
+        GesturePhase::End,
+        fingers,
+        (scale * 65536.0).round() as u32,
+        0,
+    );
+}
+
+/// Pinches the window is delivered, by phase.
+fn pinches_to(events: &[(ClientId, Event)], client: ClientId) -> Vec<GesturePhase> {
+    to(events, client)
+        .iter()
+        .filter_map(|event| match event {
+            Event::Pinch { phase, .. } => Some(*phase),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_thumb_and_three_fingers_pinched_open_launchpad_and_spread_close_it() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let at = h.rect(window);
+    h.scene.pointer_motion(at.x + 50, at.y + 50);
+    logged(&mut h);
+    // Pinched in to 60 %, slowly: the shell told to open the launcher (Super alone's) once the
+    // pinch is in, and the compositor drawing Launchpad as far as the fingers have it, all the way
+    // at 60 %; let go, it stays open. The window under the fingers hears nothing of it.
+    h.scene.set_input_time(0);
+    h.scene.pointer_pinch(GesturePhase::Begin, 4, 65536, 0);
+    h.scene.set_input_time(100 * MS);
+    h.scene
+        .pointer_pinch(GesturePhase::Update, 4, (0.98 * 65536.0) as u32, 0);
+    assert_eq!(h.scene.swipe_drive(), None);
+    assert!(intents_to(&logged(&mut h), SHELL).is_empty());
+    let half = (-0.25f64).exp();
+    h.scene.set_input_time(200 * MS);
+    h.scene
+        .pointer_pinch(GesturePhase::Update, 4, (half * 65536.0).round() as u32, 0);
+    let (overlay, open, release) = openness(&h).unwrap();
+    assert_eq!((overlay, release), (GestureOverlay::Launchpad, None));
+    assert!((open - 0.5).abs() < 1e-4, "{open}");
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::Search, ShortcutIntent::Open)]
+    );
+    h.scene.pointer_pinch(GesturePhase::Cancel, 4, 65536, 0);
+    assert_eq!(openness(&h).unwrap().2.unwrap().to, 0.0);
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::Search, ShortcutIntent::Close)]
+    );
+    pinch_at(&mut h, 4, 60.0, 10, 1000);
+    let (overlay, open, release) = openness(&h).unwrap();
+    assert_eq!(overlay, GestureOverlay::Launchpad);
+    assert!(open > 0.99, "{open}");
+    assert_eq!(release.unwrap().to, 1.0);
+    let events = logged(&mut h);
+    assert_eq!(
+        intents_to(&events, SHELL),
+        [(SystemShortcut::Search, ShortcutIntent::Open)]
+    );
+    assert!(to(&events, APP).is_empty(), "{:?}", to(&events, APP));
+    // Three fingers count too: libinput may take the thumb for resting.
+    pinch_at(&mut h, 3, 60.0, 10, 3000);
+    assert_eq!(openness(&h).unwrap().0, GestureOverlay::Launchpad);
+    logged(&mut h);
+    // Spread over nothing: nothing (a Mac's Show Desktop, which OxyOS does not have).
+    pinch_at(&mut h, 4, 170.0, 10, 5000);
+    assert_eq!(h.scene.swipe_drive(), None);
+    let events = logged(&mut h);
+    assert!(intents_to(&events, SHELL).is_empty());
+    assert!(to(&events, APP).is_empty());
+    // Over Launchpad, spread past halfway: it closes, the shell told once the fingers let it go;
+    // pinched in over it, nothing.
+    shown_overlay(&mut h, GestureOverlay::Launchpad);
+    logged(&mut h);
+    pinch_at(&mut h, 4, 80.0, 10, 7000);
+    assert_eq!(h.scene.swipe_drive(), None);
+    pinch_at(&mut h, 4, 170.0, 10, 9000);
+    let (overlay, _, release) = openness(&h).unwrap();
+    assert_eq!(
+        (overlay, release.unwrap().to),
+        (GestureOverlay::Launchpad, 0.0)
+    );
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::Search, ShortcutIntent::Close)]
+    );
+    // Three fingers swiped up over Launchpad open Mission Control, as before a pinch drove it.
+    swipe(&mut h, 3, 20, (0, -10));
+    assert_eq!(
+        intents_to(&logged(&mut h), SHELL),
+        [(SystemShortcut::MissionControl, ShortcutIntent::Open)]
+    );
+}
+
+#[test]
+fn a_pinch_is_the_applications_unless_it_is_launchpads() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    let at = h.rect(window);
+    h.scene.pointer_motion(at.x + 50, at.y + 50);
+    logged(&mut h);
+    let all = [
+        GesturePhase::Begin,
+        GesturePhase::Update,
+        GesturePhase::Update,
+        GesturePhase::End,
+    ];
+    // Two fingers always are the window's.
+    pinch_at(&mut h, 2, 60.0, 2, 0);
+    let events = logged(&mut h);
+    assert_eq!(pinches_to(&events, APP), all);
+    assert!(intents_to(&events, SHELL).is_empty());
+    // Launchpad's pinch turned off: the thumb and three fingers are the window's too.
+    h.scene.set_trackpad_gestures(TrackpadGestures {
+        launchpad: false,
+        ..TrackpadGestures::default()
+    });
+    pinch_at(&mut h, 4, 60.0, 2, 1000);
+    let events = logged(&mut h);
+    assert_eq!(pinches_to(&events, APP), all);
+    assert!(intents_to(&events, SHELL).is_empty());
+    assert_eq!(h.scene.swipe_drive(), None);
+    // On, while the session is locked: the lock screen's, never Launchpad.
+    h.scene.set_trackpad_gestures(TrackpadGestures::default());
+    h.scene.lock();
+    logged(&mut h);
+    pinch_at(&mut h, 4, 60.0, 2, 2000);
+    assert!(intents_to(&logged(&mut h), SHELL).is_empty());
+    assert_eq!(h.scene.swipe_drive(), None);
 }
 
 #[test]

@@ -7,6 +7,8 @@ import { AppIcon } from "../apps";
 import type { ShellApplication } from "../model";
 import type { Switcher } from "../switcher";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 const ICON = 64;
 const CELL = 88;
@@ -28,6 +30,7 @@ export const AppSwitcher = memo(function AppSwitcher({
   applications: readonly ShellApplication[];
   activate: (id: string) => void;
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const apps = switcher.order
     .map((id) => applications.find((app) => app.id === id))
@@ -45,7 +48,7 @@ export const AppSwitcher = memo(function AppSwitcher({
       accessibilityLabel={messages.switcher.label}
       className="flex-row items-start rounded-[28px] border border-white/60 p-3"
       style={{
-        backgroundColor: "#eef1f6e6",
+        backgroundColor: glass("#eef1f6e6", reduced),
         boxShadow: "0 22px 70px #0b183a40, 0 0 0 .5px #0b183a1f",
         gap: 4,
       }}

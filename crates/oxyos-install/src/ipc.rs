@@ -172,6 +172,8 @@ pub enum Reason {
     Release,
     Fetch,
     Compile,
+    /// The disk has no room for it (docs/adr/0062-storage.mdx): `needed` says how much more.
+    NoSpace,
     Failed,
 }
 
@@ -221,6 +223,9 @@ pub enum Answer {
         reason: Reason,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         detail: Option<String>,
+        /// For `noSpace`: the bytes more the disk needs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        needed: Option<u64>,
     },
 }
 
@@ -229,6 +234,7 @@ impl Answer {
         Answer::Refused {
             reason,
             detail: None,
+            needed: None,
         }
     }
 }
@@ -248,11 +254,16 @@ impl From<&InstallError> for Answer {
             InstallError::Release(_) => Reason::Release,
             InstallError::Fetch(_) => Reason::Fetch,
             InstallError::Compile(_) => Reason::Compile,
+            InstallError::NoSpace { .. } => Reason::NoSpace,
             InstallError::Io(_) => Reason::Failed,
         };
         Answer::Refused {
             reason,
             detail: Some(error.to_string()),
+            needed: match error {
+                InstallError::NoSpace { needed } => Some(*needed),
+                _ => None,
+            },
         }
     }
 }
@@ -515,6 +526,7 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                         Answer::Refused {
                             reason: Reason::Failed,
                             detail: Some(e.to_string()),
+                            needed: None,
                         },
                         "watchUpdates",
                         None,

@@ -20,11 +20,13 @@ export type PlatformErrorCode = (typeof PLATFORM_ERROR_CODES)[number];
 
 /** The framework a call belongs to. */
 export type PlatformDomain =
+  | 'activity'
   | 'application'
   | 'audio'
   | 'bluetooth'
   | 'chooser'
   | 'drag'
+  | 'keychain'
   | 'network'
   | 'pasteboard'
   | 'power'
@@ -72,6 +74,10 @@ const SYNONYMS: Record<string, PlatformErrorCode> = {
   invalidRequest: 'invalid',
   // The request never reached the session (no connection to it).
   notSent: 'unavailable',
+  // The keychain's (docs/adr/0050-keychain-autofill-and-passkeys.mdx): an application already
+  // waits for the person's answer; the computer has no keychain (the person turns it on).
+  tooMany: 'busy',
+  notMember: 'unavailable',
 };
 
 /** The code a session's reason is: itself where it is one, else `failed` (the reason kept). */

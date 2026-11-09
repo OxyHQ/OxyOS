@@ -8,9 +8,19 @@
 //!   which writes the battery's thresholds to a sysfs directory of the test's own (its
 //!   `charge_control_start_threshold` and `charge_control_end_threshold`: the thresholds when
 //!   enabled, 0 and 100 when not, as UPower writes them), polkit's refusal played (`deny`);
+//!   with a `state_dir`, as UPower 1.90.9 keeps the choice (`up-device-battery.c`): written to
+//!   `charging-threshold-status` ("1" or "0") before the thresholds, and read again whenever the
+//!   battery appears (the services served, which is UPower starting, and a battery plugged in
+//!   again, `act`'s `present`), the thresholds then written again if it says "1". Nothing is
+//!   written again when the machine wakes, as UPower writes nothing then. `NativePath` is the
+//!   battery's sysfs directory (UPower's is the power supply's name in
+//!   `/sys/class/power_supply`, which the session joins to that folder: an absolute path is
+//!   itself);
 //! - power-profiles-daemon: `Profiles`, `ActiveProfile`, `HoldProfile`, `ReleaseProfile` and
 //!   `ProfileReleased`; a hold goes with the connection that took it, as the daemon's does;
-//! - logind: `CanSuspend` and `Suspend`, which counts.
+//! - logind: `CanSuspend` and `Suspend`, `CanReboot` and `Reboot`, `CanPowerOff` and `PowerOff`,
+//!   each call counted (none ever reaches a machine), `HandlePowerKey`, and `Inhibit`, whose
+//!   inhibitors held are said (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
 //!
 //! [`Played::act`] changes the machine (unplugged, a lower charge) and [`Played::describe`] says
 //! what the services hold, so a test asserts the machine's state, not only what was drawn.
@@ -53,6 +63,9 @@ pub struct BatterySpec {
     /// UPower can limit its charge (its hardware database's thresholds).
     #[serde(default)]
     pub threshold: Option<Threshold>,
+    /// It is in the machine (false: taken out, `act`'s `present`).
+    #[serde(default = "yes")]
+    pub present: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -104,9 +117,29 @@ pub struct Machine {
     /// Where `EnableChargeThreshold` writes the thresholds (the battery's sysfs directory).
     #[serde(default)]
     pub sysfs: Option<PathBuf>,
-    /// What polkit refuses: `charge_limit`, `hold`, `suspend`.
+    /// UPower's own state directory (`/var/lib/upower`), where it keeps whether the limit is on;
+    /// none: the threshold's `enabled` as described, kept nowhere.
+    #[serde(default)]
+    pub state_dir: Option<PathBuf>,
+    /// What polkit refuses: `charge_limit`, `hold`, `suspend`, `reboot`, `power_off`.
     #[serde(default)]
     pub deny: Vec<String>,
+    /// What logind's `CanReboot` and `CanPowerOff` answer (`yes`, `no`, `challenge`, `na`).
+    #[serde(default = "can")]
+    pub can_reboot: String,
+    #[serde(default = "can")]
+    pub can_power_off: String,
+    /// logind's `HandlePowerKey`.
+    #[serde(default = "power_key")]
+    pub handle_power_key: String,
+}
+
+fn can() -> String {
+    "yes".into()
+}
+
+fn power_key() -> String {
+    "poweroff".into()
 }
 
 struct Hold {
@@ -124,6 +157,10 @@ struct Model {
     /// The person's profile, under any hold.
     chosen: String,
     suspends: u32,
+    reboots: u32,
+    power_offs: u32,
+    /// What each inhibitor taken inhibits, and its descriptor's other end, kept while played.
+    inhibitors: Vec<(String, std::os::unix::net::UnixStream)>,
     calls: Vec<String>,
 }
 
@@ -147,6 +184,31 @@ impl Model {
         self.machine.deny.iter().any(|denied| denied == what)
     }
 
+    /// The battery appeared (UPower started, or it was plugged in again): UPower's
+    /// `up_device_battery_recover_battery_charging_threshold` reads the choice it kept and, if it
+    /// says "1", writes the thresholds again; `ChargeThresholdEnabled` is what it read (false if
+    /// the write failed). Without a state directory, the threshold is as described.
+    fn recover(&mut self) {
+        let Some(state_dir) = self.machine.state_dir.clone() else {
+            return;
+        };
+        let sysfs = self.machine.sysfs.clone();
+        let Some(threshold) = self
+            .machine
+            .battery
+            .as_mut()
+            .and_then(|battery| battery.threshold.as_mut())
+        else {
+            return;
+        };
+        let kept =
+            std::fs::read_to_string(state_dir.join(STATE_FILE)).is_ok_and(|kept| kept == "1");
+        threshold.enabled = kept
+            && sysfs.as_deref().is_none_or(|sysfs| {
+                write_thresholds(sysfs, threshold.start, threshold.end).is_ok()
+            });
+    }
+
     fn sysfs(&self) -> Json {
         let Some(directory) = &self.machine.sysfs else {
             return Json::Null;
@@ -161,6 +223,20 @@ impl Model {
             "end": read("charge_control_end_threshold"),
         })
     }
+}
+
+/// UPower's file of the choice, in its state directory.
+const STATE_FILE: &str = "charging-threshold-status";
+
+/// Writes the battery's thresholds, as UPower's `up_device_supply_battery_set_battery_charge_thresholds`.
+fn write_thresholds(sysfs: &std::path::Path, start: u32, end: u32) -> std::io::Result<()> {
+    for (name, value) in [
+        ("charge_control_start_threshold", start),
+        ("charge_control_end_threshold", end),
+    ] {
+        std::fs::write(sysfs.join(name), value.to_string())?;
+    }
+    Ok(())
 }
 
 type Shared = Arc<Mutex<Model>>;
@@ -267,6 +343,7 @@ impl Device {
             ));
         }
         let sysfs = model.machine.sysfs.clone();
+        let state_dir = model.machine.state_dir.clone();
         let Some(threshold) = model
             .machine
             .battery
@@ -277,21 +354,22 @@ impl Device {
                 "setting battery charge thresholds is unsupported".into(),
             ));
         };
-        threshold.enabled = enabled;
+        // The choice kept first, then the thresholds, as UPower does.
+        if let Some(state_dir) = state_dir {
+            std::fs::write(state_dir.join(STATE_FILE), if enabled { "1" } else { "0" })
+                .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+        }
         let (start, end) = if enabled {
             (threshold.start, threshold.end)
         } else {
             (0, 100)
         };
         if let Some(directory) = sysfs {
-            for (name, value) in [
-                ("charge_control_start_threshold", start),
-                ("charge_control_end_threshold", end),
-            ] {
-                std::fs::write(directory.join(name), value.to_string())
-                    .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
-            }
+            write_thresholds(&directory, start, end).map_err(|error| {
+                zbus::fdo::Error::Failed(format!("failed on setting charging threshold: {error}"))
+            })?;
         }
+        threshold.enabled = enabled;
         Ok(())
     }
 
@@ -308,7 +386,7 @@ impl Device {
 
     #[zbus(property)]
     fn is_present(&self) -> bool {
-        self.battery(|_| true, false)
+        self.battery(|battery| battery.present, false)
     }
 
     #[zbus(property)]
@@ -356,13 +434,33 @@ impl Device {
 
     #[zbus(property)]
     fn charge_threshold_supported(&self) -> bool {
-        !self.display && self.battery(|battery| battery.threshold.is_some(), false)
+        !self.display
+            && self.battery(
+                |battery| battery.present && battery.threshold.is_some(),
+                false,
+            )
+    }
+
+    /// The battery's sysfs directory (UPower's: its name in `/sys/class/power_supply`).
+    #[zbus(property)]
+    fn native_path(&self) -> String {
+        if self.display {
+            return String::new();
+        }
+        let model = self.model.lock().unwrap();
+        model
+            .machine
+            .sysfs
+            .as_ref()
+            .map_or_else(|| "BAT0".into(), |sysfs| sysfs.display().to_string())
     }
 
     #[zbus(property)]
     fn charge_threshold_enabled(&self) -> bool {
         self.battery(
-            |battery| battery.threshold.is_some_and(|threshold| threshold.enabled),
+            |battery| {
+                battery.present && battery.threshold.is_some_and(|threshold| threshold.enabled)
+            },
             false,
         )
     }
@@ -551,6 +649,66 @@ impl Logind {
         model.suspends += 1;
         Ok(())
     }
+
+    fn can_reboot(&self) -> String {
+        let model = self.model.lock().unwrap();
+        if model.denied("reboot") {
+            "no".into()
+        } else {
+            model.machine.can_reboot.clone()
+        }
+    }
+
+    fn reboot(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        let mut model = self.model.lock().unwrap();
+        model.calls.push(format!("Reboot {interactive}"));
+        if model.machine.can_reboot != "yes" || model.denied("reboot") {
+            return Err(zbus::fdo::Error::AccessDenied("Access denied".into()));
+        }
+        model.reboots += 1;
+        Ok(())
+    }
+
+    fn can_power_off(&self) -> String {
+        let model = self.model.lock().unwrap();
+        if model.denied("power_off") {
+            "no".into()
+        } else {
+            model.machine.can_power_off.clone()
+        }
+    }
+
+    fn power_off(&self, interactive: bool) -> zbus::fdo::Result<()> {
+        let mut model = self.model.lock().unwrap();
+        model.calls.push(format!("PowerOff {interactive}"));
+        if model.machine.can_power_off != "yes" || model.denied("power_off") {
+            return Err(zbus::fdo::Error::AccessDenied("Access denied".into()));
+        }
+        model.power_offs += 1;
+        Ok(())
+    }
+
+    /// An inhibitor: the descriptor whose closing releases it, as logind's.
+    fn inhibit(
+        &self,
+        what: String,
+        _who: String,
+        _why: String,
+        mode: String,
+    ) -> zbus::fdo::Result<zbus::zvariant::OwnedFd> {
+        if mode != "block" && mode != "delay" {
+            return Err(zbus::fdo::Error::InvalidArgs(mode));
+        }
+        let (kept, given) = std::os::unix::net::UnixStream::pair()
+            .map_err(|error| zbus::fdo::Error::Failed(error.to_string()))?;
+        self.model.lock().unwrap().inhibitors.push((what, kept));
+        Ok(std::os::fd::OwnedFd::from(given).into())
+    }
+
+    #[zbus(property)]
+    fn handle_power_key(&self) -> String {
+        self.model.lock().unwrap().machine.handle_power_key.clone()
+    }
 }
 
 /// The played machine's control (`so.oxy.OxyOS.PlayedPower` at [`CONTROL_PATH`]), for a test or a
@@ -589,6 +747,7 @@ fn act(
     let object = change.as_object().ok_or("a change is an object")?;
     let mut device: Vec<&str> = Vec::new();
     let mut root = false;
+    let mut recover = false;
     {
         let mut model = model.lock().unwrap();
         for (key, value) in object {
@@ -623,8 +782,20 @@ fn act(
                     battery.warning = value.as_str().ok_or("warning: a name")?.into();
                     device.push("WarningLevel");
                 }
+                // Taken out, or put back: put back, UPower recovers its choice as it does when
+                // a battery appears.
+                "present" => {
+                    let present = value.as_bool().ok_or("present: true or false")?;
+                    recover |= present && !battery.present;
+                    battery.present = present;
+                    device.push("IsPresent");
+                    device.push("ChargeThresholdEnabled");
+                }
                 other => return Err(format!("not a change of the machine: {other}")),
             }
+        }
+        if recover {
+            model.recover();
         }
     }
     if let Some(bus) = bus {
@@ -637,6 +808,16 @@ fn act(
         }
     }
     Ok(())
+}
+
+/// Whether an inhibitor's holder still has its end open: reading ours would not end.
+fn held(kept: &std::os::unix::net::UnixStream) -> bool {
+    use rustix::event::{poll, PollFd, PollFlags};
+    let mut fds = [PollFd::new(kept, PollFlags::IN)];
+    !matches!(
+        poll(&mut fds, Some(&rustix::time::Timespec::default())),
+        Ok(1)
+    ) || fds[0].revents().is_empty()
 }
 
 fn describe(model: &Shared) -> Json {
@@ -654,6 +835,10 @@ fn describe(model: &Shared) -> Json {
             "profile": hold.profile, "reason": hold.reason, "application": hold.application,
         })).collect::<Vec<_>>(),
         "suspends": model.suspends,
+        "reboots": model.reboots,
+        "power_offs": model.power_offs,
+        // What each inhibitor still held inhibits (its holder's end open).
+        "inhibitors": model.inhibitors.iter().filter(|(_, kept)| held(kept)).map(|(what, _)| what.clone()).collect::<Vec<_>>(),
         "calls": model.calls,
     })
 }
@@ -675,9 +860,14 @@ impl Played {
             next_cookie: 0,
             chosen: "balanced".into(),
             suspends: 0,
+            reboots: 0,
+            power_offs: 0,
+            inhibitors: Vec::new(),
             calls: Vec::new(),
             machine: machine.clone(),
         }));
+        // UPower starting: the battery appears to it, and it recovers the choice it kept.
+        model.lock().unwrap().recover();
         let bus: Signaller = Arc::new(Mutex::new(None));
         let mut builder = zbus::blocking::connection::Builder::address(address)?
             .name(UPOWER)?
@@ -778,7 +968,7 @@ impl Played {
     }
 
     /// Changes the machine: any of the battery's `percent`, `state`, `time_to_empty`,
-    /// `time_to_full`, `warning`, and `on_ac`; UPower then says what changed, as it does.
+    /// `time_to_full`, `warning`, `present`, and `on_ac`; UPower then says what changed, as it does.
     pub fn act(&self, change: &Json) -> Result<(), String> {
         act(&self.model, self.connection.as_ref(), change)
     }

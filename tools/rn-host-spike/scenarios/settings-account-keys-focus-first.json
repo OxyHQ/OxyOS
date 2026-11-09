@@ -1,0 +1,209 @@
+{
+  "about": "Settings' Oxy account confirmation from the keyboard with the screen reader on, in Spanish, in the host's forced `window-focus-first` order (docs/adr/0039-keyboard-access.mdx, decision 27): the window's commits mount only at the host's frame, so the dialog's mount, the focus Bloom asks for its default control, Cancelar (its `initialFocus`), and the host following the dialog coming fall in one frame, before the dialog has measured itself and shown. Cancelar takes the keyboard once shown and is said once, never the dialog's first control, the destructive Eliminar, in its place; Escape gives the keyboard back to Eliminar de este ordenador…. As `settings-account-keys` to its first confirmation, each step checking the keyboard's focus; what the reader says is checked from the account's buttons on. At 1 (1280 × 720).",
+  "locale": "es_ES.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "reader": {},
+  "account": {
+    "registered": [
+      "so.oxy.settings"
+    ]
+  },
+  "host_order": "window-focus-first",
+  "steps": [
+    {
+      "name": "Settings' window, the reader on, nothing of it focused",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": null,
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: the sidebar's selected row, Appearance, second after the account",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-appearance",
+          "ring": true
+        },
+        "at": {
+          "window": [
+            {
+              "role": "Heading",
+              "name": "Cuenta de Oxy"
+            },
+            {
+              "role": "ListItem",
+              "name": "Ada Lovelace",
+              "state": []
+            },
+            {
+              "role": "ListItem",
+              "name": "Apariencia",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "announcements": []
+      }
+    },
+    {
+      "name": "Home: the account selected and its page shown, said with its place",
+      "do": [
+        "key",
+        [
+          102
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-nav-oxy-account",
+          "ring": true
+        },
+        "texts": [
+          "@ada",
+          "Cerrar sesión…",
+          "Eliminar de este ordenador…"
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: Cerrar sesión…, a button",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "oxy-account-sign-out",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Cerrar sesión…, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab: Eliminar de este ordenador…, a button",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "oxy-account-remove",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Eliminar de este ordenador…, botón",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Return: its confirmation, said as a dialog, Cancelar its default keeping the keyboard, never Eliminar",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "keyboard_focus": {
+          "target": "Cancelar",
+          "ring": true
+        },
+        "texts": [
+          "¿Eliminar a Ada Lovelace de este ordenador?",
+          "Eliminar",
+          "Cancelar"
+        ],
+        "account_session": [],
+        "spoken": [
+          {
+            "text": "¿Eliminar a Ada Lovelace de este ordenador?, diálogo",
+            "interrupting": true
+          },
+          {
+            "text": "Se cierra la sesión de la cuenta y se borran sus archivos, ajustes y apps de este ordenador. Tu cuenta de Oxy no se elimina: puedes volver a añadirla a este ordenador con conexión.",
+            "interrupting": false
+          },
+          {
+            "text": "Cancelar, botón",
+            "interrupting": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Escape: cancelled, nothing asked, the keyboard back on its button",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "absent": [
+          "¿Eliminar a Ada Lovelace de este ordenador?"
+        ],
+        "keyboard_focus": {
+          "target": "oxy-account-remove",
+          "ring": true
+        },
+        "account_session": [],
+        "spoken": [
+          {
+            "text": "Eliminar de este ordenador…, botón",
+            "interrupting": true
+          }
+        ]
+      }
+    }
+  ]
+}

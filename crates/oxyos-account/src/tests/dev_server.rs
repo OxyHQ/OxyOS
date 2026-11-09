@@ -97,6 +97,7 @@ fn request(account: &str, credential: &DeviceCredential, password: &str) -> Requ
         account: account.into(),
         password: Some(Secret::new(password)),
         pin: None,
+        appearance: None,
     }
 }
 
@@ -240,18 +241,18 @@ fn dev_server_setup_with_an_authenticator() {
         .setup
         .enroll(request(&account, &credential, &password))
         .unwrap();
-    let Progress::SecondFactor(pending) = progress else {
+    let Progress::SecondFactor(mut pending) = progress else {
         panic!("a second factor is asked for: {progress:?}");
     };
     assert!(machine.setup.store().users().unwrap().is_empty());
     assert_eq!(
         machine
             .setup
-            .second_factor(&pending, &Secret::new("000000"))
+            .second_factor(&mut pending, &Secret::new("000000"))
             .unwrap_err(),
         SetupError::SecondFactorInvalid
     );
-    machine.setup.second_factor(&pending, &code()).unwrap();
+    machine.setup.second_factor(&mut pending, &code()).unwrap();
     assert_enrolled(&machine, &account, &credential, &password);
 }
 
