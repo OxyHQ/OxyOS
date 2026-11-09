@@ -56,6 +56,9 @@ libc = "0.2"
 ring = "0.17.14"
 ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
 sha2 = "0.10.9"
+# The session's launcher, launching under a live registrar across the service's restarts and an
+# upgrade of the image's policy and entries (`tests/restart.rs`).
+oxyos-apps = { path = "../oxyos-apps" }
 
 [lints.rust]
 # The workspace forbids `unsafe`. Reading the peer's pidfd needs one getsockopt, so this crate

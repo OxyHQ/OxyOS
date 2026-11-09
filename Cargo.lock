@@ -2595,6 +2595,7 @@ dependencies = [
  "ciborium",
  "jiff",
  "libc",
+ "oxyos-apps",
  "oxyos-keychain",
  "oxyos-preferences",
  "oxyos-seqpacket",
