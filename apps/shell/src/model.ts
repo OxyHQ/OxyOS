@@ -157,8 +157,8 @@ export type ShellPowerActions = {
 export type ShellLock = {
   locked: boolean;
   /** Whom it is locked for (session-user.ts): the account's username and display name, never the
-      Unix user's name. */
-  user: { name: string; fullName?: string };
+      Unix user's name, and its picture (a `file://` URI; none: the default). */
+  user: { name: string; fullName?: string; picture?: string };
   /** Whether Caps Lock is on: the password field says so. */
   capsLock?: boolean;
   lockSession: () => void;

@@ -177,6 +177,10 @@ struct Session {
     /// compositor's, and the power services played on the run's bus.
     power: Option<oxyos_compositor::power::Power>,
     power_waker: Option<std::os::fd::RawFd>,
+    /// Activity Monitor's part (docs/adr/0063-activity-monitor.mdx), and its waker among the
+    /// compositor's.
+    activity: Option<oxyos_compositor::activity::Activity>,
+    activity_waker: Option<std::os::fd::RawFd>,
     /// A connection to the played power services' control (`oxyos-offscreen --play-power`).
     pub power_control: Option<zbus::blocking::Connection>,
     /// `--backup SOCKET VOLUMES`: the session's side of backups (docs/adr/0059-backups.mdx) over
@@ -361,6 +365,8 @@ impl Session {
             bluetooth_waker: None,
             bluetooth_control: None,
             power: None,
+            activity: None,
+            activity_waker: None,
             power_waker: None,
             power_control: None,
             backups: None,
@@ -703,12 +709,11 @@ impl Session {
             .map_or_else(|| "null".into(), |state| state.to_string())
     }
 
-    /// The battery and energy's turn (ADR 0057): the applications the run started that run.
+    /// The battery and energy's turn (ADR 0057) and Activity Monitor's (ADR 0063): the
+    /// applications the run started that run, the director's own among them, named by the
+    /// registry as Activity Monitor finds them.
     fn serve_power(&mut self) {
-        let Some(power) = self.power.as_mut() else {
-            return;
-        };
-        let running: Vec<oxyos_power::energy::Running> = self
+        let mut running: Vec<oxyos_power::energy::Running> = self
             .launcher
             .as_ref()
             .map(|launcher| {
@@ -722,7 +727,54 @@ impl Session {
                     .collect()
             })
             .unwrap_or_default();
-        power.serve(&mut self.compositor, self.settings.preferences(), &running);
+        if let Some(power) = self.power.as_mut() {
+            power.serve(&mut self.compositor, self.settings.preferences(), &running);
+        }
+        if let Some(activity) = self.activity.as_mut() {
+            if let Some((pid, id)) = &self.app {
+                running.push(oxyos_power::energy::Running {
+                    pid: *pid,
+                    id: id.clone(),
+                    name: id.clone(),
+                });
+            }
+            activity.serve(&mut self.compositor, &running, self.power.as_mut());
+        }
+    }
+
+    /// What Activity Monitor's part did, for a step's result (regress.py's `activity`): the
+    /// samples it took and sent, whether any client follows, and the times its thread and the
+    /// director's application's threads were switched out since they started (each a wakeup), so
+    /// a step can hold a hidden window's to none.
+    pub fn activity_state(&self) -> String {
+        let Some(activity) = self.activity.as_ref() else {
+            return "null".into();
+        };
+        let (samples, sent) = activity.counts();
+        let thread = std::path::Path::new("/proc/self/task").join(activity.thread_id().to_string());
+        let host: Vec<std::path::PathBuf> = self
+            .app
+            .as_ref()
+            .and_then(|(pid, _)| {
+                std::fs::read_dir(
+                    std::path::Path::new("/proc")
+                        .join(pid.to_string())
+                        .join("task"),
+                )
+                .ok()
+            })
+            .map(|entries| entries.flatten().map(|task| task.path()).collect())
+            .unwrap_or_default();
+        let (host_wakeups, host_cpu) = host.iter().fold((0, 0), |(w, c), task| {
+            (w + switches(task), c + run_ns(task))
+        });
+        format!(
+            "{{\"samples\":{samples},\"sent\":{sent},\"followed\":{},\"wakeups\":{},\"cpu_ms\":{},\"host_wakeups\":{host_wakeups},\"host_cpu_ms\":{}}}",
+            activity.followed(),
+            switches(&thread),
+            run_ns(&thread) / 1_000_000,
+            host_cpu / 1_000_000,
+        )
     }
 
     /// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
@@ -1054,6 +1106,7 @@ impl Session {
                     privacy: granted.privacy || fixture.privacy,
                     network: granted.network || fixture.network,
                     bluetooth: granted.bluetooth || fixture.bluetooth,
+                    activity: granted.activity || fixture.activity,
                     ..Grants::default()
                 },
                 application: id,
@@ -1296,6 +1349,11 @@ impl Session {
         }
         self.power = None;
         if let Some(waker) = self.power_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        self.activity = None;
+        if let Some(waker) = self.activity_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
@@ -1658,6 +1716,28 @@ fn main() -> Result<()> {
                 .into(),
         ),
     }
+}
+
+/// The time the thread at `task` (`/proc/PID/task/TID`) ran, in nanoseconds (`schedstat`).
+fn run_ns(task: &std::path::Path) -> u64 {
+    std::fs::read_to_string(task.join("schedstat"))
+        .ok()
+        .and_then(|text| text.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The context switches of the thread at `task` (`/proc/PID/task/TID`): each time it slept and
+/// was woken.
+fn switches(task: &std::path::Path) -> u64 {
+    std::fs::read_to_string(task.join("status"))
+        .map(|status| {
+            status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

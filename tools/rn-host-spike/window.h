@@ -240,6 +240,9 @@ class Window {
     bool previous = false, next = false, vertical = false;
   };
   std::optional<Candidates> inputCandidates();
+  // The text of the SYSTEM_DATA event just returned (docs/adr/0063-activity-monitor.mdx): a long
+  // answer of the session's vocabulary whole; none when it could not be read.
+  std::optional<std::string> systemData();
   void lockSession();
   // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a level (OXYOS_CONTROL_*,
   // 0 to 65536), a volume's mute, Wi-Fi, the appearance (a PREFERENCE_RESULT with `serial`

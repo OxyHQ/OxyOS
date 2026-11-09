@@ -735,6 +735,15 @@ fn main() -> Result<()> {
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
     };
+    // Activity Monitor (docs/adr/0063-activity-monitor.mdx): the machine's use and every process's,
+    // sampled only while its window is shown. The login screen has none.
+    let mut activity = if greeter {
+        None
+    } else {
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        compositor.wakers.push(activity.wake_fd()?);
+        Some(activity)
+    };
     // Backups (docs/adr/0059-backups.mdx): the menu bar's backup item and Settings › Backups,
     // over the system's backup service (followed on one connection, waited for while it is not
     // there), its scheduled backups held while Low Power Mode is on. The login screen has none.
@@ -1018,17 +1027,21 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
-        // Battery and energy (ADR 0057), before the store, which takes the requests left.
+        // Battery and energy (ADR 0057) and Activity Monitor (ADR 0063), before the store, which
+        // takes the requests left.
+        let running: Vec<oxyos_power::energy::Running> = launcher
+            .running()
+            .map(|(pid, launched)| oxyos_power::energy::Running {
+                pid,
+                id: launched.id.clone(),
+                name: launched.name.clone(),
+            })
+            .collect();
         if let Some(power) = power.as_mut() {
-            let running: Vec<oxyos_power::energy::Running> = launcher
-                .running()
-                .map(|(pid, launched)| oxyos_power::energy::Running {
-                    pid,
-                    id: launched.id.clone(),
-                    name: launched.name.clone(),
-                })
-                .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        if let Some(activity) = activity.as_mut() {
+            activity.serve(&mut compositor, &running, power.as_mut());
         }
         // Backups (ADR 0059), before the store, which takes the requests left.
         if let Some(backups) = backups.as_mut() {
@@ -1346,6 +1359,7 @@ fn main() -> Result<()> {
                     privacy: launched.grants.privacy,
                     network: launched.grants.network,
                     bluetooth: launched.grants.bluetooth,
+                    activity: launched.grants.activity,
                     ..Grants::default()
                 },
             })

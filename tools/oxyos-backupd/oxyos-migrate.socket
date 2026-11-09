@@ -1,0 +1,19 @@
+# The migration service's socket (docs/adr/0059-backups.mdx, decision 7): the login screen of a
+# computer nobody has set up yet connects to migrate another computer's backup onto it, and
+# oxyos-migrate.service is started for it. Anyone may connect; the service answers root and the
+# login program's user alone, by the kernel's credentials, and only while no account is enrolled.
+#
+# Not installed by the image yet (ADR 0059, step 5 brings it with the session).
+
+[Unit]
+Description=OxyOS migration from a backup (socket)
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0059-backups.mdx
+
+[Socket]
+ListenSequentialPacket=/run/oxyos/migrate/socket
+SocketMode=0666
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

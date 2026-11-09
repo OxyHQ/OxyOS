@@ -40,6 +40,11 @@
 //!
 //! [`SystemUsers::with_prefix`] runs the same tools on another root's files (`--prefix`), which
 //! they do without privileges: the tests make real users, verifiers and homes that way.
+//!
+//! - **Made again from a backup** ([ADR 0059](../../docs/adr/0059-backups.mdx), decision 7): a
+//!   restored account's group (`groupadd --gid`) and user (`useradd --uid --gid`, no home: the
+//!   backup's is restored) with the numbers they had, so the files restored with their owners are
+//!   theirs; its password locked, as a new user's is, until it is set up again online.
 
 use crate::id::UserName;
 use crate::secret::Secret;
@@ -154,6 +159,7 @@ pub fn gecos_full_name(name: &str) -> String {
 pub struct SystemUsers {
     prefix: Option<PathBuf>,
     pub(crate) useradd: PathBuf,
+    pub(crate) groupadd: PathBuf,
     pub(crate) chpasswd: PathBuf,
     pub(crate) userdel: PathBuf,
     pub(crate) usermod: PathBuf,
@@ -172,6 +178,7 @@ impl SystemUsers {
         Self {
             prefix: None,
             useradd: "/usr/sbin/useradd".into(),
+            groupadd: "/usr/sbin/groupadd".into(),
             chpasswd: "/usr/sbin/chpasswd".into(),
             userdel: "/usr/sbin/userdel".into(),
             usermod: "/usr/sbin/usermod".into(),
@@ -189,6 +196,50 @@ impl SystemUsers {
 
     fn passwd(&self) -> PathBuf {
         self.etc("passwd")
+    }
+
+    /// A restored account's group, `name` with the number `gid` it had on the computer its backup
+    /// is of ([ADR 0059](../../docs/adr/0059-backups.mdx), decision 7).
+    pub fn make_group(&self, name: &UserName, gid: u32) -> Result<(), UsersError> {
+        let output = run(
+            "groupadd",
+            self.command(&self.groupadd)
+                .args(["--gid", &gid.to_string(), "--"])
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => Ok(()),
+            // groupadd(8): 4, the gid is in use; 9, the name is.
+            Some(4 | 9) => Err(UsersError::Exists),
+            _ => Err(failed("groupadd", &output)),
+        }
+    }
+
+    /// A restored account's user, `name` with the uid it had, in its group `gid` made by
+    /// [`SystemUsers::make_group`]; no home is made (the backup's is restored) and its password is
+    /// locked, as a new user's is, until it is set up again online.
+    pub fn make_user(&self, name: &UserName, uid: u32, gid: u32) -> Result<UnixUser, UsersError> {
+        let output = run(
+            "useradd",
+            self.command(&self.useradd)
+                .args([
+                    "--no-create-home",
+                    "--uid",
+                    &uid.to_string(),
+                    "--gid",
+                    &gid.to_string(),
+                    "--",
+                ])
+                .arg(name.as_str()),
+        )?;
+        match output.status.code() {
+            Some(0) => {}
+            // useradd(8): 4, the uid is in use; 9, the name is.
+            Some(4 | 9) => return Err(UsersError::Exists),
+            _ => return Err(failed("useradd", &output)),
+        }
+        self.lookup(name)?
+            .ok_or_else(|| UsersError::Failed(format!("useradd made no user {name}")))
     }
 
     fn etc(&self, file: &str) -> PathBuf {

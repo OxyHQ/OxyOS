@@ -159,6 +159,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   wrote them, "active_profile", "holds", "suspends", "calls"; and logind's "power_offs",
   "reboots" and "inhibitors" held, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, its
   `PowerOff`, `Reboot` and `Suspend` in "calls"), each key given matching;
+- activity: what the session's Activity Monitor part did in the step (docs/adr/0063-activity-
+  monitor.mdx), each key given a count or [least, most]: "samples" it took, "sent" to followers,
+  "wakeups" of its thread and "host_wakeups" of the application's threads (each a time a thread
+  was switched out), "cpu_ms" its thread ran and "host_cpu_ms" the application's threads did, all
+  counted from the step before's settling to this one's; and "followed"
+  (whether a client follows), as it is once the step settled. A hidden window's step holds them
+  to none;
+- processes: with the scenario's `processes` (below), by name: the "signals" each received in the
+  step (from the step before's settling to this one's), exactly and in order ("TERM", "INT"...),
+  and whether it was still "running" once the step settled (SIGKILL is seen as not running);
 - backup: with the scenario's `backup` (the development backup service, `oxyos-offscreen
   --play-backup`, on the run's own folders backing up its home, the session's backups for the menu
   bar and Settings, docs/adr/0059-backups.mdx; `backups`, below, is an application's files
@@ -342,10 +352,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
   unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
   presented within a refresh; "logged", patterns (regular expressions) each
-  matching a line written in the step. Every run also checks, for each host's report, that every
+  matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
+  the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
+  "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
+  the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
+  frames presented in it that timed an input. Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
   its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
-  work its `timing` line has, and that each summary's numbers are those of the frames presented
+  work its `timing` line has, that a hold is at least the host's bound long and the frame after it
+  is not charged its wait, and that each summary's numbers are those of the frames presented
   since the summary before;
 - js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
   work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
@@ -452,6 +467,16 @@ the companion's, the shell's, and the windows of the applications the session la
 and size, and a frame for their latest configure, as a zoom from their title bar gives them), not
 each of their frames, which may animate for as long as they like (a storefront's skeleton while it
 loads).
+
+A scenario's `processes` ([{"name", "busy"}]) are processes the run starts before the session
+and ends after it (`activity-process.py`, never by name): each named so (its `comm`), busy for that
+share of the time (0, or none, asleep), recording every signal it receives, so Activity Monitor's
+scenarios list processes they know and quit them (docs/adr/0063-activity-monitor.mdx). A scenario
+whose session lists the machine's processes (with `processes`, or an application granted
+`activity`) runs in a PID namespace of its own (`unshare`, an unprivileged user namespace mapping
+only the user's own id): every run of a gate is one user's, so beside another scenario at once its
+session saw that one's processes as the person's own, and quit them. Activity Monitor still lists
+every process its /proc shows, as a Mac's lists all of the user's; the run's /proc shows its own.
 
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
@@ -663,7 +688,9 @@ QR, which the real service redeems through Oxy's device-proof route (played as i
 its password not signing in), and a `pin` given with the setup becomes the account's PIN. An account's PIN (docs/adr/0020-oxy-account-login.mdx decision 2; `login.pins`: {USER: PIN},
 listed `pin: set`; `login.pin_failures`: {USER: N} wrong ones before the run) is checked by `oxyos-pin-check`, which the login program's PIN service runs
 (`oxyos-login-pin`, pam_exec, as the real one is), asking the stand-in's `verifyPin`: the tenth
-wrong one in a row locks it out (listed `locked`). A step's `accounts_asked` is what the setup asked the service
+wrong one in a row locks it out (listed `locked`). `login.migrate` plays the migration service for
+*Migrate from a Backup* (docs/adr/0059-backups.mdx, `serve_migration`), and a step's
+`migrate_asked` is what it was asked in the step ("ASKED: ANSWERED", exactly, in order). A step's `accounts_asked` is what the setup asked the service
 in it ("ASKED: ANSWERED", exactly, in order) and `oxy_requests` requests Oxy's API answered in it
 ("METHOD PATH STATUS", each at least once), `oxy_requests_times` how many times each was answered
 ({"METHOD PATH STATUS": N}, exactly). No credential of anyone's is in a scenario: every one
@@ -675,6 +702,8 @@ A scenario with `account` runs against a played accounts' service's session sock
 (docs/adr/0020-oxy-account-login.mdx, decision 6; `OXYOS_ACCOUNTD_SESSION_SOCKET`, which every run
 points at a socket of its own, so none asks the machine's): the application ids it knows as the
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
+picture (`account.picture_colour`: a file of that colour the snapshot's account names as its
+`picture`; a login screen's played account's `picture_colour` is its listed `picture` alike), its
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online, no languages; an
 `account` given replaces hers whole and is told unchanged, `languages` included), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
@@ -741,6 +770,7 @@ import json
 import math
 import re
 import shutil
+import signal
 import struct
 import zlib
 import urllib.parse
@@ -922,9 +952,20 @@ def check_diagnostics(report, log_text, failures, who="the application"):
     the wall clock is its time on the CPU, blocked and preempted (thread-clock.h), and each summary
     sums up exactly the frames presented since the summary before."""
     logged = set(log_text.splitlines())
-    frames, last_slow = [], None
+    frames, last_slow, after_hold = [], None, None
     for line in report:
+        if line["kind"] == "held":
+            # A hold is a wait for the compositor's answer of at least the host's bound; what it
+            # waited is the hold's, never the frame's after it.
+            if line["held_ms"] < line["held_after_ms"]:
+                failures.append(f"{who}'s hold of {line['held_ms']:.2f} ms is shorter than its bound "
+                                f"({line['held_after_ms']:.0f} ms)")
+            after_hold = line
         if line["kind"] == "timing":
+            if after_hold is not None and line["wait_ms"] >= after_hold["held_after_ms"]:
+                failures.append(f"{who}'s frame after a hold of {after_hold['held_ms']:.2f} ms was charged a wait of "
+                                f"{line['wait_ms']:.2f} ms")
+            after_hold = None
             # Slow exactly when its work, and its wait beyond a refresh, pass a refresh: a fast
             # frame is never said to be slow, however loaded the machine.
             late = line["work_ms"] + max(0.0, line["wait_ms"] - line["refresh_ms"])
@@ -1193,7 +1234,9 @@ def serve_accounts(path, accounts, login=None, log=None):
     listener.bind(str(path))
     listener.listen(16)
     login = login or {}
-    accounts = [dict(account) for account in accounts]
+    # The caller's list, kept: the played migration service lists the accounts it brought over in it.
+    accounts = accounts if isinstance(accounts, list) else list(accounts)
+    accounts[:] = [dict(account) for account in accounts]
     # The accounts' PINs, as the real service's verifiers are: the played run's own, never logged.
     pins = dict(login.get("pins", {}))
     # Wrong PINs in a row before the run (`login.pin_failures`): ten have locked it out.
@@ -1347,6 +1390,89 @@ def serve_accounts(path, accounts, login=None, log=None):
                     pass
 
     record.asked = "enroll"
+    threading.Thread(target=serve, daemon=True).start()
+    return listener
+
+
+def serve_migration(path, spec, accounts, log=None):
+    """The migration service as the login screen asks it (SOCK_SEQPACKET, crates/oxyos-backup's
+    migrate.rs, docs/adr/0059-backups.mdx decision 7), on one conversation at a time: `disks` with
+    `login.migrate.disks`; `backups` with `login.migrate.computers` for a disk it plays and the
+    password `login.migrate.password` (refused `wrongPassword` otherwise, `notConnected` for another
+    disk); `migrate` of a backup it listed, saying its progress (accounts, files by quarters,
+    finishing) and then `migrated` with `login.migrate.accounts`, which the accounts' stand-in lists
+    from then on, each `signInAgain`. Once it migrated, every request is refused `alreadySetUp`.
+    What it was asked is logged ("ASKED: ANSWERED"), never a password."""
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    listener.bind(str(path))
+    listener.listen(4)
+    state = {"migrated": False}
+
+    def record(asked, answered):
+        if log:
+            with open(log, "a") as out:
+                out.write(json.dumps({"t": time.monotonic_ns(), "asked": asked, "answered": answered}) + "\n")
+
+    def send(connection, answer):
+        connection.send(json.dumps(answer).encode())
+
+    def converse(connection):
+        opened = False
+        while True:
+            packet = connection.recv(65536)
+            if not packet:
+                return
+            message = json.loads(packet)
+            asked = next(iter(message)) if isinstance(message, dict) and message else str(message)
+            if state["migrated"]:
+                answer = {"refused": {"reason": "alreadySetUp"}}
+            elif asked == "disks":
+                answer = {"disks": spec.get("disks", [])}
+            elif asked == "backups":
+                request = message["backups"]
+                uuid = request.get("source", {}).get("disk", {}).get("uuid")
+                if uuid not in [disk["uuid"] for disk in spec.get("disks", [])]:
+                    answer = {"refused": {"reason": "notConnected"}}
+                elif request.get("password") != spec["password"]:
+                    answer = {"refused": {"reason": "wrongPassword"}}
+                else:
+                    opened = True
+                    answer = {"backups": {"computers": spec["computers"], "unopened": spec.get("unopened", 0)}}
+            elif asked == "migrate":
+                request = message["migrate"]
+                listed = [(computer["repository"], backup["snapshot"])
+                          for computer in spec["computers"] for backup in computer["backups"]]
+                if not opened:
+                    answer = {"refused": {"reason": "notOpened"}}
+                elif (request.get("repository"), request.get("snapshot")) not in listed:
+                    answer = {"refused": {"reason": "invalidRequest"}}
+                else:
+                    steps = [("accounts", 0.0)] + [("files", q / 4) for q in range(5)] + [("finishing", 1.0)]
+                    for step, percent in steps:
+                        send(connection, {"migrating": {"step": step, "percent": percent}})
+                        time.sleep(spec.get("step_ms", 400) / 1000)
+                    for account in spec["accounts"]:
+                        if all(listed_account["user"] != account["user"] for listed_account in accounts):
+                            accounts.append(dict(account, state="signInAgain", pin="none", password=True))
+                    state["migrated"] = True
+                    answer = {"migrated": {"computer": next(computer["name"] for computer in spec["computers"]
+                                                            if computer["repository"] == request["repository"]),
+                                           "accounts": [{"user": a["user"], "name": a["name"]}
+                                                        for a in spec["accounts"]]}}
+            else:
+                answer = {"refused": {"reason": "invalidRequest"}}
+            record(asked, next(iter(answer)) if "refused" not in answer else answer["refused"]["reason"])
+            send(connection, answer)
+
+    def serve():
+        while True:
+            connection, _ = listener.accept()
+            with connection:
+                try:
+                    converse(connection)
+                except (OSError, ValueError, KeyError, TypeError, StopIteration):
+                    pass
+
     threading.Thread(target=serve, daemon=True).start()
     return listener
 
@@ -1573,6 +1699,11 @@ def serve_account_session(path, spec, log):
     lock = threading.Lock()
     subscribers = []
     ACCOUNT["snapshot"] = account_snapshot(spec)
+    # The account's picture (`account.picture_colour`): a file of that colour the snapshot names, as
+    # the service keeps the account's avatar on the machine.
+    if spec.get("picture_colour") and ACCOUNT["snapshot"].get("account"):
+        picture = played_picture(pathlib.Path(path).parent / "pictures", "account", spec["picture_colour"])
+        ACCOUNT["snapshot"] = dict(ACCOUNT["snapshot"], account=dict(ACCOUNT["snapshot"]["account"], picture=picture))
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
@@ -2260,7 +2391,15 @@ def login_program(out, offscreen, login):
     oxy = played_oxy(login["oxy"], out / "oxy-api.jsonl") if "oxy" in login else None
     if oxy:
         login = dict(login, platform={"api": oxy[0], "clientId": "oxy_pk_played"})
-    serve_accounts(accountd, login.get("accounts", []), login, out / "login-accounts.jsonl")
+    listed = played_pictures(login.get("accounts", []), out / "pictures")
+    serve_accounts(accountd, listed, login, out / "login-accounts.jsonl")
+    # Migrate from a Backup (`login.migrate`): a played migration service, which lists what it
+    # brought over in the accounts' stand-in.
+    migrate = sockets / "migrate"
+    (out / "login-migrate.jsonl").unlink(missing_ok=True)
+    ACCOUNT["migrate_log"] = out / "login-migrate.jsonl"
+    if "migrate" in login:
+        serve_migration(migrate, login["migrate"], listed, out / "login-migrate.jsonl")
     program = pathlib.Path(offscreen).resolve().parent / "oxyos-login"
     process = subprocess.Popen(
         [str(program), "--dev", "--pam-confdir", str(pam), "--record", str(record),
@@ -2274,7 +2413,7 @@ def login_program(out, offscreen, login):
     # Offline: Oxy's API is a port held bound without listening, so connecting is refused.
     refusing = socket.socket()
     refusing.bind(("127.0.0.1", 0))
-    env = {"OXYOS_ACCOUNTD_SOCKET": str(accountd),
+    env = {"OXYOS_ACCOUNTD_SOCKET": str(accountd), "OXYOS_MIGRATE_SOCKET": str(migrate),
            "OXYOS_OXY_API": oxy[0] if oxy else f"http://127.0.0.1:{refusing.getsockname()[1]}/"}
     return process, greeter, record, env, (refusing, sockets)
 
@@ -2494,6 +2633,28 @@ def png_bytes(width, height, colour, right=None):
 
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def played_picture(directory, name, colour):
+    """An account's picture as the accounts' service keeps it (docs/adr/0020-oxy-account-login.mdx,
+    the 2026-11-09 amendment): a PNG of one colour, 96 × 96, in `directory`; its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}-played"
+    path.write_bytes(png_bytes(96, 96, colour))
+    return str(path)
+
+
+def played_pictures(accounts, directory):
+    """The login screen's played accounts, each `picture_colour` ("#rrggbb") made its picture: a
+    file of that colour, its path the account's `picture`, as the service lists it."""
+    played = []
+    for account in accounts:
+        account = dict(account)
+        colour = account.pop("picture_colour", None)
+        if colour:
+            account["picture"] = played_picture(directory, account["user"], colour)
+        played.append(account)
+    return played
 
 
 def with_home(value, preferences):
@@ -3666,6 +3827,176 @@ def check_input_delivery(summary, reports, failures):
     failures.extend(failed)
 
 
+# The marker of the init regress.py runs as in a scenario's PID namespace (own_pid_namespace).
+PID_NAMESPACE_INIT = "--pid-namespace-init"
+
+
+def lists_processes(scenario):
+    """Whether the scenario's session lists the machine's processes: its own `processes`, or an
+    application granted `activity` (docs/adr/0063-activity-monitor.mdx)."""
+    return bool(scenario.get("processes")) or any(
+        "activity" in grants for grants in scenario.get("grants", {}).values())
+
+
+def pid_namespace_command(argv):
+    """ARGV run as the child of an init (pid 1, this file) in a PID namespace of its own, with a
+    /proc of its own and no other privilege: an unprivileged user namespace mapping only the
+    caller's own id (files it makes are the caller's), the machine's network, files and devices.
+    When the command outside ends, however it ends, the init and everything in the namespace end
+    (`--kill-child`)."""
+    return ["unshare", "--user", "--map-current-user", "--pid", "--fork", "--mount-proc",
+            "--kill-child", sys.executable, str(pathlib.Path(__file__).resolve()), PID_NAMESPACE_INIT,
+            *argv]
+
+
+def pid_namespace_refused():
+    """Why this machine refuses a PID namespace of a run's own (None: it gives one)."""
+    try:
+        probe = subprocess.run(pid_namespace_command(["true"]), capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return str(error)
+    return None if probe.returncode == 0 else (probe.stderr.strip() or f"status {probe.returncode}")
+
+
+def pid_namespace_init(argv):
+    """Pid 1 of a run's namespace: runs ARGV, hands it the signals the run is sent, reaps every
+    process the namespace leaves to it (an orphan never lingers as a zombie a session would list),
+    and ends with ARGV's status, which ends the namespace."""
+    child = os.fork()
+    if child == 0:
+        try:
+            os.execvp(argv[0], argv)
+        finally:
+            os._exit(127)
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(number, lambda received, _frame: os.kill(child, received))
+    while True:
+        try:
+            pid, status = os.wait()
+        except ChildProcessError:
+            return 1
+        except InterruptedError:
+            continue
+        if pid == child:
+            return os.waitstatus_to_exitcode(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+
+
+def own_pid_namespace(scenario):
+    """A scenario whose session lists the machine's processes sees only its run's: this run is made
+    again in a PID namespace of its own and its status returned (None: it is in one already)."""
+    if os.environ.get("OXYOS_REGRESS_PID_NAMESPACE") == "1":
+        # regress.py, the init's only child, and the init its namespace's pid 1.
+        init = pathlib.Path("/proc/1/cmdline").read_bytes().split(b"\0")
+        if os.getppid() != 1 or PID_NAMESPACE_INIT.encode() not in init:
+            raise SystemExit("a run that lists the machine's processes is not alone in its PID namespace")
+        return None
+    refused = pid_namespace_refused()
+    if refused:
+        raise SystemExit("this scenario's session lists the machine's processes, so it runs in a PID "
+                         f"namespace of its own (unshare --user --pid), which this machine refuses: {refused}")
+    env = dict(os.environ, OXYOS_REGRESS_PID_NAMESPACE="1")
+    return subprocess.run(pid_namespace_command([sys.executable, *sys.orig_argv[1:]]), env=env).returncode
+
+
+class ProcessRecorder:
+    """The scenario's `processes`, started before the session and ended after it by their own
+    handles (never by name): each one's signals as it recorded them, and when it ended, seen by a
+    thread looking every 10 ms, on the monotonic clock the steps use."""
+
+    def __init__(self, directory, wanted):
+        self.processes = {}
+        self.ended = {}
+        if not wanted:
+            self.thread = None
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        script = pathlib.Path(__file__).resolve().with_name("activity-process.py")
+        for process in wanted:
+            record = directory / f"{process['name']}.signals"
+            record.unlink(missing_ok=True)
+            child = subprocess.Popen([sys.executable, "-I", str(script), process["name"],
+                                      str(process.get("busy", 0)), str(record)])
+            self.processes[process["name"]] = (child, record)
+        # Each has named itself before the session starts.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not all(
+                record.exists() and "started" in record.read_text() for _, record in self.processes.values()):
+            time.sleep(0.01)
+        self.running = True
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+        self.thread.start()
+
+    def watch(self):
+        while self.running:
+            for name, (child, _) in self.processes.items():
+                if name not in self.ended and child.poll() is not None:
+                    self.ended[name] = time.monotonic_ns()
+            time.sleep(0.01)
+
+    def stop(self):
+        if self.thread is None:
+            return
+        self.running = False
+        self.thread.join()
+        for name, (child, _) in self.processes.items():
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+
+    def signals(self, name, after, until):
+        """The signals `name` received after `after` and by `until`, in order."""
+        _, record = self.processes[name]
+        received = []
+        for line in record.read_text().splitlines() if record.exists() else []:
+            when, what = line.split(" ", 1)
+            if what.startswith("started"):
+                continue
+            if after < int(when) <= until:
+                received.append(what)
+        return received
+
+    def running_at(self, name, t):
+        return name not in self.ended or self.ended[name] > t
+
+
+def check_activity(index, step, result, results, processes, failures):
+    """A step's `activity` and `processes` (docs/adr/0063-activity-monitor.mdx)."""
+    expect = step.get("expect", {})
+    name = f"step {index + 1} ({step.get('name', step['do'][0])})"
+    before = results[index - 1] if index > 0 else None
+    if "activity" in expect:
+        held = result.get("activity")
+        if held is None:
+            failures.append(f"{name}: no Activity Monitor part")
+        else:
+            was = (before or {}).get("activity") or {}
+            for key, wanted in expect["activity"].items():
+                if key == "followed":
+                    if held.get(key) != wanted:
+                        failures.append(f"{name}: activity {key} {held.get(key)}, expected {wanted}")
+                    continue
+                if held.get(key) is None:
+                    failures.append(f"{name}: activity {key} not counted")
+                    continue
+                count = held[key] - (was.get(key) or 0)
+                least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
+                if not least <= count <= most:
+                    failures.append(f"{name}: activity {key} {count} in the step, expected {wanted}")
+    if "processes" in expect:
+        after = (before or {}).get("t_settled", 0)
+        until = result.get("t_settled")
+        for process, wanted in expect["processes"].items():
+            if process not in processes.processes:
+                failures.append(f"{name}: no process {process} (the scenario's `processes`)")
+                continue
+            if "signals" in wanted:
+                received = processes.signals(process, after, until)
+                if received != wanted["signals"]:
+                    failures.append(f"{name}: {process} received {received}, expected {wanted['signals']}")
+            if "running" in wanted and processes.running_at(process, until) != wanted["running"]:
+                failures.append(f"{name}: {process} running {not wanted['running']}, expected {wanted['running']}")
+
+
 def check_views(index, step, result, results, failures):
     """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
     as the director reported them once the step settled: `window_views` ("windows", exactly those
@@ -4005,6 +4336,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for pattern in wanted.get("logged", []):
             if not any(re.search(pattern, text) for text in logs):
                 fail(f"no line matching {pattern!r} was written: {logs}")
+        holds = [line for line in report if line["kind"] == "held" and start <= line["t"] <= end]
+        if "held" in wanted and not wanted["held"][0] <= len(holds) <= wanted["held"][1]:
+            fail(f"{len(holds)} holds ended, expected {wanted['held'][0]} to {wanted['held'][1]}: {logs}")
+        timings = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
+        waited = max((line["wait_ms"] for line in timings), default=0.0)
+        if waited > wanted.get("wait_max_ms", float("inf")):
+            fail(f"a frame waited {waited:.2f} ms for the compositor, expected at most {wanted['wait_max_ms']}: {logs}")
+        timed = [line["latency_ms"] for line in timings if line["presented"] and line["latency_ms"] is not None]
+        if max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
+            fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
+        if len(timed) < wanted.get("timed_inputs_min", 0):
+            fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
     if "js_work" in expect:
         # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
         # frame, and the work that drew none but ran JavaScript.
@@ -4088,6 +4431,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         got = [f"{line['asked']}: {line['answered']}" for line in lines if start <= line["t"] <= end]
         if got != expect["accounts_asked"]:
             fail(f"the accounts' service was asked {got}, expected exactly {expect['accounts_asked']}")
+    if "migrate_asked" in expect:
+        # What the login screen asked the played migration service in the step (`login.migrate`):
+        # "ASKED: ANSWERED" ("disks: disks", "backups: wrongPassword", "migrate: migrated"),
+        # exactly, in order.
+        log = ACCOUNT.get("migrate_log", pathlib.Path("/nonexistent"))
+        lines = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+        got = [f"{line['asked']}: {line['answered']}" for line in lines if start <= line["t"] <= end]
+        if got != expect["migrate_asked"]:
+            fail(f"the migration service was asked {got}, expected exactly {expect['migrate_asked']}")
     if "oxy_requests" in expect:
         # Requests the played Oxy API answered in the step (`login.oxy`), "METHOD PATH STATUS":
         # each listed was made at least once.
@@ -5829,6 +6181,8 @@ def install_arguments(scenario, out, machine=None, offscreen=None):
 
 
 def main():
+    if sys.argv[1:2] == [PID_NAMESPACE_INIT]:
+        return pid_namespace_init(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("scenario")
     parser.add_argument("--offscreen", required=True)
@@ -5886,6 +6240,10 @@ def main():
     SPEED_BUDGETS = options.speed_budgets and not COLLECT
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
+    if lists_processes(scenario):
+        status = own_pid_namespace(scenario)
+        if status is not None:
+            return status
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "host-report.jsonl"
@@ -6293,9 +6651,11 @@ def main():
         report_path.unlink(missing_ok=True)
         change_home_later(home_root, scenario["home"], report_path)
         recorder = HomeRecorder(home_root, wants_xattrs(scenario))
+    processes = ProcessRecorder(out / "processes", scenario.get("processes", []))
     try:
         run = subprocess.run(command, env=env, capture_output=True, text=True)
     finally:
+        processes.stop()
         if stop_network is not None:
             stop_network()
         if stop_bluetooth is not None:
@@ -6350,6 +6710,7 @@ def main():
                            out / "preferences", refresh_hz, recorder,
                            previous=summary["steps"][index - 1] if index else None)
         check_views(index, step, result, summary["steps"], failures)
+        check_activity(index, step, result, summary["steps"], processes, failures)
     # The person's input reached whom it should, once (every scenario, every step).
     check_input_delivery(summary, host_reports(out), failures)
     # Each host's frame diagnostics against its report, and the log they wrote to.

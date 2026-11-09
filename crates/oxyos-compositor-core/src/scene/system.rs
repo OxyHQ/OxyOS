@@ -249,6 +249,20 @@ impl Scene {
         }
     }
 
+    /// Tells `client` the answer to its request `serial` (0: unasked) whole, `size` bytes the
+    /// program running the compositor sends in a sealed file with the event (SystemData,
+    /// docs/adr/0063-activity-monitor.mdx), if it still holds a grant that asks. Whether it was.
+    pub fn system_data(&mut self, client: ClientId, serial: u32, size: u32) -> bool {
+        let Some(grants) = self.clients.get(&client) else {
+            return false;
+        };
+        if !grants.asks_system() || size as usize > oxyos_protocol::MAX_SYSTEM_DATA_BYTES {
+            return false;
+        }
+        self.emit(client, Event::SystemData { serial, size });
+        true
+    }
+
     /// The clients holding `store` or `updates`: those the update state is told to.
     pub fn update_watchers(&self) -> Vec<ClientId> {
         self.clients

@@ -927,6 +927,10 @@ fn events() -> Vec<Event> {
             kind: BackgroundItemKind::LoginItem,
             status: BackgroundStatus::RequiresApproval,
         },
+        Event::SystemData {
+            serial: 0,
+            size: 61_440,
+        },
         Event::SafeMode {},
         Event::QuitRequested {
             serial: 15,
@@ -3177,6 +3181,24 @@ fn version_36_safe_mode_is_only_version_36s() {
     assert!(write_event_for(&mut new, &event, 36).unwrap());
     assert!(read_event_for(&mut Cursor::new(new.clone()), 35).is_err());
     assert_eq!(read_event_for(&mut Cursor::new(new), 36).unwrap(), event);
+}
+
+#[test]
+fn version_37_system_data_is_only_version_37s() {
+    let event = Event::SystemData {
+        serial: 4,
+        size: 61_440,
+    };
+    assert_eq!(event_since(&event), 37);
+    assert_eq!(crate::SYSTEM_DATA_VERSION, 37);
+    // Safe Mode's 36 never knew it: a client of 36 is told the answer in chunks.
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &event, 36).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &event, 37).unwrap());
+    assert!(read_event_for(&mut Cursor::new(new.clone()), 36).is_err());
+    assert_eq!(read_event_for(&mut Cursor::new(new), 37).unwrap(), event);
 }
 
 #[test]

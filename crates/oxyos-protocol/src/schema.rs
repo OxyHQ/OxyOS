@@ -795,6 +795,11 @@ messages! {
         // decision 10): the session started in Safe Mode, told as they connect and only then. They
         // show it until the session ends.
         166 => SafeMode {},
+        // To a client the session answers in its vocabulary (version 37,
+        // docs/adr/0063-activity-monitor.mdx): an answer to its SystemRequest `serial` (0: told
+        // unasked) too long for SystemText's chunks, as one sealed memory file of `size` bytes of
+        // JSON text, the descriptor it carries, as a keymap is sent: one event, not thousands.
+        167 => SystemData { serial: u32, size: u32 },
         // To an application (version 38, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         // the person logs out, restarts or shuts down, and the session asks it to quit first.
         // Answered by QuitReply naming `serial`; never sent to a client of version 37 or older,
@@ -916,7 +921,10 @@ impl Event {
     /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's or
     /// a drag's content into); every other event carries none.
     pub fn carries_fd(&self) -> bool {
-        matches!(self, Event::ClipboardSend { .. } | Event::DragSend { .. })
+        matches!(
+            self,
+            Event::ClipboardSend { .. } | Event::DragSend { .. } | Event::SystemData { .. }
+        )
     }
 }
 

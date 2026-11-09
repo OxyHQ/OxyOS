@@ -40,7 +40,7 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "http")]
 pub(crate) mod http;
 #[cfg(feature = "http")]
-pub use http::HttpApi;
+pub use http::{HttpApi, OXY_CLOUD};
 
 /// The SDK's device credential (Oxy ADR 0029): the device's id and a holder secret for it.
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +117,37 @@ impl Profile {
             .flatten()
             .map(|name| name.trim())
             .find(|name| !name.is_empty())
+    }
+}
+
+/// The most of an account's picture that is kept: a thumbnail is a few kilobytes; an avatar
+/// without one may be a photograph.
+pub const MAX_PICTURE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// `avatar` when it is an Oxy file id the machine can name a picture by (a uuid or a legacy hex
+/// id: letters, digits, `-` and `_`, at most 128); anything else is no picture.
+pub fn avatar_id(avatar: &str) -> Option<&str> {
+    (!avatar.is_empty()
+        && avatar.len() <= 128
+        && avatar
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
+    .then_some(avatar)
+}
+
+/// What kind of image `bytes` are, by their signature: PNG, JPEG, WebP or GIF, the images the
+/// Bloom host decodes (`oxyos-image`); none for anything else, which is never kept.
+pub fn picture_kind(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("jpeg")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("gif")
+    } else {
+        None
     }
 }
 
@@ -337,6 +368,10 @@ pub trait OxyApi {
     ) -> Result<AppToken, ApiError>;
     /// Ends the device's session online, every account of it (`token` the device's own).
     fn sign_out_device(&self, token: &Secret) -> Result<(), ApiError>;
+    /// The account's picture: its avatar's image (`avatar`, an Oxy file id, [`avatar_id`]) as Oxy's
+    /// cloud serves it publicly, its thumbnail (else the image itself), at most
+    /// [`MAX_PICTURE_BYTES`], and only a PNG, JPEG, WebP or GIF image ([`picture_kind`]).
+    fn picture(&self, avatar: &str) -> Result<Vec<u8>, ApiError>;
 }
 
 /// Oxy's API over HTTPS: `https://api.oxy.so`.

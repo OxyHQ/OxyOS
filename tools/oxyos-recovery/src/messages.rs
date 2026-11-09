@@ -10,6 +10,19 @@ pub enum Language {
     Spanish,
 }
 
+/// What the recovery's menu offers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    Erase,
+    Restore,
+    Check,
+    Forgot,
+    Wifi,
+    Language,
+    Restart,
+    ShutDown,
+}
+
 #[derive(Clone, Copy)]
 pub struct Text {
     pub language: Language,
@@ -59,26 +72,19 @@ impl Text {
         )
     }
 
-    pub fn menu(&self) -> [&'static str; 7] {
-        match self.language {
-            Language::English => [
-                "Erase and Reinstall OxyOS",
-                "Check and Repair the Disk",
-                "Forgot Your Password?",
-                "Wi-Fi",
-                "Language: English",
-                "Restart",
-                "Shut Down",
-            ],
-            Language::Spanish => [
-                "Borrar y reinstalar OxyOS",
-                "Comprobar y reparar el disco",
-                "¿Has olvidado tu contraseña?",
-                "Wi-Fi",
-                "Idioma: español",
-                "Reiniciar",
-                "Apagar",
-            ],
+    pub fn choice(&self, choice: Choice) -> &'static str {
+        match choice {
+            Choice::Erase => self.pick("Erase and Reinstall OxyOS", "Borrar y reinstalar OxyOS"),
+            Choice::Restore => self.pick(
+                "Restore from Backup…",
+                "Restaurar desde copia de seguridad…",
+            ),
+            Choice::Check => self.pick("Check and Repair the Disk", "Comprobar y reparar el disco"),
+            Choice::Forgot => self.pick("Forgot Your Password?", "¿Has olvidado tu contraseña?"),
+            Choice::Wifi => "Wi-Fi",
+            Choice::Language => self.pick("Language: English", "Idioma: español"),
+            Choice::Restart => self.pick("Restart", "Reiniciar"),
+            Choice::ShutDown => self.pick("Shut Down", "Apagar"),
         }
     }
 
@@ -266,5 +272,190 @@ impl Text {
 
     pub fn failed(&self) -> &'static str {
         self.pick("Something went wrong:", "Algo ha fallado:")
+    }
+
+    // Restore from Backup (docs/adr/0059-backups.mdx, decision 7).
+
+    pub fn restore_where(&self) -> &'static str {
+        self.pick(
+            "Where are the backups? Connect the backup disk, or choose a network share.",
+            "¿Dónde están las copias de seguridad? Conecta el disco de copias o elige una carpeta compartida de la red.",
+        )
+    }
+
+    pub fn network_share(&self) -> &'static str {
+        self.pick("Network Share…", "Carpeta compartida de la red…")
+    }
+
+    pub fn look_again(&self) -> &'static str {
+        self.pick("Look for disks again", "Buscar discos otra vez")
+    }
+
+    pub fn choose_or_back(&self) -> &'static str {
+        self.pick(
+            "Choose an option, or press Enter to go back: ",
+            "Elige una opción, o pulsa Intro para volver: ",
+        )
+    }
+
+    pub fn share_host(&self) -> &'static str {
+        self.pick(
+            "Computer (its name or address): ",
+            "Ordenador (su nombre o dirección): ",
+        )
+    }
+
+    pub fn share_name(&self) -> &'static str {
+        self.pick("Shared folder: ", "Carpeta compartida: ")
+    }
+
+    pub fn share_user(&self) -> &'static str {
+        self.pick("User: ", "Usuario: ")
+    }
+
+    pub fn share_password(&self) -> &'static str {
+        self.pick(
+            "The share's password: ",
+            "Contraseña de la carpeta compartida: ",
+        )
+    }
+
+    pub fn backup_password(&self) -> &'static str {
+        self.pick(
+            "Backup password: ",
+            "Contraseña de las copias de seguridad: ",
+        )
+    }
+
+    pub fn looking(&self) -> &'static str {
+        self.pick("Looking for backups…", "Buscando copias de seguridad…")
+    }
+
+    pub fn computers_heading(&self) -> &'static str {
+        self.pick("Computers backed up there:", "Ordenadores con copias ahí:")
+    }
+
+    pub fn choose_computer(&self) -> &'static str {
+        self.pick(
+            "Choose a computer, or press Enter to go back: ",
+            "Elige un ordenador, o pulsa Intro para volver: ",
+        )
+    }
+
+    pub fn backups_heading(&self, computer: &str) -> String {
+        match self.language {
+            Language::English => format!("Backups of {computer}, newest first:"),
+            Language::Spanish => {
+                format!("Copias de {computer}, de la más reciente a la más antigua:")
+            }
+        }
+    }
+
+    pub fn choose_backup(&self) -> &'static str {
+        self.pick(
+            "Choose a backup, or press Enter to go back: ",
+            "Elige una copia, o pulsa Intro para volver: ",
+        )
+    }
+
+    pub fn accounts(&self, names: &str) -> String {
+        match self.language {
+            Language::English => format!("Accounts: {names}"),
+            Language::Spanish => format!("Cuentas: {names}"),
+        }
+    }
+
+    pub fn restore_warning(&self, computer: &str, date: &str) -> String {
+        match self.language {
+            Language::English => format!(
+                "This erases everything on this computer and installs OxyOS again, then puts back the accounts of {computer} as its backup of {date} has them: their files, their pictures and the Wi-Fi networks. The computer then restarts, and each person signs in again with their Oxy account, online."
+            ),
+            Language::Spanish => format!(
+                "Esto borra todo lo que hay en este ordenador y vuelve a instalar OxyOS; después recupera las cuentas de {computer} tal como están en su copia del {date}: sus archivos, sus imágenes y las redes Wi-Fi. Luego el ordenador se reinicia y cada persona vuelve a iniciar sesión con su cuenta de Oxy, con conexión."
+            ),
+        }
+    }
+
+    pub fn restoring(&self) -> &'static str {
+        self.pick(
+            "Restoring from the backup… Don't turn the computer off.",
+            "Restaurando desde la copia de seguridad… No apagues el ordenador.",
+        )
+    }
+
+    pub fn restoring_files(&self, percent: u32) -> String {
+        match self.language {
+            Language::English => format!("  Files: {percent}%"),
+            Language::Spanish => format!("  Archivos: {percent} %"),
+        }
+    }
+
+    pub fn restored(&self, names: &str) -> String {
+        match self.language {
+            Language::English => format!(
+                "The backup was restored: {names}. The computer restarts; sign in again with each Oxy account."
+            ),
+            Language::Spanish => format!(
+                "Se ha restaurado la copia: {names}. El ordenador se reinicia; vuelve a iniciar sesión con cada cuenta de Oxy."
+            ),
+        }
+    }
+
+    pub fn interrupted(&self, computer: &str, date: &str) -> String {
+        match self.language {
+            Language::English => format!(
+                "Restoring the backup of {computer} of {date} was interrupted. It starts again from the beginning: the backup's password is needed."
+            ),
+            Language::Spanish => format!(
+                "Se interrumpió la restauración de la copia de {computer} del {date}. Vuelve a empezar desde el principio: hace falta la contraseña de la copia."
+            ),
+        }
+    }
+
+    pub fn interrupted_menu(&self) -> [&'static str; 3] {
+        match self.language {
+            Language::English => ["Try again", "Wi-Fi", "Finish erasing without restoring"],
+            Language::Spanish => [
+                "Volver a intentarlo",
+                "Wi-Fi",
+                "Terminar el borrado sin restaurar",
+            ],
+        }
+    }
+
+    /// Why the backups could not be read or restored, by the backups' library's reason.
+    pub fn refusal(&self, reason: &str) -> &'static str {
+        match reason {
+            "notConnected" => self.pick(
+                "The backup disk isn't connected.",
+                "El disco de copias no está conectado.",
+            ),
+            "noBackup" => self.pick(
+                "There are no OxyOS backups there.",
+                "Ahí no hay copias de seguridad de OxyOS.",
+            ),
+            "wrongPassword" => self.pick(
+                "That password doesn't open any of the backups there.",
+                "Esa contraseña no abre ninguna de las copias que hay ahí.",
+            ),
+            "shareRefused" => self.pick(
+                "The share didn't accept that user and password.",
+                "La carpeta compartida no ha aceptado ese usuario y contraseña.",
+            ),
+            "unreachable" => self.pick(
+                "The share's computer can't be reached. Check its name and the network (Wi-Fi).",
+                "No se puede llegar al ordenador de la carpeta compartida. Comprueba su nombre y la red (Wi-Fi).",
+            ),
+            "inUse" => self.pick(
+                "Another computer is using these backups now. Try again in a moment.",
+                "Otro ordenador está usando estas copias ahora. Vuelve a intentarlo en un momento.",
+            ),
+            "full" => self.pick("The disk is full.", "El disco está lleno."),
+            "invalidBackup" => self.pick(
+                "This backup can't be restored to a computer.",
+                "Esta copia no se puede restaurar en un ordenador.",
+            ),
+            _ => self.pick("Something went wrong.", "Algo ha fallado."),
+        }
     }
 }

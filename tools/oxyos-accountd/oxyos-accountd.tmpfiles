@@ -1,0 +1,5 @@
+# The accounts' pictures (docs/adr/0020-oxy-account-login.mdx): their Oxy avatars, written by
+# oxyos-accountd, read by the login screen and each account's session (as AccountsService keeps
+# its icons in /var/lib/AccountsService/icons). Root's; each picture in it root's, mode 0644.
+# Installed as /usr/lib/tmpfiles.d/oxyos-accountd.conf.
+d /var/lib/oxyos/pictures 0755 root root -

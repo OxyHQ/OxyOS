@@ -20,6 +20,7 @@ export type PlatformErrorCode = (typeof PLATFORM_ERROR_CODES)[number];
 
 /** The framework a call belongs to. */
 export type PlatformDomain =
+  | 'activity'
   | 'application'
   | 'audio'
   | 'bluetooth'

@@ -1,0 +1,18 @@
+{
+  "id": "so.oxy.activitymonitor",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "Activity Monitor",
+  "names": {
+    "es": "Monitor de Actividad"
+  },
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "OxyOSActivityMonitor"
+  },
+  "architectures": [
+    "any"
+  ]
+}

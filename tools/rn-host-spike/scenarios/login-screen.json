@@ -9,7 +9,8 @@
         "accountId": "0123456789abcdef01234567",
         "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
         "uid": 1001,
-        "name": "Ada Lovelace"
+        "name": "Ada Lovelace",
+        "picture_colour": "#1f9e5a"
       },
       {
         "accountId": "0123456789abcdef01234568",
@@ -24,7 +25,7 @@
   },
   "steps": [
     {
-      "name": "the login screen lists the enrolled accounts by their names (never by their Unix users), the first chosen, and takes its password: the lock screen's look, all the compositor shows",
+      "name": "the login screen lists the enrolled accounts by their names (never by their Unix users) and pictures (Ada's the one the accounts' service keeps of her avatar, Bea, with none, the default), the first chosen, and takes its password: the lock screen's look, all the compositor shows",
       "do": [
         "type",
         "qzx"
@@ -55,6 +56,11 @@
           "absent": [
             "oxy-"
           ]
+        },
+        "output_pixels": {
+          "581,469": "#1f9e5a",
+          "570,460": "#1f9e5a",
+          "709,469": "!#1f9e5a"
         }
       }
     },

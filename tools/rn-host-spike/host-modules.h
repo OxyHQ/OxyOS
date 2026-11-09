@@ -3,6 +3,7 @@
 
 #include "account-session.h"
 #include "application.h"
+#include "migration.h"
 #include "network.h"
 #include "renderer.h"
 
@@ -379,6 +380,9 @@ struct HostServices {
   // The machine's Oxy session (account-session.h, docs/adr/0020-oxy-account-login.mdx), made when
   // `OxyOSAccountSession` is first asked: its answers and the snapshot followed wake the loop.
   std::unique_ptr<AccountSession> accountSession;
+  // Migrate from a Backup (migration.h, docs/adr/0059-backups.mdx), the login screen's, made when
+  // `OxyOSMigration` is first asked: its answers and a migration's progress wake the loop.
+  std::unique_ptr<Migration> migration;
   // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
   // unset without a window.
   std::function<void()> blurFocusedInput;
