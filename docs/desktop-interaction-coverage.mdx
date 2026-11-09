@@ -173,36 +173,30 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 
 ## Performance
 
-`perf.py` measures and [Performance](./performance) records the numbers. In the gate every scenario runs with `--renderer cpu`, and the scenarios that hold a budget on time (`perf-*`, `refresh-*`) run alone in phase 2. **The gate holds** `latency_ms`, `content_ms_max`, the 33 ms backstop on a step's JavaScript, `zoom_presented_ms_max`, the `diagnostics` limits, commit counts, and frame bounds from above. **It does not hold** the JavaScript CPU budgets, frame spacing, or the frame-count minimums (capped at 2 by `frames_least`). Those, and `perf.py --check` (compose and host p95 within a refresh, GPU time, idle, first frame, memory), are run by hand.
+`perf.py` measures and [Performance](./performance) records the numbers. In the gate every scenario runs with `--renderer cpu`, and the scenarios that hold a budget on time (`perf-*`, `refresh-*`) run alone in phase 2, on the cores seldon reserves for one gate at a time. **Phase 2 holds every budget on time and on speed** (`regress.py --speed-budgets`, [The gate's budgets on time](./performance#the-gates-budgets-on-time)): `latency_ms`, `content_ms_max`, the `diagnostics` limits (the host's own input to present among them), the reader's `spoken_ms_max`, the JavaScript CPU budgets, frame spacing and frame-count minimums, and `frame_work`, perf.py's own budget of each frame's work within a refresh at the 95th percentile. Phase 1, which shares the machine, holds what every step must do and the backstops. **Still by hand** (`perf.py --check`): GPU time, idle, first frames and memory, which need the device or a quiet machine.
 
 | Scenario | What it bounds | Where it runs |
 | --- | --- | --- |
-| `perf-window-drag(-scaled)` | a window drag composed in ≥90 frames, nothing read back | CPU, gate phase 2 |
+| `perf-typing` | each key typed to the text drawn (15–25 ms), the host's input to present (15–25 ms), each frame within a refresh | CPU, gate phase 2 |
+| `perf-ime` | each key the input method composes to the composition drawn (30 ms), the host's input to present for its transaction (5 ms), each frame within a refresh | CPU, gate phase 2 |
+| `perf-menus` | the bar's menus from the keyboard: each key to its frame (25–55 ms), the shell's input to present (25–55 ms), each frame within a refresh | CPU, gate phase 2 |
+| `perf-popup-follows` | a menu opened by a press (60 ms), following its window moved (20 ms) and resized (35–40 ms), a key in it (30 ms), composition within a refresh | CPU, gate phase 2 |
+| `perf-momentum` | a flick's glide a refresh apart (median ≤ 17.5 ms, none over 25), the host's input to present (5 ms), each frame within a refresh | CPU, gate phase 2 |
+| `perf-reader` | each reader key to its first utterance (15 ms) | CPU, gate phase 2 |
+| `perf-window-drag(-scaled)` | a window drag composed in ≥90 frames, nothing read back, composition within a refresh | CPU, gate phase 2 |
 | `perf-dropsea(-scaled)` | Dropsea's latencies: opening a folder 120 ms, a view switch 600, a context menu 250, Escape 120 | CPU, gate phase 2 |
-| `perf-dropsea-home` | latencies 120, 600 and 450 ms; JavaScript per step (not held in the gate) | CPU, gate phase 2 |
+| `perf-dropsea-home` | latencies 120, 600 and 450 ms; JavaScript per step | CPU, gate phase 2 |
 | `perf-dropsea-launch-signed-in` | launch to content 500 ms | CPU, gate phase 2 |
-| `perf-dropsea-resize` | a resize's JavaScript p95 8 ms and busy refreshes (not held), unanswered frames 0, zoom presented 150 ms | CPU, gate phase 2 |
-| `perf-glass(-reduced)` | frames during a glass animation [8, 80] (held as [2, 80]) | CPU, gate phase 2 |
-| `perf-settings-scroll` | only that it scrolled; its time is judged by `perf.py interactions` | CPU, gate phase 2 |
-| `refresh-60-windows`, `refresh-120-windows`, `refresh-120-animations` | frames and their spacing at 60 and 120 Hz (spacing not held) | CPU at a paced refresh, gate phase 2 |
+| `perf-dropsea-resize` | a resize's JavaScript p95 8 ms and busy refreshes p95 1, composition within a refresh, unanswered frames 0, zoom presented 150 ms | CPU, gate phase 2 |
+| `perf-glass(-reduced)` | frames during a glass animation [8, 80], composition (and with Reduce transparency the host's frames) within a refresh | CPU, gate phase 2 |
+| `perf-settings-scroll` | that it scrolled, each frame within a refresh | CPU, gate phase 2 |
+| `refresh-60-windows`, `refresh-120-windows`, `refresh-120-animations` | frames and their spacing at 60 and 120 Hz, the hosts' frames (and a drag's composition) within a refresh | CPU at a paced refresh, gate phase 2 |
 | `frame-diagnostics`, `held-frames`, `input-timing`, `memory-idle`, `battery-idle` | the diagnostics themselves, held frames, input time, idle buffers and timers: functional, not speed | CPU, gate phase 1 |
 | `gpu-client`, `session-shell --gpu-only`, the one-GPU tests (`oxyos-gpu-device`, `only_the_compositors_drivers`) | GPU frames latched and presented; only the GPU driving a display opened | a GPU only: gate phase 4. **Never on seldon**, which has no GPU. |
 
-**Interactions with no time bound at all:**
+Each budget of the six desktop scenarios is twice the slowest of ten runs measured on seldon's reserved cores, rounded up to 5 ms ([Performance](./performance#the-gates-budgets-on-time) has the numbers). Not held on seldon, where the CPU composes and draws: the glass's host frames (13 ms of 16.7), a zoom's composition at 120 Hz, and a menu's frames as it opens or is placed anew (13–22 ms of work). The reserved cores do not shield a run from a saturated disk: a host blocked on its files fails a budget, and the gate's second run decides.
 
-- input methods (preedit, candidates, commit);
-- text editing per keystroke (only `sample`'s whole typed string, 250 ms);
-- menus from the keyboard and the bar's menus (only Dropsea's context menu and `sample`'s menu);
-- popups following a move or resize;
-- momentum and keyboard scrolling;
-- everything the reader says.
-
-**On real hardware.** The ThinkPad (Intel Iris Xe and an NVIDIA T550) has run `perf.py --runs 3 --gpu-only --check` with every part on the Iris Xe (6 November). All budgets held but the genie at 120 Hz: compose p95 9.98 ms against 8.3 ([Performance](./performance#every-part-on-the-thinkpads-gpu)). Nothing in CI or a deploy runs `perf.py`. A device run must never touch the NVIDIA GPU and never disturb the signed-in session. It needs:
-
-- `VK_DRIVER_FILES` set to Intel's ICD alone, so the loader cannot load NVK. Without it, `vulkaninfo` in the gate's phase 4 enumerates every ICD, which froze the machine on 1 November ([ADR 0031](./adr/0031-gpu-buffers)). So the gate is never run there as it is.
-- `/dev/dri` on a tmpfs in the run's own namespace (`unshare -rm`), with only the Iris card and its render node bound back.
-- `strace -f -e trace=openat`, checking that no NVIDIA node is opened. Also check that the T550's `runtime_status` stays `suspended`.
-- `--gpu-only`, never `--kms`: `--kms` needs DRM master and would take the display from the session.
+**On real hardware.** `tools/rn-host-spike/perf-device.sh` runs `perf.py --gpu-only` on a device's own GPU beside a signed-in session without disturbing it ([Performance](./performance#a-devices-gpu-beside-a-persons-session)): only while the seat0 session is idle (logind's `IdleHint`), stopping the moment it is not; at the least priority (nice 19, idle I/O); in a transient unit whose `/dev/dri` holds the chosen GPU's render node alone and whose device policy allows no other GPU node; Vulkan pinned to that GPU's driver (`VK_DRIVER_FILES`), so the gate's GPU enumeration never runs; and an `strace` record of every open, failing the run if any node or driver of another GPU was opened or tried, or that GPU's runtime power state changed. On the ThinkPad (10 November) it composed and drew on the Iris Xe alone, the NVIDIA T550 never opened and never woken, and every budget held. Nothing in CI or a deploy runs `perf.py`; `--kms` is never used there (it needs DRM master and would take the display from the session).
 
 ## The native audit's claims against the code
 
@@ -277,6 +271,7 @@ These are listed for their owners to decide. This change fixes none of them.
 3. **Popups following a move and a resize at both scales:** `popup-follows`, and `popup-follows-scaled`'s focus and deliveries, then a key and a press on the moved menu.
 4. **Momentum** must only slow, and a click stops a glide (`flick_press`): `touchpad-hold(-scaled)`. Scroll into view was already complete at both scales (`scroll-reveal`).
 5. **The reader's order through a window, both ways and its ends:** `screen-reader`.
+6. **Time budgets for input methods, keystrokes, menus, popups, momentum and the reader**, held by the gate's timing phase on its reserved cores: `perf-typing`, `perf-ime`, `perf-menus`, `perf-popup-follows`, `perf-momentum`, `perf-reader`.
 
 **Open, most important first:**
 
@@ -290,4 +285,3 @@ These are listed for their owners to decide. This change fixes none of them.
 8. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
 9. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
 10. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
-11. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.

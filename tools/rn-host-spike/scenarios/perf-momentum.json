@@ -1,0 +1,66 @@
+{
+  "about": "A touchpad's flick gliding, for the gate's timing phase and perf.py's desktop (docs/performance.mdx, docs/desktop-interaction-coverage.mdx): touchpad-hold.json's first flick (sample/GlideProbe.tsx): the list glides its Android distance, its scrolls stamped as they are dispatched, and its momentum's frames come a refresh apart (`glide`'s `frame_gap_ms`, [median, most], held with --speed-budgets), the host's input to present for the fingers' scrolls within its budget (`diagnostics`).",
+  "module": "GlideProbe",
+  "window": [
+    600,
+    360
+  ],
+  "steps": [
+    {
+      "name": "a flick glides its distance, every scroll event stamped when it was dispatched",
+      "do": [
+        "flick",
+        [
+          150,
+          150,
+          120,
+          6,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [
+            8,
+            60
+          ],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "scroll": 7
+          }
+        },
+        "glide": {
+          "view": "list",
+          "velocity": [
+            900,
+            1500
+          ],
+          "frames_min": 8,
+          "frame_gap_ms": [
+            17.5,
+            25
+          ]
+        },
+        "scroll_times": "dispatch",
+        "texts": [
+          "Glide 1: scrolls stamped rising yes, momentum stamped yes, ended at 387"
+        ],
+        "focus_surface": 1,
+        "diagnostics": {
+          "latency_max_ms": 5,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    }
+  ]
+}

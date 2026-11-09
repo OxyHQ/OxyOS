@@ -8,12 +8,12 @@
     {
       "name": "The sidebar scrolled down 240 px in 60 events at 60 Hz",
       "do": ["scroll_paced", [150, 200, 240, 60, 60]],
-      "expect": {"scrolled": {"presented_min": 30}}
+      "expect": {"scrolled": {"presented_min": 30}, "frame_work": {"compose_refreshes_p95": 1.0, "host_refreshes_p95": 1.0}}
     },
     {
       "name": "And back up",
       "do": ["scroll_paced", [150, 200, -240, 60, 60]],
-      "expect": {"scrolled": {"presented_min": 30}}
+      "expect": {"scrolled": {"presented_min": 30}, "frame_work": {"compose_refreshes_p95": 1.0, "host_refreshes_p95": 1.0}}
     }
   ]
 }

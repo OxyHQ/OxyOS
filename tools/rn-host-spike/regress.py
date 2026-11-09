@@ -82,6 +82,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
   minute it was said or the one before);
+- spoken_ms_max: the screen reader's latency: from the step's input to the first utterance it said in
+  the step (as the session hands it to speech, its `t`), by the wall clock, at most so many ms. Held
+  as `latency_ms` is (always but under --collect); the measured value is the step's `spoken_ms`;
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
@@ -272,6 +275,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   only with --speed-budgets); "zoom_presented_ms_max", for a zoom (the
   green bubble), the most time from its being asked to its frame presented, as the host's
   diagnostics log it ("zoom (…): its configure … its frame presented N ms after");
+- frame_work: every frame's work in the step against a refresh of its display (`display_hz`), at
+  the 95th percentile, as perf.py's --check holds an interaction's: "compose_refreshes_p95", the
+  frames the compositor composed (for a paced step, those while its input lasted and a refresh
+  after); "host_refreshes_p95", each Bloom host's frames presented (its report's `busy_ms`: the
+  application's window's, and the shell's); both budgets on speed, held only with --speed-budgets;
 - stretch: a scroll view ("view", by testID) stretched past an end in the step, as Android 12's
   ScrollView stretches (EdgeEffect's stretch, overscroll in input.h), from the host's report of
   each change of the stretch drawn along its axis ("axis", "y" by default; a share of its size,
@@ -295,7 +303,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   drag's end to the glide's end going only that way and covering that distance (or stopping at the
   end it reaches), within a pixel, over at least "frames_min" frames, never faster than the frame
   before (`glide_speeding`); and its events in order: scrollEndDrag, momentumScrollBegin, the
-  glide's scrolls, momentumScrollEnd. With "held" (a `flick_hold` step: fingers coming to rest on
+  glide's scrolls, momentumScrollEnd; "frame_gap_ms", [median, most] for the time between the
+  glide's scrolls, each a frame of its momentum (a refresh of the display: 16.7 at 60 Hz), held
+  only with --speed-budgets. With "held" (a `flick_hold` step: fingers coming to rest on
   the touchpad while it glides), the glide instead stops where the resting fingers find it, as
   macOS stops a scroll under resting fingers: short of the fling's distance, its
   momentumScrollEnd once, in the frame the host handled their hold's begin (`hold.begin`), and no
@@ -3226,6 +3236,46 @@ def glide_speeding(scrolls):
     return speeding
 
 
+def paced_span_ms(step, refresh_ms):
+    """How long a paced step's input lasts (its events over their rate) and a refresh after it, in ms
+    from its injection: the frames composed then are the interaction's; None for a step not paced."""
+    kind, value = step["do"][0], step["do"][1] if len(step["do"]) > 1 else None
+    if kind in ("drag_paced", "scroll_paced", "move_paced", "flick", "flick_hold", "flick_press"):
+        events, hz = value[-2], value[-1]
+        if kind in ("flick_hold", "flick_press"):
+            events, hz = value[-3], value[-2]
+        return events / hz * 1000 + refresh_ms
+    return None
+
+
+def check_frame_work(wanted, step, result, report, shell_report, refresh_hz, fail):
+    """The step's `frame_work`: each frame's work at the 95th percentile against a refresh, as perf.py
+    --check holds an interaction's (BUDGETS' compose_refreshes_p95 and host_busy_refreshes_p95)."""
+    refresh = 1000 / refresh_hz
+    frames = result.get("composed") or []
+    span = paced_span_ms(step, refresh)
+    if span is not None:
+        frames = [frame for frame in frames if frame[0] <= span]
+    if "compose_refreshes_p95" in wanted:
+        compose = sorted(frame[1] for frame in frames)
+        p95 = percentile(compose, 95)
+        if p95 is None:
+            fail("no frame was composed in the step: its composition is not measured")
+        elif p95 > wanted["compose_refreshes_p95"] * refresh:
+            fail(f"composing took {p95:.2f} ms at the 95th percentile of {len(compose)} frames, over "
+                 f"{wanted['compose_refreshes_p95']} of a refresh ({refresh:.2f} ms)")
+    if "host_refreshes_p95" in wanted:
+        begun, end = result.get("t_inject"), result.get("t_settled")
+        for who, lines in (("the application's", [line for line in report if line.get("surface") == 1]),
+                           ("the shell's", shell_report)):
+            busy = sorted(line["busy_ms"] for line in lines if line["kind"] == "frame" and "busy_ms" in line
+                          and line.get("presented", True) and begun <= line["t"] <= end)
+            p95 = percentile(busy, 95)
+            if p95 is not None and p95 > wanted["host_refreshes_p95"] * refresh:
+                fail(f"{who} host worked {p95:.2f} ms per frame at the 95th percentile of {len(busy)} frames, over "
+                     f"{wanted['host_refreshes_p95']} of a refresh ({refresh:.2f} ms)")
+
+
 def check_glide(wanted, report, start, end, fail):
     """The step's `glide`: a scroll view flung by a touchpad's fingers, as Android flings it."""
     view = wanted["view"]
@@ -3264,6 +3314,14 @@ def check_glide(wanted, report, start, end, fail):
         fail(f"{view} sped up as it glided: {speeding}")
     if len(steps) < wanted.get("frames_min", 0):
         fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
+    if "frame_gap_ms" in wanted and SPEED_BUDGETS:
+        # The momentum's frames, how far apart: a scroll each frame it moved the view.
+        times = [line["t"] / 1e6 for line in after[2:-1]]
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        median, most = (statistics.median(gaps), max(gaps)) if gaps else (None, None)
+        if median is None or median > wanted["frame_gap_ms"][0] or most > wanted["frame_gap_ms"][1]:
+            fail(f"{view}'s glide came {median and round(median, 2)} ms apart at the median and "
+                 f"{most and round(most, 2)} at most, expected at most {wanted['frame_gap_ms']}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get("y")
     reached_end = wanted.get("to_end", False)
     # Stopped: by fingers coming to rest (`held`, a flick_hold) or a click (`pressed`, a
@@ -5051,6 +5109,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                                                for u, w in zip(said, wanted)):
             fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
                  f"expected {expect['spoken']}")
+    if "spoken_ms_max" in expect:
+        # The reader's latency: from the input to the first thing it said for it, by the wall clock.
+        said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
+        result["spoken_ms"] = (said[0]["t"] - result["t_inject"]) / 1e6 if said and result.get("t_inject") else None
+        if result["spoken_ms"] is None:
+            fail("the screen reader said nothing for the step's input: its latency is not measured")
+        elif not COLLECT and result["spoken_ms"] > expect["spoken_ms_max"]:
+            fail(f"the screen reader spoke {result['spoken_ms']:.2f} ms after the input, over the "
+                 f"{expect['spoken_ms_max']} ms budget")
     if "at_absent" in expect:
         # Nodes it must not hold ({} matches any node: none at all there).
         for role, unwanted in expect["at_absent"].items():
@@ -5174,6 +5241,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             elif not COLLECT and max(zooms) > wanted["zoom_presented_ms_max"]:
                 fail(f"the zoom's frame was presented {max(zooms)} ms after it was asked, expected at most "
                      f"{wanted['zoom_presented_ms_max']}")
+    if "frame_work" in expect and SPEED_BUDGETS:
+        check_frame_work(expect["frame_work"], step, result, report, shell_report or [], refresh_hz, fail)
     if "glide" in expect:
         check_glide(expect["glide"], report, start, end, fail)
     if expect.get("scroll_times") == "dispatch":

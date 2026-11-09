@@ -1,0 +1,401 @@
+{
+  "about": "The session's menus opened from the keyboard, for the gate's timing phase and perf.py's desktop (docs/performance.mdx, docs/desktop-interaction-coverage.mdx): menu-bar-keyboard.json's way through Allo's bar (sample/MenuBarProbe.tsx in the shell's bar, ADR 0021): Super+F2 onto the bar, Right across it, Down opening File, Right opening Edit in its place and Left File again, Escape closing it and Escape leaving the bar. Each step holds what it does (what the assistive technology holds, what the shell draws, what the window hears) and how fast: from the key to the first frame that changed (`latency_ms`) and the shell's own input to present (`in_shell`'s `diagnostics`).",
+  "locale": "es_ES.UTF-8",
+  "module": "MenuBarProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "a press in the note field focuses it",
+      "do": [
+        "press",
+        [
+          100,
+          90
+        ]
+      ],
+      "expect": {
+        "focus_input": "note",
+        "react": {
+          "touchStart@note": 1,
+          "touchEnd@note": 1,
+          "focus@note": 1,
+          "selectionChange@note": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+F2 moves the keyboard to the bar, on its first menu, the Oxy menu, as a Mac's Control-F2: the application hears nothing of the keys, its field keeps its focus, its menus stay on the bar",
+      "do": [
+        "key",
+        [
+          125,
+          60
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "focus_input": "note",
+        "focus_surface": null,
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "File",
+            "Edit"
+          ],
+          "diagnostics": {
+            "latency_max_ms": 30,
+            "timed_inputs_min": 1
+          }
+        },
+        "latency_ms": 40,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Right: the application's own menu",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Allo",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {
+              "name": "Menú de Oxy",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 25,
+        "in_shell": {
+          "diagnostics": {
+            "latency_max_ms": 25,
+            "timed_inputs_min": 1
+          }
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Right: File",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 25,
+        "in_shell": {
+          "diagnostics": {
+            "latency_max_ms": 25,
+            "timed_inputs_min": 1
+          }
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Down opens File under its title on its first row, New, as a Mac's menu opened from the keyboard",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "New",
+            "Ctrl+N",
+            "Open…",
+            "Open Recent"
+          ],
+          "diagnostics": {
+            "latency_max_ms": 50,
+            "timed_inputs_min": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "New",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 50,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Right with File open: Edit opens in its place, on its first enabled row (Undo is disabled); the window hears nothing, the grab going straight from the one menu to the other",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "Undo",
+            "Wrap Lines"
+          ],
+          "absent": [
+            "Open Recent"
+          ],
+          "diagnostics": {
+            "latency_max_ms": 50,
+            "timed_inputs_min": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Edit",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 50,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Left: File again in its place, on New",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {
+          "texts": [
+            "New",
+            "Open Recent"
+          ],
+          "absent": [
+            "Wrap Lines"
+          ],
+          "diagnostics": {
+            "latency_max_ms": 55,
+            "timed_inputs_min": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "expanded"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 55,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Escape closes the menu, choosing nothing: the keyboard stays on its title",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "enter": 1
+          }
+        },
+        "in_shell": {
+          "absent": [
+            "Open Recent"
+          ],
+          "diagnostics": {
+            "latency_max_ms": 25,
+            "timed_inputs_min": 1
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "focus_surface": null,
+        "latency_ms": 25,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Escape again leaves the bar: the keyboard back with the window, its field focused; the assistive technology's focus leaves the bar with it",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_input": "note",
+        "focus_surface": 1,
+        "at_absent": {
+          "shell": [
+            {
+              "state": [
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            },
+            {
+              "state": [
+                "expanded",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "File",
+              "state": [
+                "collapsed"
+              ]
+            }
+          ]
+        },
+        "latency_ms": 25,
+        "in_shell": {
+          "diagnostics": {
+            "latency_max_ms": 25,
+            "timed_inputs_min": 1
+          }
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    }
+  ]
+}

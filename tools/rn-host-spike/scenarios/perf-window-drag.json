@@ -12,7 +12,7 @@
     {
       "name": "Its title area dragged 200 px right and 150 px down, 100 motions at 125 Hz: a frame composed for nearly every motion, no client pixels read",
       "do": ["drag_paced", [340, 90, 540, 240, 100, 125]],
-      "expect": {"drag": {"composed_min": 90, "bytes_read_max": 0}}
+      "expect": {"drag": {"composed_min": 90, "bytes_read_max": 0}, "frame_work": {"compose_refreshes_p95": 1.0}}
     }
   ]
 }

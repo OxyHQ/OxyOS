@@ -84,7 +84,9 @@ it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the
 1. Every scenario but those below, `GATE_JOBS` (8) at a time.
 2. One at a time, alone on cores the machine reserves for the gate (where it has them, below): the
    scenarios that hold a budget on time (`perf-*`, `refresh-*`), which beside siblings would measure
-   each other, then once more each scenario that failed. A scenario failing twice fails the gate.
+   each other, holding their budgets on speed too where the cores are reserved (`--speed-budgets`:
+   [The gate's budgets on time](./performance#the-gates-budgets-on-time)), then once more each
+   scenario that failed. A scenario failing twice fails the gate.
 3. The scenarios through libinput on the kernel's virtual devices (`uinput`), one at a time.
 4. With a GPU (a render node and a Vulkan device that is not the CPU): the one-GPU checks
    ([ADR 0031](./adr/0031-gpu-buffers), decision 14: the device chosen on fake sysfs trees, the

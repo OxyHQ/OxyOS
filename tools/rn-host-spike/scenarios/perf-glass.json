@@ -34,7 +34,10 @@
     "window_frames": [
      8,
      80
-    ]
+    ],
+    "frame_work": {
+     "compose_refreshes_p95": 1.0
+    }
    }
   }
  ]

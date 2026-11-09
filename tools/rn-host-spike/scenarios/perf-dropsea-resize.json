@@ -114,6 +114,9 @@
         "resize_work": {
           "js_ms_p95_max": 8,
           "busy_refreshes_p95_max": 1.0
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
         }
       }
     },
@@ -150,6 +153,9 @@
         "resize_work": {
           "js_ms_p95_max": 8,
           "busy_refreshes_p95_max": 1.0
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
         }
       }
     },

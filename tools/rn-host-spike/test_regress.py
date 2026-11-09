@@ -354,6 +354,78 @@ class LaunchToContent(unittest.TestCase):
             self.check(self.report((40, 1, ["notas.txt"])), texts=())
 
 
+class TheGatesTimeBudgets(unittest.TestCase):
+    """The desktop's budgets on time the gate's timing phase holds (docs/performance.mdx): the reader's
+    first utterance (`spoken_ms_max`, as `latency_ms`), and with --speed-budgets each frame's work
+    within a refresh (`frame_work`) and a glide's frames' spacing (`glide`'s `frame_gap_ms`)."""
+
+    MS = 1_000_000
+
+    def run_step(self, step, result, report=(), shell=(), spoken=None, speed=False):
+        failures = []
+        regress.SPEED_BUDGETS = speed
+        try:
+            regress.check_step(0, step, result, list(report), 0, failures, shell_report=list(shell), spoken=spoken)
+        finally:
+            regress.SPEED_BUDGETS = False
+        return failures
+
+    def spoken(self, after_ms, budget=40):
+        step = {"name": "Ctrl+Alt+Right", "do": ["key", [29, 56, 106]], "expect": {"spoken_ms_max": budget}}
+        result = {"t_inject": 10 * self.MS, "t_settled": 500 * self.MS}
+        said = [] if after_ms is None else [{"t": (10 + after_ms) * self.MS, "text": "Guardar, botón"}]
+        return result, self.run_step(step, result, spoken=said)
+
+    def test_the_reader_said_it_within_its_budget(self):
+        result, failures = self.spoken(6.5)
+        self.assertEqual((result["spoken_ms"], failures), (6.5, []))
+
+    def test_the_reader_late_fails(self):
+        result, failures = self.spoken(61)
+        self.assertIn("over the 40 ms budget", failures[0])
+
+    def test_the_reader_silent_fails(self):
+        _, failures = self.spoken(None)
+        self.assertIn("said nothing", failures[0])
+
+    def test_under_collect_the_reader_is_measured_not_held(self):
+        regress.COLLECT = True
+        try:
+            result, failures = self.spoken(61)
+        finally:
+            regress.COLLECT = False
+        self.assertEqual((result["spoken_ms"], failures), (61.0, []))
+
+    def frame_work(self, compose, busy, speed=True, do=("press", [1, 1])):
+        step = {"name": "a drag", "do": list(do), "expect": {"frame_work": {"compose_refreshes_p95": 1.0,
+                                                                            "host_refreshes_p95": 1.0}}}
+        result = {"t_inject": 0, "t_settled": 1000 * self.MS,
+                  "composed": [[i * 8.0, ms, 0.0] for i, ms in enumerate(compose)]}
+        report = [{"kind": "frame", "surface": 1, "t": (i + 1) * self.MS, "busy_ms": ms, "presented": True, "texts": []}
+                  for i, ms in enumerate(busy)]
+        return self.run_step(step, result, report, speed=speed)
+
+    def test_every_frame_within_a_refresh(self):
+        self.assertEqual(self.frame_work([3.0] * 40, [5.0] * 40), [])
+
+    def test_slow_composition_at_the_95th_fails(self):
+        failures = self.frame_work([3.0] * 37 + [20.0] * 3, [5.0] * 40)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("composing took 20.00 ms", failures[0])
+
+    def test_a_slow_host_fails(self):
+        failures = self.frame_work([3.0] * 40, [5.0] * 30 + [30.0] * 10)
+        self.assertIn("the application's host worked 30.00 ms", failures[0])
+
+    def test_a_paced_step_counts_its_input_and_a_refresh_after(self):
+        # 10 motions at 125 Hz: 80 ms, and a refresh; the frames composed after are its settling.
+        failures = self.frame_work([3.0] * 13 + [40.0] * 27, [5.0], do=("drag_paced", [0, 0, 10, 10, 10, 125]))
+        self.assertEqual(failures, [])
+
+    def test_held_only_with_speed_budgets(self):
+        self.assertEqual(self.frame_work([40.0] * 40, [40.0] * 40, speed=False), [])
+
+
 if __name__ == "__main__":
     unittest.main()
 

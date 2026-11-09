@@ -1,0 +1,352 @@
+{
+  "about": "Typing, for the gate's timing phase and perf.py's desktop (docs/performance.mdx, docs/desktop-interaction-coverage.mdx): EditingProbe's line focused, then a word and another typed a key at a time on the US layout and the last taken back with Backspace, each key a step. Each holds what it does (the text and caret React holds, drawn; exactly a key press, a change and a selection change) and how fast: from the key to the first frame that changed (`latency_ms`, the compositor's measure) and the host's own input to present (`diagnostics`' `latency_max_ms`, its frame diagnostics).",
+  "module": "EditingProbe",
+  "window": [
+    800,
+    480
+  ],
+  "layout": "us",
+  "steps": [
+    {
+      "name": "focus the line",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"\" [0,0]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "'h' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          35
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"h\" [1,1]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 25,
+        "diagnostics": {
+          "latency_max_ms": 25,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'o' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          24
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"ho\" [2,2]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 20,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'l' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          38
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hol\" [3,3]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'a' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola\" [4,4]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "' ' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola \" [5,5]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'m' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          50
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola m\" [6,6]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'u' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          22
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mu\" [7,7]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'n' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          49
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mun\" [8,8]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'d' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          32
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mund\" [9,9]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 20,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "'o' typed as a key: the text drawn with it",
+      "do": [
+        "strokes",
+        [
+          24
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mundo\" [10,10]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 15,
+        "diagnostics": {
+          "latency_max_ms": 15,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Backspace: the last character gone, drawn",
+      "do": [
+        "strokes",
+        [
+          14
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"hola mund\" [9,9]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "focus_input": "line",
+        "latency_ms": 20,
+        "diagnostics": {
+          "latency_max_ms": 20,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
+      }
+    }
+  ]
+}

@@ -9,16 +9,21 @@ What a person feels on OxyOS (a window following the hand, a list scrolling, an 
 opening, the machine silent when nothing happens) is measured here, not estimated: by a harness
 anyone can run with one command, on the development compositor, and read-only on a real
 session. The numbers below are from 30 October 2026; the ThinkPad's own, every part with the GPU
-composing and the hosts drawing on it, are from 6 November 2026 ([below](#every-part-on-the-thinkpads-gpu)).
+composing and the hosts drawing on it, are from 6 November 2026 ([below](#every-part-on-the-thinkpads-gpu)); the
+gate's budgets on time and a device's GPU beside a person's session from 9–10 November
+([The gate's budgets on time](#the-gates-budgets-on-time), [A device's GPU](#a-devices-gpu-beside-a-persons-session)).
 
 ## Running it
 
 ```sh
 python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen \
   --runtimes WORK/runtimes --packages WORK/packages [--out DIR] [--runs 3] [--gpu-only] [--check] \
-  [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
+  [--only SCENARIOS] [interactions] [responses] [desktop] [shell] [cold-start] [idle] [memory] [refresh] [genie]
 python3 tools/rn-host-spike/perf.py --offscreen target/release/oxyos-offscreen [--runs 3] [--check] search
 ```
+
+`--only` names scenarios (their files' names, comma-separated): the parts that run scenarios run
+only those, a short set for a device ([A device's GPU](#a-devices-gpu-beside-a-persons-session)).
 
 It runs regression scenarios through `regress.py` (every step's expected result is still checked)
 and writes `perf.json` and the tables below. `--gpu-only` composes on the Vulkan device instead
@@ -40,8 +45,9 @@ exceeded:
   showing its text within a quarter of a second;
 - each host's memory, idle beside the others, within its budget (`MEMORY_BUDGETS`: its footprint
   and its PSS; [Memory side by side](#memory-side-by-side), below);
-- every budget on time a scenario states for a step: a response's `latency_ms`, `js_work`'s
-  JavaScript and `resize_work`'s frames. Each run checks what its steps do and enforces no time
+- every budget on time a scenario states for a step: a response's `latency_ms`, the host's own
+  input to present (`diagnostics`' `latency_max_ms`), the reader's first utterance
+  (`spoken_ms_max`), `js_work`'s JavaScript and `resize_work`'s frames. Each run checks what its steps do and enforces no time
   (`regress.py --collect`); `perf.py` measures each budget in every run and judges it over them,
   at the median of the runs' values, or at the percentile it states (`js_ms_p95_max`, the 95th of
   every run's frames pooled), and names the runs that were over it ("runs over it" in the budgets'
@@ -256,17 +262,107 @@ Hermes' young collections fall: with it, a collection of 1.5 ms fell in the dock
 measured 5.1 ms of JavaScript instead of 3.3. Without it, a host counts React's commits alone
 (`react_commits`), allocating nothing.
 
-Budgets on speed stay where a claim is about speed (`perf-dropsea-home.json`'s JavaScript per
+Budgets on speed are where a claim is about speed (`perf-dropsea-home.json`'s JavaScript per
 step, `window-resize.json`'s and `perf-dropsea-resize.json`'s per frame, the shell's in
-`perf.py`, and the display's rate: how many frames fit in a motion and how far apart they come,
-`refresh-*.json`'s, `perf.py refresh`), and only `perf.py --check` holds them, over its runs (above, *Running it*), on the
-hardware they describe, the ThinkPad's: the deploy gate runs `regress.py` without them, so a machine
-loaded by other builds fails no budget on speed, and holds what every step must do. Of the
+`perf.py`, each frame's work within a refresh, and the display's rate: how many frames fit in a
+motion and how far apart they come, `refresh-*.json`'s, `perf.py refresh`). `perf.py --check` holds
+them over its runs (above, *Running it*), on any machine, the ThinkPad's among them; the gate holds
+the timing scenarios' in one run each, alone on the cores its machine reserves for it
+([The gate's budgets on time](#the-gates-budgets-on-time), below). The rest of the gate, which shares
+the machine with other builds and gates, holds none of them, and holds what every step must do. Of the
 display's rate it holds what no load moves: a motion in more than one frame, no more frames than
 a claim allows, requestAnimationFrame never faster than its interval, and on a paced output
 (`check_pacing`) the window told the display's refresh before its first frame and the client's
 frames following on one by one, each answered once by the compositor, in order.
-`regress.py --speed-budgets` holds them in one run, for a look at one machine.
+`regress.py --speed-budgets` holds them in one run, as the gate's timing phase does.
+
+## The gate's budgets on time
+
+The gate's timing phase (`tools/gate/run-scenarios.sh`, phase 2) runs each `perf-*` and
+`refresh-*` scenario once, one at a time, on the cores the gate's machine reserves for one gate at a
+time (`oxyos-gate-cpus`: on seldon four cores and their siblings, every other process of the machine,
+other gates' among them, moved off them), and there holds every budget the scenario states, those on
+speed too (`regress.py --speed-budgets`): JavaScript on the CPU (`js_work`, `resize_work`), the
+frames' spacing and counts (a drag's, a transition's, requestAnimationFrame's, a glide's), and each
+frame's work within a refresh (`frame_work`, perf.py's `--check` budget, below). A scenario that
+fails runs once more, alone; failing twice fails the gate. Where the cores cannot be reserved (a
+machine without `tools/gate/machine.sh`'s setup), the phase says so and holds no budget on speed.
+
+What a person waits for at the desktop is held from the input to the frame that shows its answer,
+two ways: the step's `latency_ms`, the development compositor's measure from injecting the input to
+the first frame it composed that changed (the whole path: compositor, input method, host, the
+compositor composing), and the host's own input to present (`diagnostics`' `latency_max_ms`, its
+frame diagnostics: from the input's device time to the frame handed to the compositor, every frame
+of the step), with `timed_inputs_min` so a step whose frames time no input fails rather than passes
+unmeasured. The screen reader's is from the key to its first utterance for it (`spoken_ms_max`: the
+utterance as the session hands it to speech, eSpeak's synthesis not included). Six scenarios hold
+them, each from the steps of a functional one (their expected results kept: what React receives,
+the focus, the transactions, what is said), each step a single input:
+
+| scenario | from | what each step times |
+|---|---|---|
+| `perf-typing.json` | `text-editing.json` | a key typed (`strokes`) to the text and caret drawn, ten keys and Backspace |
+| `perf-ime.json` | `input-method.json` | a key the session's input method composes (`compose_keys`, the development compositor's input method) to the composition drawn, n i h o n, then Return committing it |
+| `perf-menus.json` | `menu-bar-keyboard.json` | Super+F2 onto the bar, Right across it, Down opening File, Right opening Edit in its place, Left back, Escape twice: the shell's frames |
+| `perf-popup-follows.json` | `popup-follows.json` | a press opening a menu, the window moved and resized under it by the shell, a key in it |
+| `perf-momentum.json` | `touchpad-hold.json` | a flick: the glide's frames a refresh apart (`glide`'s `frame_gap_ms`) |
+| `perf-reader.json` | `screen-reader.json` | Ctrl+Alt+Right through three elements, Ctrl+Alt+Space, Ctrl+Alt+Left: the first utterance |
+
+**The margins.** Each budget of the six is twice the slowest of the runs measured on seldon's reserved
+cores, rounded up to 5 ms, step by step: every timing scenario run ten times on 9–10 November 2026,
+alone on the reserved cores as the gate runs them, with `--speed-budgets` (AMD Ryzen 9 9950X, Debian
+trixie; the machine's load 13 to 79 meanwhile, other gates' scenarios and builds running beside).
+On the reserved cores the runs differ by little (a key typed after the first: 6.9 to 8.0 ms over every
+run and key, each step within 1 ms of its median), so twice the slowest is far above the noise and
+below a regression that costs a frame: a key drawn in 7 ms held to 15 fails at one more refresh of
+work. The first key after a press and the menus' frames are slower and have budgets of their own. Of
+the 190 runs, 186 passed; 4 failed once, all in the last two rounds as the machine's load reached 78:
+`refresh-120-animations` twice (30 and 51 of its 73 frames; one of them with the host's frames 94 ms
+long), `perf-menus`' Super+F2 answered in 99 ms and a key of `perf-typing` with 37 ms of frame work.
+The reserved cores keep other processes off the CPU, not off the disk: when seldon's disk is saturated
+by the rest of its work (its I/O pressure "full" at 77 % over a minute, measured right after), a host
+waits on its files and page faults, which its frame diagnostics say as *blocked* (a Dropsea frame of
+2490 ms, 2386 of it blocked, 104 on the CPU, in a `perf.py` run then). The gate runs a failed scenario
+again once the whole list has run, minutes later, and only a scenario failing twice fails it. The budgets are from the 186 passing runs. In ms,
+median / slowest → budget:
+
+| scenario | steps | key to frame (`latency_ms`) | the host's input to present |
+|---|---|---|---|
+| `perf-typing` | the first key | 10.2 / 10.7 → 25 | 9.9 / 10.3 → 25 |
+| | the nine keys after it, and Backspace | 6.9–7.5 / 7.1–8.0 → 15–20 | 6.6–6.9 / 6.7–7.5 → 15–20 |
+| `perf-ime` | five keys composed, and Return | 12.3–12.5 / 12.9–13.5 → 30 | 1.4–1.6 / 1.7–2.1 → 5 |
+| `perf-menus` (the shell) | Super+F2 onto the bar | 16.4 / 18.4 → 40 | 10.5 / 12.9 → 30 |
+| | Right across the bar, Escape twice | 9.7–11.0 / 10.4–11.7 → 25 | 9.6–10.9 / 10.5–11.7 → 25 |
+| | Down opening File, Right opening Edit, Left back to File | 19.2–23.4 / 23.4–25.6 → 50–55 | 19.2–23.4 / 23.4–25.7 → 50–55 |
+| `perf-popup-follows` | a press opening the menu | 24.6 / 27.9 → 60 | 25.8 / 29.0 → 60 |
+| | the window moved under it | 8.7 / 9.3 → 20 | — (the compositor's alone) |
+| | the window resized smaller, then larger | 18.1 / 19.7 → 40; 14.8 / 17.0 → 35 | — |
+| | Home in the menu | 11.3 / 12.5 → 30 | 10.6 / 11.5 → 25 |
+| `perf-momentum` | the flick's glide | its frames 16.77 ms apart at the median of every run, 16.83 at most → median at most 17.5 (a refresh and 5 %), none over 25 (1.5 refreshes, perf.py's *late*) | 2.0 / 2.3 → 5 |
+| `perf-reader` | five keys, to the first utterance | 5.2–6.0 / 5.3–6.1 → 15 | — |
+
+A key the input method composes takes 5 ms more than a key typed, and all of it before the field
+has the transaction: the host presents the composition within 1.5 ms of reading it. That time is the
+development compositor's input method's (a client of its scene, standing in for the session's
+engine); fcitx5's own time for a key, the real engine's, is not in this scenario.
+
+**Each frame within a refresh** (`frame_work`): the compositor's frames composed in the step (a paced
+step's while its input lasted and a refresh after) and each host's frames presented, at the 95th
+percentile, within a refresh of the display (`display_hz`), as `perf.py --check` holds an interaction.
+Held where seldon's slowest run leaves 40 % of the refresh free (every interaction's composition,
+the hosts' frames of the scroll, the typing, the input method, the menus, the glide, the animations
+and the windows at 60 and 120 Hz); on seldon the CPU composes and draws, so these are not held,
+measured at the 95th percentile, the slowest of the runs:
+
+| step | its frames | of a refresh |
+|---|---|---|
+| `perf-glass` 2 | the host drawing the blurred clock: 15.6 ms | 0.93 (the Iris Xe draws them in 2.6) |
+| `perf-dropsea-resize` 5, 6 | the zoom's composition: 12.1 ms | 0.72 (the resize's own steps hold `busy_refreshes_p95_max` 1: 15.3 ms) |
+| `perf-popup-follows` 1, 3, 4, 6 | the host's frames opening the menu and placing it anew: 12.7 to 22.1 ms | 0.76 to 1.32 |
+| `refresh-120-windows` 2, 3; `refresh-60-windows` 2, 3 | a zoom's composition: 12.0 and 14.1 ms | 1.44 at 120 Hz, 0.85 at 60 |
+
+A menu's frame opening it costs the host 19 ms on seldon's CPU at the median (22 at most), more than
+a refresh: the press that opens it is answered in 25 ms (its budget 60).
 
 ## Method
 
@@ -940,6 +1036,89 @@ median in most of its 315 ten-second spans, a few 6 to 7, the heaviest span 9.3 
 percentile, within its 60 Hz refresh. So the genie at 120 Hz is over in the fixture by the waits and
 clocks of a burst of whole frames; that the Iris Xe holds 120 Hz in a session is to be measured on a
 display that runs at it (the ThinkPad's runs at 60, where the genie holds).
+
+### A device's GPU, beside a person's session
+
+The gate's machine has no GPU the gate composes on, so what a GPU does is measured on the device
+itself, while a person is signed in to it, by `tools/rn-host-spike/perf-device.sh`: `perf.py
+--gpu-only`, the development compositor composing on the GPU that drives the machine's displays and
+every host drawing on it, from a copy of the tree, its runtime and packages (nothing installed),
+with nothing able to touch another GPU or the person's session:
+
+```sh
+tools/rn-host-spike/perf-device.sh --offscreen $P/bin/oxyos-offscreen --runtimes $P/machine/runtimes \
+  --packages $P/machine/packages --out $P/run --runs 3 --check \
+  --only perf-window-drag,perf-window-drag-scaled,perf-dropsea-resize,perf-settings-scroll,perf-glass,perf-typing,perf-ime \
+  interactions desktop
+```
+
+- **Only while the person is away.** It starts only while the session on seat0 is idle (logind's
+  `IdleHint`), checks it every 2 s while the run lasts and stops the run the moment it is not.
+- **At the least priority.** `perf.py` runs in a transient system unit as the caller, nice 19,
+  idle I/O, a CPU weight of 1. It never takes a display: no `--kms`, no DRM master.
+- **One GPU.** The GPU is the one driving a display (a connector in sysfs, as a session chooses it,
+  [ADR 0031](./adr/0031-gpu-buffers), decision 14), or `--gpu`. The unit's `/dev/dri` is a tmpfs
+  holding that GPU's render node alone, bound in, and its device policy allows no other GPU node
+  (`DevicePolicy=closed`, `DeviceAllow` for that node), so no other GPU can be opened by path or by
+  number. Vulkan's loader, and `oxyos-gpu-device` with it, reads that GPU's driver alone
+  (`VK_DRIVER_FILES`): no other driver is loaded or enumerated, and the gate's `vulkaninfo` (phase 4)
+  is never run.
+- **Checked, not assumed.** Every file the run's processes open, or try to, is recorded
+  (`strace -f --seccomp-bpf`, which stops a process at its opens alone); any node of another GPU
+  (by path, by number, by-path) or any file of its drivers (`nouveau`, `nvk`) among them fails the
+  run, as does that GPU's runtime power state or active time changing, or its driver logging to the
+  kernel's log while the run lasted.
+- **The machine's own OxyOS hidden.** `/usr/share/oxyos`, `/usr/lib/oxyos`, `/var/lib/oxyos` (the
+  image's policy, registry and runtimes) are empty in the unit; the run has a home, runtime directory
+  and shader cache of its own in its directory, which the caller removes.
+
+On the ThinkPad on 10 November 2026 (Intel Core i5-1240P, Iris Xe on i915, Linux 6.12; OxyOS at this
+change's tree, its runtime and packages built on seldon and copied), the person's session idle on
+seat0 throughout: composing and drawing on the Iris Xe (`renderD129`), 986,580 opens recorded, 135 of
+the Iris Xe's render node, none of the NVIDIA T550's nodes or drivers, the T550 suspended before and
+after with its active time unchanged (9378 ms, its probe at boot), and nothing in the kernel's log.
+Every budget held (`--check`). Against seldon's CPU (`perf.py --runs 3 --renderer cpu` with the same
+`--only`, alone on the gate's reserved cores), ms, p50 / p95 / max, three runs pooled:
+
+| interaction | | frame interval | compose | GPU's own | app frame work | app JS on the CPU | input to frame |
+|---|---|---|---|---|---|---|---|
+| window drag | ThinkPad, Iris Xe | 8.0 / 8.09 / 8.43 | 4.19 / 4.52 / 5.11 | 2.33 | — | — | — |
+|  | seldon, CPU | 8.0 / 8.03 / 8.13 | 2.27 / 3.36 / 4.5 | — | — | — | — |
+| window drag at 1.25 | ThinkPad, Iris Xe | 9.15 / 9.76 / 11.42 | 9.08 / 9.68 / 11.36 | 6.16 | — | — | — |
+|  | seldon, CPU | 8.0 / 8.08 / 9.74 | 5.74 / 8.02 / 9.65 | — | — | — | — |
+| Dropsea live resize | ThinkPad, Iris Xe | 8.67 / 12.07 / 26.78 | 4.19 / 4.45 / 4.99 | 2.48 | 8.66 / 12.11 / 26.81 | 2.8 / 6.11 / 21.35 | 16.3 |
+|  | seldon, CPU | 12.06 / 16.08 / 26.85 | 2.89 / 3.51 / 4.57 | — | 10.03 / 14.12 / 25.38 | 2.86 / 6.56 / 17.08 | 22.2 |
+| Settings scroll | ThinkPad, Iris Xe | 16.66 / 16.96 / 18.58 | 3.9 / 5.19 / 5.36 | 1.94 | 2.0 / 3.0 / 1008.83 | 0.44 / 0.55 / 2.46 | 5.9 |
+|  | seldon, CPU | 16.67 / 17.11 / 17.97 | 0.48 / 0.64 / 0.86 | — | 2.31 / 3.34 / 6.77 | 0.61 / 0.89 / 3.34 | 2.8 |
+| glass | ThinkPad, Iris Xe | 16.87 / 17.2 / 17.46 | 3.73 / 3.89 / 3.99 | 1.69 | 1.83 / 2.59 / 8.59 | 0.28 / 0.35 / 5.19 | 16.81 |
+|  | seldon, CPU | 16.73 / 18.56 / 19.27 | 0.34 / 0.42 / 0.5 | — | 11.82 / 14.22 / 24.22 | 0.47 / 0.59 / 7.08 | 24.52 |
+
+| | ThinkPad, Iris Xe | seldon, CPU |
+|---|---|---|
+| the first key typed, to its frame | 18.17 | 10.26 |
+| the keys after it | 11.47–12.36 | 6.62–7.27 |
+| a key composed by the input method | 16.41–17.65 | 11.95–12.68 |
+| the host's input to present, a key typed | 6.11–6.6 | 6.41–6.9 |
+| the host's input to present, a composition | 0.75–1.04 | 1.27–1.78 |
+
+(The input to frame of an interaction is its steps' latency at the median; of a key, each step's median
+of the three runs. seldon's run was held back until its disk was quiet: the same run while the disk was
+saturated failed, Dropsea's host blocked for seconds, above.)
+
+- **The host is as fast on either machine where the CPU does its work**: a key's input to present is
+  6.1 to 6.6 ms on the ThinkPad and 6.4 to 6.9 on seldon. Where the GPU draws, the ThinkPad's is far
+  ahead: the glass's frames 1.8 ms at the median on the Iris Xe against 11.8 on seldon's CPU (14.2 at
+  the 95th percentile, 0.85 of a refresh, which is why the gate does not hold it there).
+- **What is slower on the ThinkPad is outside the host**: a key typed reaches its frame in 11.5 to 12.4
+  ms there and 6.6 to 7.3 on seldon, with the same host time. The fixture composes each frame whole on
+  the GPU and reads it back for the director (above, *What the GPU composition here measures*), which
+  is in that latency and in its compose column (the Iris Xe's own time is the "GPU's own" column: 1.7
+  to 6.2 ms at the median); a session composes the damage into the display's buffer and reads nothing
+  back.
+- Every frame on the ThinkPad fit its refresh at the 95th percentile but one: one Settings frame of
+  1009 ms among 372 (the run's shader cache started empty, its own). The Dropsea resize's interval
+  is better on the ThinkPad (8.7 ms at the median against 12.1), its host's work per frame lower (8.7
+  against 10.0).
 
 ## What was fixed
 
