@@ -68,6 +68,10 @@ impl Scene {
         if let Some(repeats) = self.reader_repeats(key) {
             return repeats.then_some(Route::Reader);
         }
+        // The power key acts once a press (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+        if key == super::KEY_POWER {
+            return None;
+        }
         if let Some(hardware) = HardwareKey::from_code(key) {
             return hardware.repeats().then_some(Route::Hardware);
         }

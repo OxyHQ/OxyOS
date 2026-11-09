@@ -81,7 +81,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 17",
+      "text": "Apariencia, seleccionado, 1 de 19",
       "interrupting": true
      }
     ],
@@ -121,13 +121,13 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 17",
+      "text": "Fondo de pantalla, seleccionado, 2 de 19",
       "interrupting": true
      }
     ],
     "announcements": [],
     "texts": [
-     "Automático sigue la apariencia clara u oscura."
+     "Automático sigue al sol a lo largo del día, según la zona horaria del reloj."
     ]
    }
   },
@@ -164,7 +164,7 @@
     },
     "spoken": [
      {
-      "text": "Notificaciones, seleccionado, 3 de 17",
+      "text": "Notificaciones, seleccionado, 3 de 19",
       "interrupting": true
      }
     ],
@@ -207,13 +207,13 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 17",
+      "text": "Fondo de pantalla, seleccionado, 2 de 19",
       "interrupting": true
      }
     ],
     "announcements": [],
     "texts": [
-     "Automático sigue la apariencia clara u oscura."
+     "Automático sigue al sol a lo largo del día, según la zona horaria del reloj."
     ]
    }
   },
@@ -288,7 +288,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 17",
+      "text": "Fondo de pantalla, seleccionado, 2 de 19",
       "interrupting": true
      }
     ],
@@ -329,7 +329,7 @@
     },
     "spoken": [
      {
-      "text": "Información, seleccionado, 17 de 17",
+      "text": "Información, seleccionado, 19 de 19",
       "interrupting": true
      }
     ],
@@ -390,7 +390,7 @@
     },
     "spoken": [
      {
-      "text": "Privacidad, seleccionado, 16 de 17",
+      "text": "Privacidad, seleccionado, 18 de 19",
       "interrupting": true
      }
     ],
@@ -431,7 +431,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 17",
+      "text": "Apariencia, seleccionado, 1 de 19",
       "interrupting": true
      }
     ],

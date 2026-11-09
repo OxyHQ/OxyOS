@@ -1473,7 +1473,17 @@ void TextEditing::perform(const std::string& command, uint64_t serial) {
     // TextView refuses (pasting into one is allowed).
     if (from == to || props->secureTextEntry || !clipboard_.copy) return;
     if (command == "cut" && !props->editable) return;
-    clipboard_.copy(serial, text_.substr(from, to - from));
+    // A password or a code shown in its field (its AutoFill content type, ADR 0050) is copied
+    // marked sensitive, as Passwords' Copy copies it: no clipboard manager keeps it, and it is
+    // cleared after 90 seconds and at the lock.
+    auto content = autofillContent(*props, textContentTypeOf(*props));
+    bool sensitive = content == OXYOS_CONTENT_PASSWORD || content == OXYOS_CONTENT_NEW_PASSWORD ||
+                     content == OXYOS_CONTENT_ONE_TIME_CODE;
+    if (sensitive && clipboard_.copySensitive) {
+      clipboard_.copySensitive(serial, text_.substr(from, to - from));
+    } else {
+      clipboard_.copy(serial, text_.substr(from, to - from));
+    }
     if (command == "cut") {
       merging_ = false;
       replace(from, to, "", "");

@@ -10,6 +10,7 @@
 //! → {"applications": [{"id", "name", "keywords": [..], "icon": PATH|null, "package": DIR|null}]}
 //! → {"ask": {"client", "serial", "asker": {"id": ID|null, "launched", "shell", "settings"}, "text"}}
 //! → {"gone": {"client"}}
+//! → {"forget": {"application"}}       (it was reset, docs/adr/0061: what it donated goes)
 //! ← {"answer": {"client", "serial", "text"}}          serial 0: told unasked ({"changed": {}})
 //! ```
 //!
@@ -33,6 +34,9 @@
 //! {"unfollowStatus": {}}            ← {"unfollowed": {}}
 //! {"rebuild": {}}                   ← {"rebuilding": {}}: the index discarded and built again from
 //!                                     the files, the old one answering until the new one is ready
+//! {"storage": {}}                   ← {"storage": {"home": URI, "kinds": {NAME: {"files", "bytes"}},
+//!                                                 "indexing", "partial"}}
+//! {"largest": {"limit"?, "language"?}}  ← {"results": {"items": [Item], "topHit": null, "indexing"}}
 //! anything refused                  ← {"refused": {"reason": "notPermitted" | "invalid"}}
 //! ```
 //!
@@ -40,7 +44,9 @@
 //! off for Spotlight (a question naming its categories, the launcher's, is not Spotlight's); any
 //! other client sees the files, and an application the session launched its own items
 //! too. Donating and removing are a launched application's, its own items alone; the preferences
-//! and rebuilding the index are Settings' (the `settings` grant).
+//! and rebuilding the index are Settings' (the `settings` grant), and so are what the home's files
+//! occupy by kind and its largest files (`storage`, `largest`: Settings › Storage,
+//! docs/adr/0062-storage.mdx), read from the index's columns, never by walking the disk.
 //!
 //! **Threads:** this one answers, at the normal priority, so a question is answered at once while
 //! the index is being built; the writer ([`crate::writer`]), at nice 10, changes the index, so
@@ -69,6 +75,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The most items a question gives.
 const MAX_LIMIT: usize = 200;
+/// The largest files Settings › Storage's Review Files lists unless it says.
+const DEFAULT_LARGEST: usize = 50;
 /// The items a question gives unless it says.
 const DEFAULT_LIMIT: usize = 60;
 /// Of a question's items, how many are given a snippet of their text.
@@ -277,6 +285,15 @@ enum Ask {
         excluded: Option<Vec<String>>,
     },
     Status {},
+    /// What the home's files occupy, by kind.
+    Storage {},
+    /// The home's largest files, the largest first.
+    Largest {
+        #[serde(default)]
+        limit: Option<usize>,
+        #[serde(default)]
+        language: Option<String>,
+    },
 }
 
 /// An application the session lists.
@@ -322,6 +339,7 @@ pub fn listed_records(listed: &[Listed]) -> (Vec<Record>, Vec<Record>) {
             icon: application.icon.as_deref().map(|icon| uri::of(icon, false)),
             media: None,
             size: None,
+            allocated: None,
             modified: None,
             created: None,
             changed: None,
@@ -370,6 +388,7 @@ pub fn listed_records(listed: &[Listed]) -> (Vec<Record>, Vec<Record>) {
                 icon: application.icon.as_deref().map(|icon| uri::of(icon, false)),
                 media: None,
                 size: None,
+                allocated: None,
                 modified: None,
                 created: None,
                 changed: None,
@@ -607,6 +626,19 @@ impl Service {
                     }
                 }
             }
+            // An application reset (docs/adr/0061-crashes-and-resetting-an-application.mdx,
+            // decision 5): what it donated is its own data, and goes with it.
+            "forget" => {
+                if let Some(application) = body["application"].as_str().filter(|id| !id.is_empty())
+                {
+                    self.replace(
+                        Source::Donated,
+                        Some(application.to_string()),
+                        Vec::new(),
+                        None,
+                    );
+                }
+            }
             "ask" => {
                 let client = body["client"].as_u64().unwrap_or(0) as u32;
                 let serial = body["serial"].as_u64().unwrap_or(0) as u32;
@@ -706,6 +738,7 @@ impl Service {
                             icon: None,
                             media: None,
                             size: None,
+                            allocated: None,
                             modified: item.modified,
                             created: None,
                             changed: None,
@@ -807,7 +840,125 @@ impl Service {
                 self.send(Command::Rebuild);
                 Some(json!({"rebuilding": {}}))
             }
+            Ask::Storage {} => {
+                if !asker.settings {
+                    return Some(refused("notPermitted"));
+                }
+                Some(self.storage())
+            }
+            Ask::Largest { limit, language } => {
+                if !asker.settings {
+                    return Some(refused("notPermitted"));
+                }
+                Some(self.largest(limit, language))
+            }
         }
+    }
+
+    /// What the home's files occupy by kind, from the index (Settings › Storage).
+    fn storage(&self) -> Value {
+        let home = self.scope.home().to_path_buf();
+        let occupied = match self.searcher.occupied(&home) {
+            Ok(occupied) => occupied,
+            Err(error) => {
+                eprintln!("[search] what the files occupy could not be read: {error}");
+                return refused("unavailable");
+            }
+        };
+        let kinds: serde_json::Map<String, Value> = occupied
+            .into_iter()
+            .map(|(category, (files, bytes))| {
+                (
+                    category.name().to_string(),
+                    json!({"files": files, "bytes": bytes}),
+                )
+            })
+            .collect();
+        let status = *self.status.lock().expect("lock");
+        json!({"storage": {
+            "home": uri::of(&home, true),
+            "kinds": kinds,
+            "indexing": !status.idle(),
+            "partial": status.partial,
+        }})
+    }
+
+    /// The home's largest files, as a question's items (Settings › Storage's Review Files).
+    fn largest(&self, limit: Option<usize>, language: Option<String>) -> Value {
+        let home = self.scope.home().to_path_buf();
+        let limit = limit.unwrap_or(DEFAULT_LARGEST).clamp(1, MAX_LIMIT);
+        let records = match self.searcher.largest(&home, limit) {
+            Ok(records) => records,
+            Err(error) => {
+                eprintln!("[search] the largest files could not be read: {error}");
+                return refused("unavailable");
+            }
+        };
+        let language = language
+            .or_else(|| self.languages.first().cloned())
+            .unwrap_or_default();
+        let items: Vec<Value> = records
+            .iter()
+            .map(|record| self.item(record, &language, &home, None))
+            .collect();
+        json!({"results": {
+            "items": items,
+            "topHit": Value::Null,
+            "indexing": !self.status.lock().expect("lock").idle(),
+        }})
+    }
+
+    /// An item as an answer gives it (decision 7), with its snippet if it has one.
+    fn item(&self, record: &Record, language: &str, home: &Path, snippet: Option<String>) -> Value {
+        let mut item = serde_json::Map::new();
+        item.insert("id".into(), json!(record.id));
+        item.insert("category".into(), json!(record.category.name()));
+        item.insert("title".into(), json!(record.title(language)));
+        if let Some(path) = &record.path {
+            item.insert(
+                "uri".into(),
+                json!(uri::of(path, record.category == Category::Folder)),
+            );
+            if let Some(location) = location(path, home) {
+                item.insert("location".into(), json!(location));
+            }
+        }
+        if let Some(snippet) = snippet {
+            item.insert("snippet".into(), json!(snippet));
+        }
+        let optional = [
+            ("url", record.url.as_ref().map(|url| json!(url))),
+            (
+                "application",
+                record
+                    .application
+                    .as_ref()
+                    .or(record.owner.as_ref())
+                    .map(|id| json!(id)),
+            ),
+            ("icon", record.icon.as_ref().map(|icon| json!(icon))),
+            (
+                "contentType",
+                record.media.as_ref().map(|media| json!(media)),
+            ),
+            ("size", record.size.map(|size| json!(size))),
+            ("modified", record.modified.map(|time| json!(time))),
+            ("created", record.created.map(|time| json!(time))),
+            (
+                "lastUsed",
+                self.usage.get(&record.id).map(|usage| json!(usage.last)),
+            ),
+            (
+                "tags",
+                (!record.tags.is_empty()).then(|| json!(record.tags)),
+            ),
+        ];
+        for (name, value) in optional {
+            if let Some(value) = value {
+                item.insert(name.into(), value);
+            }
+        }
+        Value::Object(item)
     }
 
     fn used(&mut self, id: &str) {
@@ -887,57 +1038,12 @@ impl Service {
             .enumerate()
             .map(|(at, found)| {
                 let record = &found.record;
-                let mut item = serde_json::Map::new();
-                item.insert("id".into(), json!(record.id));
-                item.insert("category".into(), json!(record.category.name()));
-                item.insert("title".into(), json!(record.title(&language)));
-                if let Some(path) = &record.path {
-                    item.insert(
-                        "uri".into(),
-                        json!(uri::of(path, record.category == Category::Folder)),
-                    );
-                    if let Some(location) = location(path, &home) {
-                        item.insert("location".into(), json!(location));
-                    }
-                    if at < SNIPPETS && parsed.has_text() {
-                        if let Some(snippet) = snippet_of(path, record, &parsed) {
-                            item.insert("snippet".into(), json!(snippet));
-                        }
-                    }
-                }
-                let optional = [
-                    ("url", record.url.as_ref().map(|url| json!(url))),
-                    (
-                        "application",
-                        record
-                            .application
-                            .as_ref()
-                            .or(record.owner.as_ref())
-                            .map(|id| json!(id)),
-                    ),
-                    ("icon", record.icon.as_ref().map(|icon| json!(icon))),
-                    (
-                        "contentType",
-                        record.media.as_ref().map(|media| json!(media)),
-                    ),
-                    ("size", record.size.map(|size| json!(size))),
-                    ("modified", record.modified.map(|time| json!(time))),
-                    ("created", record.created.map(|time| json!(time))),
-                    (
-                        "lastUsed",
-                        self.usage.get(&record.id).map(|usage| json!(usage.last)),
-                    ),
-                    (
-                        "tags",
-                        (!record.tags.is_empty()).then(|| json!(record.tags)),
-                    ),
-                ];
-                for (name, value) in optional {
-                    if let Some(value) = value {
-                        item.insert(name.into(), value);
-                    }
-                }
-                Value::Object(item)
+                let snippet = record
+                    .path
+                    .as_ref()
+                    .filter(|_| at < SNIPPETS && parsed.has_text())
+                    .and_then(|path| snippet_of(path, record, &parsed));
+                self.item(record, &language, &home, snippet)
             })
             .collect();
         let top_hit = top.map(|at| found[at].record.id.clone());

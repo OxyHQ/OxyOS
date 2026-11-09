@@ -24,6 +24,8 @@ oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 oxyos-controls = { path = "../../crates/oxyos-controls" }
 # Battery and energy (docs/adr/0057-battery-and-energy.mdx).
 oxyos-power = { path = "../../crates/oxyos-power" }
+# The backup service's socket (docs/adr/0059-backups.mdx).
+oxyos-backup = { path = "../../crates/oxyos-backup" }
 oxyos-auth = { path = "../../crates/oxyos-auth" }
 # The accounts' service's session socket: what it launches registered, the lock's online check
 # (docs/adr/0020-oxy-account-login.mdx). Its sockets only, not its HTTP client.
@@ -36,6 +38,10 @@ oxyos-install = { path = "../../crates/oxyos-install" }
 serde_json = "1"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
 signal-hook = { version = "0.3", default-features = false }
+
+[dev-dependencies]
+# AutoFill's tests wait on the provider's descriptor and speak to a played accounts' service.
+rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "net", "time"] }
 
 [lints]
 workspace = true

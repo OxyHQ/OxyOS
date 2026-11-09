@@ -16,7 +16,9 @@ mod ime;
 mod input_sources;
 mod launch;
 mod lock;
+mod passkeys;
 mod pasteboard;
+mod played_network;
 mod png;
 mod reader;
 mod uinput;
@@ -122,6 +124,9 @@ struct Session {
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
     /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
     launcher: Option<oxyos_apps::Launcher>,
+    /// Applications that quit unexpectedly and resetting one (docs/adr/0061-crashes-and-resetting-
+    /// an-application.mdx), as the session has them: the reports in the run's own state folder.
+    pub crashes: oxyos_compositor::crashes::Crashes,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -136,6 +141,12 @@ struct Session {
     grants: Vec<(String, oxyos_apps::Grants)>,
     /// `--installd SOCKET`: the session's side of installing (ADR 0030).
     installs: Option<oxyos_compositor::installs::Installs>,
+    /// With `--launch --shell`: the applications' login items and background activity, as the
+    /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
+    pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// The processes the session ended for their background activity since a step last took them
+    /// (each its application's id).
+    pub background_ended: Vec<String>,
     /// The descriptor its turn is woken by, among the compositor's wakers, given back at the end.
     installs_waker: Option<std::os::fd::RawFd>,
     /// The Trash follower's waker among the compositor's, given back as the session finishes.
@@ -166,8 +177,19 @@ struct Session {
     /// compositor's, and the power services played on the run's bus.
     power: Option<oxyos_compositor::power::Power>,
     power_waker: Option<std::os::fd::RawFd>,
+    /// Activity Monitor's part (docs/adr/0063-activity-monitor.mdx), and its waker among the
+    /// compositor's.
+    activity: Option<oxyos_compositor::activity::Activity>,
+    activity_waker: Option<std::os::fd::RawFd>,
     /// A connection to the played power services' control (`oxyos-offscreen --play-power`).
     pub power_control: Option<zbus::blocking::Connection>,
+    /// `--backup SOCKET VOLUMES`: the session's side of backups (docs/adr/0059-backups.mdx) over
+    /// the development backup service at SOCKET (`oxyos-offscreen --play-backup`), its waker among
+    /// the compositor's; VOLUMES is the service's played disks, which a step connects and takes
+    /// away, and each step's result says what the service holds (`backup`).
+    pub backups: Option<oxyos_compositor::backups::Backups>,
+    pub backups_waker: Option<std::os::fd::RawFd>,
+    pub backup_service: Option<(PathBuf, PathBuf)>,
     /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
@@ -178,6 +200,12 @@ struct Session {
     /// the fixture keychain (autofill.rs), and the director's handle on it.
     autofill: Option<oxyos_compositor::autofill::Autofill>,
     autofill_keychain: Option<std::rc::Rc<std::cell::RefCell<autofill::FixtureKeychain>>>,
+    /// `--passkey-fixture ID`: passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+    /// decision 7) asked by the fixture accounts' service (passkeys.rs), and the director's handle.
+    passkeys: Option<oxyos_compositor::passkeys::Passkeys>,
+    passkey_service: Option<std::rc::Rc<std::cell::RefCell<passkeys::FixtureService>>>,
+    /// The save confirmations' waker among the compositor's (`--autofill-saves`).
+    pub autofill_saves_waker: Option<std::os::fd::RawFd>,
     /// The clients of applications the shell launched (not the director's own): what they are
     /// delivered is counted as theirs, not as leaked (`delivered_json`), even once they are gone.
     launched_clients: std::collections::BTreeSet<ClientId>,
@@ -196,11 +224,25 @@ struct Session {
     /// `oxyos_compositor::sign_out`). The session ends there; the development compositor records it
     /// and goes on, so the scenario checks it and what follows.
     pub signed_out: bool,
+    /// Sleep, restart, shut down and log out as the session serves them
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), made at the first turn over the
+    /// played logind (`--power-bus`) or none: never the machine's own. The development compositor
+    /// records a log out (`logged_out`) and goes on, as it does a sign out.
+    pub ending: Option<oxyos_compositor::session_end::SessionEnding>,
+    pub ending_logind: oxyos_compositor::session_end::Logind,
+    pub logged_out: bool,
+    /// Whether the session has asked the director's application to quit: its process ending is
+    /// then its answer, not a failure.
+    pub quit_asked: bool,
     /// Files dropped on an application's icon in the dock opened with it (ADR 0034, OpenFiles):
     /// each file's path and the application, as the session opens them.
     pub file_opens: Vec<(PathBuf, String)>,
     /// The user's Trashes, followed as the session follows them (`--trash`, a scenario's own home).
     pub trash: Option<oxyos_compositor::trash::Trash>,
+    /// Settings › Storage as the session serves it (`--storage`, a played disk), and its waker
+    /// among the compositor's, given back as the session finishes.
+    pub storage: Option<oxyos_compositor::storage::Storage>,
+    pub storage_waker: Option<std::os::fd::RawFd>,
     /// The system sounds the session would have played since a step last took them
     /// (docs/adr/0044-system-sounds.mdx).
     pub sounds: oxyos_sound::Recorder,
@@ -296,11 +338,17 @@ impl Session {
             pasteboard: None,
             reader: reader::Reader::default(),
             launcher: None,
+            crashes: oxyos_compositor::crashes::Crashes::new(
+                oxyos_compositor::crashes::Reports::of_user(),
+                oxyos_compositor::crashes::system_description(),
+            ),
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
             grants: Vec::new(),
             installs: None,
+            background: None,
+            background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
             search: None,
@@ -317,19 +365,33 @@ impl Session {
             bluetooth_waker: None,
             bluetooth_control: None,
             power: None,
+            activity: None,
+            activity_waker: None,
             power_waker: None,
             power_control: None,
+            backups: None,
+            backups_waker: None,
+            backup_service: None,
             input_sources: None,
             autofill: None,
             autofill_keychain: None,
+            passkeys: None,
+            passkey_service: None,
+            autofill_saves_waker: None,
             launched_clients: Default::default(),
             application_launches: Vec::new(),
             screenshot_opens: Vec::new(),
             url_opens: Vec::new(),
             signed_out: false,
+            ending: None,
+            ending_logind: oxyos_compositor::session_end::Logind::None,
+            logged_out: false,
+            quit_asked: false,
             file_opens: Vec::new(),
             sounds: oxyos_sound::Recorder::default(),
             trash: None,
+            storage: None,
+            storage_waker: None,
             installed_fixture: None,
             displays: None,
             choosers: oxyos_compositor::choosers::Choosers::new(
@@ -412,7 +474,7 @@ impl Session {
         }
         for pid in self.choosers.take_ended() {
             self.compositor.forget_chooser(pid);
-            if let Some(launcher) = self.launcher.as_ref() {
+            if let Some(launcher) = self.launcher.as_mut() {
                 launcher.terminate(pid);
             }
             if let Some(child) = self.chooser_children.iter().find(|c| c.id() == pid) {
@@ -597,12 +659,61 @@ impl Session {
         .unwrap_or_else(|| "null".into())
     }
 
-    /// The battery and energy's turn (ADR 0057): the applications the run started that run.
+    /// The development backup service (`--backup`) acts: a played disk connected (made, or
+    /// brought back from where it was taken), taken away, or a request of the person's sent to
+    /// it as `oxyos-backupd --client` would. A wait for its state is the step loop's: returned
+    /// here as what to wait for and for how long.
+    pub fn backup_act(&mut self, what: &str) -> Result<Option<(serde_json::Value, u64)>> {
+        let (socket, volumes) = self
+            .backup_service
+            .clone()
+            .ok_or("a backup step needs --backup")?;
+        let what: serde_json::Value = serde_json::from_str(what)?;
+        let away = volumes.with_file_name("away");
+        if let Some(uuid) = what.get("connect").and_then(|u| u.as_str()) {
+            let disk = volumes.join(uuid);
+            if away.join(uuid).is_dir() {
+                fs::rename(away.join(uuid), &disk)?;
+            } else {
+                fs::create_dir_all(&disk)?;
+            }
+            if let Some(label) = what.get("label").and_then(|l| l.as_str()) {
+                fs::write(disk.join(".oxyos-label"), label)?;
+            }
+        } else if let Some(uuid) = what.get("disconnect").and_then(|u| u.as_str()) {
+            fs::create_dir_all(&away)?;
+            fs::rename(volumes.join(uuid), away.join(uuid))?;
+        } else if let Some(request) = what.get("ask") {
+            let answer = backup_ask(&socket, request)?;
+            if answer.get("refused").is_some() {
+                return Err(format!("the backup service refused {request}: {answer}").into());
+            }
+        } else if let Some(until) = what.get("until") {
+            let ms = what.get("ms").and_then(|ms| ms.as_u64()).unwrap_or(30_000);
+            return Ok(Some((until.clone(), ms)));
+        } else {
+            return Err(
+                format!("a backup step is connect, disconnect, ask or until: {what}").into(),
+            );
+        }
+        Ok(None)
+    }
+
+    /// What the development backup service holds (its state, as `status` answers), for a step's
+    /// result; `null` without it.
+    pub fn backup_state(&self) -> String {
+        self.backup_service
+            .as_ref()
+            .and_then(|(socket, _)| backup_ask(socket, &serde_json::json!("status")).ok())
+            .and_then(|mut answer| answer.get_mut("status").map(serde_json::Value::take))
+            .map_or_else(|| "null".into(), |state| state.to_string())
+    }
+
+    /// The battery and energy's turn (ADR 0057) and Activity Monitor's (ADR 0063): the
+    /// applications the run started that run, the director's own among them, named by the
+    /// registry as Activity Monitor finds them.
     fn serve_power(&mut self) {
-        let Some(power) = self.power.as_mut() else {
-            return;
-        };
-        let running: Vec<oxyos_power::energy::Running> = self
+        let mut running: Vec<oxyos_power::energy::Running> = self
             .launcher
             .as_ref()
             .map(|launcher| {
@@ -616,7 +727,105 @@ impl Session {
                     .collect()
             })
             .unwrap_or_default();
-        power.serve(&mut self.compositor, self.settings.preferences(), &running);
+        if let Some(power) = self.power.as_mut() {
+            power.serve(&mut self.compositor, self.settings.preferences(), &running);
+        }
+        if let Some(activity) = self.activity.as_mut() {
+            if let Some((pid, id)) = &self.app {
+                running.push(oxyos_power::energy::Running {
+                    pid: *pid,
+                    id: id.clone(),
+                    name: id.clone(),
+                });
+            }
+            activity.serve(&mut self.compositor, &running, self.power.as_mut());
+        }
+    }
+
+    /// What Activity Monitor's part did, for a step's result (regress.py's `activity`): the
+    /// samples it took and sent, whether any client follows, and the times its thread and the
+    /// director's application's threads were switched out since they started (each a wakeup), so
+    /// a step can hold a hidden window's to none.
+    pub fn activity_state(&self) -> String {
+        let Some(activity) = self.activity.as_ref() else {
+            return "null".into();
+        };
+        let (samples, sent) = activity.counts();
+        let thread = std::path::Path::new("/proc/self/task").join(activity.thread_id().to_string());
+        let host: Vec<std::path::PathBuf> = self
+            .app
+            .as_ref()
+            .and_then(|(pid, _)| {
+                std::fs::read_dir(
+                    std::path::Path::new("/proc")
+                        .join(pid.to_string())
+                        .join("task"),
+                )
+                .ok()
+            })
+            .map(|entries| entries.flatten().map(|task| task.path()).collect())
+            .unwrap_or_default();
+        let (host_wakeups, host_cpu) = host.iter().fold((0, 0), |(w, c), task| {
+            (w + switches(task), c + run_ns(task))
+        });
+        format!(
+            "{{\"samples\":{samples},\"sent\":{sent},\"followed\":{},\"wakeups\":{},\"cpu_ms\":{},\"host_wakeups\":{host_wakeups},\"host_cpu_ms\":{}}}",
+            activity.followed(),
+            switches(&thread),
+            run_ns(&thread) / 1_000_000,
+            host_cpu / 1_000_000,
+        )
+    }
+
+    /// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+    /// the part made at the first turn (the login screen's at a login), logind's calls made in the
+    /// turn on the played bus, so a step's answer is settled with it.
+    fn serve_session_end(&mut self) {
+        let login = self.compositor.login;
+        let directory = self.directory().join("reopen-at-login");
+        let logind = self.ending_logind.clone();
+        let ending = self.ending.get_or_insert_with(|| {
+            oxyos_compositor::session_end::SessionEnding::inline(logind, login, Some(directory))
+        });
+        let launcher = self.launcher.as_ref();
+        let pids: std::collections::BTreeMap<ClientId, u32> = self
+            .compositor
+            .peers
+            .iter()
+            .map(|(client, peer)| (*client, peer.pid as u32))
+            .collect();
+        let scene = &self.compositor.scene;
+        let names: std::collections::BTreeMap<ClientId, String> = scene
+            .applications()
+            .into_iter()
+            .map(|client| {
+                let launched = pids
+                    .get(&client)
+                    .and_then(|pid| launcher.and_then(|launcher| launcher.application_of(*pid)))
+                    .map(|launched| launched.name.clone());
+                let recorded = scene.application(client).map(str::to_owned);
+                let name = launched.or_else(|| {
+                    let id = recorded?;
+                    Some(
+                        launcher
+                            .and_then(|launcher| launcher.application(&id))
+                            .map_or(id, |application| application.name),
+                    )
+                });
+                (client, name.unwrap_or_default())
+            })
+            .collect();
+        let running: Vec<String> = launcher
+            .map(|launcher| launcher.running().map(|(_, l)| l.id.clone()).collect())
+            .unwrap_or_default();
+        let served = ending.serve(
+            &mut self.compositor,
+            &mut self.settings,
+            &|client| names.get(&client).cloned().unwrap_or_default(),
+            &running,
+        );
+        self.logged_out |= served.log_out;
+        self.quit_asked |= matches!(ending.state_name(), "quitting" | "ending" | "ended");
     }
 
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
@@ -632,19 +841,101 @@ impl Session {
         // the run, before the install service takes what is left.
         let login = self.compositor.login;
         self.signed_out |= oxyos_compositor::sign_out::serve(&mut self.compositor.scene, login);
+        // Resetting an application and the crash notices' answers (docs/adr/0061), before the
+        // install service takes the requests left; what the person reopens is started as the
+        // shell's launches are, and recorded so.
+        if let Some(launcher) = self.launcher.as_mut() {
+            self.crashes.set_locale(&self.settings.locale());
+            let served = self
+                .crashes
+                .serve(&mut self.compositor.scene, launcher, login);
+            // What a reset application donated to the index goes with its data.
+            if let Some(search) = self.search.as_mut() {
+                for id in &served.reset {
+                    search.forget_application(id);
+                }
+            }
+            for id in served.open {
+                match launcher.launch(&id) {
+                    Ok(pid) => {
+                        if let Some(launched) = launcher.application_of(pid) {
+                            let origin = match &launched.origin {
+                                oxyos_apps::Origin::System => "system".to_string(),
+                                oxyos_apps::Origin::Installed { version_code } => {
+                                    format!("installed {version_code}")
+                                }
+                                oxyos_apps::Origin::Development => "development".to_string(),
+                            };
+                            let settings = launched.grants.settings
+                                || self.grant_settings.as_deref() == Some(launched.id.as_str());
+                            self.application_launches
+                                .push((launched.id.clone(), origin, settings));
+                        }
+                    }
+                    Err(error) => eprintln!("[launch] {id} not reopened: {error}"),
+                }
+            }
+        }
         // AutoFill's fields, picks and the shell's presses, before the install service takes the
         // requests left.
         if let Some(autofill) = self.autofill.as_mut() {
             autofill.serve(&mut self.compositor);
         }
+        // Passkeys' sheets, the fixture asking once its application has a client, before the
+        // install service takes the requests left.
+        if let (Some(passkeys), Some(service)) =
+            (self.passkeys.as_mut(), self.passkey_service.as_ref())
+        {
+            if service.borrow().pid.is_none() {
+                let application = service.borrow().application.clone();
+                let pid = self.compositor.peers.iter().find_map(|(client, peer)| {
+                    (self.compositor.scene.application(*client) == Some(application.as_str()))
+                        .then_some(peer.pid)
+                });
+                service.borrow_mut().pid = pid;
+            }
+            passkeys.serve(&mut self.compositor);
+        }
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();
+        // Sleep, restart, shut down and log out (ADR 0064), before the install service takes what
+        // is left.
+        self.serve_session_end();
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
-        // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx).
+        // Backups (ADR 0059), before the install service takes what is left.
+        if let Some(backups) = self.backups.as_mut() {
+            backups.serve(&mut self.compositor.scene, self.settings.preferences());
+        }
+        // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx), emptying
+        // itself as the person has it (docs/adr/0062-storage.mdx).
         if let Some(trash) = self.trash.as_mut() {
+            trash.set_empty_automatically(self.settings.preferences().empty_trash_automatically);
             trash.serve(&mut self.compositor.scene);
             self.compositor.play_sounds();
+        }
+        // Settings › Storage (docs/adr/0062-storage.mdx), before the install service takes the
+        // requests left: an item revealed opens the file manager as the shell's URLs do.
+        if let Some(storage) = self.storage.as_mut() {
+            storage.set_locale(&self.settings.locale());
+            for reveal in storage.serve(&mut self.compositor.scene) {
+                let opened = match self
+                    .launcher
+                    .as_mut()
+                    .map(|launcher| launcher.open_url(&reveal.url))
+                {
+                    Some(Ok((id, _))) => {
+                        self.url_opens.push((reveal.url.clone(), id));
+                        true
+                    }
+                    Some(Err(error)) => {
+                        eprintln!("[launch] {}: {error}", reveal.url);
+                        false
+                    }
+                    None => false,
+                };
+                storage.revealed(&mut self.compositor.scene, &reveal, opened);
+            }
         }
         // Input sources and the engine (ADR 0041), before the store takes the requests left.
         if let Some(methods) = self.input_methods.as_mut() {
@@ -745,6 +1036,31 @@ impl Session {
         }
     }
 
+    /// The applications' login items and background activity
+    /// (docs/adr/0060-login-items-and-background-activity.mdx), as the session serves them, after
+    /// the install service's answers: a process in the background without the right is ended.
+    pub fn serve_background(&mut self) {
+        let Some(background) = self.background.as_mut() else {
+            return;
+        };
+        let launcher = self.launcher.as_ref();
+        let end = background.serve(
+            &mut self.compositor,
+            &mut self.settings,
+            &|pid| launcher?.application_of(pid).cloned(),
+            self.installs.as_mut(),
+            oxyos_compositor::settings::now(),
+        );
+        if let Some(launcher) = self.launcher.as_mut() {
+            for pid in end {
+                if let Some(launched) = launcher.application_of(pid) {
+                    self.background_ended.push(launched.id.clone());
+                }
+                launcher.terminate(pid);
+            }
+        }
+    }
+
     /// The companion application's client (`--companion`), once it has connected.
     fn companion_client(&self) -> Option<ClientId> {
         let pid = self.companion?;
@@ -790,6 +1106,7 @@ impl Session {
                     privacy: granted.privacy || fixture.privacy,
                     network: granted.network || fixture.network,
                     bluetooth: granted.bluetooth || fixture.bluetooth,
+                    activity: granted.activity || fixture.activity,
                     ..Grants::default()
                 },
                 application: id,
@@ -808,10 +1125,18 @@ impl Session {
             }
             return;
         };
-        for (pid, _) in launcher.reap() {
-            self.choosers.exited(&mut self.compositor.scene, pid);
-            self.compositor.forget_chooser(pid);
+        let exits = launcher.reap();
+        for exit in &exits {
+            eprintln!(
+                "[launch] {} exited ({})",
+                exit.launched.id,
+                oxyos_compositor::crashes::reason(exit.status)
+            );
+            self.choosers.exited(&mut self.compositor.scene, exit.pid);
+            self.compositor.forget_chooser(exit.pid);
         }
+        // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
+        self.crashes.exited(&mut self.compositor.scene, &exits);
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
             if let Err(error) = launcher.launch(&id) {
@@ -864,8 +1189,8 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, launched);
         }
-        // The URLs the shell opens and the force quits it asks for (docs/adr/0034-the-dock.mdx),
-        // as the session serves them.
+        // The URLs the shell and applications open, and the force quits the shell asks for
+        // (docs/adr/0034-the-dock.mdx), as the session serves them.
         for request in self.compositor.scene.take_url_requests() {
             let opened = request.with_input
                 && match launcher.open_url(&request.url) {
@@ -1006,6 +1331,17 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // The session's ending (ADR 0064): its inhibitor let go and its connection to the played
+        // logind closed.
+        if let Some(mut ending) = self.ending.take() {
+            ending.end();
+        }
+        // Backups' side, its threads waited for and its waker given back.
+        self.backups = None;
+        if let Some(waker) = self.backups_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
         // Battery and energy's side, its threads waited for, its waker given back, and the
         // played services gone.
         if let Some(power) = self.power.as_mut() {
@@ -1013,6 +1349,11 @@ impl Session {
         }
         self.power = None;
         if let Some(waker) = self.power_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        self.activity = None;
+        if let Some(waker) = self.activity_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
@@ -1043,6 +1384,19 @@ impl Session {
         // The Trash's follower, its watcher's thread waited for and its waker given back.
         self.trash = None;
         if let Some(waker) = self.trash_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // AutoFill's save confirmations, their thread waited for (its connection to the accounts'
+        // service closed) and their waker given back.
+        self.autofill = None;
+        if let Some(waker) = self.autofill_saves_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // Storage, a measurement under way stopped and waited for, and its waker given back.
+        self.storage = None;
+        if let Some(waker) = self.storage_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
@@ -1276,6 +1630,35 @@ mod checks {
     }
 }
 
+/// One request of the development backup service and its answer, as `oxyos-backupd --client`.
+fn backup_ask(socket: &Path, request: &serde_json::Value) -> Result<serde_json::Value> {
+    let connection = oxyos_install::socket::Connection::connect(socket)?;
+    connection.set_timeout(Duration::from_secs(120))?;
+    connection.send(request)?;
+    match connection.receive::<serde_json::Value>()? {
+        Some(Some(answer)) => Ok(answer),
+        _ => Err("the backup service did not answer".into()),
+    }
+}
+
+/// Whether the backup service's state holds what a step waits for: an object's keys given, each
+/// matching (null: absent or null); a list item by item, of the same length; anything else
+/// equal.
+pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (wanted, state) {
+        (Value::Object(wanted), Value::Object(state)) => wanted.iter().all(|(key, value)| {
+            state
+                .get(key)
+                .map_or(value.is_null(), |held| backup_holds(value, held))
+        }),
+        (Value::Array(wanted), Value::Array(state)) => {
+            wanted.len() == state.len() && wanted.iter().zip(state).all(|(w, s)| backup_holds(w, s))
+        }
+        _ => wanted == state,
+    }
+}
+
 fn main() -> Result<()> {
     // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
     // child, its standard input the socket the compositor brokers questions over.
@@ -1307,6 +1690,23 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
+        // The development backup service (docs/adr/0059-backups.mdx), as `oxyos-backupd
+        // --development` runs it, on a run's own folders: its state, its played disks (each
+        // folder of VOLUMES a disk connected), restic's cache and what it backs up; it serves
+        // once SOCKET is there. A process of its own, as the system's service is. Never installed.
+        [flag, state, volumes, socket, cache, sources @ ..]
+            if flag == "--play-backup" && !sources.is_empty() =>
+        {
+            oxyos_backupd::run(oxyos_backupd::Arguments {
+                development: true,
+                state: state.into(),
+                socket: Some(socket.into()),
+                volumes: Some(volumes.into()),
+                cache: Some(cache.into()),
+                sources: sources.iter().map(PathBuf::from).collect(),
+            })?;
+            Ok(())
+        }
         _ if args.iter().any(|arg| arg == "--launch") => {
             let (out, launch) = launch::Launch::parse(&args)?;
             launch::run(&out, &launch)
@@ -1315,5 +1715,60 @@ fn main() -> Result<()> {
             "usage: oxyos-offscreen [--out DIR]\n       oxyos-offscreen --launch [--out DIR] [--press X,Y]... -- COMMAND [ARGS]..."
                 .into(),
         ),
+    }
+}
+
+/// The time the thread at `task` (`/proc/PID/task/TID`) ran, in nanoseconds (`schedstat`).
+fn run_ns(task: &std::path::Path) -> u64 {
+    std::fs::read_to_string(task.join("schedstat"))
+        .ok()
+        .and_then(|text| text.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The context switches of the thread at `task` (`/proc/PID/task/TID`): each time it slept and
+/// was woken.
+fn switches(task: &std::path::Path) -> u64 {
+    std::fs::read_to_string(task.join("status"))
+        .map(|status| {
+            status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::backup_holds;
+    use serde_json::json;
+
+    #[test]
+    fn a_wait_holds_when_every_key_given_matches() {
+        let state = json!({
+            "running": null, "held": false,
+            "destinations": [{"id": "a", "backups": 1, "available": true}],
+            "excluded": ["/home/nate/Pictures"]
+        });
+        assert!(backup_holds(&json!({"running": null}), &state));
+        assert!(backup_holds(
+            &json!({"destinations": [{"backups": 1}]}),
+            &state
+        ));
+        assert!(!backup_holds(
+            &json!({"destinations": [{"backups": 2}]}),
+            &state
+        ));
+        // A list item by item, of the same length.
+        assert!(!backup_holds(&json!({"destinations": []}), &state));
+        assert!(!backup_holds(&json!({"excluded": []}), &state));
+        // Null: absent or null.
+        assert!(backup_holds(&json!({"lastBackup": null}), &state));
+        assert!(!backup_holds(
+            &json!({"running": {"phase": "backingUp"}}),
+            &state
+        ));
     }
 }

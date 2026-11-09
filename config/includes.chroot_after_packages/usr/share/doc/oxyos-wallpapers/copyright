@@ -1,7 +1,7 @@
 OxyOS's system wallpapers (/usr/share/oxyos/wallpapers, docs/adr/0048-wallpapers.mdx)
 
-Every wallpaper here was made for OxyOS on 7 November 2026 from nothing but a script of the
-repository's, scripts/make-wallpapers.py: SVG documents of linear and radial gradients, ellipses
+Every wallpaper here but Solar Gradients (below) was made for OxyOS on 7 November 2026 from
+nothing but a script of the repository's, scripts/make-wallpapers.py: SVG documents of linear and radial gradients, ellipses
 and smooth paths whose colours and shapes are the script's own numbers (its few random choices
 seeded, so every run writes the same bytes). No photograph, drawing or other work was used, and
 none imitates another vendor's wallpaper. The gradients' hues are those of Bloom's accent colours
@@ -9,25 +9,40 @@ none imitates another vendor's wallpaper. The gradients' hues are those of Bloom
 
 Copyright: the OxyOS project, as the repository's, under its licence.
 Made:      python3 scripts/make-wallpapers.py
-           26 SVG files, catalog.json and each wallpaper's wallpaper.json; the SHA-256 of the
-           sorted list of every file's SHA-256 is
-           7aa20c055c6ee4d9b8d39b367cce836e94722186c77dec14ec2f1af1c429a7ef.
+           18 SVG files, catalog.json and each wallpaper's wallpaper.json, but solar-gradients/;
+           `find . -path ./solar-gradients -prune -o -type f -print | LC_ALL=C sort | xargs
+           sha256sum | sha256sum` in /usr/share/oxyos/wallpapers is
+           a0cd586b58d96541d25ab7148332b78f6c3d6429c9c8bb4db16f327c5040c704.
 
 catalog.json
-  The categories (Dynamic Wallpapers, Gradients), the default wallpaper (oxyos) and twelve
+  The categories (Dynamic Wallpapers, Gradients), the default wallpaper (solar-gradients) and twelve
   solid colours.
 
-oxyos/light.svg, oxyos/dark.svg (OxyOS: the default, following the appearance)
+oxyos/light.svg, oxyos/dark.svg (OxyOS, following the appearance)
   Two silk ribbons crossing a field of OxyOS's blue, lit from the upper right.
-
-horizon/{night,dawn,sunrise,morning,day,afternoon,sunset,dusk}.svg (Horizon: following the sun)
-  A sky over three ridges at eight moments of the day, each tagged with the sun's elevation and
-  azimuth it shows (docs/adr/0012-solar-wallpaper.mdx); the night's and dusk's and dawn's stars
-  are 140 seeded points.
 
 {ocean,iris,orchid,coral,ember,meadow,lagoon,graphite}/{light,dark}.svg (Gradients, following
 the appearance)
   The OxyOS wallpaper's silk in each of Bloom's accent hues (graphite: nearly without hue).
+
+solar-gradients/*.jpg and solar-gradients/wallpaper.json (Solar Gradients: the default, following
+the sun through sixteen variants, docs/adr/0012-solar-wallpaper.mdx)
+  An original procedural work of OxyOS, made on 8 November 2026. Each variant is rendered, at
+  6144 x 3456, by crates/oxyos-wallpaper/examples/make-solar-gradients.rs from the parameters in
+  scripts/solar-gradients.json and nothing else: two radial gradients summed in OKLab (one centred
+  a picture's height above its top, one stretched six times across below its bottom edge), each a
+  Catmull-Rom curve through ten and seven colour stops, turned into sRGB, dithered with triangular
+  noise of one level from a hash of the pixel, and written as JPEG (quality 92, 4:4:4). The look
+  was matched, at the owner's request, to Apple's macOS wallpaper of the same name: its stops'
+  colours and positions and each variant's sun were measured from a copy of it used only as a
+  reference. No pixel of Apple's picture is embedded, resampled or traced; what is shipped is the
+  renderer's output from those numbers.
+Copyright: the OxyOS project, as the repository's, under its licence.
+Made:      cargo run --release -p oxyos-wallpaper --example make-solar-gradients --
+             scripts/solar-gradients.json DESTINATION/solar-gradients
+           `find solar-gradients -type f | LC_ALL=C sort | xargs sha256sum | sha256sum` in
+           /usr/share/oxyos/wallpapers is
+           2eb52c376d9acdfa12b9a25352897e21f2d1e1d458c41aa385f1294ff897825b.
 
 No other wallpaper is shipped. Photographs and aerial videos come only from the owner, or under a
 licence recorded here with them.

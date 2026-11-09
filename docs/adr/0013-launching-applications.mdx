@@ -8,6 +8,8 @@ order: 22
 
 Status: **accepted; implemented** (steps 1 to 3). Builds on [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority), [ADR 0009](./0009-session-shell) (the session's shell; its decision 3 left launching to its own decision) and issue #36 (independent applications).
 
+**8 November 2026:** the launcher knows how each process it started ended ([ADR 0061](./0061-crashes-and-resetting-an-application)): `Launcher::reap` gives its status, how long it ran, whether the session asked it to end (a force quit, a quit before a reset, a file chooser withdrawn, the session ending) and what it reported of its end in the file the session gave it (`OXYOS_CRASH_REPORT`). An application's processes are quit by their launch records (`Launcher::quit`), never by a name, and one being reset is held (`Launcher::hold`): nothing starts it, however asked.
+
 ## Problem
 
 The dock and the launcher show a fixture's list, and pressing one launches nothing: `activateApp` can only focus a window an application already has. An application's id is its own claim (`SetAppId`), so the dock's running indicator believes whatever a client says. There is no list of the applications a session has, no way for the shell to ask for one, and nothing that starts one.
@@ -33,4 +35,4 @@ The dock and the launcher show a fixture's list, and pressing one launches nothi
 
 - Installing applications, an application store, sandboxing and per-application grants from their entries (#35, #36).
 - Opening files or URLs with an application, a default for a kind of file.
-- Applications started at login: [ADR 0034](./0034-the-dock) (Open at Login, from the dock's menu).
+- Applications started at login: [ADR 0034](./0034-the-dock) (Open at Login, from the dock's menu) and [ADR 0060](./0060-login-items-and-background-activity) (Settings' Login Items & Extensions, an application adding itself, and its process running on in the background once its window closes).

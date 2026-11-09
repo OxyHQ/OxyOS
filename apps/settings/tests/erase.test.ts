@@ -21,7 +21,8 @@ const told = {
   accounts: [
     { name: "Zoë Ada", handle: "zoe", signsOutOnline: true },
     { name: "Ada Lovelace", handle: "ada", signsOutOnline: true },
-    { name: "oxy-abc", handle: null, signsOutOnline: false },
+    // An account Oxy names nothing is unnamed: its user (`oxy-…`) is never a name.
+    { name: "", handle: null, signsOutOnline: false },
   ],
 };
 
@@ -34,7 +35,7 @@ test("what erasing would do is the platform's, read strictly", () => {
     { ...told, accounts: [] },
     { ...told, accounts: "Ada" },
     { ...told, extra: true },
-    { ...told, accounts: [{ name: "  ", handle: null, signsOutOnline: false }] },
+    { ...told, accounts: [{ name: 3, handle: null, signsOutOnline: false }] },
     { ...told, accounts: [{ name: "Ada", handle: "", signsOutOnline: false }] },
     { ...told, accounts: [{ name: "Ada", handle: 3, signsOutOnline: false }] },
     { ...told, accounts: [{ name: "Ada", signsOutOnline: false }] },
@@ -49,7 +50,7 @@ test("the accounts keep the platform's order: the asking administrator first", (
   const preview = erasePreviewFrom(told)!;
   assert.deepEqual(
     preview.accounts.map((account) => account.name),
-    ["Zoë Ada", "Ada Lovelace", "oxy-abc"],
+    ["Zoë Ada", "Ada Lovelace", ""],
   );
   assert.equal(administratorOf(preview).name, "Zoë Ada");
 });

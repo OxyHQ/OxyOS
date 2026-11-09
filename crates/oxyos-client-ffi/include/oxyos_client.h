@@ -93,6 +93,18 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_CAPABILITY_RESULT 163
 /* Search (docs/adr/0051-search.mdx, protocol version 31). */
 #define OXYOS_EVENT_SEARCH_TEXT 164
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33). */
+#define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
+/* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 36). */
+#define OXYOS_EVENT_SAFE_MODE 166
+/* A long answer of the session's vocabulary whole (docs/adr/0063-activity-monitor.mdx, protocol
+ * version 37). */
+#define OXYOS_EVENT_SYSTEM_DATA 167
+/* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, protocol version 38). */
+#define OXYOS_EVENT_QUIT_REQUESTED 168
+/* The modifiers held changed (protocol version 38), as a Mac's flagsChanged:. */
+#define OXYOS_EVENT_MODIFIERS 169
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -132,10 +144,12 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_SHORTCUT_INTENT_TOGGLE 0
 #define OXYOS_SHORTCUT_INTENT_OPEN 1
 #define OXYOS_SHORTCUT_INTENT_CLOSE 2
-/* Which view a touchpad's vertical swipe drives a shell surface is (oxyos_client_set_gesture_overlay). */
+/* Which view a touchpad's gesture drives a shell surface is (oxyos_client_set_gesture_overlay):
+ * Mission Control's and App Exposé's (swiped up and down), Launchpad's (pinched, version 33). */
 #define OXYOS_GESTURE_OVERLAY_NONE 0
 #define OXYOS_GESTURE_OVERLAY_MISSION_CONTROL 1
 #define OXYOS_GESTURE_OVERLAY_APP_EXPOSE 2
+#define OXYOS_GESTURE_OVERLAY_LAUNCHPAD 3
 /* Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10). */
 #define OXYOS_EVENT_CAPTURE_MODE 210
 #define OXYOS_EVENT_CAPTURE_TARGET 211
@@ -152,6 +166,18 @@ typedef struct OxyOSClient OxyOSClient;
 /* Whose notifications play no sound (docs/adr/0044-system-sounds.mdx): Settings', told to it and
  * changed by it; a compositor of version 23 or later. */
 #define OXYOS_APPLICATION_LIST_NOTIFICATION_SOUNDS_OFF 3
+/* An application's background items (docs/adr/0060-login-items-and-background-activity.mdx,
+ * protocol version 33), as a Mac's SMAppService: itself opened at login, or its process kept
+ * running once its window closes; what it asks of one; and how one stands. */
+#define OXYOS_BACKGROUND_ITEM_LOGIN_ITEM 1
+#define OXYOS_BACKGROUND_ITEM_BACKGROUND 2
+#define OXYOS_BACKGROUND_ITEM_STATUS 1
+#define OXYOS_BACKGROUND_ITEM_REGISTER 2
+#define OXYOS_BACKGROUND_ITEM_UNREGISTER 3
+#define OXYOS_BACKGROUND_NOT_REGISTERED 1
+#define OXYOS_BACKGROUND_ENABLED 2
+#define OXYOS_BACKGROUND_REQUIRES_APPROVAL 3
+#define OXYOS_BACKGROUND_NOT_PERMITTED 4
 /* The system's interface sounds an application asks for (oxyos_client_play_system_sound). */
 #define OXYOS_SYSTEM_SOUND_MOVE_TO_TRASH 1
 #define OXYOS_SYSTEM_SOUND_EMPTY_TRASH 2
@@ -532,6 +558,23 @@ typedef struct OxyOSClient OxyOSClient;
  *                      (0: what the client asked to watch changed, unasked), `detail` its index,
  *                      `flag` 1 on the last; `text` the chunk; JSON once whole
  *                      (docs/adr/0051-search.mdx).
+ *   BACKGROUND_ITEM_STATE  how one of the application's background items stands, answering
+ *                      oxyos_client_background_item `code` (0: the person changed it, unasked);
+ *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
+ *                      OXYOS_BACKGROUND_* status (protocol version 33).
+ *   SAFE_MODE          to the shell and the login screen: the session started in Safe Mode, told
+ *                      once as it connects; show it until the session ends (protocol version 36).
+ *   SYSTEM_DATA        the session's answer to the oxyos_client_system_request `code` (0: told
+ *                      unasked) whole, `detail` bytes of JSON: oxyos_client_system_data gives it
+ *                      (docs/adr/0063-activity-monitor.mdx, protocol version 37).
+ *   QUIT_REQUESTED     to an application: the person logs out, restarts or shuts down, and the
+ *                      session asks it to quit first; `code` the request's serial, `detail` why
+ *                      (OXYOS_SESSION_END_*). Answer with oxyos_client_reply_to_quit, then end the
+ *                      process if it quits (protocol version 38,
+ *                      docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+ *   MODIFIERS          to the surface with the keyboard: the modifiers held changed, or were held
+ *                      as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's
+ *                      flagsChanged: (protocol version 38).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -755,8 +798,9 @@ int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t
 #define OXYOS_EDGE_RIGHT 4
 /* Requests a shell surface of `kind` at `edge` of `output`, of the given logical size (a panel's
  * thickness along its edge; a background takes the whole output), keeping `exclusive` logical
- * pixels of a panel's edge out of where windows are placed. The compositor answers with a
- * configure. */
+ * pixels of a panel's edge out of where windows are placed. A notification is at the output's
+ * top-right corner: at the right edge a banner, which slides in; with no edge a bezel, shown at
+ * once. The compositor answers with a configure. */
 int oxyos_client_create_shell_surface(OxyOSClient* client, uint32_t surface, uint8_t kind, uint8_t edge,
                                       uint32_t output, uint32_t width, uint32_t height, uint32_t exclusive);
 /* Names a window: its title, or with a non-zero `app_id` its application id (`length` bytes of
@@ -799,10 +843,11 @@ int oxyos_client_exclude_from_capture(OxyOSClient* client, uint32_t surface, boo
  * shown, flying from where they are as it arrives and back as it goes; or copies again. Said
  * before its first frame. -1 to a compositor of version 23 or older. */
 int oxyos_client_move_windows_to_views(OxyOSClient* client, uint32_t surface, bool moved);
-/* Which view a touchpad's vertical swipe drives one of the shell's own shell surfaces is
- * (OXYOS_GESTURE_OVERLAY_*): Mission Control's or App Exposé's, backdrop and overlay alike, or
- * none (docs/adr/0046-interactive-gestures.mdx): the swipe drives it as far as the fingers go. Said
- * before its first frame. -1 for another value, or to a compositor of version 24 or older. */
+/* Which view a touchpad's gesture drives one of the shell's own shell surfaces is
+ * (OXYOS_GESTURE_OVERLAY_*): Mission Control's, App Exposé's or Launchpad's, backdrop and overlay
+ * alike, or none (docs/adr/0046-interactive-gestures.mdx): the gesture drives it as far as the
+ * fingers go. Said before its first frame. -1 for another value, or to a compositor of version 24
+ * or older (32 or older for Launchpad's). */
 int oxyos_client_set_gesture_overlay(OxyOSClient* client, uint32_t surface, uint8_t overlay);
 /* Opens a screenshot the session saved (SCREENSHOT_SAVED's code) in the application that opens it,
  * citing `serial`, an input the shell received (the press on its thumbnail). */
@@ -897,12 +942,15 @@ int oxyos_client_play_system_sound(OxyOSClient* client, uint32_t sound, uint64_t
 /* The session's shell asks the session to open `url` (`length` bytes of UTF-8) in the application
  * whose entry declares its scheme, citing `input`, an input it received (docs/adr/0034-the-dock.mdx).
  * A LAUNCH_RESULT answers: code, `serial`; flag, whether it was opened. Refused to a compositor of a
- * version before 8. An application may ask it only for the platform's Settings at a page
- * (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), and only of a compositor whose version
- * (`oxyos_client_protocol_version`) is OXYOS_APPLICATION_OPENS_SETTINGS_VERSION or newer: an
- * older one, and any other URL, closes the connection as unauthorized. */
+ * version before 8. An application may ask it for the platform's Settings at a page
+ * (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx) only of a compositor whose version
+ * (`oxyos_client_protocol_version`) is OXYOS_APPLICATION_OPENS_SETTINGS_VERSION or newer, and for a
+ * URL of any other scheme but `file` (opened by the application whose entry declares it,
+ * docs/adr/0058-the-platform-api.mdx, step 6) only of one of OXYOS_APPLICATION_OPENS_URLS_VERSION
+ * or newer: an older one, and a file's URL, closes the connection as unauthorized. */
 #define OXYOS_PLATFORM_SETTINGS_SCHEME "oxyos-settings"
 #define OXYOS_APPLICATION_OPENS_SETTINGS_VERSION 27
+#define OXYOS_APPLICATION_OPENS_URLS_VERSION 34
 /* An application locks the session (`oxyos_client_lock_session`) only while one of its windows is
  * the active one, and only of a compositor of this version or newer: an older one closes the
  * connection as unauthorized. A request while its window is not the active one is ignored. */
@@ -924,6 +972,22 @@ int oxyos_client_request_capability(OxyOSClient* client, uint32_t serial, uint64
  * vocabulary (JSON); SEARCH_TEXT events naming `serial` answer. An error, sending nothing, to a
  * compositor of a version before 30. */
 int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char* text);
+/* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
+ * application asks how one of its background items stands (`kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+ * or _BACKGROUND), or registers or unregisters it (`action` OXYOS_BACKGROUND_ITEM_STATUS,
+ * _REGISTER, _UNREGISTER); a BACKGROUND_ITEM_STATE naming `serial` answers. An error, sending
+ * nothing, to a compositor of a version before 33. */
+int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);
+/* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): why it asks an
+ * application to quit (a QUIT_REQUESTED's `detail`), and the application's answer to the request
+ * `serial` (`quit` 1: it quits, ending its own process; 0: the whole end is cancelled), as a Mac's
+ * applicationShouldTerminate:. An error, sending nothing, to a compositor of a version before
+ * OXYOS_QUIT_REQUESTS_VERSION, which never asks. */
+#define OXYOS_SESSION_END_LOG_OUT 1
+#define OXYOS_SESSION_END_RESTART 2
+#define OXYOS_SESSION_END_SHUT_DOWN 3
+#define OXYOS_QUIT_REQUESTS_VERSION 38
+int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),
@@ -1411,6 +1475,10 @@ typedef struct OxyOSInputCandidates {
   uint8_t flags;
 } OxyOSInputCandidates;
 
+/* The text of the SYSTEM_DATA event just returned: its UTF-8, not NUL-terminated, in `*text` and
+ * `*length`, valid until the next oxyos_client_poll. 1 with them filled; 0 when it could not be
+ * read (docs/adr/0063-activity-monitor.mdx). */
+int oxyos_client_system_data(OxyOSClient* client, const char** text, size_t* length);
 /* The candidates the INPUT_CANDIDATES event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_input_candidates(OxyOSClient* client, OxyOSInputCandidates* out);
 /* The shell's candidates surface, of the given logical size, one per connection: the compositor
@@ -1959,14 +2027,20 @@ OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char
  * downloads and uploads fail as the network's would ({"ok": false, "error": "network"}) before anything
  * is asked. */
 #define OXYOS_FILES_NO_NETWORK 1
+/* oxyos_files_new_with's flag: the application may not ask the person's backups (an installed version
+ * whose account did not grant `files`, docs/adr/0059-backups.mdx), so `backups`, `watchBackups`,
+ * `versions`, `versionContents` and `restoreVersion` fail ({"ok": false, "error": "not-permitted"})
+ * before the backup service is asked. */
+#define OXYOS_FILES_NO_BACKUPS 2
 /* oxyos_files_new_with's flag: the person's files (the home and their volumes) are withheld (an
  * installed version whose account has not granted `files`, docs/adr/0030-installing-applications.mdx,
  * decision 8): only the application's own folders, its bundle and the items given it
  * (oxyos_files_give) are reached, the rest refused ({"ok": false, "error": "not-granted"}) until
  * oxyos_files_grant_the_persons_files. */
-#define OXYOS_FILES_NO_PERSONS_FILES 2
-/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK, OXYOS_FILES_NO_PERSONS_FILES); other bits are
- * ignored. */
+#define OXYOS_FILES_NO_PERSONS_FILES 4
+/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK, OXYOS_FILES_NO_BACKUPS,
+ * OXYOS_FILES_NO_PERSONS_FILES); other bits are ignored. The backups are the system's backup service's (/run/oxyos/backupd/socket), or those of the
+ * service $OXYOS_BACKUPD_SOCKET names (a developer's, oxyos-backupd --development). */
 OxyOSFiles* oxyos_files_new_with(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length,
                                  uint32_t flags);
 /* Frees the service; requests not run yet are dropped, unanswered. NULL is ignored. */
@@ -2058,7 +2132,8 @@ int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, 
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
- * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "pin" ("none", "set" or
+ * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "signInAgain" (Oxy signed
+ * it out, or it was restored from a backup: it is set up again online), "pin" ("none", "set" or
  * "locked"), "password" (whether it signs in)}]. Written as
  * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
 int64_t oxyos_accounts(char* out, size_t capacity);
@@ -2070,8 +2145,8 @@ int64_t oxyos_accounts(char* out, size_t capacity);
  * strictly and written rebuilt. A message is at most OXYOS_ACCOUNT_MESSAGE_MAX bytes. */
 #define OXYOS_ACCOUNT_MESSAGE_MAX 16384
 /* The session's snapshot, asked once, as JSON {"status" ("signed_in", "signed_out" or
- * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?} or null),
- * "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
+ * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?, "picture"?
+ * (its picture's file on this machine), "languages"? (its locales, primary first)} or null), "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
  * asked or refused (oxyos_last_error). */
 int64_t oxyos_account_session_snapshot(char* out, size_t capacity);
 /* A short token for the calling application, `reason` "boot", "preflight" or "response-401" (which
@@ -2106,6 +2181,36 @@ int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
  * nothing changed. */
 int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
                                            const char* current_pin, char* out, size_t capacity);
+/* One of Settings' keychain requests (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8):
+ * `request` is its JSON as the accounts' service reads it ({"keychainList": {}}, {"keychainReveal":
+ * {"itemId"}} ...; secret: copied into a buffer this library overwrites; overwrite your own).
+ * Settings alone may ask (anyone else is refused notPermitted); the registrar's requests (AutoFill,
+ * the lock) and anything else are not sent. Blocks while the service answers, which may ask Oxy:
+ * call it off the interface's thread. Writes the answer as JSON, rebuilt: one of the keychain's
+ * answers, or {"refused": {"reason", "retryAfter"? (seconds, when throttled)}}. It may hold secrets
+ * (an item, a recovery key, a code): overwrite `out` once handed on. Give OXYOS_ACCOUNT_MESSAGE_MAX
+ * bytes. OXYOS_ERROR when it is not a request of Settings' or the service could not be asked. */
+int64_t oxyos_account_session_keychain(const char* request, char* out, size_t capacity);
+/* Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-
+ * passkeys.mdx, decision 5): `username`, `password` (secret: copied into a buffer this library
+ * overwrites; overwrite your own) and the website it is for (`domain`, a host name, or NULL). The
+ * service asks the person in the session's sheet and saves it only on their yes. Blocks until they
+ * answer (at most two minutes): never on the interface's thread. The answer, JSON: {"saved": {}},
+ * {"notSaved": {}}, or {"refused": {"reason" ("locked", "notMember", "tooMany", "unavailable",
+ * "invalidRequest", "notPermitted", "offline", ...)}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes.
+ * OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_save_password(const char* username, const char* password,
+                                            const char* domain, char* out, size_t capacity);
+/* A passkey ceremony for the calling application (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 7): `ceremony` "create" with WebAuthn's PublicKeyCredentialCreationOptionsJSON, or "get"
+ * with PublicKeyCredentialRequestOptionsJSON (binary as base64url; `rp.id` / `rpId` required). The
+ * client data is made here (origin https://<rpId>); the person verifies in the system's sheet.
+ * Blocks while they answer (up to six and a half minutes): never on the interface's thread. JSON
+ * {"credential": RegistrationResponseJSON | AuthenticationResponseJSON} or {"error": {"name"
+ * (WebAuthn's DOMException name: "NotAllowedError", "InvalidStateError", "NotSupportedError",
+ * "TypeError", "UnknownError"), "reason"}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when
+ * the service could not be asked. */
+int64_t oxyos_account_session_passkey(const char* ceremony, const char* options, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */
@@ -2124,7 +2229,8 @@ void oxyos_account_session_subscription_free(OxyOSAccountSubscription* subscript
  * the SDK's sign-in runs with: JSON {"api", "clientId"}, neither secret; OXYOS_ERROR when the
  * service could not be asked or refused (`notConfigured`: no client id). */
 int64_t oxyos_account_platform(char* out, size_t capacity);
-/* One setup's conversation: `enroll`, then second factors while the service asks for one. */
+/* One setup's conversation: `enroll`, then second factors while the service asks for one, and
+ * `retry` after a failure whose sign-in the service kept. */
 typedef struct OxyOSAccountEnrollment OxyOSAccountEnrollment;
 /* NULL when the service cannot be reached (oxyos_last_error). */
 OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
@@ -2132,23 +2238,91 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * password (null for an account without one) and the PIN chosen for this computer (null for none;
  * 4 to 16 digits; docs/adr/0020-oxy-account-login.mdx decision 2), NUL-terminated UTF-8; the
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
- * the password and the PIN at least. Blocks while the service signs in online. The answer, JSON:
- * {"enrolled": {"accountId", "user"}}, "secondFactorRequired" or {"refused": {"reason",
- * "retryAfterSeconds"}} ("passwordRequired": an account without a password cannot be set up yet;
- * "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
+ * the password and the PIN at least. Blocks while the service sets the account up, telling its
+ * steps to oxyos_account_enrollment_on_progress's function. The answer, JSON:
+ * {"enrolled": {"accountId", "user", "name"}} (name: what the person is called, empty for none;
+ * the user is never shown), "secondFactorRequired",
+ * {"failed": {"reason": "unreachable" | "localFailure"}} (Oxy could not be reached, or the machine
+ * could not be set up and was put back: the sign-in is kept, oxyos_account_enrollment_retry tries
+ * again, never a new sign-in) or {"refused": {"reason", "retryAfterSeconds"}}, which ends the setup
+ * ("credentialRefused": sign in again; "pinRequired": a setup without a password, by the QR, needs
+ * a PIN; "unusablePin"); larger than `capacity`, oxyos_account_enrollment_answer gives it again.
  * OXYOS_ERROR: the setup has ended. */
 int64_t oxyos_account_enrollment_enroll(OxyOSAccountEnrollment* enrollment, const char* device_id,
                                         const char* device_secret, const char* account_id,
                                         const char* password, const char* pin, char* out, size_t capacity);
 /* Answers the second factor the service asked for (`code`, secret): the answer as _enroll's; a wrong
- * code {"refused": {"reason": "secondFactorInvalid"}}, after which another may be sent. */
+ * code {"refused": {"reason": "secondFactorInvalid"}}, or {"failed": {"reason": "unreachable"}},
+ * after which a code may be sent again. */
 int64_t oxyos_account_enrollment_second_factor(OxyOSAccountEnrollment* enrollment, const char* code,
                                                char* out, size_t capacity);
 /* The setup's last answer again. */
 int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment, char* out,
                                         size_t capacity);
+/* The setup again after a {"failed": …} answer, with the sign-in the service kept: the answer as
+ * _enroll's, its steps told as _enroll's are. Blocks as _enroll does. */
+int64_t oxyos_account_enrollment_retry(OxyOSAccountEnrollment* enrollment, char* out, size_t capacity);
+/* A setup's step, as the service starts it: "securing" (the PIN's verifier), "verifying" (Oxy checks
+ * the sign-in), "preparing" (the account's user and home), "signingIn" (Oxy issues this computer's
+ * credential), "finishing" (the account's file, its verifier), "confirming" (Oxy confirms this
+ * computer's credential), in that order, any of them skipped where it has nothing to do (a retry
+ * with a kept credential: "preparing", "finishing", "confirming"; one after Oxy could not confirm:
+ * "confirming"). `stage` is
+ * a static string; nothing secret is told. */
+typedef void (*OxyOSAccountEnrollmentProgressFn)(void* context, const char* stage);
+/* `progress` (null: none) is called with `context` on the thread blocked in _enroll,
+ * _second_factor or _retry, before that call returns. 0, or OXYOS_ERROR. */
+int oxyos_account_enrollment_on_progress(OxyOSAccountEnrollment* enrollment,
+                                         OxyOSAccountEnrollmentProgressFn progress, void* context);
+/* A wait Oxy asks of a setup: it rate-limited the QR's redemption, and the wait ends within the
+ * QR's window. The service waits `retry_after_seconds`, asks again with the same sign-in and goes
+ * on; nothing secret is told. */
+typedef void (*OxyOSAccountEnrollmentWaitingFn)(void* context, uint64_t retry_after_seconds);
+/* `waiting` (null: none) is called with `context` on the thread blocked in _enroll, _second_factor
+ * or _retry, which goes on blocking through the wait and the rest of the setup (its answer is
+ * waited for that much longer). 0, or OXYOS_ERROR. */
+int oxyos_account_enrollment_on_waiting(OxyOSAccountEnrollment* enrollment,
+                                        OxyOSAccountEnrollmentWaitingFn waiting, void* context);
+/* The appearance a new account's home starts with, "light", "dark" or "auto", before _enroll: 0, or
+ * OXYOS_ERROR for anything else (nothing set). An account set up again keeps its own. */
+int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);
 /* Ends a setup: closing its connection abandons what the service had not finished. */
 void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
+
+/* Migrate from a Backup (docs/adr/0059-backups.mdx, decision 7), for the login screen of a computer
+ * nobody has set up yet: one conversation with the migration service (OXYOS_MIGRATE_SOCKET, else
+ * /run/oxyos/migrate/socket), which answers root and the login screen's user alone, and only while
+ * no account is enrolled. Each answer is JSON, read strictly and written rebuilt, at most
+ * OXYOS_MIGRATION_MESSAGE_MAX bytes; any of them may be {"refused": {"reason"}} ("notPermitted",
+ * "alreadySetUp", "notConnected", "noBackup", "wrongPassword", "shareRefused", "unreachable",
+ * "inUse", "full", "invalidBackup", "clash", "failed", ...). Each call blocks: never on the
+ * interface's thread. OXYOS_ERROR (oxyos_last_error) once the conversation has ended. */
+#define OXYOS_MIGRATION_MESSAGE_MAX 65536
+typedef struct OxyOSMigration OxyOSMigration;
+/* 1 when this computer migrates from a backup (the migration service's socket is there), else 0:
+ * setup offers Transfer Your Data only then. */
+int32_t oxyos_migration_available(void);
+/* NULL when the service cannot be reached (oxyos_last_error). */
+OxyOSMigration* oxyos_migration_new(void);
+/* The disks that may hold backups: {"disks": [{"uuid", "label", "fsType", "size"}]}. */
+int64_t oxyos_migration_disks(OxyOSMigration* migration, char* out, size_t capacity);
+/* The computers whose backups `password` opens at `source` (JSON {"disk": {"uuid"}} or
+ * {"share": {"share": {"host", "share", "user"}}}), `share_password` a share's or NULL (secrets:
+ * copied into buffers this library overwrites; overwrite your own): {"backups": {"computers":
+ * [{"repository", "name", "backups": [{"snapshot", "time"}] (newest first), "accounts": [{"user",
+ * "name", "administrator"}]}], "unopened"}}. The source stays open for the conversation. */
+int64_t oxyos_migration_backups(OxyOSMigration* migration, const char* source, const char* password,
+                                const char* share_password, char* out, size_t capacity);
+/* Asks for a backup of the computers listed to be migrated into this one. 0, or OXYOS_ERROR. */
+int oxyos_migration_migrate(OxyOSMigration* migration, const char* repository, const char* snapshot);
+/* The migration's next message, waiting for it: {"migrating": {"step" ("accounts", "files",
+ * "finishing"), "percent" (0 to 1)}} while it goes on, then {"migrated": {"computer", "accounts":
+ * [{"user", "name"}]}} or a refusal. */
+int64_t oxyos_migration_next(OxyOSMigration* migration, char* out, size_t capacity);
+/* The last answer again, for a buffer that was too small. */
+int64_t oxyos_migration_answer(const OxyOSMigration* migration, char* out, size_t capacity);
+/* Ends the conversation; a migration under way is finished by the service all the same. */
+void oxyos_migration_free(OxyOSMigration* migration);
 
 /* Wallpapers (docs/adr/0048-wallpapers.mdx). Each writes JSON into `out` (`capacity` bytes,
    NUL-terminated when it fits) and returns its length: larger than `capacity`, call again with
