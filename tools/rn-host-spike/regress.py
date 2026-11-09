@@ -335,10 +335,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
   unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
   presented within a refresh; "logged", patterns (regular expressions) each
-  matching a line written in the step. Every run also checks, for each host's report, that every
+  matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
+  the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
+  "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
+  the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
+  frames presented in it that timed an input. Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
   its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
-  work its `timing` line has, and that each summary's numbers are those of the frames presented
+  work its `timing` line has, that a hold is at least the host's bound long and the frame after it
+  is not charged its wait, and that each summary's numbers are those of the frames presented
   since the summary before;
 - js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
   work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
@@ -917,9 +922,20 @@ def check_diagnostics(report, log_text, failures, who="the application"):
     the wall clock is its time on the CPU, blocked and preempted (thread-clock.h), and each summary
     sums up exactly the frames presented since the summary before."""
     logged = set(log_text.splitlines())
-    frames, last_slow = [], None
+    frames, last_slow, after_hold = [], None, None
     for line in report:
+        if line["kind"] == "held":
+            # A hold is a wait for the compositor's answer of at least the host's bound; what it
+            # waited is the hold's, never the frame's after it.
+            if line["held_ms"] < line["held_after_ms"]:
+                failures.append(f"{who}'s hold of {line['held_ms']:.2f} ms is shorter than its bound "
+                                f"({line['held_after_ms']:.0f} ms)")
+            after_hold = line
         if line["kind"] == "timing":
+            if after_hold is not None and line["wait_ms"] >= after_hold["held_after_ms"]:
+                failures.append(f"{who}'s frame after a hold of {after_hold['held_ms']:.2f} ms was charged a wait of "
+                                f"{line['wait_ms']:.2f} ms")
+            after_hold = None
             # Slow exactly when its work, and its wait beyond a refresh, pass a refresh: a fast
             # frame is never said to be slow, however loaded the machine.
             late = line["work_ms"] + max(0.0, line["wait_ms"] - line["refresh_ms"])
@@ -4024,6 +4040,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for pattern in wanted.get("logged", []):
             if not any(re.search(pattern, text) for text in logs):
                 fail(f"no line matching {pattern!r} was written: {logs}")
+        holds = [line for line in report if line["kind"] == "held" and start <= line["t"] <= end]
+        if "held" in wanted and not wanted["held"][0] <= len(holds) <= wanted["held"][1]:
+            fail(f"{len(holds)} holds ended, expected {wanted['held'][0]} to {wanted['held'][1]}: {logs}")
+        timings = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
+        waited = max((line["wait_ms"] for line in timings), default=0.0)
+        if waited > wanted.get("wait_max_ms", float("inf")):
+            fail(f"a frame waited {waited:.2f} ms for the compositor, expected at most {wanted['wait_max_ms']}: {logs}")
+        timed = [line["latency_ms"] for line in timings if line["presented"] and line["latency_ms"] is not None]
+        if max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
+            fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
+        if len(timed) < wanted.get("timed_inputs_min", 0):
+            fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
     if "js_work" in expect:
         # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
         # frame, and the work that drew none but ran JavaScript.

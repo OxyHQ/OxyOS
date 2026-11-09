@@ -1,0 +1,113 @@
+{
+  "about": "A frame the compositor holds is not a slow frame (frame-diagnostics.h; issue #477). FrameProbe's Loop button, two seconds after its press (so that the press's step settles), changes what it draws every 50 ms on a timer until it is pressed again, as a clock or data arriving would, so its window always has a frame to draw. With the displays off for want of input (ADR 0057, decision 6; the battery's timers as battery-idle's, the display off after two minutes), the compositor answers none of its frames, and the frame waiting for the answer waits as long as the displays stay off, here two and a half seconds of real time. The press that brings them back stops the loop and is answered by a frame. The host's diagnostics say the hold once, in a line of its own with the work it did meanwhile. They charge its wait to no frame: no frame in that step waited for the compositor more than half a second, rather than seconds, and none is said to be slow for it. And they time the press, which is newer than the hold, from its device time to the frame that answers it.",
+  "module": "FrameProbe",
+  "window": [
+    480,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.frameprobe",
+    "title": "Frames"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "power": {
+    "battery": {
+      "percent": 64.0,
+      "state": "discharging",
+      "time_to_empty": 12000,
+      "energy_full": 49.6,
+      "energy_full_design": 57.0,
+      "cycles": 412
+    },
+    "on_ac": false
+  },
+  "steps": [
+    {
+      "name": "Loop: two seconds later, the window draws something new every 50 ms",
+      "do": [
+        "press",
+        [
+          116,
+          310
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": false
+      }
+    },
+    {
+      "name": "Two minutes with no input: the displays turn off, and the compositor answers no frame",
+      "do": [
+        "idle",
+        120
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": true
+      }
+    },
+    {
+      "name": "Two and a half seconds with the displays off: the loop's frame waits for an answer that does not come, and no frame is timed",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": true,
+        "diagnostics": {
+          "held": [
+            0,
+            0
+          ]
+        },
+        "js_work": {
+          "presented": [
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press on Loop brings the displays back and stops it: the hold is said once, its wait charged to no frame, and the press timed by the frame that answers it",
+      "do": [
+        "press",
+        [
+          116,
+          310
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": false,
+        "diagnostics": {
+          "held": [
+            1,
+            1
+          ],
+          "logged": [
+            "^\\[host so\\.oxy\\.frameprobe\\] held [0-9]+\\.[0-9] s by the compositor \\(its answer withheld: the window not shown, or the displays off\\): meanwhile [0-9]+ turns? worked [0-9.]+ ms \\(JavaScript [0-9.]+, animation [0-9.]+, drawing [0-9.]+; on the CPU [0-9.]+\\); 0 inputs not timed$"
+          ],
+          "wait_max_ms": 500,
+          "latency_max_ms": 1000,
+          "timed_inputs_min": 1
+        }
+      }
+    }
+  ]
+}
