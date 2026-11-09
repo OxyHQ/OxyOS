@@ -336,11 +336,8 @@
     {
       "name": "The top bar's button opens the Control Center: Wi-Fi, Bluetooth, the appearance, the display, the sound and the battery",
       "do": [
-        "press_output",
-        [
-          1146,
-          14
-        ]
+        "press_named",
+        "Centro de control"
       ],
       "expect": {
         "react": {},

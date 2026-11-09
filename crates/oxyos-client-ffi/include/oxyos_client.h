@@ -786,8 +786,9 @@ int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t
 #define OXYOS_EDGE_RIGHT 4
 /* Requests a shell surface of `kind` at `edge` of `output`, of the given logical size (a panel's
  * thickness along its edge; a background takes the whole output), keeping `exclusive` logical
- * pixels of a panel's edge out of where windows are placed. The compositor answers with a
- * configure. */
+ * pixels of a panel's edge out of where windows are placed. A notification is at the output's
+ * top-right corner: at the right edge a banner, which slides in; with no edge a bezel, shown at
+ * once. The compositor answers with a configure. */
 int oxyos_client_create_shell_surface(OxyOSClient* client, uint32_t surface, uint8_t kind, uint8_t edge,
                                       uint32_t output, uint32_t width, uint32_t height, uint32_t exclusive);
 /* Names a window: its title, or with a non-zero `app_id` its application id (`length` bytes of

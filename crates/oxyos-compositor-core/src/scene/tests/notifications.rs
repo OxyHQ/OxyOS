@@ -801,6 +801,38 @@ fn a_banner_surface_is_at_its_outputs_top_right_corner_above_every_window_and_pa
     }
 }
 
+/// A notification at the right edge is a banner, which slides in (ADR 0011); one with no edge is a
+/// hardware key's bezel over the whole output (ADR 0025), which shows where it is at once.
+#[test]
+fn a_banner_arrives_as_a_notification_and_an_edgeless_one_as_a_bezel() {
+    use crate::scene::appearances::Kind;
+    let mut h = Harness::new();
+    for (surface, edge, size, kind) in [
+        (
+            60,
+            PanelEdge::Right,
+            Size::new(380, 120),
+            Kind::Notification,
+        ),
+        (61, PanelEdge::None, Size::new(1920, 1080), Kind::Bezel),
+    ] {
+        h.request(
+            SHELL,
+            Request::CreateShellSurface {
+                surface,
+                kind: ShellKind::Notification,
+                edge,
+                output: 1,
+                size,
+                exclusive: 0,
+            },
+        )
+        .unwrap();
+        h.present(key(SHELL, surface));
+        assert_eq!(h.scene.appearance_kind(key(SHELL, surface)), Some(kind));
+    }
+}
+
 #[test]
 fn do_not_disturb_from_the_control_center_goes_the_preferences_way() {
     let mut h = Harness::new();

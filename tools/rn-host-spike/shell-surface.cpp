@@ -197,15 +197,17 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
   } else if (props->kind == "notification" && props->edge == "right") {
     // A banner (docs/adr/0026-notifications.mdx), a notification at the right edge: the corner of
     // the output from its top-right to the far corner of the region, in whole pixels, which the
-    // compositor places at the output's top-right corner and slides in from beside itself. It
-    // takes presses over its region, as a panel does.
+    // compositor places at the output's top-right corner and slides in from beside itself (its
+    // edge, the right: a notification with none, the bezel, shows at once). It takes presses over
+    // its region, as a panel does.
     placed.kind = OXYOS_SHELL_NOTIFICATION;
-    placed.edge = OXYOS_EDGE_NONE;
+    placed.edge = OXYOS_EDGE_RIGHT;
     Float left = std::floor(region->origin.x);
     placed.strip = Rect{{left, 0}, {width - left, std::ceil(region->origin.y + region->size.height)}};
   } else if (props->kind == "overlay" || props->kind == "backdrop" || props->kind == "notification") {
     // A notification (the bezel of a hardware key, docs/adr/0025-hardware-keys-and-control-center.mdx)
-    // is above the overlays and takes no input: presses go through it to what is under it. A
+    // is above the overlays and takes no input: presses go through it to what is under it; with no
+    // edge, the compositor shows it where it is at once, never a banner's slide. A
     // backdrop is an overlay's (Launchpad's blurred wallpaper), which the compositor fades and
     // never scales (docs/adr/0011-transitions.mdx).
     placed.kind = props->kind == "overlay"    ? OXYOS_SHELL_OVERLAY
