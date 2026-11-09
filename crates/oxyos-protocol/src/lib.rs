@@ -16,21 +16,21 @@ mod wire;
 pub use schema::{Event, Request};
 pub use wire::{
     AccessibleAction, AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, Adjust,
-    Anchor, ApplicationListKind, AuthOutcome, BatteryState, BluetoothState, BufferLayout,
-    CaptureDestination, CaptureKind, CaptureMode, Clock, Control, DismissReason, DragActions,
-    DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase, Gravity, MenuField,
-    MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind,
-    PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect,
-    ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
-    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
-    TEXT_CHUNK_BYTES,
+    Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
+    BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
+    CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
+    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
+    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
+    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd,
+    ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType,
+    TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 33;
+pub const VERSION: u16 = 38;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -40,7 +40,7 @@ pub const APPLICATION_OPENS_SETTINGS_VERSION: u16 = 27;
 /// entry declares the scheme, for the person's input, and says whether it did. An older one
 /// refuses all but the platform's Settings as unauthorized, closing the connection, so a client
 /// asks it only of this version or newer.
-pub const APPLICATION_OPENS_URLS_VERSION: u16 = 33;
+pub const APPLICATION_OPENS_URLS_VERSION: u16 = 34;
 // Settings' URLs before any other's, and both within what this implementation speaks.
 const _: () = assert!(
     APPLICATION_OPENS_SETTINGS_VERSION < APPLICATION_OPENS_URLS_VERSION
@@ -54,6 +54,11 @@ pub const APPLICATION_LOCKS_VERSION: u16 = 27;
 /// docs/adr/0020-oxy-account-login.mdx decision 2): an older one closes the connection for it, so
 /// a client sends one only to this version or newer.
 pub const PASSCODE_VERSION: u16 = 32;
+/// The first version whose compositor asks an application to quit before the session ends
+/// (`QuitRequested`) and takes its answer (`QuitReply`,
+/// docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): an older one closes the connection for
+/// the answer, so a client sends one only to this version or newer.
+pub const QUIT_REQUESTS_VERSION: u16 = 38;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";
@@ -103,6 +108,12 @@ pub const MAX_ANNOUNCEMENT_BYTES: usize = 1024;
 pub const MAX_PREFERENCE_BYTES: usize = 1200;
 /// The most a SystemRequest, SystemText or SheetText may hold, in bytes (ADR 0030).
 pub const MAX_SYSTEM_TEXT_BYTES: usize = 256 * 1024;
+/// The first version a compositor sends `SystemData` to (docs/adr/0063-activity-monitor.mdx); an
+/// older client is told the same answer in chunks of `SystemText`.
+pub const SYSTEM_DATA_VERSION: u16 = 37;
+/// The most a SystemData may hold, in bytes (version 37, docs/adr/0063-activity-monitor.mdx):
+/// what the session tells in one piece that would take thousands of SystemText chunks.
+pub const MAX_SYSTEM_DATA_BYTES: usize = 4 * 1024 * 1024;
 /// The most a SearchRequest or SearchText may hold, in bytes (docs/adr/0051-search.mdx): room for
 /// a page of results with their titles, paths and snippets.
 pub const MAX_SEARCH_TEXT_BYTES: usize = 256 * 1024;

@@ -1,0 +1,203 @@
+{
+  "about": "Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10), the session started in it (the development compositor's --safe-mode, as oxyos-session reads oxyos.safe-mode=1 on the kernel's command line), in English at scale 1, over a real oxyos-installd with the installed Chat probe (sample/BackgroundProbe.tsx, which declares a login item and background activity) kept in the dock and a preferences file whose applications opened at login are Inbox. The menu bar shows Safe Mode in red, which the screen reader's tree names, for the whole session; the session opens nothing at login (Settings' window is the only one), yet Settings' Login Items & Extensions still lists Inbox: the list is the person's, for the next normal start. Chat, opened from the dock, is told its background activity is not permitted (only the system's own applications run in the background in Safe Mode): its registration is refused, nothing is asked of the install service and nobody is told; Super+W closes its window and it ends as any application does, nothing left in the background. The preferences file is unchanged.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "safe_mode": true,
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "dock": "so.oxy.backgroundprobe",
+      "open_at_login": "so.oxy.inbox"
+    }
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.backgroundprobe"
+    ],
+    "installed": [
+      "so.oxy.backgroundprobe"
+    ]
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.backgroundprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Safe Mode in the menu bar, in red, for the screen reader too; nothing opened at login: Settings' window alone",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Safe Mode"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Text",
+              "name": "Safe Mode"
+            }
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.settings"
+          }
+        },
+        "notifications": [],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "Login Items & Extensions: Inbox is still the person's, though Safe Mode opened it not",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Login Items & Extensions"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Open at Login",
+          "Inbox",
+          "App Background Activity",
+          "No app runs tasks in the background."
+        ],
+        "absent": [
+          "No items"
+        ],
+        "keyboard_focus": null,
+        "notifications": [],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "Chat, pressed in the dock: the session opens the installed application",
+      "do": [
+        "press_named",
+        "Chat"
+      ],
+      "expect": {
+        "notifications": []
+      }
+    },
+    {
+      "name": "Chat asks how its items stand: its login item may be registered, its background activity is not permitted",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Login item: notRegistered",
+            "Background: notPermitted",
+            "State: active"
+          ]
+        },
+        "notifications": []
+      }
+    },
+    {
+      "name": "Run in Background",
+      "do": [
+        "press_named",
+        "Run in Background"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Refused, not permitted in Safe Mode: nothing asked of the install service, nobody told, Settings lists nothing",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Background: notPermitted",
+            "Failure: notPermitted"
+          ]
+        },
+        "texts": [
+          "No app runs tasks in the background."
+        ],
+        "notifications": [],
+        "background": {
+          "running": []
+        }
+      }
+    },
+    {
+      "name": "Super+W closes Chat's window: it does not run on in the background",
+      "do": [
+        "key",
+        [
+          125,
+          17
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Nothing in the background; Safe Mode still in the menu bar",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Safe Mode"
+          ]
+        },
+        "texts": [
+          "No app runs tasks in the background."
+        ],
+        "notifications": [],
+        "background": {
+          "running": []
+        }
+      }
+    }
+  ],
+  "final": {
+    "preferences_file": {
+      "open_at_login": "so.oxy.inbox",
+      "dock": "so.oxy.backgroundprobe"
+    }
+  }
+}

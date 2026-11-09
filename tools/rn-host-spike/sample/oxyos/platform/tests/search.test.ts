@@ -85,3 +85,15 @@ test("the index's state is followed while something follows it", async () => {
   stop();
   assert.deepEqual(sent.at(-1), { unfollowStatus: {} });
 });
+
+test("Settings › Storage asks the index what the home's files occupy and its largest files", async () => {
+  const { search, sent, answer } = played();
+  const storage = search.storage();
+  assert.deepEqual(sent.at(-1), { storage: {} });
+  answer(sent.length, { storage: { home: 10, kinds: {}, indexing: false, partial: false } });
+  assert.deepEqual(await storage, { home: 10, kinds: {}, indexing: false, partial: false });
+  const largest = search.largest({ limit: 3 });
+  assert.deepEqual(sent.at(-1), { largest: { limit: 3 } });
+  answer(sent.length, { refused: { reason: 'notPermitted' } });
+  await assert.rejects(largest, (error: unknown) => isPlatformError(error, 'notPermitted'));
+});

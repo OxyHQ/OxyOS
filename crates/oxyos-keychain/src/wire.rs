@@ -54,7 +54,7 @@ pub(crate) fn b64_secret(bytes: &[u8]) -> Zeroizing<String> {
 }
 
 /// Base64url without padding of any length.
-pub(crate) fn unb64(text: &str, what: &'static str) -> Result<Vec<u8>> {
+pub fn unb64(text: &str, what: &'static str) -> Result<Vec<u8>> {
     URL_SAFE_NO_PAD
         .decode(text)
         .map_err(|_| Error::Malformed(what))

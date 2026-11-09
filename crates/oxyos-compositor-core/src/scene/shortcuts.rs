@@ -299,6 +299,13 @@ impl Scene {
             self.input_source_shortcuts.push(shortcut);
             return;
         }
+        // Log out, as a Mac's ⇧⌘Q (asked) and ⌥⇧⌘Q (at once): the session decides
+        // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). A menu open closes first.
+        if key == Q && shift && !ctrl && !self.capturing() {
+            self.dismiss_grab(DismissReason::OutsidePress);
+            self.session_key(super::SessionKey::LogOut { confirm: !alt });
+            return;
+        }
         if alt {
             return;
         }
@@ -567,6 +574,9 @@ impl Scene {
     pub(super) fn quit_application(&mut self, key: SurfaceKey) {
         for window in self.application_windows(key) {
             self.emit(window.client, Event::CloseRequested { surface: window.id });
+            // Quit ends the application, its background activity too
+            // (docs/adr/0060-login-items-and-background-activity.mdx).
+            self.note_quit(window.client);
         }
     }
 

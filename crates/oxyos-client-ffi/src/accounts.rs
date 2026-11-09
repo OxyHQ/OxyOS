@@ -14,9 +14,11 @@ fn socket() -> PathBuf {
         .map_or_else(|| oxyos_account::ipc::SOCKET.into(), PathBuf::from)
 }
 
-/// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null), "pin" ("none",
-/// "set" or "locked"), "password" (whether it signs in)}]` in the service's order, or why they
-/// could not be read.
+/// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null), "signInAgain",
+/// "pin" ("none", "set" or "locked"), "password" (whether it signs in)}]` in the service's order,
+/// or why they could not be read. `signInAgain`: Oxy signed the account out, or it was restored
+/// from a backup (docs/adr/0059-backups.mdx): it is set up again online before its password opens
+/// it.
 pub fn accounts_json() -> Result<String, String> {
     accounts_json_at(&socket())
 }
@@ -33,13 +35,14 @@ fn accounts_json_at(socket: &std::path::Path) -> Result<String, String> {
                 oxyos_account::pin::PinState::Locked => "locked",
             };
             format!(
-                "{{\"user\":{},\"name\":{},\"picture\":{},\"pin\":\"{pin}\",\"password\":{}}}",
+                "{{\"user\":{},\"name\":{},\"picture\":{},\"signInAgain\":{},\"pin\":\"{pin}\",\"password\":{}}}",
                 json_string(&account.user),
                 json_string(&account.name),
                 account
                     .picture
                     .as_deref()
                     .map_or("null".into(), json_string),
+                account.state == oxyos_account::store::State::SignInAgain,
                 account.password
             )
         })
@@ -114,7 +117,7 @@ mod tests {
                         uid: 1002,
                         name: "Bea".into(),
                         picture: None,
-                        state: oxyos_account::store::State::Ready,
+                        state: oxyos_account::store::State::SignInAgain,
                         pin: oxyos_account::pin::PinState::None,
                         password: false,
                     },
@@ -123,7 +126,7 @@ mod tests {
         });
         assert_eq!(
             accounts_json_at(&socket).unwrap(),
-            r#"[{"user":"oxy-a","name":"Ada \"Countess\" Lovelace","picture":"/var/lib/oxyos/pictures/oxy-a","pin":"set","password":true},{"user":"oxy-b","name":"Bea","picture":null,"pin":"none","password":false}]"#
+            r#"[{"user":"oxy-a","name":"Ada \"Countess\" Lovelace","picture":"/var/lib/oxyos/pictures/oxy-a","signInAgain":false,"pin":"set","password":true},{"user":"oxy-b","name":"Bea","picture":null,"signInAgain":true,"pin":"none","password":false}]"#
         );
         service.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();
