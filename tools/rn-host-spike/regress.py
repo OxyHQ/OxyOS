@@ -152,6 +152,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   energy.mdx), what they hold once the step settled ("on_ac", "battery" with its "percent",
   "state" and "charge_limit", "sysfs" with the battery's "start" and "end" thresholds as UPower
   wrote them, "active_profile", "holds", "suspends", "calls"), each key given matching;
+- activity: what the session's Activity Monitor part did in the step (docs/adr/0063-activity-
+  monitor.mdx), each key given a count or [least, most]: "samples" it took, "sent" to followers,
+  "wakeups" of its thread and "host_wakeups" of the application's threads (each a time a thread
+  was switched out), "cpu_ms" its thread ran and "host_cpu_ms" the application's threads did, all
+  counted from the step before's settling to this one's; and "followed"
+  (whether a client follows), as it is once the step settled. A hidden window's step holds them
+  to none;
+- processes: with the scenario's `processes` (below), by name: the "signals" each received in the
+  step (from the step before's settling to this one's), exactly and in order ("TERM", "INT"...),
+  and whether it was still "running" once the step settled (SIGKILL is seen as not running);
 - backup: with the scenario's `backup` (the development backup service, `oxyos-offscreen
   --play-backup`, on the run's own folders backing up its home, the session's backups for the menu
   bar and Settings, docs/adr/0059-backups.mdx; `backups`, below, is an application's files
@@ -451,6 +461,16 @@ and size, and a frame for their latest configure, as a zoom from their title bar
 each of their frames, which may animate for as long as they like (a storefront's skeleton while it
 loads).
 
+A scenario's `processes` ([{"name", "busy"}]) are processes the run starts before the session
+and ends after it (`activity-process.py`, never by name): each named so (its `comm`), busy for that
+share of the time (0, or none, asleep), recording every signal it receives, so Activity Monitor's
+scenarios list processes they know and quit them (docs/adr/0063-activity-monitor.mdx). A scenario
+whose session lists the machine's processes (with `processes`, or an application granted
+`activity`) runs in a PID namespace of its own (`unshare`, an unprivileged user namespace mapping
+only the user's own id): every run of a gate is one user's, so beside another scenario at once its
+session saw that one's processes as the person's own, and quit them. Activity Monitor still lists
+every process its /proc shows, as a Mac's lists all of the user's; the run's /proc shows its own.
+
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
 it, for longer than that on a loaded machine.
@@ -743,6 +763,7 @@ import json
 import math
 import re
 import shutil
+import signal
 import struct
 import zlib
 import urllib.parse
@@ -3795,6 +3816,176 @@ def check_input_delivery(summary, reports, failures):
     failures.extend(failed)
 
 
+# The marker of the init regress.py runs as in a scenario's PID namespace (own_pid_namespace).
+PID_NAMESPACE_INIT = "--pid-namespace-init"
+
+
+def lists_processes(scenario):
+    """Whether the scenario's session lists the machine's processes: its own `processes`, or an
+    application granted `activity` (docs/adr/0063-activity-monitor.mdx)."""
+    return bool(scenario.get("processes")) or any(
+        "activity" in grants for grants in scenario.get("grants", {}).values())
+
+
+def pid_namespace_command(argv):
+    """ARGV run as the child of an init (pid 1, this file) in a PID namespace of its own, with a
+    /proc of its own and no other privilege: an unprivileged user namespace mapping only the
+    caller's own id (files it makes are the caller's), the machine's network, files and devices.
+    When the command outside ends, however it ends, the init and everything in the namespace end
+    (`--kill-child`)."""
+    return ["unshare", "--user", "--map-current-user", "--pid", "--fork", "--mount-proc",
+            "--kill-child", sys.executable, str(pathlib.Path(__file__).resolve()), PID_NAMESPACE_INIT,
+            *argv]
+
+
+def pid_namespace_refused():
+    """Why this machine refuses a PID namespace of a run's own (None: it gives one)."""
+    try:
+        probe = subprocess.run(pid_namespace_command(["true"]), capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return str(error)
+    return None if probe.returncode == 0 else (probe.stderr.strip() or f"status {probe.returncode}")
+
+
+def pid_namespace_init(argv):
+    """Pid 1 of a run's namespace: runs ARGV, hands it the signals the run is sent, reaps every
+    process the namespace leaves to it (an orphan never lingers as a zombie a session would list),
+    and ends with ARGV's status, which ends the namespace."""
+    child = os.fork()
+    if child == 0:
+        try:
+            os.execvp(argv[0], argv)
+        finally:
+            os._exit(127)
+    for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT):
+        signal.signal(number, lambda received, _frame: os.kill(child, received))
+    while True:
+        try:
+            pid, status = os.wait()
+        except ChildProcessError:
+            return 1
+        except InterruptedError:
+            continue
+        if pid == child:
+            return os.waitstatus_to_exitcode(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+
+
+def own_pid_namespace(scenario):
+    """A scenario whose session lists the machine's processes sees only its run's: this run is made
+    again in a PID namespace of its own and its status returned (None: it is in one already)."""
+    if os.environ.get("OXYOS_REGRESS_PID_NAMESPACE") == "1":
+        # regress.py, the init's only child, and the init its namespace's pid 1.
+        init = pathlib.Path("/proc/1/cmdline").read_bytes().split(b"\0")
+        if os.getppid() != 1 or PID_NAMESPACE_INIT.encode() not in init:
+            raise SystemExit("a run that lists the machine's processes is not alone in its PID namespace")
+        return None
+    refused = pid_namespace_refused()
+    if refused:
+        raise SystemExit("this scenario's session lists the machine's processes, so it runs in a PID "
+                         f"namespace of its own (unshare --user --pid), which this machine refuses: {refused}")
+    env = dict(os.environ, OXYOS_REGRESS_PID_NAMESPACE="1")
+    return subprocess.run(pid_namespace_command([sys.executable, *sys.orig_argv[1:]]), env=env).returncode
+
+
+class ProcessRecorder:
+    """The scenario's `processes`, started before the session and ended after it by their own
+    handles (never by name): each one's signals as it recorded them, and when it ended, seen by a
+    thread looking every 10 ms, on the monotonic clock the steps use."""
+
+    def __init__(self, directory, wanted):
+        self.processes = {}
+        self.ended = {}
+        if not wanted:
+            self.thread = None
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        script = pathlib.Path(__file__).resolve().with_name("activity-process.py")
+        for process in wanted:
+            record = directory / f"{process['name']}.signals"
+            record.unlink(missing_ok=True)
+            child = subprocess.Popen([sys.executable, "-I", str(script), process["name"],
+                                      str(process.get("busy", 0)), str(record)])
+            self.processes[process["name"]] = (child, record)
+        # Each has named itself before the session starts.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not all(
+                record.exists() and "started" in record.read_text() for _, record in self.processes.values()):
+            time.sleep(0.01)
+        self.running = True
+        self.thread = threading.Thread(target=self.watch, daemon=True)
+        self.thread.start()
+
+    def watch(self):
+        while self.running:
+            for name, (child, _) in self.processes.items():
+                if name not in self.ended and child.poll() is not None:
+                    self.ended[name] = time.monotonic_ns()
+            time.sleep(0.01)
+
+    def stop(self):
+        if self.thread is None:
+            return
+        self.running = False
+        self.thread.join()
+        for name, (child, _) in self.processes.items():
+            if child.poll() is None:
+                child.kill()
+            child.wait()
+
+    def signals(self, name, after, until):
+        """The signals `name` received after `after` and by `until`, in order."""
+        _, record = self.processes[name]
+        received = []
+        for line in record.read_text().splitlines() if record.exists() else []:
+            when, what = line.split(" ", 1)
+            if what.startswith("started"):
+                continue
+            if after < int(when) <= until:
+                received.append(what)
+        return received
+
+    def running_at(self, name, t):
+        return name not in self.ended or self.ended[name] > t
+
+
+def check_activity(index, step, result, results, processes, failures):
+    """A step's `activity` and `processes` (docs/adr/0063-activity-monitor.mdx)."""
+    expect = step.get("expect", {})
+    name = f"step {index + 1} ({step.get('name', step['do'][0])})"
+    before = results[index - 1] if index > 0 else None
+    if "activity" in expect:
+        held = result.get("activity")
+        if held is None:
+            failures.append(f"{name}: no Activity Monitor part")
+        else:
+            was = (before or {}).get("activity") or {}
+            for key, wanted in expect["activity"].items():
+                if key == "followed":
+                    if held.get(key) != wanted:
+                        failures.append(f"{name}: activity {key} {held.get(key)}, expected {wanted}")
+                    continue
+                if held.get(key) is None:
+                    failures.append(f"{name}: activity {key} not counted")
+                    continue
+                count = held[key] - (was.get(key) or 0)
+                least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
+                if not least <= count <= most:
+                    failures.append(f"{name}: activity {key} {count} in the step, expected {wanted}")
+    if "processes" in expect:
+        after = (before or {}).get("t_settled", 0)
+        until = result.get("t_settled")
+        for process, wanted in expect["processes"].items():
+            if process not in processes.processes:
+                failures.append(f"{name}: no process {process} (the scenario's `processes`)")
+                continue
+            if "signals" in wanted:
+                received = processes.signals(process, after, until)
+                if received != wanted["signals"]:
+                    failures.append(f"{name}: {process} received {received}, expected {wanted['signals']}")
+            if "running" in wanted and processes.running_at(process, until) != wanted["running"]:
+                failures.append(f"{name}: {process} running {not wanted['running']}, expected {wanted['running']}")
+
+
 def check_views(index, step, result, results, failures):
     """The windows the shell's surfaces show live, and windows flying to them (ADR 0022, ADR 0045),
     as the director reported them once the step settled: `window_views` ("windows", exactly those
@@ -5975,6 +6166,8 @@ def install_arguments(scenario, out, machine=None, offscreen=None):
 
 
 def main():
+    if sys.argv[1:2] == [PID_NAMESPACE_INIT]:
+        return pid_namespace_init(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("scenario")
     parser.add_argument("--offscreen", required=True)
@@ -6032,6 +6225,10 @@ def main():
     SPEED_BUDGETS = options.speed_budgets and not COLLECT
 
     scenario = json.loads(pathlib.Path(options.scenario).read_text())
+    if lists_processes(scenario):
+        status = own_pid_namespace(scenario)
+        if status is not None:
+            return status
     out = pathlib.Path(options.out or tempfile.mkdtemp(prefix="oxyos-regress-"))
     out.mkdir(parents=True, exist_ok=True)
     report_path = out / "host-report.jsonl"
@@ -6439,9 +6636,11 @@ def main():
         report_path.unlink(missing_ok=True)
         change_home_later(home_root, scenario["home"], report_path)
         recorder = HomeRecorder(home_root, wants_xattrs(scenario))
+    processes = ProcessRecorder(out / "processes", scenario.get("processes", []))
     try:
         run = subprocess.run(command, env=env, capture_output=True, text=True)
     finally:
+        processes.stop()
         if stop_network is not None:
             stop_network()
         if stop_bluetooth is not None:
@@ -6496,6 +6695,7 @@ def main():
                            out / "preferences", refresh_hz, recorder,
                            previous=summary["steps"][index - 1] if index else None)
         check_views(index, step, result, summary["steps"], failures)
+        check_activity(index, step, result, summary["steps"], processes, failures)
     # The person's input reached whom it should, once (every scenario, every step).
     check_input_delivery(summary, host_reports(out), failures)
     # Each host's frame diagnostics against its report, and the log they wrote to.

@@ -790,6 +790,11 @@ messages! {
         // decision 10): the session started in Safe Mode, told as they connect and only then. They
         // show it until the session ends.
         166 => SafeMode {},
+        // To a client the session answers in its vocabulary (version 37,
+        // docs/adr/0063-activity-monitor.mdx): an answer to its SystemRequest `serial` (0: told
+        // unasked) too long for SystemText's chunks, as one sealed memory file of `size` bytes of
+        // JSON text, the descriptor it carries, as a keymap is sent: one event, not thousands.
+        167 => SystemData { serial: u32, size: u32 },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.
@@ -902,7 +907,10 @@ impl Event {
     /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's or
     /// a drag's content into); every other event carries none.
     pub fn carries_fd(&self) -> bool {
-        matches!(self, Event::ClipboardSend { .. } | Event::DragSend { .. })
+        matches!(
+            self,
+            Event::ClipboardSend { .. } | Event::DragSend { .. } | Event::SystemData { .. }
+        )
     }
 }
 

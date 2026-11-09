@@ -98,6 +98,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
 /* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 36). */
 #define OXYOS_EVENT_SAFE_MODE 166
+/* A long answer of the session's vocabulary whole (docs/adr/0063-activity-monitor.mdx, protocol
+ * version 37). */
+#define OXYOS_EVENT_SYSTEM_DATA 167
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -557,6 +560,9 @@ typedef struct OxyOSClient OxyOSClient;
  *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   SAFE_MODE          to the shell and the login screen: the session started in Safe Mode, told
  *                      once as it connects; show it until the session ends (protocol version 36).
+ *   SYSTEM_DATA        the session's answer to the oxyos_client_system_request `code` (0: told
+ *                      unasked) whole, `detail` bytes of JSON: oxyos_client_system_data gives it
+ *                      (docs/adr/0063-activity-monitor.mdx, protocol version 37).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -1446,6 +1452,10 @@ typedef struct OxyOSInputCandidates {
   uint8_t flags;
 } OxyOSInputCandidates;
 
+/* The text of the SYSTEM_DATA event just returned: its UTF-8, not NUL-terminated, in `*text` and
+ * `*length`, valid until the next oxyos_client_poll. 1 with them filled; 0 when it could not be
+ * read (docs/adr/0063-activity-monitor.mdx). */
+int oxyos_client_system_data(OxyOSClient* client, const char** text, size_t* length);
 /* The candidates the INPUT_CANDIDATES event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_input_candidates(OxyOSClient* client, OxyOSInputCandidates* out);
 /* The shell's candidates surface, of the given logical size, one per connection: the compositor

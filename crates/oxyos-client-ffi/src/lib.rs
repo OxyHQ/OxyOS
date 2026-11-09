@@ -469,6 +469,10 @@ pub const OXYOS_EVENT_BACKGROUND_ITEM_STATE: u32 = 165;
 /// To the shell and the login screen (protocol version 36, docs/adr/0054-recovery-and-erasing.mdx,
 /// decision 10): the session started in Safe Mode; told once, as it connects.
 pub const OXYOS_EVENT_SAFE_MODE: u32 = 166;
+/// A long answer of the session's vocabulary whole (docs/adr/0063-activity-monitor.mdx, protocol
+/// version 37): to the system request `code` (0: told unasked), `detail` bytes of JSON, which
+/// `oxyos_client_system_data` gives until the next poll.
+pub const OXYOS_EVENT_SYSTEM_DATA: u32 = 167;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -1869,6 +1873,14 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 code: serial,
                 detail: u32::from(index),
                 flag: u8::from(last),
+                ..out
+            }
+        }
+        Event::SystemData { serial, size } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SYSTEM_DATA,
+                code: serial,
+                detail: size,
                 ..out
             }
         }
@@ -5134,6 +5146,36 @@ pub unsafe extern "C" fn oxyos_client_input_candidates(
         highlighted: list.highlighted.map_or(OXYOS_NO_CANDIDATE, u32::from),
         flags: list.flags,
     };
+    1
+}
+
+/// The text of the SYSTEM_DATA event just returned (docs/adr/0063-activity-monitor.mdx): its
+/// UTF-8, not NUL-terminated, in `*text` and `*length`, valid until the next `oxyos_client_poll`.
+/// 1 with them filled; 0 when it could not be read.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `text` and `length` point to writable
+/// values.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_system_data(
+    client: *mut OxyOSClient,
+    text: *mut *const c_char,
+    length: *mut usize,
+) -> c_int {
+    // SAFETY: per the contract, a non-null pointer is a live, exclusively used OxyOSClient.
+    let Some(wrapper) = (unsafe { client.as_mut() }) else {
+        return fail("null client");
+    };
+    // SAFETY: the caller passes writable values or NULL.
+    let (Some(text), Some(length)) = (unsafe { text.as_mut() }, unsafe { length.as_mut() }) else {
+        return fail("null text");
+    };
+    let Some(data) = wrapper.client.system_data() else {
+        return 0;
+    };
+    *text = data.as_ptr().cast();
+    *length = data.len();
     1
 }
 

@@ -12,7 +12,7 @@ import { createSession, type SystemModule } from './session.ts';
 export { isPlatformError, PLATFORM_ERROR_CODES, PlatformError } from './errors.ts';
 export type { PlatformDomain, PlatformErrorCode } from './errors.ts';
 export type { Followed } from './followed.ts';
-export type { CallOptions, Direction, ProgressOptions } from './frameworks.ts';
+export type { ActivityView, CallOptions, Direction, ProgressOptions } from './frameworks.ts';
 export type {
   AuthenticationResponseJSON,
   CreationOptionsJSON,
@@ -30,7 +30,7 @@ export const api: number = runtime?.getConstants().api ?? 0;
 export const session = createSession(TurboModuleRegistry.get('OxyOSSystem') as SystemModule | null, DeviceEventEmitter);
 
 const frameworks = createFrameworks(session);
-export const { network, bluetooth, power, audio, settings, store } = frameworks;
+export const { network, bluetooth, power, audio, settings, store, activity } = frameworks;
 
 /** This application (docs/adr/0058-the-platform-api.mdx, decision 1): its login item and background
     activity (docs/adr/0060-login-items-and-background-activity.mdx). */

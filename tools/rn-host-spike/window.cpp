@@ -482,6 +482,13 @@ std::optional<Window::Candidates> Window::inputCandidates() {
   return out;
 }
 
+std::optional<std::string> Window::systemData() {
+  const char* text = nullptr;
+  size_t length = 0;
+  if (oxyos_client_system_data(client_, &text, &length) != 1) return std::nullopt;
+  return std::string(text, length);
+}
+
 bool Window::launch(uint32_t serial, const std::string& id) {
   return oxyos_client_launch(client_, serial, id.data(), id.size()) == 0;
 }

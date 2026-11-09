@@ -2203,7 +2203,7 @@ int main(int argc, char** argv) {
         std::vector<std::pair<OxyOSEvent, std::string>> screenshots;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
-        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
+        std::vector<std::pair<uint32_t, std::string>> systemAnswers, systemData, sheets, filesChosen, searchAnswers;
         std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates;
         bool responded = false;
         Part handling = diagnostics.enter(Part::Events);
@@ -2219,6 +2219,10 @@ int main(int argc, char** argv) {
                 if (auto text = systemTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
                   systemAnswers.emplace_back(event.code, std::move(*text));
                 }
+              }
+              // A long answer whole (ADR 0063), handed to JavaScript as text.
+              if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
+                if (auto text = window->systemData()) systemData.emplace_back(event.code, std::move(*text));
               }
               if (event.kind == OXYOS_EVENT_SEARCH_TEXT) {
                 if (auto text = searchTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
@@ -2559,6 +2563,17 @@ int main(int argc, char** argv) {
                                                                folly::dynamic::object("serial", serial)("answer", answer)));
           oxyos::Report::get().input("system", oxyos::Window::kToplevel,
                                      folly::dynamic::object("serial", serial)("answer", answer));
+        }
+        // A long answer (SystemData, docs/adr/0063-activity-monitor.mdx: Activity Monitor's samples, tens
+        // of kilobytes every two seconds) as the text the session wrote, which JavaScript parses
+        // itself (oxyos/system.js): Hermes' JSON.parse, never a folly::dynamic made into thousands
+        // of JSI values; the report records its size, not its text.
+        for (const auto& [serial, text] : systemData) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSystemAnswer",
+                                                               folly::dynamic::object("serial", serial)("text", text)));
+          oxyos::Report::get().input("system", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("serial", serial)("bytes", text.size()));
         }
         // Search (docs/adr/0051-search.mdx): the index's answers as it wrote them, JSON text the
         // window's search client reads (sample/oxyos/search.js).
