@@ -115,6 +115,10 @@ impl Scene {
 
     /// Tells the shell whether the application its request `serial` asked for was started.
     pub fn launched(&mut self, client: ClientId, serial: u32, launched: bool) {
+        // Serial 0 answers no request: a URL the session's own notification opened.
+        if serial == 0 {
+            return;
+        }
         self.emit(client, Event::LaunchResult { serial, launched });
     }
 

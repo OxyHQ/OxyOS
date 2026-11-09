@@ -1,0 +1,28 @@
+name: Gate watchdog
+
+# Ends Scenarios jobs that can no longer end by themselves (tools/gate/watchdog.py, docs/developing.mdx):
+# a job whose runner went away keeps that runner busy in GitHub's eyes, and the queue, the merge
+# queue's among it, waits behind it. On a GitHub-hosted runner, so it works when the gate's machine
+# does not, with this run's token alone: Actions on this repository, nothing else.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: gate-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 tools/gate/watchdog.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

@@ -25,6 +25,8 @@ export type FileContent = string | ArrayBuffer | ArrayBufferView;
 /** The host's module (OxyOSFiles): a request answered at once (`call`), or on the service's thread
     (`request`, as `id`); `as` "text" gives the content as a string. Absent where no window is. */
 export interface FilesModule {
+  /** `backups`: whether the application may ask the person's backups (granted `files` at launch). */
+  getConstants?(): { backups?: boolean };
   call(json: string, content?: FileContent, as?: 'text'): FilesReplyText;
   request(id: number, json: string, content?: FileContent, as?: 'text'): Promise<FilesReplyText>;
 }
@@ -43,6 +45,7 @@ const CODES: Record<string, PlatformErrorCode> = {
   exists: 'exists',
   refused: 'notPermitted',
   'not-granted': 'notPermitted',
+  'not-permitted': 'notPermitted',
   denied: 'notPermitted',
   invalid: 'invalid',
   'invalid-name': 'invalid',
@@ -60,7 +63,7 @@ const word = (code: string) => code.replace(/-([a-z])/g, (_, letter: string) => 
     said (`details.message`). */
 export function fileError(code: string, message?: string): PlatformError {
   return new PlatformError('files', CODES[code] ?? 'failed', word(code), {
-    refused: code === 'refused' || code === 'not-granted',
+    refused: code === 'refused' || code === 'not-granted' || code === 'not-permitted',
     details: message ? { message } : {},
   });
 }
@@ -165,6 +168,13 @@ export function createFileService(
       watches.delete(id);
       if (native) call('unwatch', { watch: id });
     },
+    /** Asks the service to stop the transfer or restore running as request `id`. */
+    cancelTransfer(id: number) {
+      if (native) call('cancelTransfer', { transfer: id });
+    },
+    /** Whether the person's backups may be asked (docs/adr/0059-backups.mdx): only by an
+        application granted `files`; the service refuses the rest (`notPermitted`). */
+    backupsAvailable: native?.getConstants?.().backups === true,
     /** Calls `handler` with transfer `id`'s progress until `offTransfer(id)`. */
     onTransfer(id: number, handler: (progress: any) => void) {
       transfers.set(id, handler);
@@ -230,6 +240,12 @@ export interface TaggedItem {
   lastModified: number | null;
   tags: FileTag[];
 }
+/** A backup, as the backup service names it (docs/adr/0059-backups.mdx). */
+export interface BackupRef {
+  destination: string;
+  id: string;
+}
+
 /** What a watch of a folder saw. */
 export interface FileEvent {
   type: string;
@@ -369,6 +385,61 @@ export function createFiles(service: FileService) {
       names: (options?: CallOptions): Promise<{ name: string; count: number }[]> => value('tagNames', {}, options),
       /** Follows the index of tagged items. */
       onChange: (listener: () => void) => watching('watchTags', {}, () => listener()),
+    },
+
+    /**
+     * The person's backups (docs/adr/0059-backups.mdx), asked of the backup service from this
+     * process as the person: only by an application granted `files` (`available`); the others are
+     * refused with `notPermitted`.
+     */
+    backups: {
+      available: service.backupsAvailable,
+      /** The service's state: its destinations, the last and next backups. */
+      state: (options?: CallOptions): Promise<any> => value('backups', {}, options),
+      /** Follows the service's state; the function returned stops following. */
+      onChange: (listener: () => void) => watching('watchBackups', {}, () => listener()),
+      /** The backups that hold a version of `uri`. */
+      versions: (uri: string, options?: CallOptions): Promise<any[]> => value('versions', { uri }, options),
+      /** What the folder `uri` held in `backup`. */
+      contents: (backup: BackupRef, folder: string, options?: CallOptions): Promise<any[]> =>
+        value('versionContents', { backup: { destination: backup.destination, id: backup.id }, uri: folder }, options),
+      /**
+       * Restores `uri` as `backup` held it, written by this process as the person: beside what is
+       * there (or in the folder `to`) unless `replace`; resolves with what was written. Its
+       * progress is told as a transfer's; aborted, the service stops it and it rejects with
+       * `cancelled`.
+       */
+      async restore(
+        backup: BackupRef,
+        uri: string,
+        options: CallOptions & { to?: string | null; replace?: boolean; onProgress?: (progress: any) => void } = {},
+      ): Promise<any> {
+        const { signal, onProgress } = options;
+        let running: number | null = null;
+        const stop = () => {
+          if (running != null) service.cancelTransfer(running);
+        };
+        signal?.addEventListener('abort', stop, { once: true });
+        try {
+          const args = {
+            backup: { destination: backup.destination, id: backup.id },
+            uri,
+            to: options.to ?? null,
+            replace: Boolean(options.replace),
+          };
+          return await value('restoreVersion', args, {
+            signal,
+            started: (id) => {
+              if (running != null) service.offTransfer(running);
+              running = id;
+              if (onProgress) service.onTransfer(id, onProgress);
+            },
+          });
+        } finally {
+          signal?.removeEventListener('abort', stop);
+          if (running != null) service.offTransfer(running);
+        }
+      },
     },
   };
 }

@@ -19,7 +19,8 @@
  * further. Its `editing` is the window's first responder for the Edit menu's standard actions,
  * the focused text input (`OxyOSEditing`). Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
  * file manager needs beyond expo-file-system, and `files.tags` the tags on the person's items
- * (docs/adr/0049-file-tags.mdx). Its `search` is the session's search index
+ * (docs/adr/0049-file-tags.mdx), and `files.backups` their backups' versions and restoring
+ * (docs/adr/0059-backups.mdx). Its `search` is the session's search index
  * (docs/adr/0051-search.mdx), Bloom's `PlatformSearch`, in every window, the shell's included.
  *
  * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
@@ -30,10 +31,12 @@
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
+import { homeName } from './home-name';
 import {
   chooser as platformChooser,
   drag as platformDrag,
   files as platformFiles,
+  isPlatformError,
   search as platformSearch,
   sounds as platformSounds,
   windows as platformWindows,
@@ -225,9 +228,14 @@ function createMenuBar() {
 const menuBar = platformWindows.menus.available && !chooserRequest ? createMenuBar() : undefined;
 
 // The window's keys before the focused view (the platform's `windows.keys`): a listener answering
-// true takes the key.
+// true takes the key; and the modifiers held as they change (protocol version 38, a Mac's
+// flagsChanged:, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `{altKey, ctrlKey,
+// metaKey, shiftKey}`.
 const keyboard = platformWindows.keys.available
-  ? { subscribe: (listener) => platformWindows.keys.onKey(listener) }
+  ? {
+      subscribe: (listener) => platformWindows.keys.onKey(listener),
+      subscribeModifiers: (listener) => platformWindows.keys.onModifiers(listener),
+    }
   : undefined;
 
 // The window's first responder for the Edit menu's standard actions (docs/adr/0021-menu-bar.mdx,
@@ -300,7 +308,7 @@ function createFiles() {
     async places() {
       const { home, favourites, volumes } = await platformFiles.places();
       return [
-        { kind: 'home', name: named(home), uri: home },
+        { kind: 'home', name: homeName(home), uri: home },
         ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
         ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
       ];
@@ -325,6 +333,10 @@ function createFiles() {
       names: () => platformFiles.tags.names(),
       watch: (listener) => platformFiles.tags.onChange(listener),
     }),
+    // Bloom's `PlatformFileBackups` (docs/adr/0059-backups.mdx): the person's backups, asked of
+    // the backup service from this process as the person; only for an application granted
+    // `files`.
+    backups: platformFiles.backups.available ? createBackups() : undefined,
     // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
     // session ends this process once it has the answer.
     chooser: chooserRequest
@@ -339,6 +351,43 @@ function createFiles() {
         })
       : undefined,
   };
+}
+
+// The codes Bloom's `PlatformBackupError` names; another of the service's is `io`.
+const BACKUP_ERRORS = new Set(['not-found', 'exists', 'refused', 'denied', 'io', 'unavailable', 'not-permitted', 'cancelled']);
+
+/** The service's word (`notPermitted`, the PlatformError's reason) as it says it (`not-permitted`). */
+const serviceCode = (reason) => reason.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+
+/** The platform's error as Bloom's: an Error with a `PlatformBackupError` code. */
+function backupError(error) {
+  if (!isPlatformError(error)) return error;
+  const code = error.code === 'cancelled' ? 'cancelled' : serviceCode(error.reason ?? error.code);
+  const said = new Error(error.details?.message ?? error.message);
+  said.code = BACKUP_ERRORS.has(code) ? code : 'io';
+  return said;
+}
+
+// Bloom's `PlatformFileBackups` (docs/adr/0059-backups.mdx), over the platform's `files.backups`.
+function createBackups() {
+  const backups = platformFiles.backups;
+  const asked = async (done) => {
+    try {
+      return await done;
+    } catch (error) {
+      throw backupError(error);
+    }
+  };
+  return Object.freeze({
+    state: () => asked(backups.state()),
+    watch: (listener) => backups.onChange(listener),
+    versions: (uri) => asked(backups.versions(uri)),
+    contents: (backup, folderUri) => asked(backups.contents(backup, folderUri)),
+    // Written by this process as the person, beside what is there unless `replace`; its progress
+    // as a transfer's, and cancelled as one when `signal` aborts.
+    restore: (backup, uri, { to, replace = false, onProgress, signal } = {}) =>
+      asked(backups.restore(backup, uri, { to, replace, onProgress, signal })),
+  });
 }
 
 const files = platformFiles.available ? createFiles() : undefined;
@@ -361,6 +410,9 @@ const search = platformSearch.available
       status: () => platformSearch.status(),
       state: platformSearch.state,
       rebuild: () => platformSearch.rebuild(),
+      // Settings › Storage (docs/adr/0062-storage.mdx; Settings alone).
+      storage: () => platformSearch.storage(),
+      largest: (options) => platformSearch.largest(options),
     })
   : undefined;
 

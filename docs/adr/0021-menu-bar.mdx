@@ -8,6 +8,8 @@ order: 30
 
 Status: **accepted** (the global menu bar was chosen with the platform's author); steps 2, 3 and 4 implemented; step 1 in Bloom ([OxyHQ/Bloom#518](https://github.com/OxyHQ/Bloom/pull/518), not released yet). The `menu-bar` capability of [ADR 0015](./0015-application-model). Builds on [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0009](./0009-session-shell) (the shell and its top bar), [ADR 0013](./0013-launching-applications) (applications' names) and [ADR 0016](./0016-windows) (the active window).
 
+**9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** the shell's own Oxy menu, the bar's first, is the Apple menu's equal: System Settings, Applications, Show Desktops, then Sleep, Restart…, Shut Down…, then Lock Screen (Ctrl+Super+Q) and Log Out *name*… (Shift+Super+Q), with Alt's alternates (no ellipsis, no question). Its commands are the session's to decide (`endSession`, `sleep`), never the shell's.
+
 ## Problem
 
 On a Mac, the bar at the top of the screen shows the active application's menus: its name in bold, then File, Edit, View and the rest, with each command's shortcut. The application declares them; the system draws them, and a command chosen there runs in the application. OxyOS's shell has the bar (its `TopBar` takes `menus` and calls back with a command's id), but nothing fills it: applications have no way to say what their menus are, and the shell shows a fixture's.

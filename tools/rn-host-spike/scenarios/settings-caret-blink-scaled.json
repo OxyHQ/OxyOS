@@ -93,7 +93,7 @@
           ]
         },
         "at_hit": {
-          "890,291": {
+          "890,382": {
             "role": "Switch",
             "name": "Prefer non-blinking cursor"
           }
@@ -106,8 +106,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#e9dce3",
-          "1730,665": "#8c798d"
+          "1690,779": "#e9dce3",
+          "1730,779": "#8c798d"
         }
       }
     },
@@ -117,7 +117,7 @@
         "press",
         [
           890,
-          291
+          382
         ]
       ],
       "allow_unchanged": true,
@@ -152,8 +152,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#e9dce3",
-          "1730,665": "#8c798d"
+          "1690,779": "#e9dce3",
+          "1730,779": "#8c798d"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -167,7 +167,7 @@
         "press",
         [
           890,
-          291
+          382
         ]
       ],
       "allow_unchanged": true,
@@ -208,8 +208,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#9422ae",
-          "1730,665": "#ffeefc"
+          "1690,779": "#9422ae",
+          "1730,779": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -286,7 +286,7 @@
         "press",
         [
           890,
-          291
+          382
         ]
       ],
       "allow_unchanged": true,
@@ -323,8 +323,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#9422ae",
-          "1730,665": "#ffeefc"
+          "1690,779": "#9422ae",
+          "1730,779": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -338,7 +338,7 @@
         "press",
         [
           890,
-          291
+          382
         ]
       ],
       "allow_unchanged": true,
@@ -377,8 +377,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#e9dce3",
-          "1730,665": "#8c798d"
+          "1690,779": "#e9dce3",
+          "1730,779": "#8c798d"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -455,7 +455,7 @@
         "press",
         [
           890,
-          291
+          382
         ]
       ],
       "allow_unchanged": true,
@@ -490,8 +490,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#e9dce3",
-          "1730,665": "#8c798d"
+          "1690,779": "#e9dce3",
+          "1730,779": "#8c798d"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -505,7 +505,7 @@
         "press",
         [
           890,
-          291
+          382
         ]
       ],
       "allow_unchanged": true,
@@ -546,8 +546,8 @@
           }
         },
         "output_pixels": {
-          "1690,665": "#9422ae",
-          "1730,665": "#ffeefc"
+          "1690,779": "#9422ae",
+          "1730,779": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 0,

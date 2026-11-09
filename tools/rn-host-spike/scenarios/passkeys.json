@@ -1,0 +1,300 @@
+{
+ "about": "Passkeys' sheet (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): an application using and creating passkeys is verified by the person in the shell's system sheet over its window, with the development compositor's fixture accounts' service (`passkeys`: a made-up account password; never installed), the screen reader on in Spanish. Using one for github.com: the relying party, the two accounts to choose from (↓ chooses the second, said; the keys are the sheet's even though the application's window is first shown after the sheet took the keyboard, and with the screen reader on), and the Oxy account's password in the sheet's secure field; a wrong one is refused by the service and asked again saying so, the account chosen kept; the right one verifies the second account and the sheet goes. Creating one for example.org names the account and is verified the same way. A relying party with no passkey is only said, with one button; Escape cancels it. The password reaches the fixture service alone: it is in no report. At 1 (1280 × 720), light.",
+ "locale": "es_ES.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "app": {
+  "id": "so.oxy.mention",
+  "title": "Mention"
+ },
+ "passkeys": {
+  "application": "so.oxy.mention"
+ },
+ "shell": "OxyOSShell",
+ "reader": {},
+ "secrets": [
+  "fixture-oxy-password",
+  "nope-wrong"
+ ],
+ "steps": [
+  {
+   "name": "Mention asks to use a passkey for github.com: the shell's system sheet over its window, the relying party, two accounts to choose from, and the Oxy account's password focused",
+   "do": [
+    "wait_named",
+    [
+     "¿Usar tu llave de acceso para github.com?",
+     8000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "shell": [
+      {
+       "role": "TextInput",
+       "name": "Contraseña de la cuenta Oxy"
+      }
+     ]
+    },
+    "passkeys": {
+     "told": []
+    }
+   }
+  },
+  {
+   "name": "The sheet has the keyboard: what is typed next is the sheet's",
+   "do": [
+    "wait_sheet_keyboard",
+    5000
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "↓ chooses the second account: the sheet's key listener takes it, once, and the application is sent nothing",
+   "do": [
+    "key",
+    108
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {},
+    "in_shell": {
+     "react": {
+      "shortcut@shell": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "The second account chosen, said; the first no longer",
+   "do": [
+    "wait_named",
+    [
+     "Elige una cuenta: bea@example.com",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "shell": [
+      {
+       "role": "Radio",
+       "name": "bea@example.com, Bea",
+       "state": [
+        "checked"
+       ]
+      },
+      {
+       "role": "Radio",
+       "name": "ada@example.com, Ada Lovelace",
+       "state": []
+      }
+     ]
+    },
+    "passkeys": {
+     "told": []
+    }
+   }
+  },
+  {
+   "name": "A wrong password typed",
+   "do": [
+    "type",
+    "nope-wrong"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Submitted: the service refuses it and the sheet asks again",
+   "do": [
+    "key",
+    28
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Asked again, saying the password was incorrect, the second account still chosen",
+   "do": [
+    "wait_named",
+    [
+     "La contraseña no es correcta. Inténtalo de nuevo.",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "passkeys": {
+     "told": [
+      "fixture-1 wrong password"
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Radio",
+       "name": "bea@example.com, Bea",
+       "state": [
+        "checked"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The sheet has the keyboard: what is typed next is the sheet's",
+   "do": [
+    "wait_sheet_keyboard",
+    5000
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The Oxy account's password typed",
+   "do": [
+    "type",
+    "fixture-oxy-password"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Submitted: verified for the second account; the sheet goes, and the service asks to create a passkey for example.org",
+   "do": [
+    "key",
+    28
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Create a passkey for example.org: the account named, the field focused",
+   "do": [
+    "wait_named",
+    [
+     "¿Crear una llave de acceso para example.org?",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "passkeys": {
+     "told": [
+      "fixture-1 wrong password",
+      "fixture-1 verified, account 1"
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "TextInput",
+       "name": "Contraseña de la cuenta Oxy"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The sheet has the keyboard: what is typed next is the sheet's",
+   "do": [
+    "wait_sheet_keyboard",
+    5000
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The password typed",
+   "do": [
+    "type",
+    "fixture-oxy-password"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Submitted: verified",
+   "do": [
+    "key",
+    28
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "example.net has no passkey: only said, with one button",
+   "do": [
+    "wait_named",
+    [
+     "No tienes ninguna llave de acceso para example.net.",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "passkeys": {
+     "told": [
+      "fixture-1 wrong password",
+      "fixture-1 verified, account 1",
+      "fixture-2 verified"
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Button",
+       "name": "Aceptar"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "The sheet has the keyboard: what is typed next is the sheet's",
+   "do": [
+    "wait_sheet_keyboard",
+    5000
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "Escape closes it: a cancel",
+   "do": [
+    "key",
+    1
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "The sheet gone, cancelled",
+   "do": [
+    "wait",
+    1000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "passkeys": {
+     "told": [
+      "fixture-1 wrong password",
+      "fixture-1 verified, account 1",
+      "fixture-2 verified",
+      "fixture-3 cancelled"
+     ]
+    },
+    "absent": [
+     "No tienes ninguna llave de acceso para example.net."
+    ]
+   }
+  }
+ ]
+}

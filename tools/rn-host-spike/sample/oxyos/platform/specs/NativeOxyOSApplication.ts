@@ -22,6 +22,10 @@ export type ApplicationConstants = {
   systemVersion: string;
   /** What the session started it to open (its launch record's: a file or a URL of its scheme). */
   launchURL: string | null;
+  /** Whether its login item and background activity can be asked about (protocol version 33). */
+  backgroundItems: boolean;
+  /** Whether the session asks it to quit before an end of the session (protocol version 38). */
+  quitRequests: boolean;
 };
 
 /** What came of opening a URL: opened, or refused with the platform's word and its words. */
@@ -35,6 +39,17 @@ export interface Spec extends TurboModule {
   /** Asks the session to open `url` with the application whose entry declares its scheme, citing
       the person's latest press or key; never a file. */
   open(url: string): Promise<OpenAnswer>;
+  /** Asks how one of its background items (`loginItem`, `background`) stands, or registers or
+      unregisters it (`status`, `register`, `unregister`): the ask's serial, 0 where it was not
+      sent; `OxyOSBackgroundItemState` ({serial, kind, status}) answers, and tells a change the
+      person made. */
+  backgroundItem(kind: string, action: string): number;
+  /** Whether JavaScript answers the session's requests to quit (`OxyOSQuitRequested`). */
+  handlesQuit(handles: boolean): void;
+  /** Its answer to the request `serial`: whether it quits; whether the answer was sent. */
+  replyToQuit(serial: number, quit: boolean): boolean;
+  addListener(eventName: string): void;
+  removeListeners(count: number): void;
 }
 
 export default TurboModuleRegistry.get<Spec>('OxyOSApplication');

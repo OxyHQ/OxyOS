@@ -59,7 +59,8 @@ pub enum Step {
     /// second, through the compositor's input as libinput's swipe gesture is (Mission Control, App
     /// Exposé and the desktops, ADR 0045, ADR 0046): `fingers` put down first (none: they are down
     /// since an earlier step's), and lifted `lift` milliseconds after their last motion (none:
-    /// they stay down into the next steps, the swipe partway).
+    /// they stay down into the next steps, the swipe partway). Through the virtual devices, a
+    /// whole swipe is the fingers on the virtual touchpad, which libinput recognizes and counts.
     Swipe {
         fingers: Option<u8>,
         dx: i32,
@@ -121,14 +122,16 @@ pub enum Step {
         dy: i32,
         events: u32,
     },
-    /// A touchpad pinch with the pointer at a window-local point: the fingers spread to `percent`
-    /// of their spread and turn `degrees` clockwise, in eight even steps (`drag_points`) on the
-    /// scene, or through the virtual touchpad, where libinput recognizes it.
+    /// A touchpad pinch of `fingers` with the pointer at a window-local point: the fingers spread
+    /// to `percent` of their spread and turn `degrees` clockwise, in eight even steps
+    /// (`drag_points`) on the scene, or through the virtual touchpad, where libinput recognizes
+    /// it and counts them (the thumb and three fingers: Launchpad's, ADR 0046).
     Pinch {
         x: i32,
         y: i32,
         percent: i32,
         degrees: i32,
+        fingers: u8,
     },
     /// Text typed into the focused surface: committed as it is, or, through the virtual
     /// devices, typed key by key on the layout.
@@ -289,6 +292,10 @@ pub enum Step {
     /// application's own clock (a store that is down asked again until it says it could not be
     /// loaded), never after a set time it might outlast.
     WaitNamed { name: String, ms: u64 },
+    /// Real time, the session served all along, until a system sheet the session asked has the
+    /// keyboard (`Scene::system_sheet_has_keyboard`), at most so many milliseconds: what is typed
+    /// next is the sheet's, whenever the shell's request for the keyboard is granted.
+    WaitSheetKeyboard(u64),
     /// Another application copies these types with their contents (pasteboard.rs): the
     /// clipboard holds them, for the application to paste (ADR 0007).
     Clipboard(Vec<(TextChunk, Vec<u8>)>),
@@ -304,6 +311,10 @@ pub enum Step {
     /// The played power services change the machine (`--power-bus`, docs/adr/0057-battery-and-
     /// energy.mdx): unplugged, a lower charge, UPower's warning.
     Power(String),
+    /// The development backup service acts (`--backup`, docs/adr/0059-backups.mdx): a played disk
+    /// connected or taken away, a request of the person's, or a wait, the session served all
+    /// along, until its state holds what is given (`Session::backup_act`).
+    Backup(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -392,7 +403,10 @@ impl Step {
                 y,
                 percent,
                 degrees,
-            } => format!("pinch to {percent}% turning {degrees} degrees at ({x}, {y})"),
+                fingers,
+            } => format!(
+                "{fingers}-finger pinch to {percent}% turning {degrees} degrees at ({x}, {y})"
+            ),
             Step::Type(text) => format!("typing {text:?}"),
             Step::Commit(text) => format!("committing {text:?}"),
             Step::Preedit(text) => format!("composing {text:?}"),
@@ -486,11 +500,15 @@ impl Step {
                 "the transitions' clock running".to_string()
             }
             Step::WaitNamed { name, ms } => format!("waiting for {name:?} (at most {ms} ms)"),
+            Step::WaitSheetKeyboard(ms) => {
+                format!("waiting for a system sheet to have the keyboard (at most {ms} ms)")
+            }
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
             Step::Network(what) => format!("the network daemon: {what}"),
             Step::Sound(what) => format!("the sound: {what}"),
             Step::Bluetooth(what) => format!("BlueZ: {what}"),
             Step::Power(what) => format!("the power services: {what}"),
+            Step::Backup(what) => format!("the backup service: {what}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -564,7 +582,15 @@ impl Step {
                 y,
                 percent,
                 degrees,
+                fingers: 2,
             } => format!("\"pinch\":[{x},{y},{percent},{degrees}]"),
+            Step::Pinch {
+                x,
+                y,
+                percent,
+                degrees,
+                fingers,
+            } => format!("\"pinch\":[{x},{y},{percent},{degrees},{fingers}]"),
             Step::Type(text) => format!("\"type\":{text:?}"),
             Step::Commit(text) => format!("\"commit\":{text:?}"),
             Step::Preedit(text) => format!("\"preedit\":{text:?}"),
@@ -697,6 +723,7 @@ impl Step {
             Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
             Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
             Step::Power(what) => format!("\"power\":{}", json_string(what)),
+            Step::Backup(what) => format!("\"backup\":{}", json_string(what)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -716,6 +743,7 @@ impl Step {
             Step::WaitNamed { name, ms } => {
                 format!("\"wait_named\":[{},{ms}]", json_string(name))
             }
+            Step::WaitSheetKeyboard(ms) => format!("\"wait_sheet_keyboard\":{ms}"),
         }
     }
 }
@@ -772,8 +800,14 @@ pub struct Settling {
     /// `--until-named MS NAME`: its answer comes on the application's own clock (an install the
     /// person confirmed, done once the machine has fetched and compiled it): it settles only once
     /// the assistive technology holds a node so named on a shown surface, within MS, as
-    /// `--wait-named` waits, and so what the step said is all its own.
+    /// `--wait-named` waits, and has held it for the step's stillness: what the frame showing it
+    /// set off (a live region it changed, said by the screen reader) is the step's own too, as
+    /// everything said on the way is.
     pub until_named: Option<(u64, String)>,
+    /// `--until-ended`: its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-
+    /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
+    /// has quit on its own clock; it settles only once the session's ending part has ended.
+    pub ended: bool,
 }
 
 pub struct Launch {
@@ -806,6 +840,10 @@ pub struct Launch {
     /// the steps begin (SETTLE by default): a browser shows its window before its interface draws
     /// in it, for longer than SETTLE on a loaded machine.
     pub launch_settle: Duration,
+    /// `--clear-of-minute MS`: no step begins in the last MS of a minute by the wall clock: then
+    /// the session is served until the minute has begun and the shell's clock has turned
+    /// (`clear_of_minute`).
+    pub clear_of_minute: Option<Duration>,
     /// `--input-method`: the session plays an input method (ime.rs).
     pub input_method: bool,
     /// `--im-candidates horizontal|vertical`: it hands the system candidates for what it
@@ -814,6 +852,14 @@ pub struct Launch {
     /// `--autofill-fixture ID`: AutoFill answered by the fixture keychain, its items associated
     /// with the application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
     pub autofill_fixture: Option<String>,
+    /// `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for the
+    /// application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7).
+    pub passkey_fixture: Option<String>,
+    /// `--autofill-saves`: with `--autofill-fixture`, applications' requests to save a login are
+    /// asked of the person as the session asks them: told by the accounts' service at
+    /// `OXYOS_ACCOUNTD_SESSION_SOCKET` (a run's played one), asked in the shell's sheet, answered
+    /// back (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5).
+    pub autofill_saves: bool,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
@@ -868,6 +914,14 @@ pub struct Launch {
     /// `--trash`: the user's Trashes followed for the dock as the session follows them
     /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
     pub trash: bool,
+    /// `--safe-mode`: the session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx,
+    /// decision 10), as `oxyos-session` reads it from the kernel's command line: nothing opened at
+    /// login, no background activity but the system's, the shell and the login screen told.
+    pub safe_mode: bool,
+    /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0062-storage.mdx),
+    /// on the run's own home, the volume's figures and the system's a played disk's (FILE, JSON:
+    /// `name`, `capacity`, `available`, `reserved`, `system`), never the developer's disk.
+    pub storage: Option<PathBuf>,
     /// `--runtimes DIR`: where the runtimes an application's entry names are
     /// (docs/adr/0030-installing-applications.mdx, decision 2): a scenario's, in place of the
     /// image's (`/usr/lib/oxyos/runtimes`).
@@ -906,6 +960,11 @@ pub struct Launch {
     /// (docs/adr/0057-battery-and-energy.mdx) and the played machine's battery (`--controls`) are
     /// theirs, and each step's result says what they hold (`power`).
     pub power_bus: Option<String>,
+    /// `--backup SOCKET VOLUMES`: the session's backups (docs/adr/0059-backups.mdx) are the
+    /// development backup service's at SOCKET (`oxyos-offscreen --play-backup`), never the
+    /// system's; VOLUMES is its played disks, which a step connects and takes away
+    /// (`--backup-act`), and each step's result says what the service holds (`backup`).
+    pub backup: Option<(PathBuf, PathBuf)>,
     /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
     /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
     /// in a directory of the run's own with nothing learned before.
@@ -933,8 +992,8 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1026,9 +1085,12 @@ impl Launch {
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let mut launch_settle = SETTLE;
+        let mut clear_of_minute = None;
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
         let mut autofill_fixture = None;
+        let mut passkey_fixture = None;
+        let mut autofill_saves = false;
         let mut shell = None;
         let mut file_chooser = None;
         let mut companion = None;
@@ -1042,10 +1104,13 @@ impl Launch {
         let mut sound = None;
         let mut bluetooth_bus = None;
         let mut power_bus = None;
+        let mut backup = None;
         let mut input_methods = None;
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
+        let mut safe_mode = false;
+        let mut storage = None;
         let mut runtimes = None;
         let mut installed_fixture = None;
         let mut screenshots = None;
@@ -1066,6 +1131,10 @@ impl Launch {
                 }
                 Some("--until-sheet") => {
                     settling.sheet = true;
+                    continue;
+                }
+                Some("--until-ended") => {
+                    settling.ended = true;
                     continue;
                 }
                 Some("--until-named") => {
@@ -1148,9 +1217,21 @@ impl Launch {
                     );
                     continue;
                 }
+                // `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for
+                // the application ID (passkeys.rs); documented here, the usage line left to the
+                // changes queued that rewrite it.
+                Some("--passkey-fixture") => {
+                    let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    passkey_fixture = Some(id.to_string());
+                    continue;
+                }
                 Some("--autofill-fixture") => {
                     let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     autofill_fixture = Some(id.to_string());
+                    continue;
+                }
+                Some("--autofill-saves") => {
+                    autofill_saves = true;
                     continue;
                 }
                 Some("--preferences") => {
@@ -1182,6 +1263,12 @@ impl Launch {
                 Some("--power-bus") => {
                     let address = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     power_bus = Some(address.to_string());
+                    continue;
+                }
+                Some("--backup") => {
+                    let socket = args.next().ok_or(USAGE)?;
+                    let volumes = args.next().ok_or(USAGE)?;
+                    backup = Some((PathBuf::from(socket), PathBuf::from(volumes)));
                     continue;
                 }
                 Some("--input-sources-available") => {
@@ -1217,6 +1304,14 @@ impl Launch {
                     trash = true;
                     continue;
                 }
+                Some("--safe-mode") => {
+                    safe_mode = true;
+                    continue;
+                }
+                Some("--storage") => {
+                    storage = Some(args.next().ok_or(USAGE)?.into());
+                    continue;
+                }
                 Some("--grant-settings") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     grant_settings = Some(value.to_string());
@@ -1244,6 +1339,11 @@ impl Launch {
                 Some("--launch-settle") => {
                     let ms = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     launch_settle = Duration::from_millis(ms.parse()?);
+                    continue;
+                }
+                Some("--clear-of-minute") => {
+                    let ms = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    clear_of_minute = Some(Duration::from_millis(ms.parse()?));
                     continue;
                 }
                 Some("--layout") => {
@@ -1443,12 +1543,14 @@ impl Launch {
                     }
                 }
                 Some("--pinch") => {
-                    let n = numbers(args.next(), 4)?;
+                    // X,Y,PERCENT,DEGREES[,FINGERS]: two fingers unless said.
+                    let n = numbers_within(args.next(), 4, 5)?;
                     Step::Pinch {
                         x: n[0],
                         y: n[1],
                         percent: n[2],
                         degrees: n[3],
+                        fingers: n.get(4).map_or(Ok(2), |f| u8::try_from(*f))?,
                     }
                 }
                 Some("--type") => {
@@ -1637,6 +1739,10 @@ impl Launch {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Power(what.to_string())
                 }
+                Some("--backup-act") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Backup(what.to_string())
+                }
                 Some("--clipboard") => {
                     let list = args.next().ok_or(USAGE)?;
                     let mut contents = Vec::new();
@@ -1697,6 +1803,10 @@ impl Launch {
                             ms.parse().map_err(|_| "--transition-clock hold|run|MS")?,
                         ),
                     })
+                }
+                Some("--wait-sheet-keyboard") => {
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::WaitSheetKeyboard(ms.parse().map_err(|_| "--wait-sheet-keyboard MS")?)
                 }
                 Some("--wait-named") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
@@ -1793,9 +1903,12 @@ impl Launch {
                 seat,
                 layout,
                 launch_settle,
+                clear_of_minute,
                 input_method,
                 im_candidates,
                 autofill_fixture,
+                passkey_fixture,
+                autofill_saves,
                 shell,
                 file_chooser,
                 companion,
@@ -1811,6 +1924,8 @@ impl Launch {
                 grants,
                 installd,
                 trash,
+                safe_mode,
+                storage,
                 runtimes,
                 installed_fixture,
                 screenshots,
@@ -1819,6 +1934,7 @@ impl Launch {
                 sound,
                 bluetooth_bus,
                 power_bus,
+                backup,
                 input_methods,
                 input_sources_available,
                 outputs: screens,
@@ -2185,6 +2301,20 @@ fn shell_json(compositor: &Compositor) -> String {
     )
 }
 
+/// Passkeys' sheets during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
+/// `--passkey-fixture`: what the fixture accounts' service was answered so far, in order (never a
+/// password); none without it.
+fn passkeys_json(session: &Session) -> Option<String> {
+    let service = session.passkey_service.as_ref()?;
+    let told: Vec<String> = service
+        .borrow()
+        .told
+        .iter()
+        .map(|told| json_string(told))
+        .collect();
+    Some(format!("{{\"told\":[{}]}}", told.join(",")))
+}
+
 /// AutoFill during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
 /// `--autofill-fixture`: the list a shell draws now (its items, the highlighted one) and what the
 /// fixture keychain was asked since the last step; `null` without it.
@@ -2305,6 +2435,79 @@ thread_local! {
     static HELD: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
 }
 
+/// The session served once, as a wait step serves it: the compositor, the pasteboard, the
+/// launches, installs, background, preferences and the screen reader's trees.
+fn serve_session(session: &mut Session) -> Result<()> {
+    session.compositor.serve(&session.listener)?;
+    if let Some(pasteboard) = session.pasteboard.as_mut() {
+        pasteboard.serve(&mut session.compositor);
+    }
+    session.serve_launches();
+    session.serve_installs();
+    session.serve_background();
+    session.serve_preferences();
+    session.reader.absorb(&mut session.compositor);
+    Ok(())
+}
+
+/// How long until the next minute begins by the wall clock (every time zone is whole minutes from
+/// it, so the shell's clock turns then too).
+fn until_minute() -> Duration {
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Realtime);
+    let into = (now.tv_sec.rem_euclid(60) as u64) * 1000 + now.tv_nsec as u64 / 1_000_000;
+    Duration::from_millis(60_000 - into.min(59_999))
+}
+
+/// `--clear-of-minute`: a step is not begun within `guard` of the next minute. The shell's top bar
+/// shows the time, and its clock turns as each minute begins (`useMinuteClock`): a change no step
+/// makes, which a step settling then takes for its answer's and settles 750 ms past, beyond what
+/// shows for a moment (a hardware key's bezel, 1.5 s from its key). So near the minute the session
+/// is served until it has begun, the shell has drawn since (its clock turned) and nothing has
+/// changed for the settling time; the step begins then.
+fn clear_of_minute(
+    session: &mut Session,
+    children: &mut Children,
+    guard: Duration,
+    window: Rect,
+) -> Result<()> {
+    let left = until_minute();
+    if left >= guard {
+        return Ok(());
+    }
+    let begins = Instant::now() + left;
+    // The shell as it was before the minute began, served until then.
+    let mut drawn = shell_surfaces(&session.compositor);
+    while Instant::now() < begins {
+        drawn = shell_surfaces(&session.compositor);
+        serve_session(session)?;
+    }
+    let deadline = Instant::now() + STEP_DEADLINE;
+    while shell_surfaces(&session.compositor) == drawn {
+        if Instant::now() > deadline {
+            return Err(
+                "deadline exceeded waiting for the shell's clock to turn its minute".into(),
+            );
+        }
+        serve_session(session)?;
+    }
+    settle(
+        session,
+        children,
+        &shown(&session.compositor),
+        true,
+        Wait {
+            deadline: Instant::now() + STEP_DEADLINE,
+            waiting_for: "the shell's clock to settle on its minute",
+            still: SETTLE,
+            sheet: false,
+            named: None,
+            ended: false,
+        },
+        Some(window),
+    )?;
+    Ok(())
+}
+
 /// When a step's answer first appeared, when it settled, and the window then.
 struct Settled {
     window: Rect,
@@ -2323,6 +2526,8 @@ struct Wait<'a> {
     still: Duration,
     sheet: bool,
     named: Option<&'a str>,
+    /// The session's end is the answer (`Settling::ended`).
+    ended: bool,
 }
 
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
@@ -2339,6 +2544,7 @@ fn settle(
         still,
         sheet,
         named,
+        ended,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
@@ -2363,11 +2569,17 @@ fn settle(
     let shown_before = session.compositor.screens[0].flips.len();
     // The flip that will show the answer, when it was not yet shown as it appeared.
     let mut answer_flip = None;
+    // Since when the node the answer shows has been held (`named`). A launched application's
+    // frames do not count as changes (its window's configure does), so the node appearing in one
+    // starts the stillness itself: settling the moment it appeared left what that frame set off
+    // (its live region said by the screen reader) to the next step.
+    let mut named_since: Option<Instant> = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
         }
-        if let Some(status) = children.0[0].try_wait()? {
+        // Asked to quit as the session ends (ADR 0064), its exit is its answer.
+        if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
             return Err(
                 format!("the application exited ({status}) waiting for {waiting_for}").into(),
             );
@@ -2375,6 +2587,7 @@ fn settle(
         session.compositor.serve(&session.listener)?;
         session.serve_launches();
         session.serve_installs();
+        session.serve_background();
         session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
@@ -2467,12 +2680,29 @@ fn settle(
                     .iter()
                     .any(|(key, _, _)| !shell_before.contains(key));
         // A node the answer shows, once the assistive technology holds it.
-        let named_shown = named.is_none_or(|name| named_point(session, name).is_some());
+        let named_shown = match named {
+            None => true,
+            Some(name) => {
+                if named_point(session, name).is_none() {
+                    named_since = None;
+                } else if named_since.is_none() {
+                    named_since = Some(Instant::now());
+                }
+                named_since.is_some_and(|since| since.elapsed() >= still)
+            }
+        };
+        // The session's end, once every application quit (ADR 0064).
+        let ended_now = !ended
+            || session
+                .ending
+                .as_ref()
+                .is_some_and(|ending| ending.state_name() == "ended");
         if !changed
             && !shell_changed
             && answered
             && sheet_shown
             && named_shown
+            && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
         {
@@ -2895,6 +3125,95 @@ fn urls_json(session: &mut Session) -> String {
         })
         .collect();
     format!("[{}]", opened.join(","))
+}
+
+/// The applications' background activity (docs/adr/0060-login-items-and-background-activity.mdx):
+/// those with a process running in the background once the step settled, and the processes the
+/// session ended in the step (each its application's id, in order).
+fn background_json(session: &mut Session) -> String {
+    let running: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| background.in_background().into_iter().collect())
+        .unwrap_or_default();
+    let ended = std::mem::take(&mut session.background_ended);
+    let list = |ids: &[String]| {
+        ids.iter()
+            .map(|id| json_string(id))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    // What each process in the background has used so far: its CPU time and how many times its
+    // threads woke (their context switches), which a step's idle check compares with the last.
+    let used: Vec<String> = session
+        .background
+        .as_ref()
+        .map(|background| {
+            background
+                .background_processes()
+                .iter()
+                .filter_map(|(id, pid)| {
+                    let (cpu_ms, wakeups) = process_use(*pid)?;
+                    Some(format!(
+                        "{}:{{\"cpu_ms\":{cpu_ms:.1},\"wakeups\":{wakeups}}}",
+                        json_string(id)
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    format!(
+        "{{\"running\":[{}],\"ended\":[{}],\"used\":{{{}}}}}",
+        list(&running),
+        list(&ended),
+        used.join(",")
+    )
+}
+
+/// A process's CPU time so far, in ms (its threads' run time, the scheduler's), and how many times
+/// its threads were switched out (woken and run again): read from /proc.
+fn process_use(pid: u32) -> Option<(f64, u64)> {
+    let mut cpu_ns = 0u64;
+    let mut switches = 0u64;
+    for task in std::fs::read_dir(format!("/proc/{pid}/task"))
+        .ok()?
+        .flatten()
+    {
+        if let Ok(stat) = std::fs::read_to_string(task.path().join("schedstat")) {
+            cpu_ns += stat
+                .split_whitespace()
+                .next()
+                .and_then(|ns| ns.parse::<u64>().ok())
+                .unwrap_or(0);
+        }
+        if let Ok(status) = std::fs::read_to_string(task.path().join("status")) {
+            switches += status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum::<u64>();
+        }
+    }
+    Some((cpu_ns as f64 / 1e6, switches))
+}
+
+/// The notifications the session keeps once the step settled (docs/adr/0026-notifications.mdx),
+/// oldest first: each its number (one more for every post), application and title.
+fn notifications_json(session: &Session) -> String {
+    let kept: Vec<String> = session
+        .compositor
+        .scene
+        .kept_notifications()
+        .into_iter()
+        .map(|(number, application, title)| {
+            format!(
+                "{{\"number\":{number},\"application\":{},\"title\":{}}}",
+                json_string(&application),
+                json_string(&title)
+            )
+        })
+        .collect();
+    format!("[{}]", kept.join(","))
 }
 
 /// The played machine as it is (ADR 0025): each of its lines as a key, numbers and flags as
@@ -3657,12 +3976,13 @@ fn inject_through(
             y,
             percent,
             degrees,
+            fingers,
         } => {
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
             compositor.read_input();
-            devices.pinch(*percent, *degrees, || compositor.read_input())?;
+            devices.pinch(*fingers, *percent, *degrees, || compositor.read_input())?;
         }
         Step::Drag { from, to } => {
             inside(window, from.0, from.1)?;
@@ -3885,7 +4205,7 @@ fn switch_terminal(
             if Instant::now() > deadline {
                 return Err(format!("deadline exceeded waiting for {what}").into());
             }
-            if let Some(status) = children.0[0].try_wait()? {
+            if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
                 return Err(format!("the application exited ({status}) waiting for {what}").into());
             }
             session.compositor.serve(&session.listener)?;
@@ -4736,14 +5056,16 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             y,
             percent,
             degrees,
+            fingers,
         } => {
             inside(window, *x, *y)?;
             if *percent <= 0 {
                 return Err("a pinch spreads to more than 0%".into());
             }
+            let fingers = *fingers;
             let scene = &mut compositor.scene;
             scene.pointer_motion(window.x + x, window.y + y);
-            scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
+            scene.pointer_pinch(GesturePhase::Begin, fingers, 65536, 0);
             // libinput's scale and turn are since the pinch began: the spread changes by an even
             // factor at each step, as fingers moving steadily apart do.
             const STEPS: i32 = 8;
@@ -4752,12 +5074,14 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
                 let scale = (f64::from(*percent) / 100.0).powf(done);
                 scene.pointer_pinch(
                     GesturePhase::Update,
+                    fingers,
                     (scale * 65536.0).round() as u32,
                     (f64::from(*degrees) * done * 256.0).round() as i32,
                 );
             }
             scene.pointer_pinch(
                 GesturePhase::End,
+                fingers,
                 (f64::from(*percent) / 100.0 * 65536.0).round() as u32,
                 degrees.saturating_mul(256),
             );
@@ -4877,11 +5201,13 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::ExpectPopup
         | Step::Wait(_)
         | Step::WaitNamed { .. }
+        | Step::WaitSheetKeyboard(_)
         | Step::Clipboard(_)
         | Step::Network(_)
         | Step::Sound(_)
         | Step::Bluetooth(_)
         | Step::Power(_)
+        | Step::Backup(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -4971,6 +5297,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.follow_displays(file)?;
     }
     session.grant_settings = launch.grant_settings.clone();
+    // Safe Mode, told to the shell and the login screen as they connect.
+    if launch.safe_mode {
+        session.compositor.scene.set_safe_mode();
+    }
     session.chooser_command = launch.file_chooser.clone();
     session.grants = launch.grants.clone();
     if let Some(socket) = &launch.installd {
@@ -4991,6 +5321,26 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.trash = Some(trash);
     }
     session.installed_fixture = launch.installed_fixture.clone();
+    // Settings › Storage (docs/adr/0062-storage.mdx), on the run's home and a played disk.
+    if let Some(file) = &launch.storage {
+        let text = std::fs::read_to_string(file)?;
+        let disk: oxyos_compositor::storage::PlayedDisk =
+            serde_json::from_str(&text).map_err(|error| format!("{}: {error}", file.display()))?;
+        let mut storage = oxyos_compositor::storage::Storage::new(
+            oxyos_files::Scope::for_user()?,
+            std::sync::Arc::new(disk),
+            launch
+                .installd
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("/nonexistent/oxyos-installd.socket")),
+        )?;
+        storage.set_locale(&session.settings.locale());
+        storage.list_applications(oxyos_apps::Listing::read(session.installed_fixture.clone()));
+        let waker = storage.wake_fd()?;
+        session.storage_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.storage = Some(storage);
+    }
     // Search (docs/adr/0051-search.mdx): the index as the session runs it, this program's child
     // (`--search-service`), started at the first ask rather than with the run; told the
     // applications the shell lists, the fixture's installed ones among them.
@@ -5017,14 +5367,37 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
         )?);
     }
+    if let Some(application) = &launch.passkey_fixture {
+        // Passkeys' sheets as the session shows them, the accounts' service the fixture's.
+        let service = std::rc::Rc::new(std::cell::RefCell::new(
+            crate::passkeys::FixtureService::new(application.clone()),
+        ));
+        session.passkeys = Some(oxyos_compositor::passkeys::Passkeys::new(Box::new(
+            crate::passkeys::Shared(service.clone()),
+        )));
+        session.passkey_service = Some(service);
+    }
     if let Some(application) = &launch.autofill_fixture {
         // AutoFill as the session serves it, its keychain the fixture's.
         let keychain = std::rc::Rc::new(std::cell::RefCell::new(
             crate::autofill::FixtureKeychain::new(application.clone()),
         ));
-        session.autofill = Some(oxyos_compositor::autofill::Autofill::new(Box::new(
+        let mut autofill = oxyos_compositor::autofill::Autofill::new(Box::new(
             crate::autofill::Shared(keychain.clone()),
-        )));
+        ));
+        if launch.autofill_saves {
+            let socket = std::env::var_os("OXYOS_ACCOUNTD_SESSION_SOCKET")
+                .map(std::path::PathBuf::from)
+                .ok_or("--autofill-saves asks the service at OXYOS_ACCOUNTD_SESSION_SOCKET")?;
+            let saves = oxyos_account::keychain::SaveConfirmations::spawn(socket, |said| {
+                eprintln!("[offscreen] saving passwords: {said}")
+            })?;
+            let waker = saves.wake_fd()?;
+            session.autofill_saves_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+            session.compositor.wakers.push(waker);
+            autofill = autofill.with_saves(Box::new(crate::autofill::Saves(saves)));
+        }
+        session.autofill = Some(autofill);
         session.autofill_keychain = Some(keychain);
     }
     if let Some(methods) = &launch.input_sources_available {
@@ -5040,14 +5413,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         )?);
     }
     if let Some(address) = &launch.network_bus {
-        // The session's networks, over the played daemon on the run's own bus.
-        let networks = oxyos_compositor::networks::Networks::on_bus(Some(address.clone()))?;
+        // The session's networks, over the played daemon on the run's own bus, Wi-Fi Diagnostics
+        // probing the played network behind it.
+        let control = zbus::blocking::connection::Builder::address(address.as_str())?.build()?;
+        let networks = oxyos_compositor::networks::Networks::on_bus_probed(
+            Some(address.clone()),
+            std::sync::Arc::new(crate::played_network::PlayedProbe {
+                bus: control.clone(),
+            }),
+        )?;
         let waker = networks.wake_fd()?;
         session.networks_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.networks = Some(networks);
-        session.network_control =
-            Some(zbus::blocking::connection::Builder::address(address.as_str())?.build()?);
+        session.network_control = Some(control);
     }
     if let Some(address) = &launch.bluetooth_bus {
         // The session's Bluetooth and its pairing agent, over the played BlueZ on the run's own
@@ -5130,6 +5509,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             ));
             session.controls = Some(fake);
         }
+        // The session's ending asks the same played logind, never the machine's (ADR 0064).
+        session.ending_logind = oxyos_compositor::session_end::Logind::Bus(address.clone());
         let power = oxyos_compositor::power::Power::new(
             Some(address.clone()),
             Some(session.directory().join("battery-history")),
@@ -5138,6 +5519,30 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.power_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.power = Some(power);
+    }
+    if launch.login.is_none() {
+        // Activity Monitor's part (docs/adr/0063-activity-monitor.mdx), as a session has it: over
+        // this machine's /proc, sampling only while a follower's window is shown.
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        let waker = activity.wake_fd()?;
+        session.activity_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.activity = Some(activity);
+    }
+    if let Some((socket, volumes)) = &launch.backup {
+        // The session's side of backups over the development service (ADR 0059): scheduled
+        // backups held while the played machine's Low Power Mode is on, as the session's are.
+        let low_power = session
+            .power
+            .as_ref()
+            .map(oxyos_compositor::power::Power::low_power)
+            .unwrap_or_default();
+        let backups = oxyos_compositor::backups::Backups::new(socket.clone(), low_power)?;
+        let waker = backups.wake_fd()?;
+        session.backups_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.backups = Some(backups);
+        session.backup_service = Some((socket.clone(), volumes.clone()));
     }
     if launch.input_method {
         let mut ime = crate::ime::Ime::connect(&mut session.compositor)?;
@@ -5180,18 +5585,41 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             )
             .with_installed(None)
             // What `--grant` gives, told to the applications it starts as the policy's would be.
-            .with_fixture_grants(launch.grants.clone()),
+            .with_fixture_grants(launch.grants.clone())
+            // Where each says why it ends, if it ends for a fault (docs/adr/0061), in the run's
+            // own folder.
+            .with_crash_reports(session.directory().join("reports"))?,
         );
+        // What an erasure a crash interrupted left aside, deleted as a session starts.
+        if let Err(error) = oxyos_apps::data::sweep(&oxyos_apps::data::bases()) {
+            eprintln!("[launch] what resets left is not all deleted: {error}");
+        }
         if let Some(root) = &launch.installed_fixture {
             let user = oxyos_apps::session_user().unwrap_or_default();
             session.launcher = session.launcher.take().map(|launcher| {
                 launcher.with_installed_fixture(oxyos_apps::installed_applications(root, &user))
             });
         }
+        // The applications' login items and background activity
+        // (docs/adr/0060-login-items-and-background-activity.mdx), their installed applications'
+        // decisions read beside the fixture's entries, as the session reads the service's.
+        session.background = Some(oxyos_compositor::background::BackgroundActivity::new(
+            launch.installed_fixture.as_ref().map(|root| {
+                oxyos_apps::installed_applications(
+                    root,
+                    &oxyos_apps::session_user().unwrap_or_default(),
+                )
+            }),
+        ));
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
-        // starts them.
+        // starts them; none in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
         let open_at_login = session.settings.preferences().open_at_login.clone();
-        if let Some(launcher) = session.launcher.as_mut() {
+        if launch.safe_mode {
+            eprintln!("[launch] Safe Mode: nothing opened at login");
+            if let Some(background) = session.background.as_mut() {
+                background.set_safe_mode();
+            }
+        } else if let Some(launcher) = session.launcher.as_mut() {
             for id in &open_at_login {
                 if let Err(error) = launcher.launch(id) {
                     eprintln!("[launch] {id} not opened at login: {error}");
@@ -5439,14 +5867,18 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
     if let Some(program) = launch.command.first() {
-        children.0.push(
-            Command::new(program)
-                .args(&launch.command[1..])
-                .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
-                .env_remove("DISPLAY")
-                .env_remove("WAYLAND_DISPLAY")
-                .spawn()?,
-        );
+        let mut application = Command::new(program);
+        application
+            .args(&launch.command[1..])
+            .env("OXYOS_COMPOSITOR_SOCKET", &session.socket)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        // It lists the fixture's installed applications too, as the shell does and as a session's
+        // applications list the install service's (ADR 0030, decision 7): Settings names them.
+        if let Some(root) = &session.installed_fixture {
+            application.env("OXYOS_INSTALLED_FIXTURE", root);
+        }
+        children.0.push(application.spawn()?);
     }
     // Its own launch, as the session records one, when the scenario names the application;
     // unless the scenario has it be a process the session did not start
@@ -5477,6 +5909,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             still: launch.launch_settle,
             sheet: false,
             named: None,
+            ended: false,
         },
         login.then_some(primary),
     ) {
@@ -5520,6 +5953,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
 
     session.compositor.log_input = true;
     for (index, (step, settling)) in launch.steps.iter().enumerate() {
+        if let Some(guard) = launch.clear_of_minute {
+            clear_of_minute(&mut session, &mut children, guard, window)?;
+        }
         // A step aimed at a node by its name, at where that node is now.
         session.reader.absorb(&mut session.compositor);
         let resolved = named_step(&session, step)?;
@@ -5592,19 +6028,30 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 inject_input_method(&mut session, step)?;
                 0
             }
-            _ if matches!(step, Step::Wait(_) | Step::WaitNamed { .. }) => {
-                // A wait for a node ends as soon as it is held; a plain wait, its time.
+            _ if matches!(
+                step,
+                Step::Wait(_) | Step::WaitNamed { .. } | Step::WaitSheetKeyboard(_)
+            ) =>
+            {
+                // A wait for a node, or for a sheet to have the keyboard, ends as soon as it is
+                // so; a plain wait, its time.
                 let name = match step {
                     Step::WaitNamed { name, .. } => Some(name.as_str()),
                     _ => None,
                 };
+                let sheet = matches!(step, Step::WaitSheetKeyboard(_));
                 let ms = match step {
-                    Step::Wait(ms) | Step::WaitNamed { ms, .. } => *ms,
+                    Step::Wait(ms) | Step::WaitNamed { ms, .. } | Step::WaitSheetKeyboard(ms) => {
+                        *ms
+                    }
                     _ => 0,
                 };
                 let until = Instant::now() + Duration::from_millis(ms);
                 loop {
                     if name.is_some_and(|name| named_point(&session, name).is_some()) {
+                        break;
+                    }
+                    if sheet && session.compositor.scene.system_sheet_has_keyboard() {
                         break;
                     }
                     if Instant::now() >= until {
@@ -5616,16 +6063,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                             )
                             .into());
                         }
+                        if sheet {
+                            return Err(format!(
+                                "step {} ({}): no system sheet had the keyboard in {ms} ms",
+                                index + 1,
+                                step.describe()
+                            )
+                            .into());
+                        }
                         break;
                     }
-                    session.compositor.serve(&session.listener)?;
-                    if let Some(pasteboard) = session.pasteboard.as_mut() {
-                        pasteboard.serve(&mut session.compositor);
-                    }
-                    session.serve_launches();
-                    session.serve_installs();
-                    session.serve_preferences();
-                    session.reader.absorb(&mut session.compositor);
+                    serve_session(&mut session)?;
                 }
                 0
             }
@@ -5660,6 +6108,35 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             _ if matches!(step, Step::Power(_)) => {
                 if let Step::Power(what) = step {
                     session.power_act(what)?;
+                }
+                0
+            }
+            _ if matches!(step, Step::Backup(_)) => {
+                if let Step::Backup(what) = step {
+                    if let Some((until, ms)) = session.backup_act(what)? {
+                        // Real time, the session served all along, until the service holds it.
+                        let deadline = Instant::now() + Duration::from_millis(ms);
+                        loop {
+                            let state: serde_json::Value =
+                                serde_json::from_str(&session.backup_state())?;
+                            if crate::backup_holds(&until, &state) {
+                                break;
+                            }
+                            if Instant::now() >= deadline {
+                                return Err(format!(
+                                    "step {} ({}): the backup service did not hold {until} in {ms} ms: {state}",
+                                    index + 1,
+                                    step.describe()
+                                )
+                                .into());
+                            }
+                            session.compositor.serve(&session.listener)?;
+                            session.serve_launches();
+                            session.serve_installs();
+                            session.serve_preferences();
+                            session.reader.absorb(&mut session.compositor);
+                        }
+                    }
                 }
                 0
             }
@@ -5719,6 +6196,34 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         *lift,
                         *hold_after_ms,
                     )?);
+                }
+                0
+            }
+            // A whole swipe through the virtual touchpad (`--uinput`): its fingers moving together,
+            // which libinput recognizes and counts, as a person's.
+            Some(devices)
+                if matches!(
+                    step,
+                    Step::Swipe {
+                        fingers: Some(_),
+                        lift: Some(0),
+                        ..
+                    }
+                ) =>
+            {
+                if let Step::Swipe {
+                    fingers: Some(fingers),
+                    dx,
+                    dy,
+                    steps,
+                    hz,
+                    ..
+                } = step
+                {
+                    let compositor = &mut session.compositor;
+                    devices.swipe(*fingers, (*dx, *dy), *steps, *hz, || {
+                        compositor.read_input()
+                    })?;
                 }
                 0
             }
@@ -5829,6 +6334,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
         };
+        // No input: the time passes for the session's question and its applications too (ADR 0064).
+        if let (Step::Idle(seconds), Some(ending)) = (step, session.ending.as_mut()) {
+            ending.pass(Duration::from_secs(*seconds));
+        }
         // Super+F5 typed: the reader started or stopped before the step settles, as the session
         // switches it on its next turn.
         toggle_reader(&mut session, &mut screen_reader, reader_named, &speech)?;
@@ -5852,6 +6361,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 still: SETTLE,
                 sheet: settling.sheet,
                 named: settling.until_named.as_ref().map(|(_, name)| name.as_str()),
+                ended: settling.ended,
             },
             Some(window),
         )?;
@@ -5875,11 +6385,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let logged_out = std::mem::take(&mut session.logged_out);
+        let background = background_json(&mut session);
+        let notifications = notifications_json(&session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"logged_out\":{logged_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"backup\":{},\"activity\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -5913,6 +6426,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .map_or("null".to_string(), |played| played.machine().to_string()),
             session.bluetooth_state(),
             session.power_state(),
+            session.backup_state(),
+            session.activity_state(),
             session.compositor.displays_off(),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(
@@ -5935,6 +6450,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.gpu_frames(CLIENT).0,
             session.compositor.gpu_frames(CLIENT).1,
         ));
+        // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
+        // added to the step's result as one more field.
+        if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
+            if step.ends_with('}') {
+                step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
+            }
+        }
         snapshots.push(snapshot(
             &session.compositor,
             out,
@@ -6177,6 +6699,8 @@ mod tests {
             "--wait-named",
             "45000",
             "Try again",
+            "--wait-sheet-keyboard",
+            "5000",
             "--move-window",
             "-10,5",
             "--resize-window",
@@ -6208,7 +6732,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false, true
+                false, false, false, false, false, false, false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -6225,7 +6749,8 @@ mod tests {
                     x: 5,
                     y: 6,
                     percent: 150,
-                    degrees: -30
+                    degrees: -30,
+                    fingers: 2,
                 },
                 Step::Type("hi".into()),
                 Step::Commit("mundo".into()),
@@ -6275,6 +6800,7 @@ mod tests {
                     name: "Try again".into(),
                     ms: 45000
                 },
+                Step::WaitSheetKeyboard(5000),
                 Step::MoveWindow { dx: -10, dy: 5 },
                 Step::ResizeWindow {
                     width: 800,
@@ -6323,6 +6849,7 @@ mod tests {
             &["--key", "42+", "--", "app"],
             &["--drag", "1,2,3", "--", "app"],
             &["--wait-named", "soon", "Try again", "--", "app"],
+            &["--wait-sheet-keyboard", "soon", "--", "app"],
             &["--until-named", "soon", "Open", "--key", "57", "--", "app"],
             &["--press", "1,2"],
             &["--press", "1,2", "--"],

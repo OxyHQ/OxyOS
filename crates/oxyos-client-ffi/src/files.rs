@@ -6,6 +6,8 @@
 //! and the replies (answers and watched changes) taken from the service's queue.
 
 use super::fail;
+use oxyos_files::backups::Backups;
+use oxyos_files::service::BackupAccess;
 use oxyos_files::service::Reply;
 use oxyos_files::{NetworkAccess, Scope, Service};
 use rustix::fd::{AsFd, AsRawFd};
@@ -80,12 +82,17 @@ unsafe fn slice<'a>(bytes: *const u8, length: usize) -> &'a [u8] {
 /// so its downloads and uploads fail as the network's would, before anything is asked.
 pub const OXYOS_FILES_NO_NETWORK: u32 = 1;
 
+/// `oxyos_files_new_with`'s flag: the application may not ask the person's backups (an installed
+/// version whose account did not grant `files`, docs/adr/0059-backups.mdx), so their versions,
+/// what a folder held and restoring fail as `not-permitted`, before the backup service is asked.
+pub const OXYOS_FILES_NO_BACKUPS: u32 = 2;
+
 /// `oxyos_files_new_with`'s flag: the person's files (the home and their volumes) are withheld (an
 /// installed version whose account has not granted `files`, docs/adr/0030-installing-applications.mdx,
 /// decision 8): only the application's own folders, its bundle and the items given it
 /// (`oxyos_files_give`) are reached, the rest refused as `not-granted` until
 /// `oxyos_files_grant_the_persons_files`.
-pub const OXYOS_FILES_NO_PERSONS_FILES: u32 = 2;
+pub const OXYOS_FILES_NO_PERSONS_FILES: u32 = 4;
 
 /// The service for the user running the process (`Scope::for_user`), for the application
 /// `app_id` (`app_id_length` bytes), the id the session gave an application it started (NULL for
@@ -107,8 +114,9 @@ pub unsafe extern "C" fn oxyos_files_new(
     unsafe { oxyos_files_new_with(app_id, app_id_length, bundle, bundle_length, 0) }
 }
 
-/// `oxyos_files_new`, with `flags` (`OXYOS_FILES_NO_NETWORK`, `OXYOS_FILES_NO_PERSONS_FILES`);
-/// other bits are ignored.
+/// `oxyos_files_new`, with `flags` (`OXYOS_FILES_NO_NETWORK`, `OXYOS_FILES_NO_BACKUPS`,
+/// `OXYOS_FILES_NO_PERSONS_FILES`); other bits are ignored. The backups are the system's backup
+/// service's, or those of the one `OXYOS_BACKUPD_SOCKET` names (a developer's).
 ///
 /// # Safety
 /// `app_id` and `bundle` are NULL or point to their lengths' readable bytes.
@@ -159,7 +167,12 @@ pub unsafe extern "C" fn oxyos_files_new_with(
             scope
         }
     });
-    match scope.and_then(|scope| Service::new(scope, network)) {
+    let backups = if flags & OXYOS_FILES_NO_BACKUPS != 0 {
+        BackupAccess::Refused
+    } else {
+        BackupAccess::Granted(Backups::from_environment())
+    };
+    match scope.and_then(|scope| Service::with_backups(scope, network, backups)) {
         Ok(service) => Box::into_raw(Box::new(OxyOSFiles { service })),
         Err(error) => {
             fail(error);

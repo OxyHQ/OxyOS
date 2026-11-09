@@ -1,5 +1,5 @@
 {
-  "about": "The login screen (docs/adr/0020-oxy-account-login.mdx, step 2): the Bloom host's OxyOSLogin as the login screen's one client, the development compositor locked from the start with no application, as `oxyos-session --greeter` runs it. The accounts are the accounts' service's `list` (a stand-in here); a password goes from the lock surface through the compositor, for the account chosen, to the login program on its development path (`oxyos-login --dev`), whose worker checks it with PAM from the run's own configuration (pam_exec accepts oxyos.correcta alone) and throttles as the lock does. Wrong passwords are rejected by PAM and shake the field; the fifth in a row makes the next wait 30 s. Adding an account offline says setup needs the network and does nothing else. Another account has a field and a throttle of its own; its right password is accepted, the compositor shows the splash and the login program records the session it would start for that account (never starting one). The password is in no report, nothing the compositor holds and not the record.",
+  "about": "The login screen (docs/adr/0020-oxy-account-login.mdx, step 2): the Bloom host's OxyOSLogin as the login screen's one client, the development compositor locked from the start with no application, as `oxyos-session --greeter` runs it. The accounts are the accounts' service's `list` (a stand-in here), each shown by its name, never by its Unix user (`oxy-…`); a password goes from the lock surface through the compositor, for the account chosen, to the login program on its development path (`oxyos-login --dev`), whose worker checks it with PAM from the run's own configuration (pam_exec accepts oxyos.correcta alone) and throttles as the lock does. Wrong passwords are rejected by PAM and shake the field; the fifth in a row makes the next wait 30 s. Adding an account offline says setup needs the network and does nothing else. Another account has a field and a throttle of its own; its right password is accepted, the compositor shows the splash and the login program records the session it would start for that account (never starting one). The password is in no report, nothing the compositor holds and not the record.",
   "locale": "es_ES.UTF-8",
   "shell": "OxyOSLogin",
   "login": {
@@ -9,7 +9,8 @@
         "accountId": "0123456789abcdef01234567",
         "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
         "uid": 1001,
-        "name": "Ada Lovelace"
+        "name": "Ada Lovelace",
+        "picture_colour": "#1f9e5a"
       },
       {
         "accountId": "0123456789abcdef01234568",
@@ -24,7 +25,7 @@
   },
   "steps": [
     {
-      "name": "the login screen lists the enrolled accounts, the first chosen, and takes its password: the lock screen's look, all the compositor shows",
+      "name": "the login screen lists the enrolled accounts by their names (never by their Unix users) and pictures (Ada's the one the accounts' service keeps of her avatar, Bea, with none, the default), the first chosen, and takes its password: the lock screen's look, all the compositor shows",
       "do": [
         "type",
         "qzx"
@@ -51,7 +52,15 @@
           ],
           "never": [
             "qzx"
+          ],
+          "absent": [
+            "oxy-"
           ]
+        },
+        "output_pixels": {
+          "581,469": "#1f9e5a",
+          "570,460": "#1f9e5a",
+          "709,469": "!#1f9e5a"
         }
       }
     },
@@ -160,7 +169,7 @@
       "allow_unchanged": true
     },
     {
-      "name": "Añadir cuenta, offline: setup says it needs the network and does nothing else",
+      "name": "Añadir cuenta, offline: the setup assistant's Connect page says why and does nothing else",
       "do": [
         "a11y-action",
         [
@@ -175,10 +184,10 @@
         },
         "in_shell": {
           "texts": [
-            "Añadir una cuenta de Oxy",
-            "Para añadir una cuenta hace falta conexión a internet",
+            "Conéctate a internet",
+            "Para configurar una cuenta hace falta internet una vez",
             "Reintentar",
-            "Volver"
+            "Atrás"
           ],
           "absent": [
             "Ada Lovelace",
@@ -204,18 +213,18 @@
         },
         "in_shell": {
           "texts": [
-            "Para añadir una cuenta hace falta conexión a internet"
+            "Para configurar una cuenta hace falta internet una vez"
           ]
         }
       }
     },
     {
-      "name": "Volver: the accounts again",
+      "name": "Atrás: the accounts again",
       "do": [
         "a11y-action",
         [
           "activate",
-          "Volver"
+          "Atrás"
         ]
       ],
       "expect": {
@@ -229,7 +238,7 @@
             "Bea Ramos"
           ],
           "absent": [
-            "Añadir una cuenta de Oxy"
+            "Conéctate a internet"
           ]
         }
       }

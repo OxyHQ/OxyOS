@@ -8,6 +8,8 @@ order: 34
 
 Status: **accepted; implemented** (the protocol, the scene, the session's controls, the C ABI, the Bloom host and the shell); what only the ThinkPad can show is in [What to verify on the ThinkPad](#what-to-verify-on-the-thinkpad). Builds on [ADR 0006](./0006-seat) (logind), [ADR 0009](./0009-session-shell) (the shell and its grants), [ADR 0014](./0014-screen-reader) (announcements), [ADR 0018](./0018-several-displays) (a shell per display), [ADR 0019](./0019-settings) (the session keeps the preferences) and [ADR 0024](./0024-system-shortcuts) (keys the system takes before applications).
 
+**9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** the power key (116) is a hardware key too: taken before everything, locked or not, never repeated, its press handed to the session, which holds logind's `handle-power-key` inhibitor and follows `HandlePowerKey` itself (the choice of Restart, Sleep and Shut Down where logind would power off).
+
 
 **7 November 2026 ([ADR 0056](./0056-sound-devices)):** the volumes are no longer set through `wpctl` (decision 1, *Volume*, superseded): `wpctl set-volume` sets every channel to one volume, flattening a balance. The session's own PipeWire client (`crates/oxyos-audio`) sets and reads the chosen device's volume and mute where WirePlumber's mixer does (the device's route, saved, or a node's `Props`), each channel kept to its balance, and tells the controls every volume as PipeWire says it (`Controls::audio_is`), which replaces the audio follower of decision 1. Choosing the output device, left out below, is that decision's.
 ## Problem

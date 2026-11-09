@@ -26,7 +26,8 @@
 //! `--development`, with the service or the fetcher, for a developer's machine and the scenarios
 //! (as `oxyos-install --developer` is): unprivileged, on directories given, the fetcher serving
 //! only its own user and the service refusing every other. Refused as root; never an install of
-//! the system's.
+//! the system's. With it alone, `--available BYTES` plays a disk with that much free space, so a
+//! scenario can show a download refused for want of room (docs/adr/0062-storage.mdx).
 //!
 //! The services log on standard error, the journal's.
 
@@ -45,7 +46,7 @@ use std::sync::Arc;
 /// Connections at once: every session keeps one for its holds, Atlas one, the timer one.
 const MAX_CONNECTIONS: usize = 32;
 
-const USAGE: &str = "usage: oxyos-installd [--development] [--state DIRECTORY] [--anchor FILE] [--runtimes DIRECTORY] \
+const USAGE: &str = "usage: oxyos-installd [--development [--available BYTES]] [--state DIRECTORY] [--anchor FILE] [--runtimes DIRECTORY] \
 [--socket PATH] [--fetcher PATH] [--passwd FILE]\n       oxyos-installd --fetch [--repository URL] [--socket PATH]\n       \
 oxyos-installd --client [--socket PATH] REQUEST";
 
@@ -61,6 +62,8 @@ struct Options {
     repository: String,
     /// `--development`: unprivileged, serving its own user alone.
     development: bool,
+    /// `--available BYTES`, with `--development` alone: the free space of a played disk.
+    available: Option<u64>,
 }
 
 fn options() -> Result<Options, String> {
@@ -75,6 +78,7 @@ fn options() -> Result<Options, String> {
         passwd: "/etc/passwd".into(),
         repository: "file:///var/cache/oxyos/store".into(),
         development: false,
+        available: None,
     };
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -97,6 +101,13 @@ fn options() -> Result<Options, String> {
             "--fetcher" => options.fetcher = value()?.into(),
             "--passwd" => options.passwd = value()?.into(),
             "--repository" => options.repository = value()?,
+            "--available" => {
+                options.available = Some(
+                    value()?
+                        .parse()
+                        .map_err(|_| "--available takes a number of bytes".to_string())?,
+                )
+            }
             _ => return Err(format!("unknown argument {argument}\n{USAGE}")),
         }
     }
@@ -211,6 +222,9 @@ fn service(options: &Options) -> Result<(), String> {
                 .into(),
         );
     }
+    if options.available.is_some() && !options.development {
+        return Err("--available plays a development disk: it needs --development".into());
+    }
     let machine = Machine::discover(&options.runtimes, install::machine_architecture());
     let installer = Installer::open(
         Layout::new(&options.state),
@@ -222,6 +236,10 @@ fn service(options: &Options) -> Result<(), String> {
         oxyos_install::time::now,
     )
     .map_err(|e| format!("{}: {e}", options.state.display()))?;
+    let installer = match options.available {
+        Some(available) => installer.with_space(Box::new(move |_| Ok(available))),
+        None => installer,
+    };
     let installer = Arc::new(installer);
     let socket = options.socket.clone().unwrap_or_else(|| ipc::SOCKET.into());
     let listener =

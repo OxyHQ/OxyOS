@@ -10,7 +10,7 @@ Bloom's application-layout compositor is distinct from the OS display compositor
 
 ## Checks
 
-A machine from nothing, the scenario gate (main's required **Scenarios** check: `tools/gate/run-scenarios.sh`), deploys (`tools/deploy/deploy.sh`) and the gate's machine: `docs/developing.mdx`. `tools/dev/bootstrap` fetches everything at `tools/dev/pins`; machine-specific values go in `tools/dev/local.conf` (git-ignored), never in the repo.
+Merging: `gh pr merge N --auto` puts a pull request in the merge queue once its fast checks pass; the queue's **Scenarios** run of the combined tree is the gate (`tools/gate/run-scenarios.sh`), and a failing run takes the pull request out with its failure (the `gate` label runs it on a pull request first). A machine from nothing, the gate, deploys (`tools/deploy/deploy.sh`) and the gate's machine: `docs/developing.mdx`. `tools/dev/bootstrap` fetches everything at `tools/dev/pins`; machine-specific values go in `tools/dev/local.conf` (git-ignored), never in the repo.
 
 Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxyos-platform-probe`; `oxyos-offscreen` is a CPU fixture, not DRM/KMS. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
 

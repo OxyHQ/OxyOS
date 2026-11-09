@@ -149,12 +149,14 @@ void ShellSurfaceHost::tellFlags(Region& region, const OxyOSShellSurfaceProps& p
     region.moves = moves;
     Report::get().popup("shell.moves", region.surface, nullptr, folly::dynamic::object("moves", moves));
   }
-  // Mission Control's or App Exposé's (docs/adr/0046-interactive-gestures.mdx): a compositor of
-  // version 24 or older drives nothing by a swipe.
+  // Mission Control's, App Exposé's or Launchpad's (docs/adr/0046-interactive-gestures.mdx): a
+  // compositor of version 24 or older drives nothing by a swipe, and one of version 32 or older
+  // nothing by a pinch.
   uint8_t gesture = region.placed.kind == kLock || region.placed.kind == kCandidates || window_.protocolVersion() < 25
                         ? OXYOS_GESTURE_OVERLAY_NONE
                     : props.gesture == "mission-control" ? OXYOS_GESTURE_OVERLAY_MISSION_CONTROL
                     : props.gesture == "app-expose"      ? OXYOS_GESTURE_OVERLAY_APP_EXPOSE
+                    : props.gesture == "launchpad" && window_.protocolVersion() >= 33 ? OXYOS_GESTURE_OVERLAY_LAUNCHPAD
                                                          : OXYOS_GESTURE_OVERLAY_NONE;
   if (gesture != region.gesture) {
     window_.setGestureOverlay(region.surface, gesture);
@@ -195,15 +197,17 @@ std::optional<ShellSurfaceHost::Placement> ShellSurfaceHost::place(Tag tag) cons
   } else if (props->kind == "notification" && props->edge == "right") {
     // A banner (docs/adr/0026-notifications.mdx), a notification at the right edge: the corner of
     // the output from its top-right to the far corner of the region, in whole pixels, which the
-    // compositor places at the output's top-right corner and slides in from beside itself. It
-    // takes presses over its region, as a panel does.
+    // compositor places at the output's top-right corner and slides in from beside itself (its
+    // edge, the right: a notification with none, the bezel, shows at once). It takes presses over
+    // its region, as a panel does.
     placed.kind = OXYOS_SHELL_NOTIFICATION;
-    placed.edge = OXYOS_EDGE_NONE;
+    placed.edge = OXYOS_EDGE_RIGHT;
     Float left = std::floor(region->origin.x);
     placed.strip = Rect{{left, 0}, {width - left, std::ceil(region->origin.y + region->size.height)}};
   } else if (props->kind == "overlay" || props->kind == "backdrop" || props->kind == "notification") {
     // A notification (the bezel of a hardware key, docs/adr/0025-hardware-keys-and-control-center.mdx)
-    // is above the overlays and takes no input: presses go through it to what is under it. A
+    // is above the overlays and takes no input: presses go through it to what is under it; with no
+    // edge, the compositor shows it where it is at once, never a banner's slide. A
     // backdrop is an overlay's (Launchpad's blurred wallpaper), which the compositor fades and
     // never scales (docs/adr/0011-transitions.mdx).
     placed.kind = props->kind == "overlay"    ? OXYOS_SHELL_OVERLAY
