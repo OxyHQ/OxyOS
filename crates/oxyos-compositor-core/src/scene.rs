@@ -5053,7 +5053,15 @@ impl Scene {
                     // waits for its window to be activated, and never lowers it.
                     let sheet = self.is_sheet(key);
                     if activated || sheet && self.active == Some(self.root_of(key)) {
-                        self.activate(key);
+                        // A system sheet the person is answering keeps the keyboard (an
+                        // application asking for a passkey as it starts, its window mapped after
+                        // the sheet took the keys): the window comes to the top of its layer,
+                        // under the sheet, and has the keyboard once the sheet goes.
+                        if self.system_sheet_has_keyboard() {
+                            self.raise_in_layer(key);
+                        } else {
+                            self.activate(key);
+                        }
                     } else if !sheet {
                         self.lower_below_focus(key);
                     }

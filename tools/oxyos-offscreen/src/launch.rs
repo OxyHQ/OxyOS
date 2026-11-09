@@ -292,6 +292,10 @@ pub enum Step {
     /// application's own clock (a store that is down asked again until it says it could not be
     /// loaded), never after a set time it might outlast.
     WaitNamed { name: String, ms: u64 },
+    /// Real time, the session served all along, until a system sheet the session asked has the
+    /// keyboard (`Scene::system_sheet_has_keyboard`), at most so many milliseconds: what is typed
+    /// next is the sheet's, whenever the shell's request for the keyboard is granted.
+    WaitSheetKeyboard(u64),
     /// Another application copies these types with their contents (pasteboard.rs): the
     /// clipboard holds them, for the application to paste (ADR 0007).
     Clipboard(Vec<(TextChunk, Vec<u8>)>),
@@ -496,6 +500,9 @@ impl Step {
                 "the transitions' clock running".to_string()
             }
             Step::WaitNamed { name, ms } => format!("waiting for {name:?} (at most {ms} ms)"),
+            Step::WaitSheetKeyboard(ms) => {
+                format!("waiting for a system sheet to have the keyboard (at most {ms} ms)")
+            }
             Step::Clipboard(contents) => format!("another application copying {} types", contents.len()),
             Step::Network(what) => format!("the network daemon: {what}"),
             Step::Sound(what) => format!("the sound: {what}"),
@@ -736,6 +743,7 @@ impl Step {
             Step::WaitNamed { name, ms } => {
                 format!("\"wait_named\":[{},{ms}]", json_string(name))
             }
+            Step::WaitSheetKeyboard(ms) => format!("\"wait_sheet_keyboard\":{ms}"),
         }
     }
 }
@@ -975,7 +983,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1775,6 +1783,10 @@ impl Launch {
                             ms.parse().map_err(|_| "--transition-clock hold|run|MS")?,
                         ),
                     })
+                }
+                Some("--wait-sheet-keyboard") => {
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::WaitSheetKeyboard(ms.parse().map_err(|_| "--wait-sheet-keyboard MS")?)
                 }
                 Some("--wait-named") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
@@ -5069,6 +5081,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::ExpectPopup
         | Step::Wait(_)
         | Step::WaitNamed { .. }
+        | Step::WaitSheetKeyboard(_)
         | Step::Clipboard(_)
         | Step::Network(_)
         | Step::Sound(_)
@@ -5880,14 +5893,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 inject_input_method(&mut session, step)?;
                 0
             }
-            _ if matches!(step, Step::Wait(_) | Step::WaitNamed { .. }) => {
-                // A wait for a node ends as soon as it is held; a plain wait, its time.
+            _ if matches!(
+                step,
+                Step::Wait(_) | Step::WaitNamed { .. } | Step::WaitSheetKeyboard(_)
+            ) =>
+            {
+                // A wait for a node, or for a sheet to have the keyboard, ends as soon as it is
+                // so; a plain wait, its time.
                 let name = match step {
                     Step::WaitNamed { name, .. } => Some(name.as_str()),
                     _ => None,
                 };
+                let sheet = matches!(step, Step::WaitSheetKeyboard(_));
                 let ms = match step {
-                    Step::Wait(ms) | Step::WaitNamed { ms, .. } => *ms,
+                    Step::Wait(ms) | Step::WaitNamed { ms, .. } | Step::WaitSheetKeyboard(ms) => {
+                        *ms
+                    }
                     _ => 0,
                 };
                 let until = Instant::now() + Duration::from_millis(ms);
@@ -5895,10 +5916,21 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     if name.is_some_and(|name| named_point(&session, name).is_some()) {
                         break;
                     }
+                    if sheet && session.compositor.scene.system_sheet_has_keyboard() {
+                        break;
+                    }
                     if Instant::now() >= until {
                         if let Some(name) = name {
                             return Err(format!(
                                 "step {} ({}): the assistive technology held no node named {name:?} in {ms} ms",
+                                index + 1,
+                                step.describe()
+                            )
+                            .into());
+                        }
+                        if sheet {
+                            return Err(format!(
+                                "step {} ({}): no system sheet had the keyboard in {ms} ms",
                                 index + 1,
                                 step.describe()
                             )
@@ -6533,6 +6565,8 @@ mod tests {
             "--wait-named",
             "45000",
             "Try again",
+            "--wait-sheet-keyboard",
+            "5000",
             "--move-window",
             "-10,5",
             "--resize-window",
@@ -6564,7 +6598,7 @@ mod tests {
             allowed,
             [
                 false, false, false, false, false, false, false, false, false, false, false, false,
-                false, false, false, false, false, false, false, false, false, false, true
+                false, false, false, false, false, false, false, false, false, false, false, true
             ]
         );
         assert_eq!(
@@ -6632,6 +6666,7 @@ mod tests {
                     name: "Try again".into(),
                     ms: 45000
                 },
+                Step::WaitSheetKeyboard(5000),
                 Step::MoveWindow { dx: -10, dy: 5 },
                 Step::ResizeWindow {
                     width: 800,
@@ -6680,6 +6715,7 @@ mod tests {
             &["--key", "42+", "--", "app"],
             &["--drag", "1,2,3", "--", "app"],
             &["--wait-named", "soon", "Try again", "--", "app"],
+            &["--wait-sheet-keyboard", "soon", "--", "app"],
             &["--until-named", "soon", "Open", "--key", "57", "--", "app"],
             &["--press", "1,2"],
             &["--press", "1,2", "--"],

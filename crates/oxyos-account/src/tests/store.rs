@@ -166,6 +166,10 @@ fn the_login_screen_is_listed_each_account_without_its_credential() {
     assert_eq!(listed[0].name, "ada");
     assert_eq!(broken.len(), 1);
     assert!(broken[0].starts_with("oxy-other"));
+    // With neither, no name: the user's (`oxy-…`) is an identifier, never shown as one.
+    nameless.profile.username = None;
+    store.put(&nameless).unwrap();
+    assert_eq!(store.list().unwrap().0[0].name, "");
 }
 
 #[test]

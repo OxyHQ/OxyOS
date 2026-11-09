@@ -140,7 +140,7 @@ export function TransferResetPage({ actions, strings }: Props) {
                 <GroupedSectionItem
                   key={`${index}-${account.name}`}
                   icon={<AccountPicture picture={null} initials={initialsOf(account.name)} size={28} />}
-                  title={account.name}
+                  title={account.name || words.unnamedAccount}
                   description={`${words.accountItem}\n${signOutLine(account, shown, words)}`}
                   descriptionLines={0}
                   testID={`erase-assistant-account-${index}`}
@@ -157,7 +157,7 @@ export function TransferResetPage({ actions, strings }: Props) {
     }
     return {
       title: words.title,
-      description: words.passwordDescription(administratorOf(shown).name),
+      description: words.passwordDescription(administratorOf(shown).name || words.unnamedAccount),
       actions: [
         { label: words.cancel, color: "cancel", onPress: close, disabled: working, testID: "erase-assistant-cancel" },
         {

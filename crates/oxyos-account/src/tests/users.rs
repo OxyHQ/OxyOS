@@ -2,8 +2,8 @@
 
 use super::{account, crypt_verifies, Root, TempDir, PASSWORD};
 use crate::users::{
-    group_members, passwd_entry, verifier_password, SystemUsers, UnixUser, Users, UsersError,
-    ADMINISTRATORS,
+    gecos_full_name, group_members, passwd_entry, passwd_gecos, verifier_password, SystemUsers,
+    UnixUser, Users, UsersError, ADMINISTRATORS, MAX_FULL_NAME_CHARS,
 };
 use crate::Secret;
 use std::fs;
@@ -251,4 +251,54 @@ fn a_new_homes_file_is_written_inside_it_and_never_through_a_link() {
     // Nothing outside it is named.
     assert!(users.seed_home(&user, Path::new("../escape"), b"").is_err());
     assert!(users.seed_home(&user, Path::new("/etc/x"), b"").is_err());
+}
+
+#[test]
+fn a_full_name_is_what_gecos_can_hold() {
+    assert_eq!(gecos_full_name("Ada Lovelace"), "Ada Lovelace");
+    assert_eq!(
+        gecos_full_name("  Ada,  Countess:\nof\tLovelace "),
+        "Ada Countess of Lovelace"
+    );
+    assert_eq!(gecos_full_name("José Núñez 李"), "José Núñez 李");
+    assert_eq!(gecos_full_name(" , : "), "");
+    let long = "é".repeat(MAX_FULL_NAME_CHARS + 10);
+    assert_eq!(gecos_full_name(&long).chars().count(), MAX_FULL_NAME_CHARS);
+}
+
+#[test]
+fn a_users_full_name_is_written_with_usermod_once() {
+    if !super::passwd_tools() {
+        return;
+    }
+    let root = Root::new("users-full-name");
+    let users = SystemUsers::with_prefix(root.path());
+    let name = account().user_name();
+    assert_eq!(users.set_full_name(&name, "Ada"), Err(UsersError::Missing));
+    let made = users.create(&name).unwrap();
+    let passwd = root.path().join("etc/passwd");
+    assert_eq!(
+        passwd_gecos(&passwd, name.as_str()),
+        Ok(Some(String::new()))
+    );
+    assert_eq!(
+        users.set_full_name(&name, "Ada, Countess: Lovelace"),
+        Ok(true)
+    );
+    assert_eq!(
+        passwd_gecos(&passwd, name.as_str()),
+        Ok(Some("Ada Countess Lovelace".into()))
+    );
+    // The entry is otherwise as it was.
+    assert_eq!(passwd_entry(&passwd, name.as_str()), Ok(Some(made)));
+    // The same name is not written again; another is.
+    assert_eq!(
+        users.set_full_name(&name, "Ada Countess Lovelace"),
+        Ok(false)
+    );
+    assert_eq!(users.set_full_name(&name, "José Núñez"), Ok(true));
+    assert_eq!(
+        passwd_gecos(&passwd, name.as_str()),
+        Ok(Some("José Núñez".into()))
+    );
 }

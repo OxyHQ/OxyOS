@@ -7119,6 +7119,57 @@ fn the_screen_readers_keys_reach_it_alone() {
 }
 
 #[test]
+fn with_a_screen_reader_plain_arrows_reach_the_focused_surface_once_each_in_order() {
+    // VoiceOver's arrows are its own only with its modifiers; so are the reader's: the arrows
+    // alone, before, between and after its chords, are the focused surface's, each press and
+    // release once and in the order typed, and the reader is sent its commands alone.
+    const UP: u32 = 103;
+    const DOWN: u32 = 108;
+    let mut h = Harness::new();
+    h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    let tap = |h: &mut Harness, key: u32| {
+        h.scene.keyboard(key, true, None);
+        h.scene.keyboard(key, false, None);
+    };
+    tap(&mut h, DOWN);
+    tap(&mut h, UP);
+    chord(&mut h, RIGHT, CTRL);
+    tap(&mut h, DOWN);
+    tap(&mut h, LEFT);
+    chord(&mut h, LEFT, CTRL);
+    tap(&mut h, RIGHT);
+    // A press held across the reader's chord: its release is the surface's too.
+    h.scene.keyboard(DOWN, true, None);
+    chord(&mut h, RIGHT, CTRL);
+    h.scene.keyboard(DOWN, false, None);
+    let events = logged(&mut h);
+    assert_eq!(
+        commands(&events),
+        [
+            ReaderCommand::Next,
+            ReaderCommand::Previous,
+            ReaderCommand::Next
+        ]
+    );
+    let modifiers = [(CTRL, true), (ALT, true), (ALT, false), (CTRL, false)];
+    let expected = [
+        &[(DOWN, true), (DOWN, false), (UP, true), (UP, false)][..],
+        &modifiers,
+        &[(DOWN, true), (DOWN, false), (LEFT, true), (LEFT, false)],
+        &modifiers,
+        &[(RIGHT, true), (RIGHT, false), (DOWN, true)],
+        &modifiers,
+        &[(DOWN, false)],
+    ]
+    .concat();
+    assert_eq!(keys_to(&events, APP), expected);
+    assert_eq!(h.scene.focus(), Some(window));
+}
+
+#[test]
 fn without_a_screen_reader_its_keys_are_ordinary() {
     let mut h = Harness::new();
     // An assistive technology without the grant has no keys.

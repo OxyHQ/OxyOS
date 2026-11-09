@@ -1,7 +1,8 @@
 //! The service's sandbox as systemd runs it: `oxyos-accountd.service` itself, unchanged but for
 //! what it starts (a drop-in starts this test binary's [`inside_the_unit`] instead of the
 //! service), sets a user up with the system's own tools, as setting an account up does (the user
-//! made with its home, its verifier, made an administrator, locked), and removes it with its home.
+//! made with its home, its verifier, made an administrator, named, locked), and removes it with its
+//! home.
 //! A unit whose sandbox leaves `/home` read-only fails here, as it failed on a real machine
 //! (`useradd` could not make the home, exit 12), and so does one that stops hiding `/root` and
 //! `/run/user`, or that lets the service write outside what it needs.
@@ -176,6 +177,12 @@ fn inside_the_unit() {
         .make_administrator(&name)
         .expect("it is made an administrator");
     assert!(users.is_administrator(&name).unwrap());
+    // Named as its account is: passwd's full name (GECOS), which the system's tools show.
+    assert_eq!(users.set_full_name(&name, "Ada Lovelace"), Ok(true));
+    assert_eq!(
+        oxyos_account::users::passwd_gecos(std::path::Path::new("/etc/passwd"), name.as_str()),
+        Ok(Some("Ada Lovelace".into()))
+    );
     // Signing it out of the machine, and removing it with its home.
     users.lock(&name).expect("it is locked");
     users.remove(&name).expect("it is removed with its home");

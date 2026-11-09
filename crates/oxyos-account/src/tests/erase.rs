@@ -290,18 +290,14 @@ fn the_preview_lists_every_account_the_asking_one_first_then_by_name() {
 }
 
 #[test]
-fn an_account_with_neither_name_nor_handle_is_named_by_its_user() {
+fn an_account_with_neither_name_nor_handle_is_unnamed_never_named_by_its_user() {
     let erase = Erase::new(
         three_accounts(),
         FakeSystem::default(),
         FakePasswords::default(),
     );
     enroll(&erase.machine, GRACE_ACCOUNT, GRACE, None, Some("  "), true);
-    let grace = AccountId::parse(GRACE_ACCOUNT).unwrap().user_name();
-    assert_eq!(
-        erase.preview(ADA).accounts[1],
-        account(grace.as_str(), None, false)
-    );
+    assert_eq!(erase.preview(ADA).accounts[1], account("", None, false));
 }
 
 #[test]

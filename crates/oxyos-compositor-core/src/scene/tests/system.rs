@@ -438,6 +438,113 @@ fn a_sheet_asked_takes_the_keys_from_the_application_behind_it() {
 }
 
 #[test]
+fn a_window_mapped_while_a_sheet_has_the_keyboard_does_not_take_it() {
+    // An application asks for a passkey as it starts (ADR 0050, decision 7): the session's sheet
+    // takes the keyboard before the application's window is first shown. The window, mapped with
+    // its launch's activation still good (nothing typed or pressed since), comes up under the
+    // sheet without the keyboard: every key typed in the sheet is the shell's, once each, in
+    // order, until the sheet goes and the window has the keyboard.
+    const DOWN: u32 = 108;
+    const UP: u32 = 103;
+    let mut h = Harness::new();
+    let sheet = h.scene.show_sheet(Some(APP), "{}").unwrap();
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 60,
+            kind: ShellKind::Overlay,
+            edge: PanelEdge::None,
+            output: 1,
+            size: Size::new(400, 200),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 60));
+    h.request(
+        SHELL,
+        Request::FocusShellSurface {
+            surface: 60,
+            serial: 0,
+        },
+    )
+    .unwrap();
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 60)));
+    assert!(h.scene.system_sheet_has_keyboard());
+    let window = h.toplevel(APP, 1, 400, 300);
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 60)));
+    assert!(h.rendered(window), "the window is shown, under the sheet");
+    logged(&mut h);
+    for (key, pressed) in [
+        (DOWN, true),
+        (DOWN, false),
+        (UP, true),
+        (UP, false),
+        (DOWN, true),
+        (DOWN, false),
+    ] {
+        h.scene.keyboard(key, pressed, None);
+    }
+    let events = logged(&mut h);
+    assert_eq!(
+        keys_to(&events, SHELL),
+        [
+            (DOWN, true),
+            (DOWN, false),
+            (UP, true),
+            (UP, false),
+            (DOWN, true),
+            (DOWN, false)
+        ]
+    );
+    assert!(keys_to(&events, APP).is_empty());
+    assert!(!to(&events, APP)
+        .iter()
+        .any(|event| matches!(event, Event::Focus { focused: true, .. })));
+    // Answered, the sheet's overlay goes: the window shown under it has the keyboard.
+    h.request(
+        SHELL,
+        Request::SheetAnswer {
+            sheet,
+            accepted: false,
+            serial: 0,
+        },
+    )
+    .unwrap();
+    h.request(SHELL, Request::Destroy { surface: 60 }).unwrap();
+    h.pump();
+    assert!(!h.scene.system_sheet_has_keyboard());
+    assert_eq!(h.scene.focus(), Some(window));
+}
+
+#[test]
+fn a_window_mapped_with_no_sheet_asked_takes_the_keyboard_from_an_overlay() {
+    // The same window and overlay without a sheet asked: the launch's activation gives the window
+    // the keyboard as it maps, as it always did.
+    let mut h = Harness::new();
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: 60,
+            kind: ShellKind::Overlay,
+            edge: PanelEdge::None,
+            output: 1,
+            size: Size::new(400, 200),
+            exclusive: 0,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, 60));
+    h.scene.activate(key(SHELL, 60));
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(key(SHELL, 60)));
+    assert!(!h.scene.system_sheet_has_keyboard());
+    let window = h.toplevel(APP, 1, 400, 300);
+    assert_eq!(h.scene.focus(), Some(window));
+}
+
+#[test]
 fn each_client_has_its_own_requests_waiting() {
     // Shells on six displays each ask for what they show as they start, before the session's
     // turn takes any: none is refused for what the others asked.

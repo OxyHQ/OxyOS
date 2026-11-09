@@ -2193,7 +2193,8 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
  * the password and the PIN at least. Blocks while the service sets the account up, telling its
  * steps to oxyos_account_enrollment_on_progress's function. The answer, JSON:
- * {"enrolled": {"accountId", "user"}}, "secondFactorRequired",
+ * {"enrolled": {"accountId", "user", "name"}} (name: what the person is called, empty for none;
+ * the user is never shown), "secondFactorRequired",
  * {"failed": {"reason": "unreachable" | "localFailure"}} (Oxy could not be reached, or the machine
  * could not be set up and was put back: the sign-in is kept, oxyos_account_enrollment_retry tries
  * again, never a new sign-in) or {"refused": {"reason", "retryAfterSeconds"}}, which ends the setup

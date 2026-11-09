@@ -107,6 +107,19 @@ pub struct Profile {
     pub languages: Option<Vec<String>>,
 }
 
+impl Profile {
+    /// What the person is called, as Oxy's own apps call them: the account's display name, else
+    /// its username; none when it has neither. The account's user (`oxy-…`) is an identifier of
+    /// the machine's and is never a name shown to anyone (ADR 0020, decision 1).
+    pub fn name(&self) -> Option<&str> {
+        [&self.display_name, &self.username]
+            .into_iter()
+            .flatten()
+            .map(|name| name.trim())
+            .find(|name| !name.is_empty())
+    }
+}
+
 /// A sign-in Oxy completed: who signed in, on which device, and the holder secret it issued (the
 /// platform credential, when the sign-in named the platform's client). Its own access token is
 /// never read.

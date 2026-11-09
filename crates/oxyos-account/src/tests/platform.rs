@@ -680,3 +680,52 @@ fn a_rotation_oxy_could_not_confirm_keeps_the_credential_the_machine_had() {
     assert!(machine.api().live().contains(&before.expose().to_owned()));
     assert!(machine.api().is_pending(&platform_secret(2)));
 }
+
+#[test]
+fn a_name_changed_on_oxy_is_the_users_full_name_and_a_new_snapshot_after_the_next_online_check() {
+    let machine = machine(FakeApi::default());
+    let name = account().user_name();
+    // Set up, the user is named as the account is: never its user's name.
+    assert_eq!(
+        machine.users().full_name(name.as_str()).as_deref(),
+        Some("Ada Lovelace")
+    );
+    let uid = machine.uid();
+    let before = machine.platform.snapshot(uid);
+    let waker = Arc::new(rustix::event::eventfd(0, rustix::event::EventfdFlags::NONBLOCK).unwrap());
+    machine.platform.watch(uid, &waker);
+    // Renamed on Oxy; the next online check reads the profile anew.
+    *machine.api().display_name.lock().unwrap() = Some("Ada King".into());
+    assert_eq!(
+        machine
+            .platform
+            .check(&user(), Secret::new(PASSWORD), Local::Rejected),
+        Checked::ACCEPTED
+    );
+    assert_eq!(
+        machine.users().full_name(name.as_str()).as_deref(),
+        Some("Ada King")
+    );
+    let after = machine.platform.snapshot(uid);
+    let account = after.account.as_ref().unwrap();
+    assert_eq!(account.display_name.as_deref(), Some("Ada King"));
+    assert_eq!(account.handle, USERNAME);
+    // The same account: the SDK's revision stays, and its subscribers are told.
+    assert_eq!(after.revision, before.revision);
+    let mut told = [0u8; 8];
+    assert_eq!(rustix::io::read(&*waker, &mut told), Ok(8));
+    // Without a display name, the username; the same name is not written again.
+    *machine.api().display_name.lock().unwrap() = None;
+    machine
+        .platform
+        .check(&user(), Secret::new(PASSWORD), Local::Rejected);
+    assert_eq!(
+        machine.users().full_name(name.as_str()).as_deref(),
+        Some(USERNAME)
+    );
+    let writes = *machine.users().full_name_writes.lock().unwrap();
+    machine
+        .platform
+        .check(&user(), Secret::new(PASSWORD), Local::Rejected);
+    assert_eq!(*machine.users().full_name_writes.lock().unwrap(), writes);
+}

@@ -294,6 +294,7 @@ export function SetupAssistant({
   /** The enrolled accounts: the new one's name, once it is listed. */
   accounts: Accounts;
   close?: () => void;
+  /** Set up but not signed in: the account's user (to choose it) and its name (empty: none). */
   enrolled: (user: string, name: string) => void;
   /** Where it begins: the welcome on a first account, else the connection's check. */
   initial?: SetupStep;
@@ -389,6 +390,8 @@ export function SetupAssistant({
     switch (next.next) {
       case "enrolled": {
         const { pin, password } = draft.current;
+        // Named as the service enrolled it when the sign-in said nothing (the QR, a password).
+        account = { ...account, name: account.name || next.name };
         setStep({ step: "signingIn", account, user: next.user });
         latest.current.reloadAccounts?.();
         setup.end();
