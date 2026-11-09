@@ -668,6 +668,8 @@ A scenario with `account` runs against a played accounts' service's session sock
 (docs/adr/0020-oxy-account-login.mdx, decision 6; `OXYOS_ACCOUNTD_SESSION_SOCKET`, which every run
 points at a socket of its own, so none asks the machine's): the application ids it knows as the
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
+picture (`account.picture_colour`: a file of that colour the snapshot's account names as its
+`picture`; a login screen's played account's `picture_colour` is its listed `picture` alike), its
 snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online, no languages; an
 `account` given replaces hers whole and is told unchanged, `languages` included), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
@@ -1562,6 +1564,11 @@ def serve_account_session(path, spec, log):
     lock = threading.Lock()
     subscribers = []
     ACCOUNT["snapshot"] = account_snapshot(spec)
+    # The account's picture (`account.picture_colour`): a file of that colour the snapshot names, as
+    # the service keeps the account's avatar on the machine.
+    if spec.get("picture_colour") and ACCOUNT["snapshot"].get("account"):
+        picture = played_picture(pathlib.Path(path).parent / "pictures", "account", spec["picture_colour"])
+        ACCOUNT["snapshot"] = dict(ACCOUNT["snapshot"], account=dict(ACCOUNT["snapshot"]["account"], picture=picture))
     ACCOUNT["log"] = log
     registered = set(spec.get("registered", []))
     wrong_passwords = [0]
@@ -2249,7 +2256,8 @@ def login_program(out, offscreen, login):
     oxy = played_oxy(login["oxy"], out / "oxy-api.jsonl") if "oxy" in login else None
     if oxy:
         login = dict(login, platform={"api": oxy[0], "clientId": "oxy_pk_played"})
-    serve_accounts(accountd, login.get("accounts", []), login, out / "login-accounts.jsonl")
+    serve_accounts(accountd, played_pictures(login.get("accounts", []), out / "pictures"), login,
+                   out / "login-accounts.jsonl")
     program = pathlib.Path(offscreen).resolve().parent / "oxyos-login"
     process = subprocess.Popen(
         [str(program), "--dev", "--pam-confdir", str(pam), "--record", str(record),
@@ -2483,6 +2491,28 @@ def png_bytes(width, height, colour, right=None):
 
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def played_picture(directory, name, colour):
+    """An account's picture as the accounts' service keeps it (docs/adr/0020-oxy-account-login.mdx,
+    the 2026-11-09 amendment): a PNG of one colour, 96 × 96, in `directory`; its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{name}-played"
+    path.write_bytes(png_bytes(96, 96, colour))
+    return str(path)
+
+
+def played_pictures(accounts, directory):
+    """The login screen's played accounts, each `picture_colour` ("#rrggbb") made its picture: a
+    file of that colour, its path the account's `picture`, as the service lists it."""
+    played = []
+    for account in accounts:
+        account = dict(account)
+        colour = account.pop("picture_colour", None)
+        if colour:
+            account["picture"] = played_picture(directory, account["user"], colour)
+        played.append(account)
+    return played
 
 
 def with_home(value, preferences):

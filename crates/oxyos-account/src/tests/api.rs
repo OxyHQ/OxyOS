@@ -622,3 +622,95 @@ fn the_windows_oxy_tells_are_measured_from_their_answer_never_from_a_clock() {
     assert!(window <= std::time::Instant::now() + std::time::Duration::from_secs(198));
     assert!(window > std::time::Instant::now() + std::time::Duration::from_secs(190));
 }
+
+/// Answers each request of `answers` in turn (status, extra headers, body bytes), handing back the
+/// request lines.
+fn cloud(answers: Vec<(u16, String, Vec<u8>)>) -> (String, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let mut lines = Vec::new();
+        for (status, headers, body) in answers {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            loop {
+                let mut header = String::new();
+                reader.read_line(&mut header).unwrap();
+                if header.trim_end().is_empty() {
+                    break;
+                }
+            }
+            lines.push(line.trim_end().to_owned());
+            let head = format!(
+                "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n",
+                body.len()
+            );
+            (&stream).write_all(head.as_bytes()).unwrap();
+            (&stream).write_all(&body).unwrap();
+        }
+        lines
+    });
+    (base, handle)
+}
+
+#[test]
+fn a_picture_is_the_avatars_thumbnail_from_the_cloud_followed_where_it_is_kept() {
+    let png = b"\x89PNG\r\n\x1a\nthumbnail".to_vec();
+    // The cloud redirects a file's URL to where it is kept, as cloud.oxy.so does.
+    let (base, lines) = cloud(vec![
+        (302, "Location: /variants/thumb.webp\r\n".into(), Vec::new()),
+        (200, "Content-Type: image/png\r\n".into(), png.clone()),
+    ]);
+    let api = HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud(&base)
+        .unwrap();
+    assert_eq!(api.picture("01a1236a-7bb5-79ea-b83f-cb38c5e2944f"), Ok(png));
+    assert_eq!(
+        lines.join().unwrap(),
+        [
+            "GET /01a1236a-7bb5-79ea-b83f-cb38c5e2944f?variant=thumb HTTP/1.1",
+            "GET /variants/thumb.webp HTTP/1.1"
+        ]
+    );
+    // No thumbnail: the image itself.
+    let jpeg = vec![0xff, 0xd8, 0xff, 0xe0, 1, 2, 3];
+    let (base, lines) = cloud(vec![
+        (404, String::new(), b"{}".to_vec()),
+        (200, String::new(), jpeg.clone()),
+    ]);
+    let api = HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud(&base)
+        .unwrap();
+    assert_eq!(api.picture("avatar-1"), Ok(jpeg));
+    assert_eq!(
+        lines.join().unwrap(),
+        [
+            "GET /avatar-1?variant=thumb HTTP/1.1",
+            "GET /avatar-1 HTTP/1.1"
+        ]
+    );
+    // What is not an image is never a picture, and an id that is not one is never asked.
+    let (base, lines) = cloud(vec![(200, String::new(), b"<html>".to_vec())]);
+    let api = HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud(&base)
+        .unwrap();
+    assert!(matches!(
+        api.picture("avatar-1"),
+        Err(ApiError::Unexpected(_))
+    ));
+    lines.join().unwrap();
+    assert!(matches!(
+        api.picture("../users/me"),
+        Err(ApiError::Unexpected(_))
+    ));
+    // The cloud is HTTPS, or a development server on this machine.
+    assert!(HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud("http://cloud.example")
+        .is_err());
+}

@@ -814,6 +814,8 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
                 {
                     self.end_online(&replaced, &attempt.account);
                 }
+                // Its picture, as the login screen and its session show it from now on.
+                self.picture_user(&committed.enrolled.user, &committed.enrolled.profile);
                 Ok(committed.enrolled)
             }
             Err(error) if on_the_way(&error) || matches!(error, ApiError::Locked { .. }) => {
@@ -1027,6 +1029,43 @@ impl<A: OxyApi, U: Users> Setup<A, U> {
             .set_full_name(user, profile.name().unwrap_or_default())
         {
             eprintln!("oxyos-accountd: {user}: its full name is not written: {error}");
+        }
+    }
+
+    /// The account's picture made its avatar's (Oxy's cloud read where the machine does not have
+    /// it yet), or removed when it has none: whether it changed. Best effort, never under the
+    /// machine's lock while the cloud is asked: a picture not read is read at the next online
+    /// check, and until then the last one read is shown.
+    pub fn picture_user(&self, user: &UserName, profile: &Profile) -> bool {
+        let Some(avatar) = profile.avatar.as_deref().and_then(crate::api::avatar_id) else {
+            let had = self.store.picture(user, None).is_some();
+            let _machine = self.lock();
+            if let Err(error) = self.store.remove_pictures(user) {
+                eprintln!("oxyos-accountd: {user}: its picture cannot be removed: {error}");
+            }
+            return had;
+        };
+        if self.store.has_picture(user, avatar) {
+            return false;
+        }
+        let bytes = match self.api.picture(avatar) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                eprintln!("oxyos-accountd: {user}: its picture is not read: {error}");
+                return false;
+            }
+        };
+        let _machine = self.lock();
+        // Still enrolled: a removal while the cloud was asked leaves no picture behind.
+        if !matches!(self.store.enrollments(), Ok(all) if all.iter().any(|e| &e.user == user)) {
+            return false;
+        }
+        match self.store.put_picture(user, avatar, &bytes) {
+            Ok(_) => true,
+            Err(error) => {
+                eprintln!("oxyos-accountd: {user}: its picture is not kept: {error}");
+                false
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 {
-  "about": "Who the lock screen is for (docs/adr/0010-lock-screen.mdx; docs/adr/0020-oxy-account-login.mdx, decision 1 as amended on 2026-11-09), with the screen reader on in Spanish: the session's shell follows the accounts' service's snapshot (played here: Grace Hopper, @grace) as OxyOS itself, and the lock screen names the person by the account's display name, as a Mac's shows the full name: drawn under the picture and held as a text for the screen reader, never the account's Unix user (`oxy-…`) nor its short name. Locking says what it said before (the screen locked, the password field), and the right password unlocks. At 1 (1280 × 720).",
+  "about": "Who the lock screen is for (docs/adr/0010-lock-screen.mdx; docs/adr/0020-oxy-account-login.mdx, decision 1 as amended on 2026-11-09), with the screen reader on in Spanish: the session's shell follows the accounts' service's snapshot (played here: Grace Hopper, @grace) as OxyOS itself, and the lock screen shows the account's picture (the snapshot's `picture`, the file the service keeps of the account's Oxy avatar, played here as a magenta one) and names the person by the account's display name, as a Mac's shows the full name: drawn under the picture and held as a text for the screen reader, never the account's Unix user (`oxy-…`) nor its short name. Locking says what it said before (the screen locked, the password field), and the right password unlocks. At 1 (1280 × 720).",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -21,7 +21,8 @@
         "handle": "grace",
         "displayName": "Grace Hopper"
       }
-    }
+    },
+    "picture_colour": "#e0218a"
   },
   "steps": [
     {
@@ -38,7 +39,7 @@
       }
     },
     {
-      "name": "Ctrl+Super+Q locks: the lock screen names the person as their Oxy account does (its display name, from the accounts' service's snapshot), shown and held for the screen reader, never the Unix user; its password field focused and said",
+      "name": "Ctrl+Super+Q locks: the lock screen shows the account's picture (the file the accounts' service keeps of its avatar) and names the person as their Oxy account does (its display name, from the accounts' service's snapshot), shown and held for the screen reader, never the Unix user; its password field focused and said",
       "do": [
         "strokes",
         [
@@ -95,6 +96,11 @@
               "name": "grace"
             }
           ]
+        },
+        "output_pixels": {
+          "640,512": "#e0218a",
+          "625,500": "#e0218a",
+          "655,525": "#e0218a"
         }
       }
     },

@@ -59,8 +59,9 @@
 //!
 //!   `Snapshot` is the SDK's `OxyHostSnapshot`: `{"status": "signed_in" | "signed_out" |
 //!   "unavailable", "revision", "account": {"id", "handle", "displayName"?, "avatar"?,
-//!   "languages"?} | null, "online"}`, `languages` the account's locales, primary first, as the
-//!   platform last read them online. A token is the application's own (Settings and the shell,
+//!   "picture"?, "languages"?} | null, "online"}`, `picture` the account's picture on this machine
+//!   (its avatar's image, a file the session reads, [`crate::store`]), `languages` the account's
+//!   locales, primary first, as the platform last read them online. A token is the application's own (Settings and the shell,
 //!   registered as system applications, are OxyOS's; any other by its desktop entry id); null
 //!   offline, signed out or refused. `remove` is Settings' alone, registered as a system application: decision 5's Remove
 //!   of the peer's own account. So are `erasePreview` and `eraseAll`, erasing the machine
