@@ -37,7 +37,6 @@ import {
   backup as systemBackup,
   session as systemSession,
   bluetooth as systemBluetooth,
-  network as systemNetwork,
   power as systemPower,
   privacy,
   sound as systemSound,
@@ -47,11 +46,12 @@ import {
   useInputSourcesState,
   useBackupState,
   useBluetoothState,
-  useNetworkState,
   useSoundState,
   usePowerState,
   useUpdateState,
 } from './oxyos/system';
+import { network as platformNetwork } from '@oxyos/platform';
+import { useFollowed } from '@oxyos/platform/react';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import {
   accountSnapshotFrom,
@@ -75,8 +75,8 @@ import type { KeychainPlatform } from '../../../apps/settings/src/passwords';
 import type {
   DiagnosticsAnswer,
   NetworkActions,
-  NetworkAnswer,
   NetworkState,
+  PrivateAddressAnswer,
   ResetAnswer,
 } from '../../../apps/settings/src/network';
 import type {
@@ -569,24 +569,30 @@ function useInstallModel() {
  * network after a moment (no password asked: that is the session's sheet) and forgets a known one.
  */
 function useNetworkModel(): { network: NetworkState | undefined; actions: NetworkActions | undefined } {
-  const told: NetworkState | null = useNetworkState();
+  const told = useFollowed(platformNetwork.wifi) as NetworkState | null;
   const [fixture, setFixture] = React.useState(NETWORK_FIXTURE);
   const current = React.useRef(fixture);
   current.current = fixture;
   const session = React.useMemo<NetworkActions>(
     () => ({
+      // A change the session refuses is said by the state it tells, which stays as it was.
       setWifi: (enabled) => {
-        systemNetwork.setWifi(enabled);
+        platformNetwork.setWifi(enabled).catch(() => {});
       },
-      join: (ssid) => systemNetwork.join(ssid) as Promise<NetworkAnswer>,
-      forget: (id) => systemNetwork.forget(id) as Promise<NetworkAnswer>,
+      join: async (ssid) => {
+        await platformNetwork.join(ssid);
+      },
+      forget: async (id) => {
+        await platformNetwork.forget(id);
+      },
       scan: () => {
-        systemNetwork.scan();
+        platformNetwork.scan().catch(() => {});
       },
-      setPrivateAddress: (id, mode) => systemNetwork.setPrivateAddress(id, mode) as Promise<NetworkAnswer>,
-      resetPreview: () => systemNetwork.resetPreview() as Promise<ResetAnswer>,
-      resetNetwork: () => systemNetwork.reset() as Promise<ResetAnswer>,
-      diagnose: () => systemNetwork.diagnose() as Promise<DiagnosticsAnswer>,
+      setPrivateAddress: (id, mode) =>
+        platformNetwork.setPrivateAddress(id, mode) as Promise<unknown> as Promise<PrivateAddressAnswer>,
+      resetPreview: () => platformNetwork.resetPreview() as Promise<unknown> as Promise<ResetAnswer>,
+      resetNetwork: () => platformNetwork.reset() as Promise<unknown> as Promise<ResetAnswer>,
+      diagnose: () => platformNetwork.diagnose() as Promise<unknown> as Promise<DiagnosticsAnswer>,
     }),
     [],
   );
@@ -611,8 +617,8 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
         })),
       join: async (ssid) => {
         const target = current.current.wifi.networks.find((n) => n.ssid === ssid);
-        if (!target) return { failed: { reason: 'notFound' } };
-        if (!target.supported) return { failed: { reason: 'unsupported' } };
+        if (!target) throw { code: 'notFound' };
+        if (!target.supported) throw { code: 'failed', reason: 'unsupported' };
         setFixture((state) => ({ ...state, joining: ssid }));
         await new Promise((resolve) => setTimeout(resolve, 1500));
         setFixture((state) => {
@@ -636,11 +642,10 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
           },
           };
         });
-        return { joined: { ssid } };
       },
       forget: async (id) => {
         const known = current.current.wifi.known.find((k) => k.id === id);
-        if (!known) return { failed: { reason: 'notFound' } };
+        if (!known) throw { code: 'notFound' };
         setFixture((state) => {
           const joined = state.wifi.current?.ssid === known.ssid;
           return {
@@ -657,12 +662,11 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
             },
           };
         });
-        return { forgotten: {} };
       },
       scan: () => {},
       setPrivateAddress: async (id, mode) => {
         const known = current.current.wifi.known.find((k) => k.id === id);
-        if (!known) return { failed: { reason: 'notFound' } };
+        if (!known) throw { code: 'notFound' };
         setFixture((state) => ({
           ...state,
           wifi: {
@@ -673,9 +677,15 @@ function useNetworkModel(): { network: NetworkState | undefined; actions: Networ
         return { privateAddress: { mode, rejoined: current.current.wifi.current?.ssid === known.ssid } };
       },
       // Without a session there is no daemon to reset or to diagnose: said as such.
-      resetPreview: async () => ({ failed: { reason: 'unavailable' } }),
-      resetNetwork: async () => ({ failed: { reason: 'unavailable' } }),
-      diagnose: async () => ({ failed: { reason: 'unavailable' } }),
+      resetPreview: async () => {
+        throw { code: 'unavailable' };
+      },
+      resetNetwork: async () => {
+        throw { code: 'unavailable' };
+      },
+      diagnose: async () => {
+        throw { code: 'unavailable' };
+      },
     }),
     [],
   );

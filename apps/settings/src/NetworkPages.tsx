@@ -47,9 +47,11 @@ import {
   knownByName,
   otherNetworks,
   PRIVATE_ADDRESS_CHOICES,
+  privateAddressFailure,
   privateAddressOutcome,
   privateChoice,
   resetLines,
+  resetFailureOf,
   resetPlanOf,
   SCAN_INTERVAL_MS,
   type Diagnostics,
@@ -396,8 +398,10 @@ export function WifiPage({ snapshot, actions, strings, locale }: PageProps) {
   }, [joinedName]);
   const diagnose = React.useCallback(async () => {
     if (!act) return { failure: "unavailable" };
-    const answer = await act.diagnose();
-    return answer && "wifiDiagnostics" in answer ? { found: answer.wifiDiagnostics } : { failure: "failed" };
+    return act.diagnose().then(
+      (answer) => (answer && "wifiDiagnostics" in answer ? { found: answer.wifiDiagnostics } : { failure: "failed" }),
+      () => ({ failure: "failed" }),
+    );
   }, [act]);
   if (!state || !act || !state.available) return <Notice title={words.unavailable} testID="wifi-unavailable" />;
   const wifi = state.wifi;
@@ -413,18 +417,20 @@ export function WifiPage({ snapshot, actions, strings, locale }: PageProps) {
     AccessibilityInfo.announceForAccessibility(`${shown.title}. ${shown.description}`);
   };
   const join = async (ssid: string) => {
-    const reason = failureOf(await act.join(ssid));
+    const reason = await act.join(ssid).then(() => null, failureOf);
     if (joinFailureNeedsNote(reason)) {
       say({ title: words.couldNotJoin(ssid), description: failureLabel(reason, words.failures, "join") });
     }
   };
   const forget = async (known: KnownNetwork) => {
-    const reason = failureOf(await act.forget(known.id));
+    const reason = await act.forget(known.id).then(() => null, failureOf);
     if (reason) showNote({ title: words.couldNotForget, description: failureLabel(reason, words.failures, "forget") });
   };
   const choose = async (known: KnownNetwork, mode: PrivateAddressChoice) => {
     setSetting(mode);
-    const { failure, rejoinFailed } = privateAddressOutcome(await act.setPrivateAddress(known.id, mode));
+    const { failure, rejoinFailed } = await act
+      .setPrivateAddress(known.id, mode)
+      .then(privateAddressOutcome, privateAddressFailure);
     setSetting(null);
     if (failure) {
       const description = failure === "notPermitted" ? words.failures.notPermittedChange : words.failures[failure];
@@ -687,14 +693,14 @@ export function NetworkPage({ snapshot, actions, strings, locale }: PageProps) {
   const preview = async () => {
     if (!act || asking) return;
     setAsking(true);
-    const told = resetPlanOf(await act.resetPreview());
+    const told = await act.resetPreview().then(resetPlanOf, resetFailureOf);
     setAsking(false);
     if ("plan" in told) showPlan(told.plan);
     else failed(told.failure);
   };
   const reset = async () => {
     if (!act) return;
-    const told = resetPlanOf(await act.resetNetwork());
+    const told = await act.resetNetwork().then(resetPlanOf, resetFailureOf);
     if (!("plan" in told)) {
       failed(told.failure);
       return;

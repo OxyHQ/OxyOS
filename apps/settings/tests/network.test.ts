@@ -15,9 +15,11 @@ import {
   knownByName,
   otherNetworks,
   PRIVATE_ADDRESS_CHOICES,
+  privateAddressFailure,
   privateAddressOutcome,
   privateChoice,
   resetLines,
+  resetFailureOf,
   resetPlanOf,
   type Diagnostics,
   type EthernetState,
@@ -81,12 +83,14 @@ test("a lock for every network that asks a password, none for open and OWE ones"
 });
 
 test("failures: the session's reasons, an unknown one as a failure, a refusal as not permitted", () => {
-  assert.equal(failureOf({ joined: { ssid: "Casa" } }), null);
-  assert.equal(failureOf({ forgotten: {} }), null);
-  assert.equal(failureOf({ failed: { reason: "wrongPassword" } }), "wrongPassword");
-  assert.equal(failureOf({ failed: { reason: "notPermitted" } }), "notPermitted");
-  assert.equal(failureOf({ failed: { reason: "somethingNew" } }), "failed");
-  assert.equal(failureOf({ refused: { reason: "network" } }), "notPermitted");
+  // As the platform API rejects: a code, and the session's own reason when it said one.
+  assert.equal(failureOf({ code: "failed", reason: "wrongPassword" }), "wrongPassword");
+  assert.equal(failureOf({ code: "notPermitted", reason: "notPermitted" }), "notPermitted");
+  assert.equal(failureOf({ code: "failed", reason: "somethingNew" }), "failed");
+  assert.equal(failureOf({ code: "needsInput", reason: "needsInput" }), "notPermitted");
+  assert.equal(failureOf({ code: "cancelled" }), "cancelled");
+  assert.equal(failureOf({ code: "unavailable", reason: "notSent" }), "unavailable");
+  assert.equal(failureOf(new Error("anything")), "failed");
   assert.equal(failureOf(null), "failed");
 });
 
@@ -184,11 +188,13 @@ test("a private address's answer: set, its rejoin failed, or why it was not set"
     privateAddressOutcome({ privateAddress: { mode: "fixed", rejoined: false, rejoinFailed: "timeout" } }),
     { failure: null, rejoinFailed: true },
   );
-  assert.deepEqual(privateAddressOutcome({ failed: { reason: "notPermitted" } }), {
+  assert.deepEqual(privateAddressOutcome(null), { failure: "failed", rejoinFailed: false });
+  // Not set: the call rejected with the platform's error.
+  assert.deepEqual(privateAddressFailure({ code: "notPermitted", reason: "notPermitted" }), {
     failure: "notPermitted",
     rejoinFailed: false,
   });
-  assert.deepEqual(privateAddressOutcome({ refused: { reason: "needsInput" } }), {
+  assert.deepEqual(privateAddressFailure({ code: "needsInput", reason: "needsInput" }), {
     failure: "notPermitted",
     rejoinFailed: false,
   });
@@ -227,10 +233,12 @@ test("a reset's confirmation lists what goes and what stays, and why", () => {
 test("a reset's answer: its plan before and after, or why there is none", () => {
   assert.deepEqual(resetPlanOf({ networkResetPreview: plan }), { plan });
   assert.deepEqual(resetPlanOf({ networkReset: plan }), { plan });
-  assert.deepEqual(resetPlanOf({ failed: { reason: "busy" } }), { failure: "busy" });
-  assert.deepEqual(resetPlanOf({ failed: { reason: "somethingNew" } }), { failure: "failed" });
-  assert.deepEqual(resetPlanOf({ refused: { reason: "needsInput" } }), { failure: "notPermitted" });
   assert.deepEqual(resetPlanOf(null), { failure: "failed" });
+  // Its rejection, the platform's error: the session's word where the page says it.
+  assert.deepEqual(resetFailureOf({ code: "busy", reason: "busy" }), { failure: "busy" });
+  assert.deepEqual(resetFailureOf({ code: "failed", reason: "somethingNew" }), { failure: "failed" });
+  assert.deepEqual(resetFailureOf({ code: "needsInput", reason: "needsInput" }), { failure: "notPermitted" });
+  assert.deepEqual(resetFailureOf(undefined), { failure: "failed" });
 });
 
 const found: Diagnostics = {

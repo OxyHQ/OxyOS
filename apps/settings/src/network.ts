@@ -92,13 +92,16 @@ export type FailureReason =
   | "timeout"
   | "failed";
 
-/** The session's answer to a join, a forget or a private address (or its refusal, without the grant). */
-export type NetworkAnswer =
-  | { joined: { ssid: string } }
-  | { forgotten: Record<string, never> }
-  | { privateAddress: { mode: PrivateAddress; rejoined: boolean; rejoinFailed?: string } }
-  | { failed: { reason: string } }
-  | { refused: { reason: string } };
+/**
+ * How a call fails: the platform API's error (`@oxyos/platform`'s PlatformError,
+ * docs/adr/0058-the-platform-api.mdx, decision 3), its code and the session's own reason.
+ */
+export type NetworkFailure = { code?: string; reason?: string };
+
+/** A private address changed: the network joined is joined again with it, or could not be. */
+export type PrivateAddressAnswer = {
+  privateAddress: { mode: PrivateAddress; rejoined: boolean; rejoinFailed?: string };
+};
 
 /** A saved connection a reset counts. */
 export type SavedConnection = { id: string; name: string; kind: "wifi" | "vpn" | "ethernet" };
@@ -110,11 +113,8 @@ export type KeptConnection = SavedConnection & { because: "notPermitted" | "ethe
     and after, as it went. */
 export type ResetPlan = { removed: SavedConnection[]; kept: KeptConnection[] };
 
-export type ResetAnswer =
-  | { networkResetPreview: ResetPlan }
-  | { networkReset: ResetPlan }
-  | { failed: { reason: string } }
-  | { refused: { reason: string } };
+/** What a reset's preview or the reset itself answers. */
+export type ResetAnswer = { networkResetPreview: ResetPlan } | { networkReset: ResetPlan };
 
 export type RouterVerdict = "reached" | "present" | "unreachable" | "notAllowed" | "notChecked";
 export type DnsVerdict = "resolved" | "failed" | "timedOut" | "notChecked";
@@ -145,20 +145,21 @@ export type Diagnostics = {
   dns: { servers: string[]; name: string; verdict: DnsVerdict; ms: number | null; addresses: number };
 };
 
-export type DiagnosticsAnswer = { wifiDiagnostics: Diagnostics } | { failed: { reason: string } } | { refused: { reason: string } };
+export type DiagnosticsAnswer = { wifiDiagnostics: Diagnostics };
 
 /**
- * Intents. The session answers a join once it is done (a password asked on the way, in its own
- * sheet) and a forget once the connection is gone; the state it then tells says what is so.
+ * Intents. A join resolves once it is done (a password asked on the way, in the session's own
+ * sheet) and a forget once the connection is gone; each call rejects with a NetworkFailure. The
+ * state the session then tells says what is so.
  */
 export type NetworkActions = {
   setWifi: (enabled: boolean) => void;
-  join: (ssid: string) => Promise<NetworkAnswer>;
-  forget: (id: string) => Promise<NetworkAnswer>;
+  join: (ssid: string) => Promise<void>;
+  forget: (id: string) => Promise<void>;
   /** NetworkManager refuses scans more often than every ten seconds or so. */
   scan: () => void;
   /** A known network's private address; the network joined is joined again with it. */
-  setPrivateAddress: (id: string, mode: PrivateAddressChoice) => Promise<NetworkAnswer>;
+  setPrivateAddress: (id: string, mode: PrivateAddressChoice) => Promise<PrivateAddressAnswer>;
   /** What resetting the network settings would remove and keep; nothing changes. */
   resetPreview: () => Promise<ResetAnswer>;
   resetNetwork: () => Promise<ResetAnswer>;
@@ -194,12 +195,13 @@ export function isLocked(security: Security): boolean {
   return security !== "open" && security !== "owe";
 }
 
-/** A failure's reason, known or not, as one of the session's. */
-export function failureOf(answer: NetworkAnswer | null | undefined): FailureReason | null {
-  if (!answer) return "failed";
-  if ("refused" in answer) return "notPermitted";
-  if (!("failed" in answer)) return null;
-  const reason = answer.failed.reason;
+/** The codes of a session's refusal (no grant, no input to cite, locked...): Settings may not. */
+const REFUSALS = new Set(["notPermitted", "needsInput", "locked", "invalid", "busy"]);
+
+/** A failure's reason, known or not, as one of the session's: its own word where Settings knows
+    it, else its code, a refusal as not permitted. */
+export function failureOf(error: unknown): FailureReason {
+  const { code, reason } = (error ?? {}) as NetworkFailure;
   const known: readonly FailureReason[] = [
     "wrongPassword",
     "cancelled",
@@ -210,7 +212,11 @@ export function failureOf(answer: NetworkAnswer | null | undefined): FailureReas
     "timeout",
     "failed",
   ];
-  return (known as readonly string[]).includes(reason) ? (reason as FailureReason) : "failed";
+  const isKnown = (word: string | undefined): word is FailureReason =>
+    word !== undefined && (known as readonly string[]).includes(word);
+  if (isKnown(reason)) return reason;
+  if (code !== undefined && REFUSALS.has(code)) return "notPermitted";
+  return isKnown(code) ? code : "failed";
 }
 
 /** Whether Settings must say a join's failure itself: the session's own sheet says a wrong password,
@@ -290,24 +296,37 @@ export function privateChoice(known: KnownNetwork): PrivateAddressChoice | null 
   return known.privateAddress === "other" ? null : known.privateAddress;
 }
 
-/** A private address's answer: the reason it failed, if it did, and whether the network joined
-    could not be joined again (the address is changed all the same). */
-export function privateAddressOutcome(answer: NetworkAnswer | null | undefined): {
-  failure: FailureReason | null;
-  rejoinFailed: boolean;
-} {
+/** A private address's outcome: whether the network joined could not be joined again (the address
+    is changed all the same). */
+export type PrivateAddressOutcome = { failure: FailureReason | null; rejoinFailed: boolean };
+
+/** A private address changed, as its answer says. */
+export function privateAddressOutcome(answer: PrivateAddressAnswer | null | undefined): PrivateAddressOutcome {
   if (answer && "privateAddress" in answer)
     return { failure: null, rejoinFailed: answer.privateAddress.rejoinFailed !== undefined };
-  return { failure: failureOf(answer), rejoinFailed: false };
+  return { failure: "failed", rejoinFailed: false };
 }
 
-/** A reset's answer, before or after: its plan, or why there is none. */
+/** A private address not changed: the reason, from the call's rejection. */
+export function privateAddressFailure(error: unknown): PrivateAddressOutcome {
+  return { failure: failureOf(error), rejoinFailed: false };
+}
+
+/** A reset's answer, before or after: its plan. */
 export function resetPlanOf(answer: ResetAnswer | null | undefined): { plan: ResetPlan } | { failure: string } {
   if (answer && "networkResetPreview" in answer) return { plan: answer.networkResetPreview };
   if (answer && "networkReset" in answer) return { plan: answer.networkReset };
-  if (answer && "refused" in answer) return { failure: "notPermitted" };
-  const reason = answer && "failed" in answer ? answer.failed.reason : "failed";
-  return { failure: ["notPermitted", "unavailable", "busy"].includes(reason) ? reason : "failed" };
+  return { failure: "failed" };
+}
+
+/** Why a reset, or its preview, failed: the reasons its words say, any other refusal as not
+    permitted. */
+export function resetFailureOf(error: unknown): { failure: string } {
+  const { code, reason } = (error ?? {}) as NetworkFailure;
+  const said = ["notPermitted", "unavailable", "busy"];
+  if (reason !== undefined && said.includes(reason)) return { failure: reason };
+  if (code !== undefined && said.includes(code)) return { failure: code };
+  return { failure: code !== undefined && REFUSALS.has(code) ? "notPermitted" : "failed" };
 }
 
 /** What a reset's confirmation says goes and stays, in lines: the Wi-Fi networks and the VPNs
