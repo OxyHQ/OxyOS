@@ -537,6 +537,124 @@ impl Scene {
         }
     }
 
+    /// The surfaces whose trees assistive technologies hold, in the order a screen reader's
+    /// cursor goes through them (docs/adr/0014-screen-reader.mdx, decision 5 as amended), as
+    /// VoiceOver's cursor starts in the key window:
+    /// 1. the window with the keyboard (or the shell's surface holding it: Launchpad, the menu
+    ///    bar after Super+F2), then what is its own in front of it, back to front: its popups,
+    ///    sheets and dialogs, each before what is in front of it (a submenu after its menu); then
+    ///    the input method's candidates, the focused field's;
+    /// 2. the other windows shown, front to back, each with its own, as VoiceOver's window
+    ///    chooser lists them;
+    /// 3. the system's surfaces shown, front to back by layer (notifications, overlays, the
+    ///    menu bar and the dock, the desktop), those of one layer by their place, top to bottom
+    ///    and left to right, as TalkBack orders windows: the menu bar before the dock.
+    ///
+    /// What is not shown (a window minimized, hidden or on another workspace, a popup not mapped
+    /// yet) is not in it. Locked, only the lock screen's surfaces are shown, the one with the
+    /// keyboard first.
+    pub fn reading_order(&self) -> Vec<SurfaceKey> {
+        let shown: Vec<SurfaceKey> = self
+            .roots
+            .iter()
+            .rev()
+            .copied()
+            .filter(|key| self.visible(*key))
+            .collect();
+        let key = self
+            .focus
+            .filter(|focus| self.visible(*focus))
+            .map(|focus| self.root_of(focus));
+        let layer = |key: &SurfaceKey| layer_of(&self.nodes[key].role);
+        let candidates = |key: &SurfaceKey| layer(key) == Layer::Candidates;
+        let mut roots: Vec<SurfaceKey> = key.into_iter().collect();
+        roots.extend(shown.iter().copied().filter(candidates));
+        roots.extend(
+            shown
+                .iter()
+                .copied()
+                .filter(|root| Some(*root) != key && layer(root) == Layer::Normal),
+        );
+        let mut system: Vec<SurfaceKey> = shown
+            .iter()
+            .copied()
+            .filter(|root| Some(*root) != key && !candidates(root) && layer(root) != Layer::Normal)
+            .collect();
+        system.sort_by_key(|root| {
+            let (x, y) = self.nodes[root].origin;
+            (std::cmp::Reverse(layer(root)), y, x)
+        });
+        roots.extend(system);
+        let mut order = Vec::new();
+        for root in roots {
+            self.push_group(root, &mut order);
+        }
+        order.retain(|key| {
+            self.accessibility
+                .get(key)
+                .is_some_and(|entry| entry.committed.is_some() && entry.published.is_some())
+        });
+        order
+    }
+
+    /// A surface, then what is its own in front of it, back to front: each child shown, and what
+    /// is in front of that child after it.
+    fn push_group(&self, key: SurfaceKey, out: &mut Vec<SurfaceKey>) {
+        if !self.visible(key) {
+            return;
+        }
+        out.push(key);
+        for child in &self.nodes[&key].children {
+            self.push_group(*child, out);
+        }
+    }
+
+    /// Tells assistive technologies the reading order when it changed since they were told it.
+    pub(super) fn tell_reading_order(&mut self) {
+        let targets = self.assistive_clients();
+        if targets.is_empty() {
+            self.told_reading_order = None;
+            return;
+        }
+        let order = self.reading_order();
+        if self.told_reading_order.as_ref() == Some(&order) {
+            return;
+        }
+        for target in targets {
+            self.emit_reading_order(target, &order);
+        }
+        self.told_reading_order = Some(order);
+    }
+
+    /// A newly connected assistive technology, after the trees it was sent: the reading order, to
+    /// it alone if the others hold it already, else to every one.
+    pub(super) fn tell_reading_order_to(&mut self, client: u32) {
+        let order = self.reading_order();
+        if self.told_reading_order.as_ref() != Some(&order) {
+            self.tell_reading_order();
+            return;
+        }
+        self.emit_reading_order(client, &order);
+    }
+
+    fn emit_reading_order(&mut self, target: u32, order: &[SurfaceKey]) {
+        self.emit(
+            target,
+            Event::AccessibilityOrder {
+                surfaces: order.len() as u32,
+            },
+        );
+        for key in order {
+            self.emit(
+                target,
+                Event::AccessibilityOrderSurface {
+                    client: key.client,
+                    surface: key.id,
+                },
+            );
+        }
+    }
+
     /// The committed snapshot of a surface, as an assistive technology receives it (with
     /// surface-local rectangles).
     pub fn accessibility_snapshot(&self, key: SurfaceKey) -> Option<&[AccessibleNode]> {

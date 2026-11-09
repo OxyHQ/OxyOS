@@ -124,8 +124,14 @@ pub struct Reader {
     told_locale: bool,
     /// Committed trees, by surface, in the order the compositor sent them first.
     trees: BTreeMap<Surface, Vec<Node>>,
-    /// The order surfaces' trees arrived in: the cursor moves on through them.
-    order: Vec<Surface>,
+    /// The order surfaces' trees arrived in: what the cursor moves on through when the compositor
+    /// tells no order (version 39 or older).
+    arrived: Vec<Surface>,
+    /// The order the compositor last told, whole (version 40): the cursor moves on through the
+    /// surfaces in it, and only them (docs/adr/0014-screen-reader.mdx, decision 5 as amended).
+    order: Option<Vec<Surface>>,
+    /// An order being told: how many surfaces it has, and those told so far.
+    ordering: Option<(u32, Vec<Surface>)>,
     receiving: BTreeMap<Surface, Vec<Option<Node>>>,
     /// The surfaces that are another's popups (their trees name a parent surface).
     popups: BTreeSet<Surface>,
@@ -167,7 +173,9 @@ impl Reader {
             locale: String::new(),
             told_locale: false,
             trees: BTreeMap::new(),
-            order: Vec::new(),
+            arrived: Vec::new(),
+            order: None,
+            ordering: None,
             receiving: BTreeMap::new(),
             popups: BTreeSet::new(),
             lives: BTreeMap::new(),
@@ -387,7 +395,7 @@ impl Reader {
                 self.announcing.remove(&key);
                 self.trees.remove(&key);
                 self.lives.retain(|(surface, ..), _| *surface != key);
-                self.order.retain(|surface| *surface != key);
+                self.arrived.retain(|surface| *surface != key);
                 if self.cursor.is_some_and(|(surface, _)| surface == key) {
                     self.cursor = None;
                     self.reached = false;
@@ -395,6 +403,18 @@ impl Reader {
                 if self.focused.is_some_and(|(surface, _)| surface == key) {
                     self.focused = None;
                 }
+            }
+            // The order the cursor goes through surfaces, told whole as the reader connects and
+            // whenever it changes (version 40).
+            Event::AccessibilityOrder { surfaces } => {
+                self.ordering = Some((surfaces, Vec::new()));
+                self.ordered();
+            }
+            Event::AccessibilityOrderSurface { client, surface } => {
+                if let Some((_, surfaces)) = &mut self.ordering {
+                    surfaces.push((client, surface));
+                }
+                self.ordered();
             }
             // The session's locale (ADR 0040): what is said from the next utterance is its language.
             Event::Locale { index, last, text } => {
@@ -432,6 +452,17 @@ impl Reader {
         }
     }
 
+    /// An order told whole replaces the last.
+    fn ordered(&mut self) {
+        if self
+            .ordering
+            .as_ref()
+            .is_some_and(|(count, surfaces)| surfaces.len() >= *count as usize)
+        {
+            self.order = self.ordering.take().map(|(_, surfaces)| surfaces);
+        }
+    }
+
     fn slot(&mut self, key: Surface, index: u32) -> Option<&mut Option<Node>> {
         self.receiving
             .get_mut(&key)
@@ -440,8 +471,8 @@ impl Reader {
 
     fn commit(&mut self, key: Surface, nodes: Vec<Node>) {
         let before = self.trees.insert(key, nodes);
-        if !self.order.contains(&key) {
-            self.order.push(key);
+        if !self.arrived.contains(&key) {
+            self.arrived.push(key);
         }
         // The cursor follows the element it was on, as the focus does (below): one going or coming
         // before it moves it on, and its old place may hold the next element now, which a focus
@@ -761,10 +792,16 @@ impl Reader {
         }
     }
 
-    /// The elements the cursor stops at, through every surface in order.
+    /// The elements the cursor stops at, through every surface in order: the order the compositor
+    /// told (the window with the keyboard and what is its own in front of it, the other windows
+    /// front to back, then the system's surfaces; nothing not shown), else, from a compositor that
+    /// tells none, the order the trees arrived in.
     fn stops_in_order(&self) -> Vec<(Surface, usize)> {
         self.order
+            .as_ref()
+            .unwrap_or(&self.arrived)
             .iter()
+            .filter(|surface| self.trees.contains_key(surface))
             .flat_map(|surface| (0..self.trees[surface].len()).map(move |index| (*surface, index)))
             .filter(|at| self.stops(*at))
             .collect()

@@ -3820,6 +3820,169 @@ fn a_reader_receives_committed_trees_and_ordinary_clients_never_do() {
     assert_eq!(snapshot[2].name, "Delete");
 }
 
+/// The reading orders `client` was told, each whole, in the order it was told them.
+fn told_orders(h: &Harness, client: ClientId) -> Vec<Vec<SurfaceKey>> {
+    let mut orders = Vec::new();
+    let mut receiving: Option<(u32, Vec<SurfaceKey>)> = None;
+    for event in h.events_for(client) {
+        match event {
+            Event::AccessibilityOrder { surfaces } => {
+                assert!(receiving.is_none(), "an order began inside another");
+                receiving = Some((surfaces, Vec::new()));
+            }
+            Event::AccessibilityOrderSurface { client, surface } => {
+                receiving
+                    .as_mut()
+                    .expect("an order's surface outside an order")
+                    .1
+                    .push(key(client, surface));
+            }
+            _ => {}
+        }
+        if receiving
+            .as_ref()
+            .is_some_and(|(count, surfaces)| surfaces.len() == *count as usize)
+        {
+            orders.push(receiving.take().unwrap().1);
+        }
+    }
+    assert!(receiving.is_none(), "an order told in part");
+    orders
+}
+
+fn shell_panel(h: &mut Harness, id: u32, edge: PanelEdge) -> SurfaceKey {
+    h.request(
+        SHELL,
+        Request::CreateShellSurface {
+            surface: id,
+            kind: ShellKind::Panel,
+            edge,
+            output: 1,
+            size: Size::new(1, 40),
+            exclusive: 40,
+        },
+    )
+    .unwrap();
+    h.present(key(SHELL, id));
+    key(SHELL, id)
+}
+
+#[test]
+fn the_reading_order_is_the_key_window_and_its_own_then_the_other_windows_then_the_system() {
+    let mut h = Harness::new();
+    h.scene.connect(READER, reader()).unwrap();
+    // The dock is made after the menu bar, so it is in front of it: the menu bar still comes
+    // first, by its place on the screen.
+    let bar = shell_panel(&mut h, 1, PanelEdge::Top);
+    let dock = shell_panel(&mut h, 2, PanelEdge::Bottom);
+    let back = h.toplevel(OTHER, 1, 400, 300);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.activate(window);
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(window));
+    let w = h.rect(window);
+    let popup = h.open_menu(
+        window,
+        2,
+        (w.x + 10, w.y + 10),
+        menu(Rect::new(0, 0, 40, 20), 200, 150),
+    );
+    for (surface, label) in [
+        (dock, "Dock"),
+        (back, "Back"),
+        (bar, "Menu bar"),
+        (popup, "Message actions"),
+        (window, "Notes"),
+    ] {
+        publish(&mut h, surface, label);
+    }
+    // Neither the order trees arrived in nor the stacking: the window with the keyboard, its
+    // menu, the other window, then the menu bar and the dock.
+    let order = vec![window, popup, back, bar, dock];
+    assert_eq!(h.scene.reading_order(), order);
+    assert_eq!(told_orders(&h, READER).last(), Some(&order));
+    // Told once: a tree committed again, the same surfaces in the same order, tells nothing.
+    h.clear_log();
+    publish(&mut h, window, "Notes");
+    assert!(told_orders(&h, READER).is_empty());
+    // The menu goes, and the other window takes the keyboard: it comes first.
+    h.request(APP, Request::Destroy { surface: 2 }).unwrap();
+    h.scene.activate(back);
+    h.pump();
+    assert_eq!(
+        told_orders(&h, READER).last(),
+        Some(&vec![back, window, bar, dock])
+    );
+    // A dialog of a window is its own, in front of it: read after it, before the other window.
+    h.request(
+        OTHER,
+        Request::CreateDialog {
+            surface: 2,
+            parent: 1,
+            size: Size::new(300, 200),
+        },
+    )
+    .unwrap();
+    let dialog = key(OTHER, 2);
+    h.present(dialog);
+    publish(&mut h, dialog, "Save changes");
+    h.scene.activate(back);
+    h.pump();
+    assert_eq!(h.scene.focus(), Some(dialog));
+    assert_eq!(
+        told_orders(&h, READER).last(),
+        Some(&vec![back, dialog, window, bar, dock])
+    );
+    // A window minimized is not read, its tree kept; shown again, it is.
+    let number = h.scene.window_number(window).unwrap();
+    h.request(SHELL, Request::MinimizeWindow { window: number })
+        .unwrap();
+    assert_eq!(
+        told_orders(&h, READER).last(),
+        Some(&vec![back, dialog, bar, dock])
+    );
+    // A reader connecting later is told the order after the trees it is sent, and the first is
+    // told nothing again.
+    const SECOND: ClientId = 6;
+    h.clear_log();
+    h.scene.connect(SECOND, reader()).unwrap();
+    h.pump();
+    assert!(told_orders(&h, READER).is_empty());
+    assert_eq!(told_orders(&h, SECOND), vec![vec![back, dialog, bar, dock]]);
+    let last_tree = h
+        .events_for(SECOND)
+        .iter()
+        .rposition(|event| matches!(event, Event::AccessibilityCommitted { .. }))
+        .unwrap();
+    let first_order = h
+        .events_for(SECOND)
+        .iter()
+        .position(|event| matches!(event, Event::AccessibilityOrder { .. }))
+        .unwrap();
+    assert!(first_order > last_tree);
+    // Locked, the lock screen alone.
+    h.scene.lock();
+    h.pump();
+    h.request(
+        LOCKER,
+        Request::CreateLockSurface {
+            surface: 1,
+            output: 1,
+        },
+    )
+    .unwrap();
+    let lock = key(LOCKER, 1);
+    h.present(lock);
+    publish(&mut h, lock, "Locked");
+    assert_eq!(told_orders(&h, READER).last(), Some(&vec![lock]));
+    h.scene.unlock();
+    h.pump();
+    assert_eq!(
+        told_orders(&h, READER).last(),
+        Some(&vec![back, dialog, bar, dock])
+    );
+}
+
 #[test]
 fn malformed_snapshots_are_protocol_errors() {
     let mut h = Harness::new();

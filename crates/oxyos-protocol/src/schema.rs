@@ -918,6 +918,14 @@ messages! {
         // drag's files are on, after its files' types, `file_volumes` of them, each in chunks as
         // DragFileVolume's.
         253 => DragOfferFileVolume { offer: u32, index: u16, last: bool, text: PreeditText },
+        // To an assistive technology only (version 40, docs/adr/0014-screen-reader.mdx, decision 5
+        // as amended): the order its cursor goes through the surfaces whose trees it holds, told
+        // whole whenever it changes and as it connects: `surfaces` AccessibilityOrderSurface
+        // events follow, first to last. The surface with the keyboard's window and what is its own
+        // in front of it, the other windows front to back, then the system's surfaces; one not
+        // shown (a window minimized or on another workspace) is not in it.
+        254 => AccessibilityOrder { surfaces: u32 },
+        255 => AccessibilityOrderSurface { client: u32, surface: u32 },
     }
 }
 

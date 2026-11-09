@@ -1,0 +1,1273 @@
+{
+ "about": "The screen reader across surfaces (docs/adr/0014-screen-reader.mdx, decision 5 as amended 10 November 2026; protocol version 40): Allo's window (sample/ReaderSurfacesProbe.tsx) with the shell, the reader on in Spanish through the real reader process. The compositor tells the reader the order its cursor goes through surfaces, as VoiceOver's starts in the key window: the window with the keyboard, then what is its own in front of it (its popover, a popup; its file chooser's sheet, another application's window), then the other windows, then the system's surfaces (the menu bar before the dock). Ctrl+Alt+Right goes from the window on into the menu bar, from the window into its popover and out of it to the menu bar, and from the window into its sheet and out of it; Ctrl+Alt+Left comes back the same way each time. Every step checks exactly what is said, what React received and what each surface was delivered (the reader's arrows reach no one; only the modifiers held with them reach the surface with the keyboard), and the keyboard's focus where it moves. At 1.25 (1600 × 1000).",
+ "locale": "es_ES.UTF-8",
+ "module": "ReaderSurfacesProbe",
+ "window": [
+  640,
+  420
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "file_chooser": "FileChooserFixture",
+ "home": {
+  "items": {
+   "Pictures/a.png": "an image",
+   "Documents/": ""
+  }
+ },
+ "reader": {},
+ "steps": [
+  {
+   "name": "Allo's window with the shell, the reader on in Spanish; nothing has the keyboard's focus, nothing said",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "focus_surface": 1,
+    "popups": 0,
+    "spoken": [],
+    "announcements": [],
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1
+    },
+    "delivered": {}
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the window with the keyboard comes first, its first element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Adjuntar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Opciones",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Opciones, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the window's last element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Nada adjunto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right past the window's last element: on into the shell, the menu bar first (the system's surfaces come after the windows)",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Barra de menús, barra de herramientas",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the menu bar's first item",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Menú de Oxy, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: back to the menu bar",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Barra de menús, barra de herramientas",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: back out of the shell into the window, its last element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Nada adjunto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Tab: Adjuntar, said, the cursor with it",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "attach",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Adjuntar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "focus@attach": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Tab: Opciones",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "options",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Opciones, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@attach": 1,
+     "focus@options": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Space opens the popover, a popup of the window's: the keyboard on its switch, the dialog said by its title, then the switch",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "popups": 1,
+    "keyboard_focus": {
+     "target": "notify",
+     "ring": true
+    },
+    "focus_surface": 2,
+    "at": {
+     "popup": [
+      {
+       "role": "Dialog",
+       "name": "Opciones de envío"
+      },
+      {
+       "role": "Switch",
+       "name": "Avisarme",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Opciones de envío, diálogo",
+      "interrupting": true
+     },
+     {
+      "text": "Avisarme, desactivado, interruptor",
+      "interrupting": false
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "click@options": 1,
+     "blur@options": 1,
+     "focus@notify": 1
+    },
+    "delivered": {
+     "1": {
+      "focus.out": 1,
+      "key.press": 1,
+      "key.release": 1
+     },
+     "2": {
+      "focus.in": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: the popover's title, its first element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Opciones de envío, diálogo",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1,
+    "focus_surface": 2
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: back out of the popover into its window, the window's last element (the popover is the window's own, after it)",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Nada adjunto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: from the window into its popover",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Opciones de envío, diálogo",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the switch",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Avisarme, desactivado, interruptor",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: Enviar, the popover's last",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Enviar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right past the popover's last element: on into the shell's menu bar",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Barra de menús, barra de herramientas",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: from the shell back into the popover, its last element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Enviar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "popups": 1,
+    "focus_surface": 2
+   }
+  },
+  {
+   "name": "Escape closes the popover: the keyboard back on Opciones, said once",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "popups": 0,
+    "keyboard_focus": {
+     "target": "options",
+     "ring": true
+    },
+    "focus_surface": 1,
+    "spoken": [
+     {
+      "text": "Opciones, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "focus@options": 1
+    },
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     },
+     "2": {
+      "focus.out": 1,
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab: Adjuntar",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "attach",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Adjuntar, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@options": 1,
+     "focus@attach": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Space asks for an image: the file chooser's window, another application's, is the window's sheet, with the keyboard",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "spoken": [],
+    "announcements": [],
+    "react": {
+     "click@attach": 1
+    },
+    "delivered": {
+     "1": {
+      "focus.out": 1,
+      "key.press": 1,
+      "key.release": 1
+     },
+     "chooser": {
+      "focus.in": 1
+     }
+    },
+    "in_chooser": {
+     "texts": [
+      "Title: Elige una imagen"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on from Adjuntar, where the cursor was, in the window",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Opciones, contraído, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the window's last element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Nada adjunto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right past the window's last element: into its sheet (the window's own, in front of it), before the shell",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Choose a, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: back out of the sheet into the window",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Nada adjunto",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: into the sheet again",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Choose a, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Choose both, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Choose Pictures, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Save here, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Choose outside, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Cancel, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Mode: open",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Types: image/png",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Title: Elige una imagen",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Name: -",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: on through the sheet",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "For: Allo",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right past the sheet's last element: on into the shell's menu bar",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "Barra de menús, barra de herramientas",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Left: from the shell back into the sheet, its last element",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     105
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [
+     {
+      "text": "For: Allo",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {},
+    "delivered": {
+     "chooser": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    },
+    "chooser": {
+     "focused": true,
+     "window_active": true
+    },
+    "in_chooser": {
+     "react": {}
+    }
+   }
+  }
+ ],
+ "outputs": "1600x1000@1.25"
+}

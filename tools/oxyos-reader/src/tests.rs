@@ -459,6 +459,123 @@ fn a_surface_gone_takes_the_cursor_with_it_and_the_next_surface_follows() {
     );
 }
 
+/// The order the compositor tells the cursor goes through surfaces (version 40), of APP's.
+fn order(surfaces: &[u32]) -> Vec<Event> {
+    let mut events = vec![Event::AccessibilityOrder {
+        surfaces: surfaces.len() as u32,
+    }];
+    events.extend(
+        surfaces
+            .iter()
+            .map(|&surface| Event::AccessibilityOrderSurface {
+                client: APP,
+                surface,
+            }),
+    );
+    events
+}
+
+#[test]
+fn the_cursor_goes_through_surfaces_in_the_order_the_compositor_tells() {
+    let mut reader = Reader::new(Language::English);
+    // The menu bar's tree arrives first, then the window's, then its sheet's, then its menu's.
+    let (bar, sheet, popup) = (5, 3, 2);
+    feed(
+        &mut reader,
+        &tree(
+            bar,
+            &[(R::Toolbar, 0, "", ""), (R::MenuItem, 0, "File", "")],
+        ),
+    );
+    feed(
+        &mut reader,
+        &tree(
+            WINDOW,
+            &[(R::Generic, 0, "", ""), (R::Button, 0, "Open", "")],
+        ),
+    );
+    feed(
+        &mut reader,
+        &tree(
+            sheet,
+            &[(R::Generic, 0, "", ""), (R::Button, 0, "Cancel", "")],
+        ),
+    );
+    feed(
+        &mut reader,
+        &tree_of(
+            popup,
+            WINDOW,
+            &[(R::Menu, 0, "", ""), (R::MenuItem, 0, "Copy", "")],
+        ),
+    );
+    // Told: the window, what is its own in front of it (its menu, its sheet), then the shell.
+    assert!(feed(&mut reader, &order(&[WINDOW, popup, sheet, bar])).is_empty());
+    assert_eq!(command(&mut reader, ReaderCommand::Next), ["Open, button"]);
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Copy, menu item"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Cancel, button"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["File, menu item"]
+    );
+    // Past the last, nothing; back the same way, and nothing before the first.
+    assert!(command(&mut reader, ReaderCommand::Next).is_empty());
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Previous),
+        ["Cancel, button"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Previous),
+        ["Copy, menu item"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Previous),
+        ["Open, button"]
+    );
+    assert!(command(&mut reader, ReaderCommand::Previous).is_empty());
+    assert_eq!(reader.cursor(), Some(((APP, WINDOW), 1)));
+    // An order told in part is not one yet: the cursor goes on by the last told whole.
+    feed(
+        &mut reader,
+        &[
+            Event::AccessibilityOrder { surfaces: 2 },
+            Event::AccessibilityOrderSurface {
+                client: APP,
+                surface: bar,
+            },
+        ],
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Copy, menu item"]
+    );
+    // Whole: the menu bar first, then the sheet; the window and its menu, not in it, are not
+    // read, their trees kept.
+    feed(
+        &mut reader,
+        &[Event::AccessibilityOrderSurface {
+            client: APP,
+            surface: sheet,
+        }],
+    );
+    // The cursor's menu is not in the order: Next starts again at the first.
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["File, menu item"]
+    );
+    assert_eq!(
+        command(&mut reader, ReaderCommand::Next),
+        ["Cancel, button"]
+    );
+    assert!(command(&mut reader, ReaderCommand::Next).is_empty());
+}
+
 /// sample/App.tsx's menu in its popup: the menu, named by its label, and its rows, `focused` the
 /// focused row's index.
 fn menu(focused: Option<usize>) -> Vec<Event> {
