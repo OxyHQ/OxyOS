@@ -9,7 +9,7 @@
 //! never move to another computer in a backup.
 
 use oxyos_account::store::Store as Accounts;
-use oxyos_account::users::group_members;
+use oxyos_account::users::{group_members, passwd_entry};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
@@ -35,13 +35,23 @@ pub struct Account {
     pub account_id: String,
     pub user: String,
     pub uid: u32,
+    /// Its group's number, which its files' group is: absent from manifests written before it was
+    /// added, where a restore gives the group the uid's number, as useradd's user groups have it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gid: Option<u32>,
     pub name: String,
     pub administrator: bool,
 }
 
 impl Manifest {
-    /// The machine's, from the account service's directory and the group file.
-    pub fn of_machine(computer: &str, accounts: &Path, group: &Path, now: i64) -> io::Result<Self> {
+    /// The machine's, from the account service's directory and the user and group files.
+    pub fn of_machine(
+        computer: &str,
+        accounts: &Path,
+        passwd: &Path,
+        group: &Path,
+        now: i64,
+    ) -> io::Result<Self> {
         let administrators = group_members(group, "sudo")
             .map_err(|e| io::Error::other(e.to_string()))?
             .unwrap_or_default();
@@ -52,6 +62,11 @@ impl Manifest {
                 .map(|a| Account {
                     account_id: a.account.as_str().to_owned(),
                     administrator: administrators.iter().any(|m| m == a.user.as_str()),
+                    gid: passwd_entry(passwd, a.user.as_str())
+                        .ok()
+                        .flatten()
+                        .filter(|entry| entry.uid == a.uid)
+                        .map(|entry| entry.gid),
                     user: a.user.as_str().to_owned(),
                     uid: a.uid,
                     name: a.name,
@@ -103,8 +118,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let group = dir.path().join("group");
         std::fs::write(&group, "root:x:0:\nsudo:x:27:oxy-a\n").unwrap();
+        let passwd = dir.path().join("passwd");
+        std::fs::write(&passwd, "root:x:0:0:root:/root:/bin/sh\n").unwrap();
         let manifest =
-            Manifest::of_machine("ada-laptop", &dir.path().join("none"), &group, 42).unwrap();
+            Manifest::of_machine("ada-laptop", &dir.path().join("none"), &passwd, &group, 42)
+                .unwrap();
         assert!(manifest.accounts.is_empty());
         let folder = dir.path().join("manifest");
         manifest.write(&folder).unwrap();

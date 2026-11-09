@@ -800,8 +800,14 @@ pub struct Settling {
     /// `--until-named MS NAME`: its answer comes on the application's own clock (an install the
     /// person confirmed, done once the machine has fetched and compiled it): it settles only once
     /// the assistive technology holds a node so named on a shown surface, within MS, as
-    /// `--wait-named` waits, and so what the step said is all its own.
+    /// `--wait-named` waits, and has held it for the step's stillness: what the frame showing it
+    /// set off (a live region it changed, said by the screen reader) is the step's own too, as
+    /// everything said on the way is.
     pub until_named: Option<(u64, String)>,
+    /// `--until-ended`: its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-
+    /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
+    /// has quit on its own clock; it settles only once the session's ending part has ended.
+    pub ended: bool,
 }
 
 pub struct Launch {
@@ -834,6 +840,10 @@ pub struct Launch {
     /// the steps begin (SETTLE by default): a browser shows its window before its interface draws
     /// in it, for longer than SETTLE on a loaded machine.
     pub launch_settle: Duration,
+    /// `--clear-of-minute MS`: no step begins in the last MS of a minute by the wall clock: then
+    /// the session is served until the minute has begun and the shell's clock has turned
+    /// (`clear_of_minute`).
+    pub clear_of_minute: Option<Duration>,
     /// `--input-method`: the session plays an input method (ime.rs).
     pub input_method: bool,
     /// `--im-candidates horizontal|vertical`: it hands the system candidates for what it
@@ -982,7 +992,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1075,6 +1085,7 @@ impl Launch {
         let mut kms = None;
         let (mut input, mut uinput, mut layout) = (false, false, "us".to_string());
         let mut launch_settle = SETTLE;
+        let mut clear_of_minute = None;
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
         let mut autofill_fixture = None;
@@ -1120,6 +1131,10 @@ impl Launch {
                 }
                 Some("--until-sheet") => {
                     settling.sheet = true;
+                    continue;
+                }
+                Some("--until-ended") => {
+                    settling.ended = true;
                     continue;
                 }
                 Some("--until-named") => {
@@ -1324,6 +1339,11 @@ impl Launch {
                 Some("--launch-settle") => {
                     let ms = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     launch_settle = Duration::from_millis(ms.parse()?);
+                    continue;
+                }
+                Some("--clear-of-minute") => {
+                    let ms = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    clear_of_minute = Some(Duration::from_millis(ms.parse()?));
                     continue;
                 }
                 Some("--layout") => {
@@ -1883,6 +1903,7 @@ impl Launch {
                 seat,
                 layout,
                 launch_settle,
+                clear_of_minute,
                 input_method,
                 im_candidates,
                 autofill_fixture,
@@ -2414,6 +2435,79 @@ thread_local! {
     static HELD: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
 }
 
+/// The session served once, as a wait step serves it: the compositor, the pasteboard, the
+/// launches, installs, background, preferences and the screen reader's trees.
+fn serve_session(session: &mut Session) -> Result<()> {
+    session.compositor.serve(&session.listener)?;
+    if let Some(pasteboard) = session.pasteboard.as_mut() {
+        pasteboard.serve(&mut session.compositor);
+    }
+    session.serve_launches();
+    session.serve_installs();
+    session.serve_background();
+    session.serve_preferences();
+    session.reader.absorb(&mut session.compositor);
+    Ok(())
+}
+
+/// How long until the next minute begins by the wall clock (every time zone is whole minutes from
+/// it, so the shell's clock turns then too).
+fn until_minute() -> Duration {
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Realtime);
+    let into = (now.tv_sec.rem_euclid(60) as u64) * 1000 + now.tv_nsec as u64 / 1_000_000;
+    Duration::from_millis(60_000 - into.min(59_999))
+}
+
+/// `--clear-of-minute`: a step is not begun within `guard` of the next minute. The shell's top bar
+/// shows the time, and its clock turns as each minute begins (`useMinuteClock`): a change no step
+/// makes, which a step settling then takes for its answer's and settles 750 ms past, beyond what
+/// shows for a moment (a hardware key's bezel, 1.5 s from its key). So near the minute the session
+/// is served until it has begun, the shell has drawn since (its clock turned) and nothing has
+/// changed for the settling time; the step begins then.
+fn clear_of_minute(
+    session: &mut Session,
+    children: &mut Children,
+    guard: Duration,
+    window: Rect,
+) -> Result<()> {
+    let left = until_minute();
+    if left >= guard {
+        return Ok(());
+    }
+    let begins = Instant::now() + left;
+    // The shell as it was before the minute began, served until then.
+    let mut drawn = shell_surfaces(&session.compositor);
+    while Instant::now() < begins {
+        drawn = shell_surfaces(&session.compositor);
+        serve_session(session)?;
+    }
+    let deadline = Instant::now() + STEP_DEADLINE;
+    while shell_surfaces(&session.compositor) == drawn {
+        if Instant::now() > deadline {
+            return Err(
+                "deadline exceeded waiting for the shell's clock to turn its minute".into(),
+            );
+        }
+        serve_session(session)?;
+    }
+    settle(
+        session,
+        children,
+        &shown(&session.compositor),
+        true,
+        Wait {
+            deadline: Instant::now() + STEP_DEADLINE,
+            waiting_for: "the shell's clock to settle on its minute",
+            still: SETTLE,
+            sheet: false,
+            named: None,
+            ended: false,
+        },
+        Some(window),
+    )?;
+    Ok(())
+}
+
 /// When a step's answer first appeared, when it settled, and the window then.
 struct Settled {
     window: Rect,
@@ -2432,6 +2526,8 @@ struct Wait<'a> {
     still: Duration,
     sheet: bool,
     named: Option<&'a str>,
+    /// The session's end is the answer (`Settling::ended`).
+    ended: bool,
 }
 
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
@@ -2448,6 +2544,7 @@ fn settle(
         still,
         sheet,
         named,
+        ended,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
@@ -2472,11 +2569,17 @@ fn settle(
     let shown_before = session.compositor.screens[0].flips.len();
     // The flip that will show the answer, when it was not yet shown as it appeared.
     let mut answer_flip = None;
+    // Since when the node the answer shows has been held (`named`). A launched application's
+    // frames do not count as changes (its window's configure does), so the node appearing in one
+    // starts the stillness itself: settling the moment it appeared left what that frame set off
+    // (its live region said by the screen reader) to the next step.
+    let mut named_since: Option<Instant> = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
         }
-        if let Some(status) = children.0[0].try_wait()? {
+        // Asked to quit as the session ends (ADR 0064), its exit is its answer.
+        if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
             return Err(
                 format!("the application exited ({status}) waiting for {waiting_for}").into(),
             );
@@ -2577,12 +2680,29 @@ fn settle(
                     .iter()
                     .any(|(key, _, _)| !shell_before.contains(key));
         // A node the answer shows, once the assistive technology holds it.
-        let named_shown = named.is_none_or(|name| named_point(session, name).is_some());
+        let named_shown = match named {
+            None => true,
+            Some(name) => {
+                if named_point(session, name).is_none() {
+                    named_since = None;
+                } else if named_since.is_none() {
+                    named_since = Some(Instant::now());
+                }
+                named_since.is_some_and(|since| since.elapsed() >= still)
+            }
+        };
+        // The session's end, once every application quit (ADR 0064).
+        let ended_now = !ended
+            || session
+                .ending
+                .as_ref()
+                .is_some_and(|ending| ending.state_name() == "ended");
         if !changed
             && !shell_changed
             && answered
             && sheet_shown
             && named_shown
+            && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
         {
@@ -4085,7 +4205,7 @@ fn switch_terminal(
             if Instant::now() > deadline {
                 return Err(format!("deadline exceeded waiting for {what}").into());
             }
-            if let Some(status) = children.0[0].try_wait()? {
+            if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
                 return Err(format!("the application exited ({status}) waiting for {what}").into());
             }
             session.compositor.serve(&session.listener)?;
@@ -5389,6 +5509,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             ));
             session.controls = Some(fake);
         }
+        // The session's ending asks the same played logind, never the machine's (ADR 0064).
+        session.ending_logind = oxyos_compositor::session_end::Logind::Bus(address.clone());
         let power = oxyos_compositor::power::Power::new(
             Some(address.clone()),
             Some(session.directory().join("battery-history")),
@@ -5397,6 +5519,15 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.power_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.power = Some(power);
+    }
+    if launch.login.is_none() {
+        // Activity Monitor's part (docs/adr/0063-activity-monitor.mdx), as a session has it: over
+        // this machine's /proc, sampling only while a follower's window is shown.
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        let waker = activity.wake_fd()?;
+        session.activity_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.activity = Some(activity);
     }
     if let Some((socket, volumes)) = &launch.backup {
         // The session's side of backups over the development service (ADR 0059): scheduled
@@ -5778,6 +5909,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             still: launch.launch_settle,
             sheet: false,
             named: None,
+            ended: false,
         },
         login.then_some(primary),
     ) {
@@ -5821,6 +5953,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
 
     session.compositor.log_input = true;
     for (index, (step, settling)) in launch.steps.iter().enumerate() {
+        if let Some(guard) = launch.clear_of_minute {
+            clear_of_minute(&mut session, &mut children, guard, window)?;
+        }
         // A step aimed at a node by its name, at where that node is now.
         session.reader.absorb(&mut session.compositor);
         let resolved = named_step(&session, step)?;
@@ -5938,15 +6073,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         }
                         break;
                     }
-                    session.compositor.serve(&session.listener)?;
-                    if let Some(pasteboard) = session.pasteboard.as_mut() {
-                        pasteboard.serve(&mut session.compositor);
-                    }
-                    session.serve_launches();
-                    session.serve_installs();
-                    session.serve_background();
-                    session.serve_preferences();
-                    session.reader.absorb(&mut session.compositor);
+                    serve_session(&mut session)?;
                 }
                 0
             }
@@ -6207,6 +6334,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
         };
+        // No input: the time passes for the session's question and its applications too (ADR 0064).
+        if let (Step::Idle(seconds), Some(ending)) = (step, session.ending.as_mut()) {
+            ending.pass(Duration::from_secs(*seconds));
+        }
         // Super+F5 typed: the reader started or stopped before the step settles, as the session
         // switches it on its next turn.
         toggle_reader(&mut session, &mut screen_reader, reader_named, &speech)?;
@@ -6230,6 +6361,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 still: SETTLE,
                 sheet: settling.sheet,
                 named: settling.until_named.as_ref().map(|(_, name)| name.as_str()),
+                ended: settling.ended,
             },
             Some(window),
         )?;
@@ -6253,13 +6385,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let screenshots = screenshots_json(&mut session);
         let urls = urls_json(&mut session);
         let signed_out = std::mem::take(&mut session.signed_out);
+        let logged_out = std::mem::take(&mut session.logged_out);
         let background = background_json(&mut session);
         let notifications = notifications_json(&session);
         let files_opened = files_opened_json(&mut session);
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"backup\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"logged_out\":{logged_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"backup\":{},\"activity\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -6294,6 +6427,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.bluetooth_state(),
             session.power_state(),
             session.backup_state(),
+            session.activity_state(),
             session.compositor.displays_off(),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(

@@ -153,6 +153,10 @@ class Window {
   // unregistering it (OXYOS_BACKGROUND_ITEM_*), answered by a BACKGROUND_ITEM_STATE naming `serial`.
   // False if it could not be sent.
   bool backgroundItem(uint32_t serial, uint8_t kind, uint8_t action);
+  // The session asked this application to quit before it logs out, restarts or shuts down
+  // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, protocol version 38): its answer to the
+  // QUIT_REQUESTED `serial`, quitting or cancelling the whole end. False if it could not be sent.
+  bool replyToQuit(uint32_t serial, bool quit);
   // The application runs on in the background without its window (its background activity,
   // docs/adr/0060-login-items-and-background-activity.mdx): the window goes, as a closed one does,
   // and is never presented again; what reads its last size still can.
@@ -236,6 +240,9 @@ class Window {
     bool previous = false, next = false, vertical = false;
   };
   std::optional<Candidates> inputCandidates();
+  // The text of the SYSTEM_DATA event just returned (docs/adr/0063-activity-monitor.mdx): a long
+  // answer of the session's vocabulary whole; none when it could not be read.
+  std::optional<std::string> systemData();
   void lockSession();
   // The Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a level (OXYOS_CONTROL_*,
   // 0 to 65536), a volume's mute, Wi-Fi, the appearance (a PREFERENCE_RESULT with `serial`

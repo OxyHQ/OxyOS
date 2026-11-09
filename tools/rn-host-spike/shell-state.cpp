@@ -28,8 +28,9 @@ ShellState::ShellState(uint32_t output) : output_(output) {
   passwd entry{};
   passwd* found = nullptr;
   if (getpwuid_r(getuid(), &entry, buffer.data(), buffer.size(), &found) == 0 && found) {
-    if (entry.pw_name) user_ = entry.pw_name;
-    // GECOS: the full name, then office, phones and other, separated by commas.
+    // GECOS: the full name, then office, phones and other, separated by commas. The accounts'
+    // service writes it from the account's name; the user's own name (`oxy-…`) is an identifier
+    // and never reaches the shell (docs/adr/0020-oxy-account-login.mdx, decision 1).
     if (entry.pw_gecos) {
       fullName_ = entry.pw_gecos;
       fullName_ = fullName_.substr(0, fullName_.find(','));
@@ -431,7 +432,7 @@ folly::dynamic ShellState::state() const {
   folly::dynamic menuBar =
       folly::dynamic::object("window", menuBar_.window)("serial", menuBar_.serial)("items", std::move(items));
   return folly::dynamic::object("windows", std::move(windows))("menuBar", std::move(menuBar))("workspaces", workspaces_)("active", active_)(
-      "locked", locked_)("user", folly::dynamic::object("name", user_)("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaper_)(
+      "locked", locked_)("user", folly::dynamic::object("fullName", fullName_))("capsLock", capsLock_)("wallpaper", wallpaper_)(
       "applications", applications_)("output", output_)("outputs", std::move(outputs))("oxyApi", oxyApi())("controls", controls())(
       "notifications", std::move(notifications))(
       "notificationPolicy", folly::dynamic::object("doNotDisturb", doNotDisturb_)("previews", previews_))(

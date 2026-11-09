@@ -8,8 +8,8 @@ use crate::wire::{
     DismissReason, DragActions, DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase,
     MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
     PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, ScrollSource, SecretChunk, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
-    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut,
+    SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -350,6 +350,11 @@ messages! {
         // session launched has any: the session decides by its launch record and its account's
         // decisions, never by the client's claim.
         165 => BackgroundItem { serial: u32, kind: BackgroundItemKind, action: BackgroundItemAction },
+        // The session ending (version 38, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+        // an application's answer to the QuitRequested `serial` it was sent, as a Mac's
+        // `applicationShouldTerminate:`. `quit`: it ends its own process; otherwise the whole end
+        // is cancelled. An answer to nothing the client was asked is ignored.
+        168 => QuitReply { serial: u32, quit: bool },
         // GPU buffers (ADR 0031). A DMA-BUF's planes, one descriptor each, then the buffer: its
         // DRM format (premultiplied Argb8888, opaque Xrgb8888), modifier, size and plane count,
         // checked and imported before it is used (BufferFailed when a well-formed one cannot be).
@@ -790,6 +795,20 @@ messages! {
         // decision 10): the session started in Safe Mode, told as they connect and only then. They
         // show it until the session ends.
         166 => SafeMode {},
+        // To a client the session answers in its vocabulary (version 37,
+        // docs/adr/0063-activity-monitor.mdx): an answer to its SystemRequest `serial` (0: told
+        // unasked) too long for SystemText's chunks, as one sealed memory file of `size` bytes of
+        // JSON text, the descriptor it carries, as a keymap is sent: one event, not thousands.
+        167 => SystemData { serial: u32, size: u32 },
+        // To an application (version 38, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+        // the person logs out, restarts or shuts down, and the session asks it to quit first.
+        // Answered by QuitReply naming `serial`; never sent to a client of version 37 or older,
+        // whose windows are each sent CloseRequested instead.
+        168 => QuitRequested { serial: u32, reason: SessionEnd },
+        // To the surface with the keyboard (version 38): the modifiers held changed, or were held
+        // as it took the keyboard (MODIFIER_* bits), as a Mac's `flagsChanged:`: a menu's
+        // alternates follow Option the instant it goes down or up.
+        169 => Modifiers { surface: u32, modifiers: u8 },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.
@@ -902,7 +921,10 @@ impl Event {
     /// Whether this event carries exactly one file descriptor (a pipe to write a clipboard's or
     /// a drag's content into); every other event carries none.
     pub fn carries_fd(&self) -> bool {
-        matches!(self, Event::ClipboardSend { .. } | Event::DragSend { .. })
+        matches!(
+            self,
+            Event::ClipboardSend { .. } | Event::DragSend { .. } | Event::SystemData { .. }
+        )
     }
 }
 

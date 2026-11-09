@@ -3,6 +3,7 @@
 
 #include "account-session.h"
 #include "application.h"
+#include "migration.h"
 #include "network.h"
 #include "renderer.h"
 
@@ -279,6 +280,18 @@ struct BackgroundItemsService {
   std::function<uint32_t(uint8_t kind, uint8_t action)> ask;
 };
 
+// The session asking the application to quit before it logs out, restarts or shuts down
+// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5, protocol version 38), as a
+// Mac's `applicationShouldTerminate:`: whether the compositor asks at all (known once connected),
+// whether JavaScript handles the question (`handles`: while it does, `OxyOSQuitRequested` tells it;
+// otherwise the host answers quit at once), and its answer to the request `serial` (whether it was
+// sent). Answering quit ends the host. Unset without an application's window.
+struct QuitService {
+  bool available = false;
+  std::function<void(bool handles)> handles;
+  std::function<bool(uint32_t serial, bool quit)> reply;
+};
+
 // Search (docs/adr/0051-search.mdx): whether the compositor has the search index (protocol version
 // 30, known before JavaScript starts), and a request of the index's vocabulary (its serial, 0 if it
 // was not sent), answered by `OxyOSSearchText` events naming the serial. Any window has it, the
@@ -335,6 +348,7 @@ struct HostServices {
   SystemService system{};
   SearchService search{};
   BackgroundItemsService backgroundItems{};
+  QuitService quit{};
   // React Native's AppState: `active` while it has its window, `background` once it runs on
   // without it (docs/adr/0060-login-items-and-background-activity.mdx).
   std::string appState = "active";
@@ -366,6 +380,9 @@ struct HostServices {
   // The machine's Oxy session (account-session.h, docs/adr/0020-oxy-account-login.mdx), made when
   // `OxyOSAccountSession` is first asked: its answers and the snapshot followed wake the loop.
   std::unique_ptr<AccountSession> accountSession;
+  // Migrate from a Backup (migration.h, docs/adr/0059-backups.mdx), the login screen's, made when
+  // `OxyOSMigration` is first asked: its answers and a migration's progress wake the loop.
+  std::unique_ptr<Migration> migration;
   // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
   // unset without a window.
   std::function<void()> blurFocusedInput;

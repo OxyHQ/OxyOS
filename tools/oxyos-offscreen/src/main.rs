@@ -177,6 +177,10 @@ struct Session {
     /// compositor's, and the power services played on the run's bus.
     power: Option<oxyos_compositor::power::Power>,
     power_waker: Option<std::os::fd::RawFd>,
+    /// Activity Monitor's part (docs/adr/0063-activity-monitor.mdx), and its waker among the
+    /// compositor's.
+    activity: Option<oxyos_compositor::activity::Activity>,
+    activity_waker: Option<std::os::fd::RawFd>,
     /// A connection to the played power services' control (`oxyos-offscreen --play-power`).
     pub power_control: Option<zbus::blocking::Connection>,
     /// `--backup SOCKET VOLUMES`: the session's side of backups (docs/adr/0059-backups.mdx) over
@@ -220,6 +224,16 @@ struct Session {
     /// `oxyos_compositor::sign_out`). The session ends there; the development compositor records it
     /// and goes on, so the scenario checks it and what follows.
     pub signed_out: bool,
+    /// Sleep, restart, shut down and log out as the session serves them
+    /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), made at the first turn over the
+    /// played logind (`--power-bus`) or none: never the machine's own. The development compositor
+    /// records a log out (`logged_out`) and goes on, as it does a sign out.
+    pub ending: Option<oxyos_compositor::session_end::SessionEnding>,
+    pub ending_logind: oxyos_compositor::session_end::Logind,
+    pub logged_out: bool,
+    /// Whether the session has asked the director's application to quit: its process ending is
+    /// then its answer, not a failure.
+    pub quit_asked: bool,
     /// Files dropped on an application's icon in the dock opened with it (ADR 0034, OpenFiles):
     /// each file's path and the application, as the session opens them.
     pub file_opens: Vec<(PathBuf, String)>,
@@ -351,6 +365,8 @@ impl Session {
             bluetooth_waker: None,
             bluetooth_control: None,
             power: None,
+            activity: None,
+            activity_waker: None,
             power_waker: None,
             power_control: None,
             backups: None,
@@ -367,6 +383,10 @@ impl Session {
             screenshot_opens: Vec::new(),
             url_opens: Vec::new(),
             signed_out: false,
+            ending: None,
+            ending_logind: oxyos_compositor::session_end::Logind::None,
+            logged_out: false,
+            quit_asked: false,
             file_opens: Vec::new(),
             sounds: oxyos_sound::Recorder::default(),
             trash: None,
@@ -689,12 +709,11 @@ impl Session {
             .map_or_else(|| "null".into(), |state| state.to_string())
     }
 
-    /// The battery and energy's turn (ADR 0057): the applications the run started that run.
+    /// The battery and energy's turn (ADR 0057) and Activity Monitor's (ADR 0063): the
+    /// applications the run started that run, the director's own among them, named by the
+    /// registry as Activity Monitor finds them.
     fn serve_power(&mut self) {
-        let Some(power) = self.power.as_mut() else {
-            return;
-        };
-        let running: Vec<oxyos_power::energy::Running> = self
+        let mut running: Vec<oxyos_power::energy::Running> = self
             .launcher
             .as_ref()
             .map(|launcher| {
@@ -708,7 +727,105 @@ impl Session {
                     .collect()
             })
             .unwrap_or_default();
-        power.serve(&mut self.compositor, self.settings.preferences(), &running);
+        if let Some(power) = self.power.as_mut() {
+            power.serve(&mut self.compositor, self.settings.preferences(), &running);
+        }
+        if let Some(activity) = self.activity.as_mut() {
+            if let Some((pid, id)) = &self.app {
+                running.push(oxyos_power::energy::Running {
+                    pid: *pid,
+                    id: id.clone(),
+                    name: id.clone(),
+                });
+            }
+            activity.serve(&mut self.compositor, &running, self.power.as_mut());
+        }
+    }
+
+    /// What Activity Monitor's part did, for a step's result (regress.py's `activity`): the
+    /// samples it took and sent, whether any client follows, and the times its thread and the
+    /// director's application's threads were switched out since they started (each a wakeup), so
+    /// a step can hold a hidden window's to none.
+    pub fn activity_state(&self) -> String {
+        let Some(activity) = self.activity.as_ref() else {
+            return "null".into();
+        };
+        let (samples, sent) = activity.counts();
+        let thread = std::path::Path::new("/proc/self/task").join(activity.thread_id().to_string());
+        let host: Vec<std::path::PathBuf> = self
+            .app
+            .as_ref()
+            .and_then(|(pid, _)| {
+                std::fs::read_dir(
+                    std::path::Path::new("/proc")
+                        .join(pid.to_string())
+                        .join("task"),
+                )
+                .ok()
+            })
+            .map(|entries| entries.flatten().map(|task| task.path()).collect())
+            .unwrap_or_default();
+        let (host_wakeups, host_cpu) = host.iter().fold((0, 0), |(w, c), task| {
+            (w + switches(task), c + run_ns(task))
+        });
+        format!(
+            "{{\"samples\":{samples},\"sent\":{sent},\"followed\":{},\"wakeups\":{},\"cpu_ms\":{},\"host_wakeups\":{host_wakeups},\"host_cpu_ms\":{}}}",
+            activity.followed(),
+            switches(&thread),
+            run_ns(&thread) / 1_000_000,
+            host_cpu / 1_000_000,
+        )
+    }
+
+    /// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+    /// the part made at the first turn (the login screen's at a login), logind's calls made in the
+    /// turn on the played bus, so a step's answer is settled with it.
+    fn serve_session_end(&mut self) {
+        let login = self.compositor.login;
+        let directory = self.directory().join("reopen-at-login");
+        let logind = self.ending_logind.clone();
+        let ending = self.ending.get_or_insert_with(|| {
+            oxyos_compositor::session_end::SessionEnding::inline(logind, login, Some(directory))
+        });
+        let launcher = self.launcher.as_ref();
+        let pids: std::collections::BTreeMap<ClientId, u32> = self
+            .compositor
+            .peers
+            .iter()
+            .map(|(client, peer)| (*client, peer.pid as u32))
+            .collect();
+        let scene = &self.compositor.scene;
+        let names: std::collections::BTreeMap<ClientId, String> = scene
+            .applications()
+            .into_iter()
+            .map(|client| {
+                let launched = pids
+                    .get(&client)
+                    .and_then(|pid| launcher.and_then(|launcher| launcher.application_of(*pid)))
+                    .map(|launched| launched.name.clone());
+                let recorded = scene.application(client).map(str::to_owned);
+                let name = launched.or_else(|| {
+                    let id = recorded?;
+                    Some(
+                        launcher
+                            .and_then(|launcher| launcher.application(&id))
+                            .map_or(id, |application| application.name),
+                    )
+                });
+                (client, name.unwrap_or_default())
+            })
+            .collect();
+        let running: Vec<String> = launcher
+            .map(|launcher| launcher.running().map(|(_, l)| l.id.clone()).collect())
+            .unwrap_or_default();
+        let served = ending.serve(
+            &mut self.compositor,
+            &mut self.settings,
+            &|client| names.get(&client).cloned().unwrap_or_default(),
+            &running,
+        );
+        self.logged_out |= served.log_out;
+        self.quit_asked |= matches!(ending.state_name(), "quitting" | "ending" | "ended");
     }
 
     /// The store's, Settings' and applications' requests to the install service (ADR 0030), as
@@ -781,6 +898,9 @@ impl Session {
         }
         // The input sources' requests, before the install service takes what is left.
         self.serve_input_sources();
+        // Sleep, restart, shut down and log out (ADR 0064), before the install service takes what
+        // is left.
+        self.serve_session_end();
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
         // Backups (ADR 0059), before the install service takes what is left.
@@ -986,6 +1106,7 @@ impl Session {
                     privacy: granted.privacy || fixture.privacy,
                     network: granted.network || fixture.network,
                     bluetooth: granted.bluetooth || fixture.bluetooth,
+                    activity: granted.activity || fixture.activity,
                     ..Grants::default()
                 },
                 application: id,
@@ -1210,6 +1331,11 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // The session's ending (ADR 0064): its inhibitor let go and its connection to the played
+        // logind closed.
+        if let Some(mut ending) = self.ending.take() {
+            ending.end();
+        }
         // Backups' side, its threads waited for and its waker given back.
         self.backups = None;
         if let Some(waker) = self.backups_waker.take() {
@@ -1223,6 +1349,11 @@ impl Session {
         }
         self.power = None;
         if let Some(waker) = self.power_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        self.activity = None;
+        if let Some(waker) = self.activity_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
@@ -1585,6 +1716,28 @@ fn main() -> Result<()> {
                 .into(),
         ),
     }
+}
+
+/// The time the thread at `task` (`/proc/PID/task/TID`) ran, in nanoseconds (`schedstat`).
+fn run_ns(task: &std::path::Path) -> u64 {
+    std::fs::read_to_string(task.join("schedstat"))
+        .ok()
+        .and_then(|text| text.split_whitespace().next()?.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The context switches of the thread at `task` (`/proc/PID/task/TID`): each time it slept and
+/// was woken.
+fn switches(task: &std::path::Path) -> u64 {
+    std::fs::read_to_string(task.join("status"))
+        .map(|status| {
+            status
+                .lines()
+                .filter(|line| line.contains("ctxt_switches"))
+                .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

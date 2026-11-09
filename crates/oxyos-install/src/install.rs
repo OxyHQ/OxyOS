@@ -1747,37 +1747,46 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
     }
 
     /// Watches the account `uid`'s update state: `watcher` is told it now and at each change. Its
-    /// id, for [`Self::unwatch`].
+    /// id, for [`Self::unwatch`]. The state now is read, told and the watcher kept under the
+    /// watchers' lock, which every telling of a change takes: a change made meanwhile is told to it
+    /// after its first state, never missed.
     pub fn watch(&self, uid: u32, watcher: Watcher) -> Result<u64, InstallError> {
+        let mut watchers = self.watchers();
         let state = self.update_state(uid)?;
         if !watcher(&state) {
             return Err(InstallError::Io("the watcher ended".into()));
         }
-        let mut watchers = self
-            .watchers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let id = watchers.iter().map(|(id, _, _)| id + 1).max().unwrap_or(1);
         watchers.push((id, uid, watcher));
         Ok(id)
     }
 
     pub fn unwatch(&self, id: u64) {
+        self.watchers().retain(|(w, _, _)| *w != id);
+    }
+
+    fn watchers(&self) -> std::sync::MutexGuard<'_, Vec<(u64, u32, Watcher)>> {
         self.watchers
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .retain(|(w, _, _)| *w != id);
     }
 
     /// Tells the watchers of these accounts their state. Called with no lock of the records held.
     fn notify(&self, uids: &[u32]) {
-        let mut watchers = self
-            .watchers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.notify_where(|uid| uids.contains(&uid));
+    }
+
+    fn notify_all(&self) {
+        self.notify_where(|_| true);
+    }
+
+    /// Tells the watchers of the accounts `wanted` their state, read under the watchers' lock so a
+    /// watcher is told its states in the order they were.
+    fn notify_where(&self, wanted: impl Fn(u32) -> bool) {
+        let mut watchers = self.watchers();
         let mut states: BTreeMap<u32, Option<UpdateState>> = BTreeMap::new();
         watchers.retain(|(_, uid, watcher)| {
-            if !uids.contains(uid) {
+            if !wanted(*uid) {
                 return true;
             }
             let state = states
@@ -1788,17 +1797,6 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 None => true,
             }
         });
-    }
-
-    fn notify_all(&self) {
-        let uids: Vec<u32> = self
-            .watchers
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .map(|(_, uid, _)| *uid)
-            .collect();
-        self.notify(&uids);
     }
 
     /// Fetches what the machine lacks, assembles and compiles the version in a hidden directory

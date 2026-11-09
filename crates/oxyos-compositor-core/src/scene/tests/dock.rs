@@ -519,3 +519,62 @@ fn the_shell_is_told_each_output_a_zoomed_or_full_screen_window_covers() {
         .unwrap();
     assert_eq!(covers_told(&mut h), [(1, true), (2, false)]);
 }
+
+#[test]
+fn a_client_is_shown_while_a_window_of_its_can_be_seen() {
+    // Activity Monitor samples only while it is (docs/adr/0063-activity-monitor.mdx).
+    let mut h = Harness::new();
+    assert!(!h.scene.client_shown(APP));
+    let window = h.toplevel(APP, 1, 400, 300);
+    assert!(h.scene.client_shown(APP));
+    assert!(!h.scene.client_shown(OTHER));
+    // Minimized: not shown, until it comes back.
+    h.scene.minimize(window);
+    h.pump();
+    assert!(!h.scene.client_shown(APP));
+    h.scene.restore(window);
+    h.frame();
+    assert!(h.scene.client_shown(APP));
+    // On another desktop: not shown.
+    let second = h.scene.add_workspace().unwrap();
+    assert!(h.scene.activate_workspace(second));
+    h.frame();
+    assert!(!h.scene.client_shown(APP));
+    assert!(h.scene.activate_workspace(0));
+    h.frame();
+    assert!(h.scene.client_shown(APP));
+    // Locked: nothing of the session is.
+    h.scene.lock();
+    h.pump();
+    assert!(!h.scene.client_shown(APP));
+}
+
+#[test]
+fn activity_monitor_quits_an_application_by_its_id_as_the_dock_does() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.toplevel(OTHER, 1, 400, 300);
+    // Not launched: nothing to quit by that id.
+    assert!(!h.scene.quit_application_by_id("so.oxy.inbox"));
+    assert_eq!(
+        h.scene.force_quit_application_by_id("so.oxy.inbox"),
+        Ok(false)
+    );
+    h.scene.set_application(APP, "so.oxy.inbox");
+    h.scene.set_application(OTHER, "so.oxy.allo");
+    h.pump();
+    // Quit: its window asked to close, and no other.
+    assert!(h.scene.quit_application_by_id("so.oxy.inbox"));
+    let events = h.pump();
+    assert!(events.iter().any(|(client, event)| *client == APP
+        && matches!(event, Event::CloseRequested { surface } if *surface == window.id)));
+    assert!(!events
+        .iter()
+        .any(|(client, event)| *client == OTHER && matches!(event, Event::CloseRequested { .. })));
+    // Force Quit: its clients the session started, for the program to end.
+    assert_eq!(
+        h.scene.force_quit_application_by_id("so.oxy.inbox"),
+        Ok(true)
+    );
+    assert_eq!(h.scene.take_force_quits(), [vec![APP]]);
+}

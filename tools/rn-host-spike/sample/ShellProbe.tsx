@@ -4,7 +4,7 @@
  * shell (`--shell`) they are panels and an overlay of their own (docs/adr/0009-session-shell.mdx).
  */
 import * as React from 'react';
-import { TurboModuleRegistry } from 'react-native';
+import { DeviceEventEmitter, TurboModuleRegistry } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
@@ -17,6 +17,7 @@ import {
   inputSources,
   network,
   power,
+  session as sessionApi,
   sound as soundApi,
   useBackupState,
   useBluetoothState,
@@ -36,6 +37,7 @@ import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
 import { useSessionLocale } from './oxyos/locale';
 import { localSignInAfter, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
+import { sessionUserFrom } from '../../../apps/shell/src/session-user';
 import { useShellWallpaper } from './oxyos/wallpaper';
 import type {
   ShellActions,
@@ -48,6 +50,7 @@ import type {
   ShellMenu,
   ShellMenuItem,
   ShellNotifications,
+  ShellPowerActions,
   ShellScreenshots,
   ShellSnapshot,
 } from '../../../apps/shell/src/model';
@@ -264,9 +267,12 @@ function ProbeShell({
   battery,
   backup,
   autofill,
+  powerActions,
 }: {
   /** AutoFill's list at a field's caret (docs/adr/0050-keychain-autofill-and-passkeys.mdx). */
   autofill?: ShellAutofill;
+  /** Sleep, restart, shut down and log out (docs/adr/0064), asked of the session. */
+  powerActions?: ShellPowerActions;
   /** Screenshots (ADR 0024, decision 10): the compositor's interface and the ones saved. */
   screenshots?: ShellScreenshots;
   /** The session's system sheet to show now (ADR 0030). */
@@ -317,13 +323,34 @@ function ProbeShell({
       battery={battery}
       backup={backup}
       autofill={autofill}
+      powerActions={powerActions}
     />
   );
 }
 
 /** In a window (`--window`): every region in place. */
-/** The machine's Oxy session, for the account's local sign-in (ADR 0020 decision 2). */
-const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown> }>('OxyOSAccountSession');
+/** The machine's Oxy session: who the session is for (its snapshot, followed: the lock screen and
+    the menu bar name the person by it, docs/adr/0020-oxy-account-login.mdx decision 1) and the
+    account's local sign-in (decision 2). */
+const accountSession = TurboModuleRegistry.get<{ localSignIn(): Promise<unknown>; subscribe?(): boolean }>(
+  'OxyOSAccountSession',
+);
+
+/** The session's snapshot as the accounts' service last told it (`OxyOSAccountSessionChanged`),
+    followed from the shell's start on the connection the host keeps; null until told, and once the
+    service went away. Asked without blocking: the subscription answers it at once. */
+function useAccountSnapshot(): unknown {
+  const [snapshot, setSnapshot] = React.useState<unknown>(null);
+  React.useEffect(() => {
+    if (!accountSession?.subscribe) return undefined;
+    const subscription = DeviceEventEmitter.addListener('OxyOSAccountSessionChanged', (told: unknown) =>
+      setSnapshot(told ?? null),
+    );
+    accountSession.subscribe();
+    return () => subscription.remove();
+  }, []);
+  return snapshot;
+}
 
 export default function ShellProbe() {
   return (
@@ -447,7 +474,16 @@ export function ShellSession() {
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const { sheets, answer, answerPassword, answerCode, answerPasskey, resetApplication } = useSystemSheets();
+  const {
+    sheets,
+    answer,
+    answerPassword,
+    answerCode,
+    answerPasskey,
+    resetApplication,
+    choosePowerKey,
+    reopenWindows,
+  } = useSystemSheets();
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useNetworkState();
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
@@ -651,7 +687,14 @@ function SessionShell() {
   }, [listsTold]);
   // The session's lock (ADR 0010): the compositor says when it is locked, and only it unlocks.
   const locked = !!state?.locked;
-  const user = state?.user;
+  // Whom the session is for: the account's display name and username, else the full name the
+  // system keeps (passwd's GECOS, written from the same profile); never the Unix user's name.
+  const accountSnapshot = useAccountSnapshot();
+  const systemFullName = state?.user?.fullName;
+  const user = React.useMemo(
+    () => sessionUserFrom(accountSnapshot, systemFullName),
+    [accountSnapshot, systemFullName],
+  );
   const capsLock = !!state?.capsLock;
   // The account's PIN (ADR 0020 decision 2), asked of the accounts' service as the session locks
   // and after each answer (a PIN locked out on the way): which field the lock screen shows. Until
@@ -673,7 +716,7 @@ function SessionShell() {
   const lock: ShellLock = React.useMemo(
     () => ({
       locked,
-      user: user ?? { name: '' },
+      user,
       capsLock,
       lockSession: shell.lockSession,
       authenticate: shell.authenticate,
@@ -861,6 +904,15 @@ function SessionShell() {
     }),
     [autofillTold],
   );
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+  // asked of the session, citing the menu's press; it decides, and asks its own question.
+  const powerActions: ShellPowerActions = React.useMemo(
+    () => ({
+      sleep: () => void sessionApi.sleep(),
+      endSession: (action, confirm) => void sessionApi.endSession(action, confirm),
+    }),
+    [],
+  );
   const first = dock ? sheets[0] : undefined;
   const sheet = React.useMemo(() => {
     const firstText = first ? readSheet(first.text) : null;
@@ -880,11 +932,17 @@ function SessionShell() {
       // An application that quit (docs/adr/0061): Reset… asks the session to reset it.
       act: (action: string) => {
         if (action === 'reset' && firstText.kind === 'crash') resetApplication(first.sheet, firstText.id);
+        // The power key's Restart and Sleep (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+        if ((action === 'restart' || action === 'sleep') && firstText.kind === 'power-key') {
+          choosePowerKey(first.sheet, action);
+        }
       },
+      // Reopen windows when logging back in, toggled: the session keeps it.
+      toggle: reopenWindows,
       // Its report copied, at the person's press, as any application copies (ADR 0007).
       copy: (text: string) => clipboard?.setString(text) ?? false,
     };
-  }, [first, registry, answer, answerPassword, answerCode, answerPasskey, resetApplication]);
+  }, [first, registry, answer, answerPassword, answerCode, answerPasskey, resetApplication, choosePowerKey, reopenWindows]);
   if (!state) return <ProbeShell platform={oxyosShell} now={now} />;
   return (
     <ProbeShell
@@ -904,6 +962,7 @@ function SessionShell() {
       battery={battery}
       backup={backupMenu}
       autofill={autofill}
+      powerActions={powerActions}
     />
   );
 }

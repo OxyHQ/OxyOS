@@ -37,17 +37,49 @@ export interface BackgroundItem extends Followed<BackgroundItemStatus> {
   unregister(options?: CallOptions): Promise<BackgroundItemStatus>;
 }
 
+/** Why the session asks the application to quit (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx). */
+export type QuitReason = 'logOut' | 'restart' | 'shutDown';
+/** An application's answer: quit (it then ends), or cancel the whole log out, restart or shut down. */
+export type QuitAnswer = 'quit' | 'cancel';
+/** Asked before the session logs out, restarts or shuts down, as a Mac's
+    `applicationShouldTerminate:`: an unsaved document may be saved first (the promise), or the end
+    cancelled. */
+export type QuitHandler = (reason: QuitReason) => QuitAnswer | Promise<QuitAnswer>;
+
 /** The host's module (`OxyOSApplication`): an ask about one of the application's items, its serial
-    (0: not sent), answered by `OxyOSBackgroundItemState`. */
+    (0: not sent), answered by `OxyOSBackgroundItemState`; and the session's requests to quit
+    (`OxyOSQuitRequested`, told only while `handlesQuit(true)`), answered by `replyToQuit`. */
 export interface ApplicationModule {
-  getConstants(): { backgroundItems?: boolean };
+  getConstants(): { backgroundItems?: boolean; quitRequests?: boolean };
   backgroundItem(kind: 'loginItem' | 'background', action: 'status' | 'register' | 'unregister'): number;
+  handlesQuit?(handles: boolean): void;
+  replyToQuit?(serial: number, quit: boolean): boolean;
+}
+
+const REASONS = new Set<string>(['logOut', 'restart', 'shutDown']);
+
+/** The handlers' answer, asked in order: any cancel cancels, and so does a handler that throws or
+    rejects (an unsaved document is never lost to a bug); none cancelling, quit. */
+export async function answerQuit(handlers: readonly QuitHandler[], reason: QuitReason): Promise<QuitAnswer> {
+  for (const handler of handlers) {
+    let answer: QuitAnswer;
+    try {
+      answer = await handler(reason);
+    } catch {
+      return 'cancel';
+    }
+    if (answer !== 'quit') return 'cancel';
+  }
+  return 'quit';
 }
 
 const STATUSES = new Set<string>(['notRegistered', 'enabled', 'requiresApproval', 'notPermitted']);
 
 export function createApplication(native: ApplicationModule | null | undefined, events: Events) {
-  const available = Boolean(native?.getConstants().backgroundItems);
+  const constants = native?.getConstants();
+  const available = Boolean(constants?.backgroundItems);
+  const quitRequests = Boolean(constants?.quitRequests && native?.handlesQuit && native?.replyToQuit);
+  const quitHandlers: QuitHandler[] = [];
   const waiting = new Map<number, (status: BackgroundItemStatus) => void>();
   const items = new Map<string, (status: BackgroundItemStatus) => void>();
 
@@ -116,7 +148,38 @@ export function createApplication(native: ApplicationModule | null | undefined, 
     };
   }
 
+  if (quitRequests) {
+    events.addListener('OxyOSQuitRequested', ({ serial, reason }: { serial: number; reason: string }) => {
+      if (typeof serial !== 'number' || !REASONS.has(reason)) return;
+      // The handlers as they are now: one registered while they answer is asked next time.
+      void answerQuit([...quitHandlers], reason as QuitReason).then((answer) =>
+        native?.replyToQuit?.(serial, answer === 'quit'),
+      );
+    });
+  }
+
+  /** Asked before the session logs out, restarts or shuts down (protocol version 38): `'quit'`,
+      and the application ends; `'cancel'`, and nothing ends ("Pages canceled restart."). Every
+      handler is asked in order; any cancel cancels. With none registered the platform quits it at
+      once. Returns what unregisters it. Where the session never asks (`quitRequests` false), it
+      is kept and never called. */
+  function onQuitRequest(handler: QuitHandler): () => void {
+    quitHandlers.push(handler);
+    if (quitRequests && quitHandlers.length === 1) native?.handlesQuit?.(true);
+    let registered = true;
+    return () => {
+      if (!registered) return;
+      registered = false;
+      const at = quitHandlers.indexOf(handler);
+      if (at >= 0) quitHandlers.splice(at, 1);
+      if (quitRequests && quitHandlers.length === 0) native?.handlesQuit?.(false);
+    };
+  }
+
   return {
+    /** Whether the session asks this application before it ends (protocol version 38). */
+    quitRequests,
+    onQuitRequest,
     /** The application itself, opened at login. */
     loginItem: item('loginItem'),
     /** Its process, running on in the background once its window closes. */

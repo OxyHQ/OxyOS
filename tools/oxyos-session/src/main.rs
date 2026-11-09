@@ -735,6 +735,15 @@ fn main() -> Result<()> {
         compositor.wakers.push(power.wake_fd()?);
         Some(power)
     };
+    // Activity Monitor (docs/adr/0063-activity-monitor.mdx): the machine's use and every process's,
+    // sampled only while its window is shown. The login screen has none.
+    let mut activity = if greeter {
+        None
+    } else {
+        let activity = oxyos_compositor::activity::Activity::new()?;
+        compositor.wakers.push(activity.wake_fd()?);
+        Some(activity)
+    };
     // Backups (docs/adr/0059-backups.mdx): the menu bar's backup item and Settings › Backups,
     // over the system's backup service (followed on one connection, waited for while it is not
     // there), its scheduled backups held while Low Power Mode is on. The login screen has none.
@@ -820,6 +829,33 @@ fn main() -> Result<()> {
                 Err(error) => eprintln!("[session] {id} not opened at login: {error}"),
             }
         }
+        // Reopen windows when logging back in (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+        // what ran as the person last logged out, restarted or shut down, read once; what was
+        // opened at login already is not opened twice.
+        if let Some(path) = oxyos_compositor::session_end::reopen_path() {
+            for id in oxyos_compositor::session_end::take_reopen(&path) {
+                if settings.preferences().open_at_login.contains(&id) {
+                    continue;
+                }
+                match launcher.launch(&id) {
+                    Ok(pid) => eprintln!("[session] reopened {id} at login ({pid})"),
+                    Err(error) => eprintln!("[session] {id} not reopened at login: {error}"),
+                }
+            }
+        }
+    }
+    // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+    // logind on a thread of its own, its power key held from now on, so logind never turns the
+    // machine off at a press; the login screen's too.
+    let mut ending = oxyos_compositor::session_end::SessionEnding::new(
+        oxyos_compositor::session_end::Logind::System,
+        greeter,
+        (!greeter)
+            .then(oxyos_compositor::session_end::reopen_path)
+            .flatten(),
+    )?;
+    if let Some(wake) = ending.wake_fd() {
+        compositor.wakers.push(wake?);
     }
     // The dock's Trash (docs/adr/0034-the-dock.mdx): what the user's Trashes hold, told to the
     // shell, and emptied when the person asks and accepts; none on the login screen.
@@ -915,6 +951,40 @@ fn main() -> Result<()> {
             compositor.flush();
             compositor.ending = true;
         }
+        // Sleep, restart, shut down and log out (ADR 0064), before the store, which takes the
+        // requests left: each application named by its launch record for the person.
+        {
+            let names: BTreeMap<ClientId, String> = compositor
+                .scene
+                .applications()
+                .into_iter()
+                .map(|client| {
+                    let launched = compositor
+                        .peers
+                        .get(&client)
+                        .and_then(|peer| launcher.application_of(peer.pid as u32))
+                        .map(|launched| launched.name.clone());
+                    let name = launched
+                        .or_else(|| compositor.scene.application(client).map(str::to_owned));
+                    (client, name.unwrap_or_default())
+                })
+                .collect();
+            let running: Vec<String> = launcher
+                .running()
+                .map(|(_, launched)| launched.id.clone())
+                .collect();
+            let served = ending.serve(
+                &mut compositor,
+                &mut settings,
+                &|client| names.get(&client).cloned().unwrap_or_default(),
+                &running,
+            );
+            if served.log_out {
+                eprintln!("[session] logging out, as the person asked");
+                compositor.flush();
+                compositor.ending = true;
+            }
+        }
         // AutoFill (ADR 0050): after the sign-out, so a session that is ending neither fills nor
         // asks anything; before the store, which takes the requests left (the shell's press on a
         // suggestion). The scene offers and fills nothing while locked.
@@ -957,17 +1027,21 @@ fn main() -> Result<()> {
         // The sound's outputs and inputs (ADR 0056), before the store, which takes the requests
         // left.
         sound.serve(&mut compositor.scene, compositor.controls.as_mut());
-        // Battery and energy (ADR 0057), before the store, which takes the requests left.
+        // Battery and energy (ADR 0057) and Activity Monitor (ADR 0063), before the store, which
+        // takes the requests left.
+        let running: Vec<oxyos_power::energy::Running> = launcher
+            .running()
+            .map(|(pid, launched)| oxyos_power::energy::Running {
+                pid,
+                id: launched.id.clone(),
+                name: launched.name.clone(),
+            })
+            .collect();
         if let Some(power) = power.as_mut() {
-            let running: Vec<oxyos_power::energy::Running> = launcher
-                .running()
-                .map(|(pid, launched)| oxyos_power::energy::Running {
-                    pid,
-                    id: launched.id.clone(),
-                    name: launched.name.clone(),
-                })
-                .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
+        }
+        if let Some(activity) = activity.as_mut() {
+            activity.serve(&mut compositor, &running, power.as_mut());
         }
         // Backups (ADR 0059), before the store, which takes the requests left.
         if let Some(backups) = backups.as_mut() {
@@ -1285,6 +1359,7 @@ fn main() -> Result<()> {
                     privacy: launched.grants.privacy,
                     network: launched.grants.network,
                     bluetooth: launched.grants.bluetooth,
+                    activity: launched.grants.activity,
                     ..Grants::default()
                 },
             })
@@ -1416,6 +1491,10 @@ fn main() -> Result<()> {
                 .any(|screen| !shells.contains_key(&screen.id));
         if shell_missing {
             wait = wait.min(shell_due.saturating_duration_since(Instant::now()));
+        }
+        // The question's deadline, or the applications' to quit (ADR 0064).
+        if let Some(due) = ending.wait() {
+            wait = wait.min(due);
         }
         // A reset waiting for its application to quit (docs/adr/0061, decision 5).
         if let Some(deadline) = crashes.deadline() {

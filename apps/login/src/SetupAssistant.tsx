@@ -11,6 +11,11 @@
  * once, and the PIN chosen, go to the accounts' service with the setup, then once more to the
  * login program to sign the new account in (straight to its desktop, never asked again), and are
  * forgotten. A failure keeps them, so Try Again needs nothing typed again.
+ *
+ * On the computer's first account, where the platform migrates, Transfer Your Data comes after the
+ * welcome (MigratePages.tsx, docs/adr/0059-backups.mdx): another computer's accounts brought over
+ * from its backup end the assistant, the login screen listing them to sign in again; Not Now goes
+ * on to the sign-in.
  */
 import React, { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { TextInput, View } from "react-native";
@@ -47,6 +52,8 @@ import {
   type SignedInAccount,
 } from "./setup";
 import type { Accounts } from "./model";
+import type { MigrateStep } from "./migrate";
+import { useMigratePage, useTransferPage, type Migrated, type MigrationActions } from "./MigratePages";
 import { useLoginMessages } from "./useLoginMessages";
 import { useShellLocale } from "../../shell/src/useShellMessages";
 
@@ -131,6 +138,11 @@ export type AssistantHost = {
   announce?: (text: string, polite: boolean) => void;
   /** The accounts again, once one was added. */
   reloadAccounts?: () => void;
+  /** Migrating from a backup, at the first account's Transfer Your Data; none where the
+      platform migrates nothing. */
+  migration?: MigrationActions;
+  /** Told the accounts a migration brought over: the assistant ends, they are listed. */
+  migrated?: (accounts: Migrated) => void;
 };
 
 /** The secrets and choices the setup holds until they are used. */
@@ -294,6 +306,7 @@ export function SetupAssistant({
   /** The enrolled accounts: the new one's name, once it is listed. */
   accounts: Accounts;
   close?: () => void;
+  /** Set up but not signed in: the account's user (to choose it) and its name (empty: none). */
   enrolled: (user: string, name: string) => void;
   /** Where it begins: the welcome on a first account, else the connection's check. */
   initial?: SetupStep;
@@ -303,6 +316,8 @@ export function SetupAssistant({
   const locale = useShellLocale();
   const setup = host.setup;
   const [step, setStep] = useState<SetupStep>(initial ?? (first ? { step: "welcome" } : { step: "checking" }));
+  // Transfer Your Data: the first account's, where the platform migrates.
+  const transfer = first && !!host.migration;
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
   const [appearance, setAppearance] = useState<Appearance>("auto");
@@ -355,8 +370,10 @@ export function SetupAssistant({
     setStep({ step: "checking" });
   };
   const goBack = () => {
-    const to = backFrom(step, first);
+    const to = backFrom(step, first, transfer);
     if (to === null) return;
+    // Leaving the migration lets its backups go (a disk the service mounted for it).
+    if (step.step === "migrate" && (typeof to === "string" || to.step !== "migrate")) host.migration?.end();
     if (to === "close") {
       forget();
       setup.end();
@@ -389,6 +406,8 @@ export function SetupAssistant({
     switch (next.next) {
       case "enrolled": {
         const { pin, password } = draft.current;
+        // Named as the service enrolled it when the sign-in said nothing (the QR, a password).
+        account = { ...account, name: account.name || next.name };
         setStep({ step: "signingIn", account, user: next.user });
         latest.current.reloadAccounts?.();
         setup.end();
@@ -448,6 +467,22 @@ export function SetupAssistant({
     else setStep({ step: "appearance", account });
   };
 
+  const transferPage = useTransferPage({
+    fromBackup: () => setStep({ step: "migrate", migrate: { step: "source", disks: null, problem: null } }),
+    asNew: () => setStep({ step: "checking" }),
+  });
+  const migratePage = useMigratePage({
+    migration: host.migration,
+    step: step.step === "migrate" ? step.migrate : null,
+    setStep: (migrate: MigrateStep) => setStep((now) => (now.step === "migrate" ? { step: "migrate", migrate } : now)),
+    migrated: (brought) => {
+      host.migration?.end();
+      latest.current.migrated?.(brought);
+    },
+    capsLock: host.capsLock,
+    announce: host.announce,
+  });
+
   let page: AssistantPage;
   const id = pageOf(step);
   switch (step.step) {
@@ -458,8 +493,18 @@ export function SetupAssistant({
         description: words.welcomeDescription,
         icon: <PageIcon>{(color) => <RiComputerLine width={ICON} height={ICON} fill={color} />}</PageIcon>,
         content: null,
-        primary: { label: words.getStarted, onPress: () => setStep({ step: "checking" }), testID: "login-setup-start" },
+        primary: {
+          label: words.getStarted,
+          onPress: () => setStep(transfer ? { step: "transfer" } : { step: "checking" }),
+          testID: "login-setup-start",
+        },
       };
+      break;
+    case "transfer":
+      page = transferPage;
+      break;
+    case "migrate":
+      page = migratePage ?? { id, content: null };
       break;
     case "offline":
     case "notConfigured":
@@ -675,11 +720,11 @@ export function SetupAssistant({
     }
   }
 
-  const pages = pagesFor(step, first).map(
+  const pages = pagesFor(step, first, transfer).map(
     (pageId): AssistantPage => (pageId === id ? page : { id: pageId, content: null, signIn: pageId === "signIn" ? true : undefined }),
   );
   const Frame = setup.Assistant;
-  const back = backFrom(step, first) !== null && !busy ? goBack : undefined;
+  const back = backFrom(step, first, transfer) !== null && !busy ? goBack : undefined;
   return (
     <Frame
       label={words.title}

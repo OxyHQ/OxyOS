@@ -14,6 +14,7 @@ import { AppIcon } from "../apps";
 import type { MaskedProps } from "../platform";
 import { useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
+import { personName } from "../session-user";
 
 /**
  * The backdrop of the lock and login screens: the wallpaper dimmed, and the date and the time
@@ -26,6 +27,8 @@ export function LockBackdrop({
   Masked,
   clock = true,
   safeMode = false,
+  footer,
+  overlay,
   children,
 }: {
   testID: string;
@@ -39,6 +42,11 @@ export function LockBackdrop({
   /** The session started in Safe Mode: said at the top right, as a Mac's login window says it
       (docs/adr/0054-recovery-and-erasing.mdx, decision 10). */
   safeMode?: boolean;
+  /** What stands at the screen's foot, centred: the login screen's Sleep, Restart and Shut Down
+      (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 8), as a Mac's login window. */
+  footer?: React.ReactNode;
+  /** What covers everything (a modal choice), over the content. */
+  overlay?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const wallpaperTarget = useRef<ComponentRef<typeof View>>(null);
@@ -70,6 +78,12 @@ export function LockBackdrop({
       >
         {children}
       </Box>
+      {footer ? (
+        <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: 24 }}>
+          {footer}
+        </Box>
+      ) : null}
+      {overlay}
     </Box>
   );
 }
@@ -206,7 +220,7 @@ export const LockScreen = memo(function LockScreen({
   safeMode?: boolean;
 }) {
   const messages = useShellMessages();
-  const name = lock.user.fullName || lock.user.name;
+  const name = personName(lock.user);
   const summary = notifications
     ? lockSummary(notifications.list, applications, notifications.previews, messages)
     : [];
@@ -243,12 +257,15 @@ export const LockScreen = memo(function LockScreen({
           ))}
         </Box>
       ) : null}
-      <UserPicture />
-      <Text
-        style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
-      >
-        {name}
-      </Text>
+      <UserPicture picture={lock.user.picture} testID="shell-lock-picture" />
+      {name ? (
+        <Text
+          testID="shell-lock-name"
+          style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
+        >
+          {name}
+        </Text>
+      ) : null}
       <SecretFields
         testID="shell-lock"
         pin={lock.pin}

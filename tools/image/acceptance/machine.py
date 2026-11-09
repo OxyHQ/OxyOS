@@ -60,13 +60,15 @@ class Machine:
     systemd-boot appends `io.systemd.boot.kernel-cmdline-extra=` to every entry's command line,
     the way a virtual machine is given a console without changing the image. `debug_serial` adds a
     second serial port (ttyS1), for systemd's debug shell; `usb_keyboard` adds a USB keyboard, which
-    OVMF reads in systemd-boot's menu (its PS/2 driver gives systemd-boot no keys)."""
+    OVMF reads in systemd-boot's menu (its PS/2 driver gives systemd-boot no keys). `external` is a
+    second disk, never booted from: an external disk connected to the computer (a backup disk)."""
 
     def __init__(self, image, directory, firmware="uefi", resolution=(1920, 1200), display="std",
                  accel=None, memory=2048, cpus=None, architecture="amd64", disk=None, variables=None,
-                 smbios=(), debug_serial=False, usb_keyboard=False):
+                 smbios=(), debug_serial=False, usb_keyboard=False, external=None):
         self.image = pathlib.Path(image) if image else None
         self.disk = pathlib.Path(disk) if disk else None
+        self.external = pathlib.Path(external) if external else None
         self.variables = pathlib.Path(variables) if variables else None
         self.smbios, self.debug_serial, self.usb_keyboard = list(smbios), debug_serial, usb_keyboard
         self.debug_log = bytearray()
@@ -147,6 +149,10 @@ class Machine:
             # A disk that can be discarded, as an SSD is (an erase discards the old root).
             arguments += ["-drive", f"file={self.disk},format=raw,if=none,id=disk,discard=unmap",
                           "-device", "virtio-blk-pci,drive=disk,bootindex=1"]
+        if self.external:
+            # After the disk, so it is the second (vdb), and with no boot index.
+            arguments += ["-drive", f"file={self.external},format=raw,if=none,id=external",
+                          "-device", "virtio-blk-pci,drive=external"]
         for value in self.smbios:
             # QEMU's option syntax doubles a literal comma.
             arguments += ["-smbios", "type=11,value=" + value.replace(",", ",,")]

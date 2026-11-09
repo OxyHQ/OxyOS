@@ -35,11 +35,8 @@
     {
       "name": "the top bar's button opens the Control Center",
       "do": [
-        "press_output",
-        [
-          1146,
-          14
-        ]
+        "press_named",
+        "Centro de control"
       ],
       "expect": {
         "react": {}

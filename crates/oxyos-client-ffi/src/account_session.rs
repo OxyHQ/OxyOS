@@ -536,10 +536,19 @@ pub fn platform_at(socket: &Path) -> Result<Platform, SessionError> {
 fn enroll_json(answer: &ipc::Answer) -> Option<(String, bool)> {
     let (json, continues) = match answer {
         ipc::Answer::SecondFactorRequired => (serde_json::json!("secondFactorRequired"), true),
+        // Named as every screen names the person (the profile's display name, else its username):
+        // the user is what the login program signs in, never a name to show.
         ipc::Answer::Enrolled {
-            account_id, user, ..
+            account_id,
+            user,
+            profile,
+            ..
         } => (
-            serde_json::json!({"enrolled": {"accountId": account_id, "user": user}}),
+            serde_json::json!({"enrolled": {
+                "accountId": account_id,
+                "user": user,
+                "name": profile.name().unwrap_or_default(),
+            }}),
             false,
         ),
         ipc::Answer::Refused {
@@ -1190,7 +1199,8 @@ unsafe fn answered(result: Result<&str, SessionError>, out: *mut c_char, capacit
 
 /// Sends the setup (`enroll`): the device credential the SDK's sign-in obtained, the account's
 /// id and its password, each NUL-terminated UTF-8; the service's answer as JSON:
-/// `{"enrolled": {"accountId", "user"}}`, `"secondFactorRequired"` (answer with
+/// `{"enrolled": {"accountId", "user", "name"}}` (`name`: what the person is called, empty when the
+/// account has no name), `"secondFactorRequired"` (answer with
 /// `_second_factor`), `{"failed": {"reason": "unreachable" | "localFailure"}}` (the sign-in kept:
 /// `_retry`) or `{"refused": {"reason", "retryAfterSeconds"}}`. Blocks while the service sets the
 /// account up, telling its steps to `_on_progress`'s function. The secrets are copied into buffers this library overwrites; the caller

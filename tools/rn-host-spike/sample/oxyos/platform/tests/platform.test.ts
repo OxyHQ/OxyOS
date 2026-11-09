@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createApplication } from '../src/application.ts';
+import { answerQuit, createApplication } from '../src/application.ts';
 import { codeOf, errorOf, isPlatformError, PlatformError } from '../src/errors.ts';
 import { followed } from '../src/followed.ts';
 import { createFrameworks } from '../src/frameworks.ts';
@@ -13,7 +13,7 @@ import { createSession, type Events } from '../src/session.ts';
 /** A played OxyOSSystem: the requests sent, and a way to answer one or tell state unasked. */
 function played({ sends = true } = {}) {
   const sent: { serial: number; body: Record<string, unknown> }[] = [];
-  let listener: ((event: { serial: number; answer: unknown }) => void) | undefined;
+  let listener: ((event: { serial: number; answer?: unknown; text?: string }) => void) | undefined;
   const events: Events = {
     addListener(name, handler) {
       assert.equal(name, 'OxyOSSystemAnswer');
@@ -37,6 +37,7 @@ function played({ sends = true } = {}) {
     sent,
     answer: (serial: number, answer: unknown) => listener?.({ serial, answer }),
     tell: (answer: unknown) => listener?.({ serial: 0, answer }),
+    tellText: (text: string) => listener?.({ serial: 0, text }),
   };
 }
 
@@ -187,6 +188,34 @@ test('a followed state tells its followers in order and stops each once', () => 
   assert.ok(new PlatformError('audio', 'busy') instanceof Error);
 });
 
+test("Activity Monitor's samples are followed while something shows them, of the view it chose", async () => {
+  const { platform, sent, tellText, answer } = played();
+  const { activity } = platform;
+  // The view is kept until following begins, which sends it.
+  activity.setView('memory');
+  assert.equal(sent.length, 0);
+  const samples: unknown[] = [];
+  const stop = activity.sample.subscribe((sample) => samples.push(sample));
+  assert.deepEqual(sent.at(-1)?.body, { activityFollow: { view: 'memory' } });
+  // A sample comes as the session's text (SystemData), parsed once.
+  tellText(JSON.stringify({ activity: { view: 'memory', processes: [{ pid: 7 }] } }));
+  assert.deepEqual(samples, [{ view: 'memory', processes: [{ pid: 7 }] }]);
+  assert.deepEqual(activity.sample.current(), { view: 'memory', processes: [{ pid: 7 }] });
+  // Another view while followed: told at once; the same view again: nothing.
+  activity.setView('cpu');
+  assert.deepEqual(sent.at(-1)?.body, { activityFollow: { view: 'cpu' } });
+  const before = sent.length;
+  activity.setView('cpu');
+  assert.equal(sent.length, before);
+  stop();
+  assert.deepEqual(sent.at(-1)?.body, { activityFollow: { view: null } });
+  // Quitting refused rejects with the platform's error.
+  const quitting = activity.quit(7, 123, false);
+  answer(sent.at(-1)!.serial, { refused: { reason: 'needsInput' } });
+  await assert.rejects(quitting, (error: unknown) => isPlatformError(error, 'needsInput'));
+  assert.deepEqual(sent.at(-1)?.body, { activityQuit: { pid: 7, started: 123, force: false } });
+});
+
 test("backups are asked for as first followed, and no backup service is a state of its own", () => {
   const { session, sent, answer, tell } = played();
   // Before the session said: null.
@@ -284,6 +313,7 @@ function playedApplication({ available = true, sends = true } = {}) {
   let listener: ((event: { serial: number; kind: string; status: string }) => void) | undefined;
   const events: Events = {
     addListener(name, handler) {
+      if (name === 'OxyOSQuitRequested') return { remove() {} };
       assert.equal(name, 'OxyOSBackgroundItemState');
       listener = handler;
       return { remove() {} };
@@ -378,4 +408,107 @@ test("the account's applications are followed as Settings asks for them and as t
     told.map((apps) => (apps as { runningInBackground: boolean }[])[0].runningInBackground),
     [false, true],
   );
+});
+
+/** A played OxyOSApplication that asks to quit: what JavaScript said it handles, and its answers. */
+function playedQuit({ quitRequests = true } = {}) {
+  const handles: boolean[] = [];
+  const replies: { serial: number; quit: boolean }[] = [];
+  let ask: ((event: { serial: number; reason: string }) => void) | undefined;
+  const events: Events = {
+    addListener(name, handler) {
+      if (name === 'OxyOSQuitRequested') ask = handler;
+      return { remove() {} };
+    },
+  };
+  const native = {
+    getConstants: () => ({ backgroundItems: false, quitRequests }),
+    backgroundItem: () => 0,
+    handlesQuit: (handling: boolean) => void handles.push(handling),
+    replyToQuit: (serial: number, quit: boolean) => {
+      replies.push({ serial, quit });
+      return true;
+    },
+  };
+  return {
+    application: createApplication(native, events),
+    handles,
+    replies,
+    ask: (serial: number, reason: string) => ask?.({ serial, reason }),
+  };
+}
+
+test('the session asks an application to quit, and any handler may cancel (ADR 0064)', async () => {
+  const { application, handles, replies, ask } = playedQuit();
+  assert.equal(application.quitRequests, true);
+  // Told the host it handles the question with the first handler, and no more with the last gone.
+  const reasons: string[] = [];
+  let dirty = true;
+  const stopFirst = application.onQuitRequest((reason) => {
+    reasons.push(reason);
+    return dirty ? 'cancel' : 'quit';
+  });
+  const stopSecond = application.onQuitRequest(async (): Promise<'quit'> => 'quit');
+  assert.deepEqual(handles, [true]);
+  // An unsaved document cancels the restart.
+  ask(7, 'restart');
+  await settle();
+  assert.deepEqual(replies, [{ serial: 7, quit: false }]);
+  assert.deepEqual(reasons, ['restart']);
+  // Saved: every handler quits, and the application answers quit.
+  dirty = false;
+  ask(8, 'shutDown');
+  await settle();
+  assert.deepEqual(replies.at(-1), { serial: 8, quit: true });
+  // An unknown reason is no request.
+  ask(9, 'sideways');
+  await settle();
+  assert.equal(replies.length, 2);
+  stopFirst();
+  stopFirst();
+  assert.deepEqual(handles, [true]);
+  stopSecond();
+  assert.deepEqual(handles, [true, false]);
+});
+
+test('a handler that throws or rejects cancels: nothing unsaved is lost to a bug', async () => {
+  assert.equal(await answerQuit([], 'logOut'), 'quit');
+  assert.equal(await answerQuit([() => 'quit'], 'logOut'), 'quit');
+  assert.equal(
+    await answerQuit(
+      [
+        () => {
+          throw new Error('boom');
+        },
+      ],
+      'logOut',
+    ),
+    'cancel',
+  );
+  assert.equal(await answerQuit([async () => Promise.reject(new Error('boom'))], 'restart'), 'cancel');
+  // Asked in order: the first cancel ends the asking.
+  const asked: string[] = [];
+  const answer = await answerQuit(
+    [
+      () => {
+        asked.push('first');
+        return 'cancel';
+      },
+      () => {
+        asked.push('second');
+        return 'quit';
+      },
+    ],
+    'shutDown',
+  );
+  assert.equal(answer, 'cancel');
+  assert.deepEqual(asked, ['first']);
+});
+
+test('where the session never asks, a handler is kept and the host is told nothing', () => {
+  const { application, handles } = playedQuit({ quitRequests: false });
+  assert.equal(application.quitRequests, false);
+  const stop = application.onQuitRequest(() => 'quit');
+  stop();
+  assert.deepEqual(handles, []);
 });

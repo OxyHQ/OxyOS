@@ -482,6 +482,13 @@ std::optional<Window::Candidates> Window::inputCandidates() {
   return out;
 }
 
+std::optional<std::string> Window::systemData() {
+  const char* text = nullptr;
+  size_t length = 0;
+  if (oxyos_client_system_data(client_, &text, &length) != 1) return std::nullopt;
+  return std::string(text, length);
+}
+
 bool Window::launch(uint32_t serial, const std::string& id) {
   return oxyos_client_launch(client_, serial, id.data(), id.size()) == 0;
 }
@@ -635,6 +642,10 @@ bool Window::requestCapability(uint32_t serial, uint64_t input, uint8_t capabili
 
 bool Window::backgroundItem(uint32_t serial, uint8_t kind, uint8_t action) {
   return oxyos_client_background_item(client_, serial, kind, action) == 0;
+}
+
+bool Window::replyToQuit(uint32_t serial, bool quit) {
+  return oxyos_client_reply_to_quit(client_, serial, quit ? 1 : 0) == 0;
 }
 
 void Window::closeToplevel() {

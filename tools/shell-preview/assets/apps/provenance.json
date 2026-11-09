@@ -45,5 +45,12 @@
     "path": "packages/frontend/assets/images/atlas-icon.png",
     "revision": "ecfde88b09cf481c44c12477e6016304cda028ee",
     "resized": "512x512, Lanczos (ffmpeg)"
+  },
+  "activity-monitor": {
+    "description": "Activity Monitor's icon, drawn by a script in this repository (art as code, deterministic).",
+    "script": "scripts/make-activity-monitor-icon.py",
+    "files": [
+      "activity-monitor.png"
+    ]
   }
 }

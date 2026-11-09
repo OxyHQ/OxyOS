@@ -44,6 +44,7 @@ import {
   unwatchFiles,
 } from './files';
 import { createSearch, searchAvailable } from './search';
+import { homeName } from './home-name';
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -250,10 +251,21 @@ function createKeyboard() {
   const listeners = new Set();
   // The host calls this with each key press before the focused view, and waits for the answer.
   nativeKeyboard.setListener((event) => [...listeners].some((listener) => listener(event) === true));
+  // The modifiers held, as the compositor tells them when they change (protocol version 38, a Mac's
+  // flagsChanged:, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `{altKey, ctrlKey,
+  // metaKey, shiftKey}`, Option going down or up told at once, with no key or move after it.
+  const flagListeners = new Set();
+  DeviceEventEmitter.addListener('OxyOSModifiersChanged', (flags) => {
+    for (const listener of [...flagListeners]) listener(flags);
+  });
   return {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    subscribeModifiers(listener) {
+      flagListeners.add(listener);
+      return () => flagListeners.delete(listener);
     },
   };
 }
@@ -355,7 +367,7 @@ function createFiles() {
     async places() {
       const { home, favourites, volumes } = (await requestFiles('places')).value;
       return [
-        { kind: 'home', name: named(home), uri: home },
+        { kind: 'home', name: homeName(home), uri: home },
         ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
         ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
       ];

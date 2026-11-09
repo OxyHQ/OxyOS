@@ -29,6 +29,8 @@
 //!   machine, for a development server);
 //! - `OXYOS_OXY_CLIENT_ID`: OxyOS's public client id, which the platform's sign-ins name; without
 //!   it nothing is set up (`notConfigured`) and passwords are not checked online;
+//! - `OXYOS_OXY_CLOUD`: Oxy's cloud, where an account's avatar is read from to be its picture,
+//!   `https://cloud.oxy.so` by default (a development server's may be plain HTTP to this machine);
 //! - `OXYOS_SESSION_PROGRAM`: the session program, `/usr/bin/oxyos-session` by default, the one
 //!   program that may register launches;
 //! - `OXYOS_LOGIN_PROGRAM`: the login program, `/usr/libexec/oxyos/oxyos-login` by default, whose
@@ -83,6 +85,7 @@ struct Options {
     socket: PathBuf,
     session_socket: PathBuf,
     api: String,
+    cloud: String,
     client_id: Option<String>,
     session_program: PathBuf,
     login_program: PathBuf,
@@ -104,6 +107,7 @@ fn options() -> Result<Options, String> {
         socket: ipc::SOCKET.into(),
         session_socket: session::SOCKET.into(),
         api: env("OXYOS_OXY_API").unwrap_or_else(|| oxyos_account::api::OXY_API.into()),
+        cloud: env("OXYOS_OXY_CLOUD").unwrap_or_else(|| oxyos_account::api::OXY_CLOUD.into()),
         client_id: env("OXYOS_OXY_CLIENT_ID"),
         session_program: env("OXYOS_SESSION_PROGRAM")
             .unwrap_or_else(|| session::SESSION_PROGRAM.into())
@@ -340,7 +344,7 @@ fn run() -> Result<(), String> {
     if !rustix::process::geteuid().is_root() {
         return Err("it runs as root: it makes users and sets their verifiers".into());
     }
-    let api = HttpApi::new(&options.api)?;
+    let api = HttpApi::new(&options.api)?.with_cloud(&options.cloud)?;
     let store = Store::open(&options.state)
         .map_err(|error| format!("{}: {error}", options.state.display()))?
         .with_pictures(&options.pictures);
@@ -364,6 +368,11 @@ fn run() -> Result<(), String> {
         Ok(None) => {}
         Err(error) => eprintln!("oxyos-accountd: the machine has no administrator: {error}"),
     }
+    // Each account's user named as its account is (passwd's GECOS): users set up before the
+    // service named them are named now.
+    if let Err(error) = setup.name_users() {
+        eprintln!("oxyos-accountd: the accounts' users are not named: {error}");
+    }
     let platform: Arc<Service> = Arc::new(Platform::new(setup));
     // The accounts' keychains, synced with OxyOS's own token for each account.
     let tokens = Arc::downgrade(&platform);
@@ -386,6 +395,11 @@ fn run() -> Result<(), String> {
         Memory::Locked,
     );
     platform.set_keychains(keychains);
+    // Each account's picture read where it is missing or out of date (accounts set up before
+    // pictures were kept), on a thread of its own: nothing waits for Oxy's cloud, and offline the
+    // last one read is shown.
+    let pictures = Arc::clone(&platform);
+    std::thread::spawn(move || pictures.refresh_pictures());
     let listener = Listener::bind(&options.socket)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;
     let session_listener = Listener::bind(&options.session_socket)
