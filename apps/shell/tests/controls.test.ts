@@ -67,6 +67,11 @@ test("the clock is said by the date and time it shows, in whole words, in the se
   const now = new Date(2026, 10, 3, 14, 5);
   assert.equal(barClock(now, "es-ES"), `${now.toLocaleDateString("es", { weekday: "short", day: "numeric", month: "short" })} 14:05`);
   assert.equal(clockSaid(now, "es-ES"), "martes, 3 de noviembre, 14:05");
-  assert.equal(clockSaid(new Date(2026, 0, 12, 9, 30), "es-ES"), "lunes, 12 de enero, 09:30");
+  // The locale's own short time, as the bar shows it (CLDR 48 pads Spanish's hour, an older CLDR
+  // does not; the shell does neither itself).
+  const morning = new Date(2026, 0, 12, 9, 30);
+  const short = new Intl.DateTimeFormat("es-ES", { timeStyle: "short" }).format(morning);
+  assert.equal(clockSaid(morning, "es-ES"), `lunes, 12 de enero, ${short}`);
+  assert.equal(clockSaid(morning, "en-GB"), "Monday 12 January, 09:30");
   assert.match(clockSaid(now, "en-US"), /^Tuesday, November 3, 2:05[\s\u202f]PM$/);
 });

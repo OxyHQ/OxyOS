@@ -71,6 +71,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   nested in that group (at any depth), the items in order, each to the right of or below the last,
   inside the group's rectangle: one control, never an empty group beside loose buttons, nor a second copy
   elsewhere. With "only": true the buttons the group holds are exactly its items;
+- at_apart: by "window", "shell", "launched" or a popup's, node names each held exactly once
+  whose rectangles no two overlap: controls laid out apart (the login screen's Add Account and its
+  power buttons at any size);
 - at_hit: what a press lands on, by the tree's geometry: "x,y" (the window's coordinates, as
   `press` takes them) -> the node matching the keys given is the innermost one whose rectangle holds it;
 - announcements: what the assistive technology would have said in the step, exactly and in
@@ -5105,6 +5108,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if got is None or not matches(got, node):
                 fail(f"a press at {point} lands on {got and {k: got[k] for k in ('role', 'name', 'rect')}}, "
                      f"expected {node}")
+    if "at_apart" in expect:
+        for role, names in expect["at_apart"].items():
+            nodes = held_nodes(role)
+            found = []
+            for label in names:
+                named = [n for n in nodes if n.get("name") == label]
+                if len(named) != 1:
+                    fail(f"the assistive technology holds {len(named)} {role} nodes named {label!r}, expected one")
+                else:
+                    found.append(named[0])
+            for i, a in enumerate(found):
+                for b in found[i + 1:]:
+                    if overlaps(a["rect"], b["rect"]):
+                        fail(f"{a['name']!r} {a['rect']} and {b['name']!r} {b['rect']} overlap")
     if "at" in expect:
         for role, wanted in expect["at"].items():
             nodes = held_nodes(role)
