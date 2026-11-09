@@ -144,11 +144,19 @@ pub struct SystemApplication {
 /// ```
 ///
 /// with `"exec": "/absolute/program"` in place of `"bloom"` for a native client. It is read
-/// strictly: an unknown key, an id named twice, a grant this system does not know, a path that is
-/// not absolute and plain, or both or neither of `exec` and `bloom` refuse the whole policy.
+/// strictly: an unknown key, an id named twice, a path that is not absolute and plain, or both or
+/// neither of `exec` and `bloom` refuse the whole policy. A grant this program does not know, or
+/// one named twice, refuses only the application that names it: an upgrade installs a policy whose
+/// new application, or new grant, a session already running cannot know of until the person logs
+/// in again, and every other system application must stay one meanwhile (OxyHQ/OxyOS#493). The
+/// refused application is not started, and its id stays the policy's, so no other source's entry
+/// takes it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Policy {
     applications: BTreeMap<String, SystemApplication>,
+    /// The applications it names that this program cannot take as it describes them, each with
+    /// why.
+    refused: BTreeMap<String, String>,
 }
 
 mod policy_json {
@@ -237,6 +245,7 @@ impl Policy {
             }
         };
         let mut applications = BTreeMap::new();
+        let mut refused = BTreeMap::new();
         for (id, raw) in file.applications {
             if !valid_id(&id) {
                 return Err(Error(format!("{id:?} is not an application id")));
@@ -253,12 +262,17 @@ impl Policy {
                     )));
                 }
             };
-            let grants =
-                Grants::named(&raw.grants).map_err(|Error(e)| Error(format!("{id}: {e}")))?;
             let entry = path(&id, "entry", raw.entry)?;
             if entry.file_name().and_then(|name| name.to_str()) != Some(&format!("{id}.desktop")) {
                 return Err(Error(format!("{id}'s entry is not named {id}.desktop")));
             }
+            let grants = match Grants::named(&raw.grants) {
+                Ok(grants) => grants,
+                Err(Error(error)) => {
+                    refused.insert(id, format!("{error}: not started by this session"));
+                    continue;
+                }
+            };
             applications.insert(
                 id,
                 SystemApplication {
@@ -268,7 +282,10 @@ impl Policy {
                 },
             );
         }
-        Ok(Self { applications })
+        Ok(Self {
+            applications,
+            refused,
+        })
     }
 
     /// The policy at `path`, judged by `trusted` at its real path and read there. A machine with
@@ -309,6 +326,18 @@ impl Policy {
     /// Its system applications, by id.
     pub fn applications(&self) -> impl Iterator<Item = (&str, &SystemApplication)> {
         self.applications.iter().map(|(id, app)| (id.as_str(), app))
+    }
+
+    /// Why the application `id` it names is refused, if it is ([`Policy`]).
+    pub fn refused(&self, id: &str) -> Option<&str> {
+        self.refused.get(id).map(String::as_str)
+    }
+
+    /// The applications it names and refuses, by id, each with why.
+    pub fn refusals(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.refused
+            .iter()
+            .map(|(id, why)| (id.as_str(), why.as_str()))
     }
 }
 
@@ -956,6 +985,12 @@ pub fn registry(
                 None
             });
         found.insert(id.to_string(), application);
+    }
+    // Refused: not listed, and its id still the policy's, so no other source's entry stands for
+    // it (the image's own entry, in a development directory too, would run unverified).
+    for (id, why) in policy.refusals() {
+        skipped.push(format!("{id}: {why}"));
+        found.insert(id.to_string(), None);
     }
     if let Some(entries) = installed.and_then(|dir| std::fs::read_dir(dir).ok()) {
         let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
@@ -1622,6 +1657,16 @@ impl Launcher {
         self
     }
 
+    /// The image's policy at `policy` in place of [`POLICY`], its files and what they name judged
+    /// by `trusted` in place of [`administrator_written`]: another crate's tests playing the image
+    /// (the accounts' service's, launching under a live registrar). Never a session's: a session's
+    /// policy is [`POLICY`], root's.
+    pub fn with_policy(mut self, policy: PathBuf, trusted: Box<dyn Fn(&Path) -> bool>) -> Self {
+        self.policy = policy;
+        self.trusted = trusted;
+        self
+    }
+
     /// The development compositor's fixture of the install service (docs/adr/0030, decision 7):
     /// `installed`'s entries, which a scenario wrote, taken as if the service had written them.
     /// Never a session's: a session's installed entries are root's, and judged so.
@@ -1634,9 +1679,12 @@ impl Launcher {
     }
 
     /// The image's policy of system applications as it is now; one that cannot be judged or read
-    /// gives none (the session says why as it starts, [`Policy::system`]).
+    /// gives none, and says why: an upgrade may have replaced it since the session started.
     fn policy(&self) -> Policy {
-        Policy::read(&self.policy, &*self.trusted).unwrap_or_default()
+        Policy::read(&self.policy, &*self.trusted).unwrap_or_else(|error| {
+            eprintln!("[apps] system applications: {error}");
+            Policy::none()
+        })
     }
 
     /// The application `id` as the registry lists it now, if it does.
@@ -1819,7 +1867,10 @@ impl Launcher {
             &*self.trusted,
             id,
         )
-        .ok_or_else(|| Error(format!("no application {id:?}")))?;
+        .ok_or_else(|| match policy.refused(id) {
+            Some(why) => Error(format!("{id}: {why}")),
+            None => Error(format!("no application {id:?}")),
+        })?;
         let system = policy
             .get(id)
             .filter(|_| application.origin == Origin::System);

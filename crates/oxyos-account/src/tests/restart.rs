@@ -3,7 +3,8 @@
 //! running, without ever giving up; and the service takes a session it verified before its
 //! restart though the session program's file was replaced since, by what it kept of it, never by
 //! what the session says. As in `session`, the test is the registrar (its program standing for the
-//! session program) and its children the launched applications.
+//! session program) and its children the launched applications, started by the session's own
+//! launcher (`oxyos_apps::Launcher`) from an image's policy and entries of the test's own.
 
 use super::erase::{eraser, FakePasswords, FakeSystem};
 use super::platform::{machine_as, Machine};
@@ -228,6 +229,201 @@ fn the_session_registers_its_running_applications_again_when_the_service_restart
         end(child);
     }
     third.stop();
+}
+
+/// The session's launcher telling its registrar what it starts, as the session program's
+/// (`tools/oxyos-session`, `Registered`) does: a system application as one.
+struct Registered(Arc<RegistrarThread>);
+
+impl oxyos_apps::Registrar for Registered {
+    fn register(&self, launched: &oxyos_apps::Launched, pidfd: OwnedFd) {
+        let system = launched.origin == oxyos_apps::Origin::System;
+        self.0.register(&launched.id, system, pidfd);
+    }
+}
+
+/// The image's system applications, as `/usr/share/oxyos` holds them, in a directory of the
+/// test's own taken as root's: the policy and the entries, which are also where a session looks
+/// for development entries (`oxyos/applications` under `$XDG_DATA_DIRS`'s `/usr/share`).
+struct Image {
+    share: PathBuf,
+    /// What Dropsea runs: a program that waits, an administrator's (the system's own `sleep`).
+    sleep: PathBuf,
+}
+
+const DROPSEA: &str = "[Desktop Entry]\nType=Application\nName=Dropsea\nExec=/bin/sleep 30\n";
+
+impl Image {
+    fn new(root: &Path) -> Self {
+        let share = root.join("share/oxyos");
+        std::fs::create_dir_all(share.join("applications")).unwrap();
+        let image = Self {
+            share,
+            sleep: Path::new("/bin/sleep").canonicalize().unwrap(),
+        };
+        image.replace("applications/so.oxy.dropsea.desktop", DROPSEA);
+        image.replace("system-apps.json", &image.policy(&[("so.oxy.dropsea", "")]));
+        image
+    }
+
+    /// A policy naming `applications` (each id with its grants, JSON strings), each running
+    /// `sleep`.
+    fn policy(&self, applications: &[(&str, &str)]) -> String {
+        let applications: Vec<String> = applications
+            .iter()
+            .map(|(id, grants)| {
+                format!(
+                    r#""{id}":{{"entry":"{}","exec":"{}","grants":[{grants}]}}"#,
+                    self.share
+                        .join(format!("applications/{id}.desktop"))
+                        .display(),
+                    self.sleep.display()
+                )
+            })
+            .collect();
+        format!(r#"{{"applications":{{{}}}}}"#, applications.join(","))
+    }
+
+    /// `file` replaced by `text` as a package manager replaces it: a new file renamed over it.
+    fn replace(&self, file: &str, text: &str) {
+        let path = self.share.join(file);
+        let new = path.with_extension("dpkg-new");
+        std::fs::write(&new, text).unwrap();
+        std::fs::set_permissions(&new, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::rename(&new, &path).unwrap();
+    }
+
+    /// The session's launcher over this image, telling `registrar` what it starts.
+    fn launcher(&self, registrar: Arc<RegistrarThread>) -> oxyos_apps::Launcher {
+        let share = self.share.canonicalize().unwrap();
+        let sleep = self.sleep.clone();
+        // This image's files and directories as root's, written by no one else; the rest as they
+        // are (the system's `sleep` is root's).
+        let trusted = move |path: &Path| {
+            path == sleep
+                || oxyos_apps::trusted_by(path, &|p: &Path| {
+                    oxyos_apps::lstat(p).map(|status| {
+                        if p.starts_with(&share) || share.starts_with(p) {
+                            oxyos_apps::Status {
+                                uid: 0,
+                                mode: status.mode & !0o022,
+                                ..status
+                            }
+                        } else {
+                            status
+                        }
+                    })
+                })
+        };
+        oxyos_apps::Launcher::new(
+            oxyos_apps::Runtime {
+                socket: self.share.join("no-compositor"),
+                bloom_host: None,
+                bloom_bundle: None,
+                runtimes: self.share.join("no-runtimes"),
+                window: (960, 600),
+                env: Vec::new(),
+            },
+            vec![self.share.join("applications")],
+            Vec::new(),
+        )
+        .with_policy(self.share.join("system-apps.json"), Box::new(trusted))
+        .with_registrar(Box::new(Registered(registrar)))
+    }
+}
+
+/// OxyHQ/OxyOS#493: every launch after the service restarted, however many times, is registered,
+/// and so is every launch after an upgrade replaced the image's entries and its policy with one
+/// naming a grant the running session's program does not know (a new application's), which
+/// refuses that application alone: the others stay system applications, never development
+/// entries with no Oxy identity, so never unregistered.
+#[test]
+fn every_launch_is_registered_after_restarts_and_an_upgrade_of_the_image() {
+    let upgrade = upgrade();
+    let image = Image::new(&upgrade.machine.dir.path().join("image"));
+    let kept = |program: PathBuf| registrars(program, Some(upgrade.verified.clone()));
+    let first = Run::start(
+        &upgrade.machine,
+        &upgrade.path,
+        kept(std::env::current_exe().unwrap()),
+    );
+    let (session, said) = registrar_thread(&upgrade.path);
+    let mut launcher = image.launcher(Arc::new(session));
+    let mut pids = Vec::new();
+    let launched = launch_dropsea(&mut launcher, &mut pids);
+    wait_for("the launch registered", || first.registered() == launched);
+
+    // Restarted twice (the second time after the session program was replaced): each launch after
+    // each restart is registered, with those already running.
+    let mut run = first;
+    for restart in 1..=2 {
+        run.stop();
+        run = Run::start(
+            &upgrade.machine,
+            &upgrade.path,
+            kept(upgrade.replaced.clone()),
+        );
+        wait_for(&format!("registered again after restart {restart}"), || {
+            run.registered() == pids
+        });
+        let launched = launch_dropsea(&mut launcher, &mut pids);
+        wait_for(&format!("a launch after restart {restart}"), || {
+            run.registered() == launched
+        });
+    }
+
+    // An upgrade: Dropsea's entry replaced, a new application with a grant this program does not
+    // know added to the policy, and the service restarted.
+    image.replace("applications/so.oxy.dropsea.desktop", DROPSEA);
+    image.replace(
+        "applications/so.oxy.activitymonitor.desktop",
+        "[Desktop Entry]\nType=Application\nName=Activity Monitor\nExec=/bin/sleep 30\n",
+    );
+    image.replace(
+        "system-apps.json",
+        &image.policy(&[
+            ("so.oxy.dropsea", ""),
+            ("so.oxy.activitymonitor", r#""a-later-grant""#),
+        ]),
+    );
+    run.stop();
+    run = Run::start(
+        &upgrade.machine,
+        &upgrade.path,
+        kept(upgrade.replaced.clone()),
+    );
+    wait_for("registered again after the upgrade", || {
+        run.registered() == pids
+    });
+    let launched = launch_dropsea(&mut launcher, &mut pids);
+    wait_for("a launch after the upgrade", || {
+        run.registered() == launched
+    });
+    // The application this session cannot take is not started, so never runs unregistered.
+    assert!(launcher.launch("so.oxy.activitymonitor").is_err());
+    assert_eq!(run.registered(), launched);
+
+    let said = said.lock().unwrap().clone();
+    assert!(
+        !said.iter().any(|line| line.contains("refused")
+            || line.contains("not registered")
+            || line.contains("registering")),
+        "{said:?}"
+    );
+    launcher.end(Duration::from_secs(5));
+    run.stop();
+}
+
+/// Dropsea launched once more, as a system application: every pid launched so far, in order.
+fn launch_dropsea(launcher: &mut oxyos_apps::Launcher, pids: &mut Vec<i32>) -> Vec<i32> {
+    let pid = launcher.launch("so.oxy.dropsea").unwrap();
+    assert_eq!(
+        launcher.application_of(pid).map(|app| &app.origin),
+        Some(&oxyos_apps::Origin::System)
+    );
+    pids.push(pid as i32);
+    pids.sort_unstable();
+    pids.clone()
 }
 
 #[test]

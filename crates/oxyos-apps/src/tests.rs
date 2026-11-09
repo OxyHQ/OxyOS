@@ -591,18 +591,6 @@ fn the_policy_is_read_strictly() {
             "a key twice",
             format!(r#"{entry},"exec":"/x","exec":"/y","grants":[]"#),
         ),
-        (
-            "an unknown grant",
-            format!(r#"{entry},"exec":"/x","grants":["shell"]"#),
-        ),
-        (
-            "a grant's other spelling",
-            format!(r#"{entry},"exec":"/x","grants":["Settings"]"#),
-        ),
-        (
-            "a grant twice",
-            format!(r#"{entry},"exec":"/x","grants":["settings","settings"]"#),
-        ),
         ("no grants named", format!(r#"{entry},"exec":"/x""#)),
         (
             "a relative program",
@@ -637,6 +625,19 @@ fn the_policy_is_read_strictly() {
     ];
     for (what, fields) in refused {
         assert!(one(&fields).is_err(), "{what} was accepted");
+    }
+    // A grant this program does not know (a later policy's, an upgrade's, before the session is
+    // started again), or one named twice, refuses only the application that names it.
+    let refused_alone = [
+        ("an unknown grant", r#"["shell"]"#),
+        ("a grant's other spelling", r#"["Settings"]"#),
+        ("a grant twice", r#"["settings","settings"]"#),
+    ];
+    for (what, grants) in refused_alone {
+        let policy = one(&format!(r#"{entry},"exec":"/x","grants":{grants}"#))
+            .unwrap_or_else(|error| panic!("{what} refused the whole policy: {error:?}"));
+        assert_eq!(policy.get("so.oxy.x"), None, "{what} was accepted");
+        assert!(policy.refused("so.oxy.x").is_some(), "{what}");
     }
     let app = format!(r#"{{{entry},"exec":"/x","grants":[]}}"#);
     assert!(
@@ -710,9 +711,13 @@ fn the_policy_names_the_store_s_updates_and_privacy_grants() {
             ..Grants::default()
         }
     );
-    assert!(policy(r#""store","store""#).is_err(), "a grant twice");
-    assert!(policy(r#""Store""#).is_err(), "another spelling");
-    assert!(policy(r#""install""#).is_err(), "not a system grant");
+    let refused = |list: &str| {
+        let policy = policy(list).unwrap();
+        policy.get("so.oxy.x").is_none() && policy.refused("so.oxy.x").is_some()
+    };
+    assert!(refused(r#""store","store""#), "a grant twice");
+    assert!(refused(r#""Store""#), "another spelling");
+    assert!(refused(r#""install""#), "not a system grant");
 }
 
 #[test]
@@ -1810,6 +1815,76 @@ fn each_verified_launch_is_told_to_the_registrar_with_its_pidfd() {
     // A development entry has no Oxy identity: not told.
     launcher.launch("so.oxy.writer").unwrap();
     assert_eq!(told.0.lock().unwrap().len(), 1);
+    launcher.end(std::time::Duration::from_secs(5));
+}
+
+/// OxyHQ/OxyOS#493: an upgrade replaces the image's policy and entries under a running session
+/// with a policy naming a grant the session's program does not know (a new application's). Every
+/// other system application stays one, launched and told to the registrar as before; the new one
+/// is not started, and never as a development entry, though the image's entries sit in a
+/// development directory too (`/usr/share/oxyos/applications` under `$XDG_DATA_DIRS`).
+#[test]
+fn a_later_policy_s_unknown_grant_refuses_only_its_application() {
+    let shell = Path::new("/bin/sh").canonicalize().unwrap();
+    let dir = Directory::new("upgraded", &[("so.oxy.settings.desktop", SETTINGS)]);
+    let entries = dir.0.canonicalize().unwrap();
+    let policy_file = Directory::new("upgraded-policy", &[]);
+    let path = policy_file.0.join("system-apps.json");
+    std::fs::write(
+        &path,
+        policy_of("so.oxy.settings", &entries, &shell, r#""settings""#),
+    )
+    .unwrap();
+    let told = Told::default();
+    let mut launcher = test_launcher(&dir, Some(&path)).with_registrar(Box::new(told.clone()));
+    launcher.trusted = Box::new({
+        let (entries, policies) = (as_if_root(&dir.0), as_if_root(&policy_file.0));
+        let shell = shell.clone();
+        move |path: &Path| entries(path) || policies(path) || path == shell
+    });
+    let first = launcher.launch("so.oxy.settings").unwrap();
+
+    // The upgrade, as a package manager writes it: each file replaced by a rename.
+    let replace = |path: &Path, text: &str| {
+        let new = path.with_extension("new");
+        std::fs::write(&new, text).unwrap();
+        std::fs::rename(&new, path).unwrap();
+    };
+    replace(&dir.0.join("so.oxy.settings.desktop"), SETTINGS);
+    replace(
+        &dir.0.join("so.oxy.activitymonitor.desktop"),
+        "[Desktop Entry]\nType=Application\nName=Activity Monitor\nExec=/bin/sh -c \"exit 0\"\n",
+    );
+    let entry = |id: &str| entries.join(format!("{id}.desktop"));
+    replace(
+        &path,
+        &format!(
+            r#"{{"applications":{{
+                "so.oxy.settings":{{"entry":"{}","exec":"{}","grants":["settings"]}},
+                "so.oxy.activitymonitor":{{"entry":"{}","exec":"{}","grants":["a-later-grant"]}}}}}}"#,
+            entry("so.oxy.settings").display(),
+            shell.display(),
+            entry("so.oxy.activitymonitor").display(),
+            shell.display(),
+        ),
+    );
+    let second = launcher.launch("so.oxy.settings").unwrap();
+    assert_eq!(
+        *told.0.lock().unwrap(),
+        [
+            ("so.oxy.settings".to_string(), Origin::System, first as i32),
+            ("so.oxy.settings".to_string(), Origin::System, second as i32),
+        ]
+    );
+    let Err(Error(why)) = launcher.launch("so.oxy.activitymonitor") else {
+        panic!("an application whose grant this session does not know was started");
+    };
+    assert!(
+        why.contains("\"a-later-grant\" is not a system grant"),
+        "{why}"
+    );
+    assert!(launcher.application("so.oxy.activitymonitor").is_none());
+    assert_eq!(told.0.lock().unwrap().len(), 2);
     launcher.end(std::time::Duration::from_secs(5));
 }
 

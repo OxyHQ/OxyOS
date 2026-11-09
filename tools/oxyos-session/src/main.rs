@@ -608,9 +608,15 @@ fn main() -> Result<()> {
         None => None,
     };
     // The applications the shell asks for (ADR 0013). The image's policy of system applications
-    // is read at each launch; one that cannot be used is said now, and grants nothing (ADR 0030).
-    if let Err(error) = oxyos_apps::Policy::system() {
-        eprintln!("oxyos-session: system applications: {error}");
+    // is read at each launch; one that cannot be used is said now, and grants nothing (ADR 0030),
+    // as is each application of it this session cannot take (ADR 0019).
+    match oxyos_apps::Policy::system() {
+        Err(error) => eprintln!("oxyos-session: system applications: {error}"),
+        Ok(policy) => {
+            for (id, why) in policy.refusals() {
+                eprintln!("oxyos-session: system applications: {id}: {why}");
+            }
+        }
     }
     let env_path = |name| std::env::var_os(name).map(PathBuf::from);
     // The applications the install service installed for this account are the registry's second
