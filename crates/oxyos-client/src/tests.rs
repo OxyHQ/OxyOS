@@ -553,6 +553,43 @@ fn field(text: &str, cursor: usize) -> Field<'_> {
 }
 
 #[test]
+fn a_field_emptied_says_so() {
+    let (mut client, server) = connected();
+    client
+        .text_input(1, Some(&field("hola", 4)), false)
+        .unwrap();
+    committed(&server);
+    // Its text all deleted: no chunk can say it, so it is said empty.
+    let emptied = Field {
+        caret: Some(Rect::new(1, 2, 2, 18)),
+        ..field("", 0)
+    };
+    assert_eq!(client.text_input(1, Some(&emptied), false).unwrap(), 2);
+    assert_eq!(
+        committed(&server),
+        [
+            Request::TextInputEmpty { surface: 1 },
+            Request::TextInputSelection {
+                surface: 1,
+                anchor: 0,
+                cursor: 0,
+            },
+            Request::TextInputCaret {
+                surface: 1,
+                rect: Rect::new(1, 2, 2, 18),
+            },
+            Request::TextInputCommit {
+                surface: 1,
+                serial: 2,
+            },
+        ]
+    );
+    // A field enabled empty says nothing of its text: the compositor starts from none.
+    client.text_input(1, Some(&emptied), true).unwrap();
+    assert!(!committed(&server).contains(&Request::TextInputEmpty { surface: 1 }));
+}
+
+#[test]
 fn a_field_is_told_whole_then_only_what_changed() {
     let (mut client, server) = connected();
     assert_eq!(

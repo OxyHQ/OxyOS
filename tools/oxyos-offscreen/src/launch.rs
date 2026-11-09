@@ -194,16 +194,16 @@ pub enum Step {
     /// second, the compositor serving the application between them: a touchpad's two fingers
     /// scrolling a list. What the window showed meanwhile is measured (`scroll_paced`). With
     /// `lift`, the fingers then lift (the scroll's stop) and leave it gliding: a flick. With
-    /// `hold_after_ms`, two fingers then come to rest on the touchpad that long after the lift
-    /// (libinput's hold gesture: its begin, then its end 150 ms later as they lift unmoved), as a
-    /// hand stops a list gliding.
+    /// `stop_after`, the glide is then stopped that long after the lift: two fingers coming to rest
+    /// on the touchpad (libinput's hold gesture: its begin, then its end 150 ms later as they lift
+    /// unmoved), or a click where the fingers were, as a hand stops a list gliding.
     ScrollPaced {
         at: (i32, i32),
         dy: i32,
         events: u32,
         hz: u32,
         lift: bool,
-        hold_after_ms: Option<u32>,
+        stop_after: Option<(GlideStop, u32)>,
     },
     /// `count` presses of the primary button at a window-local point, `interval_ms` apart by
     /// their device's time, each injected when its time comes (the compositor serving the
@@ -453,13 +453,15 @@ impl Step {
                 events,
                 hz,
                 lift,
-                hold_after_ms,
+                stop_after,
             } => format!(
                 "{} by {dy} at {at:?} in {events} events at {hz} Hz{}",
                 if *lift { "flick" } else { "scroll" },
-                hold_after_ms.map_or(String::new(), |ms| format!(
-                    ", fingers resting {ms} ms after the lift"
-                ))
+                match stop_after {
+                    None => String::new(),
+                    Some((GlideStop::Hold, ms)) => format!(", fingers resting {ms} ms after the lift"),
+                    Some((GlideStop::Press, ms)) => format!(", a click {ms} ms after the lift"),
+                }
             ),
             Step::MovePaced {
                 from,
@@ -667,10 +669,15 @@ impl Step {
                 events,
                 hz,
                 lift,
-                hold_after_ms: Some(ms),
+                stop_after: Some((stop, ms)),
             } if *lift => format!(
-                "\"flick_hold\":[{},{},{dy},{events},{hz},{ms}]",
-                at.0, at.1
+                "\"{}\":[{},{},{dy},{events},{hz},{ms}]",
+                match stop {
+                    GlideStop::Hold => "flick_hold",
+                    GlideStop::Press => "flick_press",
+                },
+                at.0,
+                at.1
             ),
             Step::ScrollPaced {
                 at,
@@ -754,6 +761,15 @@ fn style_name(style: PreeditStyle) -> &'static str {
         PreeditStyle::Converting => "converting",
         PreeditStyle::Error => "error",
     }
+}
+
+/// What stops a flick's glide (`Step::ScrollPaced`'s `stop_after`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GlideStop {
+    /// Two fingers coming to rest on the touchpad.
+    Hold,
+    /// A click of the primary button where the fingers were.
+    Press,
 }
 
 /// `B-E:STYLE;...` (or `-` for none): a transaction's styled segments.
@@ -993,7 +1009,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1635,7 +1651,7 @@ impl Launch {
                         events: n[3] as u32,
                         hz: n[4] as u32,
                         lift: false,
-                        hold_after_ms: None,
+                        stop_after: None,
                     }
                 }
                 Some("--flick") => {
@@ -1649,7 +1665,7 @@ impl Launch {
                         events: n[3] as u32,
                         hz: n[4] as u32,
                         lift: true,
-                        hold_after_ms: None,
+                        stop_after: None,
                     }
                 }
                 Some("--flick-hold") => {
@@ -1666,7 +1682,24 @@ impl Launch {
                         events: n[3] as u32,
                         hz: n[4] as u32,
                         lift: true,
-                        hold_after_ms: Some(n[5] as u32),
+                        stop_after: Some((GlideStop::Hold, n[5] as u32)),
+                    }
+                }
+                Some("--flick-press") => {
+                    let n = numbers(args.next(), 6)?;
+                    if n[3] < 1 || n[4] < 1 || n[5] < 0 {
+                        return Err(
+                            "--flick-press needs at least one event at 1 Hz or more, and a delay"
+                                .into(),
+                        );
+                    }
+                    Step::ScrollPaced {
+                        at: (n[0], n[1]),
+                        dy: n[2],
+                        events: n[3] as u32,
+                        hz: n[4] as u32,
+                        lift: true,
+                        stop_after: Some((GlideStop::Press, n[5] as u32)),
                     }
                 }
                 Some("--move-paced") => {
@@ -4612,7 +4645,7 @@ fn scroll_paced(
     dy: i32,
     (events, hz): (u32, u32),
     lift: bool,
-    hold: Option<u32>,
+    stop: Option<(GlideStop, u32)>,
 ) -> Result<String> {
     if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
         return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
@@ -4677,7 +4710,25 @@ fn scroll_paced(
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut shown);
-        if let Some(after) = hold {
+        if let Some((GlideStop::Press, after)) = stop {
+            let due = due + Duration::from_millis(after.into());
+            while start.elapsed() < due {
+                session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+                session.compositor.serve(&session.listener)?;
+                observe(&session.compositor, &mut shown);
+            }
+            for pressed in [true, false] {
+                session
+                    .compositor
+                    .scene
+                    .set_input_time(paced_time(origin, due));
+                session.compositor.scene.pointer_button(BUTTON, pressed);
+                session.compositor.idle_wait = Duration::ZERO;
+                session.compositor.serve(&session.listener)?;
+                observe(&session.compositor, &mut shown);
+            }
+        }
+        if let Some((GlideStop::Hold, after)) = stop {
             let lifted = due;
             for (phase, offset) in [
                 (GesturePhase::Begin, Duration::from_millis(after.into())),
@@ -6184,7 +6235,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     events,
                     hz,
                     lift,
-                    hold_after_ms,
+                    stop_after,
                 } = step
                 {
                     scrolled = Some(scroll_paced(
@@ -6194,7 +6245,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         *dy,
                         (*events, *hz),
                         *lift,
-                        *hold_after_ms,
+                        *stop_after,
                     )?);
                 }
                 0

@@ -176,6 +176,10 @@ pub enum Command {
         pressed: bool,
         time_ms: u32,
     },
+    /// The field took the composition as it was (ADR 0008, decision 3: a press elsewhere in it, an
+    /// editing key, as Android's `finishComposingText`): the engine forgets it, committing nothing,
+    /// for the field serving on.
+    Reset,
     /// The shell pressed a candidate, or turned the page.
     Choose(u8),
     Page {
@@ -486,7 +490,7 @@ impl Worker {
                 cursor,
                 anchor,
             } => self.surrounding = Some((text, cursor, anchor)),
-            Command::Choose(_) | Command::Page { .. } | Command::Emoji { .. } => {}
+            Command::Reset | Command::Choose(_) | Command::Page { .. } | Command::Emoji { .. } => {}
         }
     }
 
@@ -703,6 +707,12 @@ impl Worker {
                     used,
                     change,
                 });
+            }
+            Command::Reset => {
+                let change = self.collecting(running, "Reset", &())?;
+                if !change.is_empty() {
+                    self.tell(Outcome::Change(change));
+                }
             }
             Command::Choose(index) => {
                 let change = self.collecting(running, "SelectCandidate", &(i32::from(index),))?;

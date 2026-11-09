@@ -173,6 +173,13 @@ impl Scene {
         Ok(())
     }
 
+    /// The field's text is empty: what it said before is replaced by nothing at its commit, and
+    /// so is anything it said in this commit before.
+    pub(super) fn text_input_empty(&mut self, key: SurfaceKey) -> Result<(), ErrorCode> {
+        self.text_input_entry(key)?.pending.surrounding = Some(String::new());
+        Ok(())
+    }
+
     pub(super) fn text_input_selection(
         &mut self,
         key: SurfaceKey,

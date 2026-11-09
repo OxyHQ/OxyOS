@@ -290,6 +290,7 @@ void TextEditing::command(const ShadowView& view, const std::string& name, const
       composeBefore_.reset();
       // The application set another value: the edits recorded no longer apply to it.
       histories_.erase(focused_);
+      reportComposition();
       const auto& state = std::static_pointer_cast<const TextInputState>(it->second.view.state);
       auto props = std::static_pointer_cast<const AndroidTextInputProps>(it->second.view.props);
       auto data = state->getData();
@@ -442,6 +443,15 @@ void TextEditing::handle(const OxyOSEvent& event) {
   if (event.kind == OXYOS_EVENT_KEY && (event.code == kLeftAlt || event.code == kRightAlt)) alt_ = event.flag;
   if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) shift_ = ctrl_ = alt_ = false;
   if (focused_ < 0) return;
+  // The field's surface losing the keyboard ends its composition, as Android's
+  // finishComposingText ends one when its window loses focus: its text stays, an edit of its own.
+  // The input method serving the field is deactivated and reset with it (ADR 0041, decision 3), so
+  // a composition kept would be replaced by the next one it begins.
+  if (event.kind == OXYOS_EVENT_FOCUS && !event.flag) {
+    auto placement = locate_(focused_);
+    if (placement && event.surface == placement->surface) endComposition();
+    return;
+  }
   if (event.kind != OXYOS_EVENT_TEXT && event.kind != OXYOS_EVENT_KEY && event.kind != OXYOS_EVENT_PREEDIT) return;
   auto placement = locate_(focused_);
   if (!placement || event.surface != placement->surface) return;
@@ -1363,6 +1373,29 @@ void TextEditing::selectionChanged() {
   Report::get().deliver("selectionChange", 0, it->second.view, selection);
 }
 
+void TextEditing::reportComposition() {
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return;
+  folly::dynamic state = nullptr;
+  if (composeStart_ != composeEnd_) {
+    folly::dynamic segments = folly::dynamic::array();
+    for (const auto& segment : segments_) {
+      const char* style = segment.style == OXYOS_PREEDIT_CONVERTING ? "converting"
+                          : segment.style == OXYOS_PREEDIT_ERROR     ? "error"
+                                                                     : "composing";
+      segments.push_back(folly::dynamic::array(utf16Length(text_, segment.start), utf16Length(text_, segment.end), style));
+    }
+    state = folly::dynamic::object("range", folly::dynamic::array(utf16Length(text_, composeStart_),
+                                                                   utf16Length(text_, composeEnd_)))(
+        "segments", std::move(segments));
+  }
+  auto [at, added] = reportedCompositions_.try_emplace(focused_, nullptr);
+  if (!added && at->second == state) return;
+  if (added && state.isNull()) return;
+  at->second = state;
+  Report::get().composition(it->second.view, state);
+}
+
 void TextEditing::replace(size_t from, size_t to, const std::string& insert, const std::string& key, bool composing) {
   auto it = tree_.views().find(focused_);
   if (it == tree_.views().end()) return;
@@ -1428,6 +1461,7 @@ void TextEditing::update(std::string text, size_t anchor, size_t caret) {
   } else {
     reveal();
   }
+  reportComposition();
 }
 
 void TextEditing::record(const Snapshot& before, Edit kind) {
@@ -1459,6 +1493,7 @@ void TextEditing::endComposition() {
   // Its text stays, as Android's finishComposingText leaves it, and is one edit.
   if (composeBefore_) record(*composeBefore_, Edit::Replace);
   composeBefore_.reset();
+  reportComposition();
 }
 
 void TextEditing::perform(const std::string& command, uint64_t serial) {

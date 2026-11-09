@@ -14,6 +14,8 @@
 //   {"t":…,"kind":"popup","event":"open","surface":2,"view":"menu"}
 //   {"t":…,"kind":"a11y_event","event":"focus","target":"open-menu","within":"open-menu"}
 //   {"t":…,"kind":"text_scroll","target":"notes","x":0,"y":21}  (an input's text scrolled)
+//   {"t":…,"kind":"composition","target":"line","state":{"range":[3,9],"segments":[[3,6,"converting"]]}}
+//       (the composition an input draws changed; "state" null once it ended)
 //   {"t":…,"kind":"gesture","event":"state","handler":"PanGestureHandler","view":"card","state":"ACTIVE",…}
 //   {"t":…,"kind":"a11y","surface":2,"nodes":[{"role":"menuitem","name":"Reply",…},…]}  (on change)
 //   {"t":…,"kind":"animated","target":"fade","props":{"opacity":0.42}}  (set by Animated's native driver)
@@ -178,6 +180,9 @@ class Report {
                  folly::dynamic thumbs, float alpha);
   // How far a text input's text is now scrolled within it (textinput.h).
   void textScroll(const facebook::react::ShadowView& view, float x, float y);
+  // The composition a text input draws (an input method's preedit), as it changes: null when it
+  // ended, else its range in the input's text and its styled segments, in UTF-16 units.
+  void composition(const facebook::react::ShadowView& view, const folly::dynamic& state);
   // A modal's window starting to animate in or out (modal.h): `event` is `in` or `out`, `kind`
   // its animationType; `within` names the modal by its testID.
   void modalAnimation(const char* event, const char* kind, const facebook::react::ShadowView& view,

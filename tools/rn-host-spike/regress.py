@@ -293,12 +293,14 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the fling's distance, worked out here again from that velocity and the friction as Android's
   SplineOverScroller works it out (within half a pixel of the host's); the view's offset from the
   drag's end to the glide's end going only that way and covering that distance (or stopping at the
-  end it reaches), within a pixel, over at least "frames_min" frames; and its events in order:
-  scrollEndDrag, momentumScrollBegin, the glide's scrolls, momentumScrollEnd. With "held" (a
-  `flick_hold` step: fingers coming to rest on the touchpad while it glides), the glide instead
-  stops where the resting fingers find it, as macOS stops a scroll under resting fingers: short of
-  the fling's distance, its momentumScrollEnd once, in the frame the host handled their hold's
-  begin (`hold.begin`), and no scroll after it;
+  end it reaches), within a pixel, over at least "frames_min" frames, never faster than the frame
+  before (`glide_speeding`); and its events in order: scrollEndDrag, momentumScrollBegin, the
+  glide's scrolls, momentumScrollEnd. With "held" (a `flick_hold` step: fingers coming to rest on
+  the touchpad while it glides), the glide instead stops where the resting fingers find it, as
+  macOS stops a scroll under resting fingers: short of the fling's distance, its
+  momentumScrollEnd once, in the frame the host handled their hold's begin (`hold.begin`), and no
+  scroll after it; with "pressed" (a `flick_press` step: a click while it glides) the same, where
+  the click finds it (`pointer.press`), as a touch stops Android's fling;
 - scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
   the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
   Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
@@ -319,6 +321,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - transactions: the text-input transactions the application was given in the step (ADR 0008),
   exactly and in order, each {"delete": [before, after], "commit", "preedit", "cursor": [begin,
   end], "segments": [[begin, end, "composing"|"converting"|"error"]]}, its parts left out empty;
+- composition: the composition each text input draws, by testID, as the host last reported it
+  changing in the step: {"range": [start, end], "segments": [[start, end, style]]} in UTF-16
+  units of its text, or null once it ended; exactly the inputs whose composition changed;
 - im: with the scenario's `input_method`, what the session's input method was told of the field
   and the keys it received in the step (active, purpose, text, cursor, keys, given_back,
   composing...); with `im_candidates`, the page of candidates it hands the system ("candidates":
@@ -802,7 +807,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
@@ -1128,6 +1133,10 @@ def director_args(step, out):
         # A flick, then two fingers resting on the touchpad that long after the lift and lifting
         # 150 ms later: [x, y, dy, events, hz, after_ms].
         return args + ["--flick-hold", ",".join(map(str, value))]
+    if kind == "flick_press":
+        # A flick, then a click of the primary button where the fingers were, that long after the
+        # lift: [x, y, dy, events, hz, after_ms].
+        return args + ["--flick-press", ",".join(map(str, value))]
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
@@ -3199,6 +3208,24 @@ def offset_before(report, view, start):
     return ys[-1] if ys else 0
 
 
+def glide_speeding(scrolls):
+    """Where a glide sped up: its offsets come from a spline that only slows, sampled at each frame,
+    so each frame's average speed is at most the one before (a concave curve's secants only fall),
+    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end) and the
+    microseconds between a frame's clock and its report. A glide begun again, or a frame's offset
+    taken from another clock, goes faster. Each (frame, px/s before, px/s then) that did."""
+    speeding = []
+    times = [line["t"] / 1e9 for line in scrolls]
+    offsets = [line["y"] for line in scrolls]
+    speeds = [(b - a) / max(u - t, 1e-6) for a, b, t, u in zip(offsets, offsets[1:], times, times[1:])]
+    for i in range(1, len(speeds)):
+        dt_before, dt = times[i] - times[i - 1], times[i + 1] - times[i]
+        slack = 1.0 / max(dt_before, 1e-6) + 1.0 / max(dt, 1e-6)
+        if abs(speeds[i]) > abs(speeds[i - 1]) * 1.02 + slack:
+            speeding.append((i, round(speeds[i - 1]), round(speeds[i])))
+    return speeding
+
+
 def check_glide(wanted, report, start, end, fail):
     """The step's `glide`: a scroll view flung by a touchpad's fingers, as Android flings it."""
     view = wanted["view"]
@@ -3232,28 +3259,35 @@ def check_glide(wanted, report, start, end, fail):
     steps = [b - a for a, b in zip(offsets, offsets[1:])]
     if any(step * distance <= 0 for step in steps):
         fail(f"{view} did not glide only one way: {steps}")
+    speeding = glide_speeding(after[0:1] + after[2:-1])
+    if speeding:
+        fail(f"{view} sped up as it glided: {speeding}")
     if len(steps) < wanted.get("frames_min", 0):
         fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get("y")
     reached_end = wanted.get("to_end", False)
-    if wanted.get("held"):
-        holds = [line for line in report if start <= line["t"] <= end and line["kind"] == "input"
-                 and line.get("event") == "hold.begin"]
-        if len(holds) != 1:
-            fail(f"the host handled {len(holds)} hold begins, expected one")
+    # Stopped: by fingers coming to rest (`held`, a flick_hold) or a click (`pressed`, a
+    # flick_press), as the host handled it: the momentum ends then, once, with no scroll after.
+    stopper = "hold.begin" if wanted.get("held") else "pointer.press" if wanted.get("pressed") else None
+    if stopper:
+        what = "the fingers' rest" if stopper == "hold.begin" else "the click"
+        stops = [line for line in report if start <= line["t"] <= end and line["kind"] == "input"
+                 and line.get("event") == stopper]
+        if len(stops) != 1:
+            fail(f"the host handled {len(stops)} {stopper}, expected one")
             return
-        held = holds[0]["t"]
+        stopped = stops[0]["t"]
         ends = [line for line in after if line["event"] == "momentumScrollEnd"]
         if len(ends) != 1:
             fail(f"{view} ended its momentum {len(ends)} times, expected once")
-        if after[-1]["t"] < held or after[-1]["t"] - held > 2e6:
-            fail(f"{view}'s momentum ended {(after[-1]['t'] - held) / 1e6:.1f} ms from the fingers' rest, "
+        if after[-1]["t"] < stopped or after[-1]["t"] - stopped > 2e6:
+            fail(f"{view}'s momentum ended {(after[-1]['t'] - stopped) / 1e6:.1f} ms from {what}, "
                  f"expected as the host handled it")
-        late = [line for line in after if line["event"] == "scroll" and line["t"] > held]
+        late = [line for line in after if line["event"] == "scroll" and line["t"] > stopped]
         if late:
-            fail(f"{view} scrolled {len(late)} times after the fingers came to rest")
+            fail(f"{view} scrolled {len(late)} times after {what}")
         if abs(covered) >= abs(distance) - 1:
-            fail(f"{view} glided {covered:.1f} px of the fling's {distance:.1f}: the resting fingers did not stop it")
+            fail(f"{view} glided {covered:.1f} px of the fling's {distance:.1f}: {what} did not stop it")
         return
     if reached_end:
         if abs(covered) >= abs(distance) + 1:
@@ -4868,6 +4902,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         got = sorted((name for name in wanted if name in firsts), key=lambda name: firsts[name])
         if got != wanted:
             fail(f"the host first had {got}, expected {wanted} in that order")
+    if "composition" in expect:
+        # The composition each text input draws (an input method's preedit), by testID, as the host
+        # last reported it changing in this step: {"range": [start, end], "segments": [[start, end,
+        # style], …]} in UTF-16 units of the input's text, or null once it ended; an input whose
+        # composition did not change in the step is not listed, exactly.
+        compositions = {}
+        for line in report:
+            if line["kind"] == "composition" and start <= line["t"] <= end:
+                compositions[line["target"]] = line["state"]
+        if compositions != expect["composition"]:
+            fail(f"compositions {compositions}, expected exactly {expect['composition']}")
     if "text_scroll" in expect:
         # How far each text input's text was scrolled in this step, by testID: the last value.
         scrolls = {}

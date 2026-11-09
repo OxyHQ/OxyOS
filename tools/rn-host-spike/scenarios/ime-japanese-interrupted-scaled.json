@@ -1,0 +1,493 @@
+{
+  "about": "A composition the field ends itself, with the real engine (ADR 0041; fcitx5-anthy, Japanese – Romaji, run as the session runs it) typing into a Bloom field (sample/ImeProbe.tsx) on an output at 1.25 (1600×1000): a press elsewhere in the field takes the composition as text, as Android's finishComposingText (ADR 0037, decision 2), and the session's frontend, seeing the field tell a state no change of the engine's made, has the engine forget it, so the next key composes at the caret instead of putting the old composition in again (before, あい composed, a press at the start and u gave あいうあい); the window losing the keyboard (Super+F8 to the top bar) takes the composition as text too, as Android's does when its window loses focus, since the engine is reset with the field's deactivation (before, the next composition replaced it); and Escape, the engine's, cancels one, the text back as it was. Each step checks the text and selection React has, exactly the React events and the transactions the field was given, what the window was delivered, the input focused, the field the compositor holds and the composition the field draws.",
+  "locale": "es_ES.UTF-8",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "shell": "OxyOSShell",
+  "input_methods": true,
+  "preferences": {
+    "input_sources": "japanese",
+    "input_source": "japanese"
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "ImeProbe's fields with the shell, Japanese current: nothing composed",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "candidates": null
+        },
+        "transactions": []
+      }
+    },
+    {
+      "name": "the line focused: Japanese serves it",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "transactions": [],
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "composition": {}
+      }
+    },
+    {
+      "name": "a i: あい composed, nothing of it in the field the compositor holds",
+      "do": [
+        "strokes",
+        [
+          30,
+          23
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"あい\" [2,2]"
+        ],
+        "react": {
+          "change@line": 2,
+          "selectionChange@line": 2,
+          "keyPress@line": 2
+        },
+        "delivered": {
+          "1": {
+            "text_input": 2
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "あ",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "あい",
+            "cursor": [
+              6,
+              6
+            ],
+            "segments": [
+              [
+                0,
+                6,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "shell": {
+          "candidates": null
+        },
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "composition": {
+          "line": {
+            "range": [
+              0,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a press at the field's start takes あい as text, as Android's finishComposingText, the caret there; the engine forgets it, its empty change ignored by the field, which composes nothing",
+      "do": [
+        "press",
+        [
+          37,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"あい\" [0,0]"
+        ],
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {}
+        ],
+        "shell": {
+          "candidates": null
+        },
+        "field": {
+          "text": "あい",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "composition": {
+          "line": null
+        }
+      }
+    },
+    {
+      "name": "u composes う there, before あい, never あいう again",
+      "do": [
+        "strokes",
+        [
+          22
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うあい\" [1,1]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "う",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "あい",
+          "anchor": 0,
+          "cursor": 0
+        },
+        "composition": {
+          "line": {
+            "range": [
+              0,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Return commits it: うあい, the caret after う",
+      "do": [
+        "strokes",
+        [
+          28
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うあい\" [1,1]"
+        ],
+        "react": {
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "う"
+          }
+        ],
+        "field": {
+          "text": "うあい",
+          "anchor": 3,
+          "cursor": 3
+        },
+        "composition": {
+          "line": null
+        }
+      }
+    },
+    {
+      "name": "e composes え after it",
+      "do": [
+        "strokes",
+        [
+          18
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うえあい\" [2,2]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "え",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "うあい",
+          "anchor": 3,
+          "cursor": 3
+        },
+        "composition": {
+          "line": {
+            "range": [
+              1,
+              2
+            ],
+            "segments": [
+              [
+                1,
+                2,
+                "composing"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+F8 takes the keyboard to the top bar: the window loses it and its field takes え as text, the input focused still",
+      "do": [
+        "key",
+        [
+          125,
+          66
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うえあい\" [2,2]"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          }
+        },
+        "transactions": [],
+        "composition": {
+          "line": null
+        }
+      }
+    },
+    {
+      "name": "Escape gives the window the keyboard back, its field as it was",
+      "do": [
+        "key",
+        1
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うえあい\" [2,2]"
+        ],
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "transactions": [],
+        "field": {
+          "text": "うえあい",
+          "anchor": 6,
+          "cursor": 6
+        },
+        "composition": {}
+      }
+    },
+    {
+      "name": "o composes お after え, which stays",
+      "do": [
+        "strokes",
+        [
+          24
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うえおあい\" [3,3]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "お",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "うえあい",
+          "anchor": 6,
+          "cursor": 6
+        },
+        "composition": {
+          "line": {
+            "range": [
+              2,
+              3
+            ],
+            "segments": [
+              [
+                2,
+                3,
+                "composing"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Escape cancels it: the text back as it was, as one change",
+      "do": [
+        "strokes",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"うえあい\" [2,2]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {}
+        ],
+        "field": {
+          "text": "うえあい",
+          "anchor": 6,
+          "cursor": 6
+        },
+        "composition": {
+          "line": null
+        }
+      }
+    }
+  ]
+}

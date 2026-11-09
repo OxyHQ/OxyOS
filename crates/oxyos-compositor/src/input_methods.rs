@@ -69,6 +69,64 @@ struct Field {
     serial: u32,
 }
 
+/// The field's state while the engine composes in it: its text, anchor and cursor, which never
+/// hold the composition (ADR 0008, decision 1).
+type Told = (String, u32, u32);
+
+/// Whether the application took the engine's composition as text itself: a press elsewhere in the
+/// field or an editing key ends it there, as Android's `finishComposingText` does (ADR 0037,
+/// decision 2), and the engine, still holding it, would put it in again with the next key. While
+/// the engine composes, the field tells the state the engine's changes leave it in: the same text
+/// and caret while only the composition changes, and the text its commit and deletions made. Any
+/// other state is the application's, and the engine forgets the composition (`Command::Reset`).
+#[derive(Debug, Default)]
+struct Composing {
+    /// What the field should tell while the engine composes; none while it composes nothing.
+    expected: Option<Told>,
+    /// What it told before the engine's last change: a field may tell it once more, sent before
+    /// that change reached it.
+    before: Option<Told>,
+}
+
+impl Composing {
+    /// The engine's change, sent for the field told `field`: what it deleted around the
+    /// selection, in bytes, what it committed, and whether it composes after it.
+    fn sent(&mut self, field: Told, (before, after): (u32, u32), commit: &str, composing: bool) {
+        if !composing {
+            *self = Self::default();
+            return;
+        }
+        // A composition replaces the selection, or the composition before it, which the field
+        // holds as a caret where it begins.
+        let basis = self.expected.take().unwrap_or(field);
+        let (text, anchor, cursor) = &basis;
+        let from = (*anchor.min(cursor) as usize).min(text.len());
+        let to = (*anchor.max(cursor) as usize).min(text.len());
+        let start = from.saturating_sub(before as usize);
+        let end = (to + after as usize).min(text.len());
+        let (Some(head), Some(tail)) = (text.get(..start), text.get(end..)) else {
+            // Offsets inside a character: the field refuses such a change; nothing to expect.
+            self.before = None;
+            return;
+        };
+        let caret = (start + commit.len()) as u32;
+        self.expected = Some((format!("{head}{commit}{tail}"), caret, caret));
+        self.before = Some(basis);
+    }
+
+    /// The field told `field`: true when the application took the composition as text.
+    fn told(&mut self, field: &Told) -> bool {
+        let Some(expected) = &self.expected else {
+            return false;
+        };
+        if field == expected || self.before.as_ref() == Some(field) {
+            return false;
+        }
+        *self = Self::default();
+        true
+    }
+}
+
 /// Emoji searched for in a field (Control+Super+Space).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Emoji {
@@ -101,6 +159,8 @@ pub struct InputMethods {
     taken: BTreeSet<u32>,
     /// The composition the field has, given again in a change that leaves it as it was.
     preedit: Option<oxyos_input_methods::Preedit>,
+    /// Whether the field still holds that composition as the engine's.
+    composing: Composing,
     emoji: Option<Emoji>,
     /// Whether the engine is running (until then keys type with the layout).
     ready: bool,
@@ -353,6 +413,7 @@ impl InputMethods {
             keys: Default::default(),
             taken: BTreeSet::new(),
             preedit: None,
+            composing: Composing::default(),
             emoji: None,
             ready: false,
             switching: 0,
@@ -459,6 +520,7 @@ impl InputMethods {
                 self.taken.clear();
                 self.field = Field::default();
                 self.preedit = None;
+                self.composing = Composing::default();
             }
             // Another input method holds the role (the development compositor's own).
             Err(code) => eprintln!("[input methods] not connected: {code:?}"),
@@ -480,6 +542,7 @@ impl InputMethods {
         self.connected = false;
         self.field = Field::default();
         self.preedit = None;
+        self.composing = Composing::default();
     }
 
     /// Waits until the engine runs, at most `limit` (the development compositor, so a scenario's
@@ -705,10 +768,12 @@ impl InputMethods {
                     ..Field::default()
                 };
                 self.preedit = None;
+                self.composing = Composing::default();
             }
             Event::InputMethodDeactivate {} => {
                 self.field = Field::default();
                 self.preedit = None;
+                self.composing = Composing::default();
                 self.service.send(Command::Deactivate);
                 // Emoji were for that field.
                 if matches!(self.emoji, Some(Emoji::Searching { .. })) {
@@ -727,6 +792,16 @@ impl InputMethods {
             Event::InputMethodDone { serial } => {
                 self.field.text = std::mem::take(&mut self.field.receiving);
                 self.field.serial = serial;
+                let told = (
+                    self.field.text.clone(),
+                    self.field.anchor,
+                    self.field.cursor,
+                );
+                if self.preedit.is_some() && self.composing.told(&told) {
+                    // The field took the composition as text: the engine forgets it.
+                    self.preedit = None;
+                    self.service.send(Command::Reset);
+                }
                 if std::mem::take(&mut self.field.starting) {
                     self.service.send(Command::Activate {
                         capability: capabilities(self.field.purpose, self.field.hints),
@@ -787,6 +862,7 @@ impl InputMethods {
                 eprintln!("[input methods] the engine stopped: {why}; it starts again");
                 self.ready = false;
                 self.preedit = None;
+                self.composing = Composing::default();
             }
             Outcome::Key {
                 serial,
@@ -844,6 +920,7 @@ impl InputMethods {
             }
         };
         let field = &self.field;
+        let mut deleted = (0, 0);
         if let Some((offset, size)) = change.delete {
             // fcitx5 deletes `size` characters from `offset` characters past the caret.
             let (before, after) = if offset < 0 {
@@ -852,11 +929,15 @@ impl InputMethods {
             } else {
                 (0, size + offset as u32)
             };
+            deleted = (
+                bytes_of(&field.text, field.cursor, before, true),
+                bytes_of(&field.text, field.cursor, after, false),
+            );
             send(
                 scene,
                 Request::InputMethodDelete {
-                    before: bytes_of(&field.text, field.cursor, before, true),
-                    after: bytes_of(&field.text, field.cursor, after, false),
+                    before: deleted.0,
+                    after: deleted.1,
                 },
             );
         }
@@ -869,6 +950,13 @@ impl InputMethods {
             // A commit ends the composition unless the engine says another.
             self.preedit = None;
         }
+        let field = &self.field;
+        self.composing.sent(
+            (field.text.clone(), field.anchor, field.cursor),
+            deleted,
+            &change.commit,
+            self.preedit.is_some(),
+        );
         if let Some(preedit) = &self.preedit {
             let text = preedit.text();
             for chunk in TextChunk::split(&text) {
@@ -990,6 +1078,71 @@ mod tests {
             ),
             capability::MULTILINE
         );
+    }
+
+    fn told(text: &str, caret: u32) -> Told {
+        (text.to_owned(), caret, caret)
+    }
+
+    #[test]
+    fn a_composition_changing_alone_leaves_the_field_as_it_was() {
+        let mut composing = Composing::default();
+        // ni, then nih: the field tells "ab" with its caret at 2 throughout.
+        composing.sent(told("ab", 2), (0, 0), "", true);
+        assert!(!composing.told(&told("ab", 2)));
+        composing.sent(told("ab", 2), (0, 0), "", true);
+        assert!(!composing.told(&told("ab", 2)));
+    }
+
+    #[test]
+    fn a_press_elsewhere_in_the_field_takes_the_composition_as_text() {
+        let mut composing = Composing::default();
+        composing.sent(told("ab", 2), (0, 0), "", true);
+        // The field ended it at a press at its start: "abあい" with the caret at 0.
+        assert!(composing.told(&told("abあい", 0)));
+        // Forgotten: nothing more is expected of the field.
+        assert!(!composing.told(&told("abあい", 3)));
+    }
+
+    #[test]
+    fn a_caret_moved_by_the_application_takes_it_too() {
+        let mut composing = Composing::default();
+        composing.sent(told("ab", 2), (0, 0), "", true);
+        assert!(composing.told(&told("ab", 1)));
+    }
+
+    #[test]
+    fn a_commit_with_the_next_composition_is_the_engines() {
+        let mut composing = Composing::default();
+        composing.sent(told("x", 1), (0, 0), "", true);
+        // 你好 committed and ma composed after it: the field tells "x你好", its caret after it.
+        composing.sent(told("x", 1), (0, 0), "你好", true);
+        // Told before the change reached it, then after.
+        assert!(!composing.told(&told("x", 1)));
+        assert!(!composing.told(&told("x你好", 7)));
+        // Then only the composition changes.
+        composing.sent(told("x你好", 7), (0, 0), "", true);
+        assert!(!composing.told(&told("x你好", 7)));
+    }
+
+    #[test]
+    fn a_composition_replaces_the_selection_and_a_deletion_goes_around_it() {
+        let mut composing = Composing::default();
+        // "abcd" with bc selected: a composition replaces them, the caret where they were.
+        composing.sent(("abcd".to_owned(), 1, 3), (0, 0), "", true);
+        assert!(!composing.told(&told("ad", 1)));
+        // Hangul: a byte before deleted and 가 committed, composing on.
+        composing.sent(told("ad", 1), (1, 0), "가", true);
+        assert!(!composing.told(&told("가d", 3)));
+    }
+
+    #[test]
+    fn nothing_is_expected_once_the_engine_composes_nothing() {
+        let mut composing = Composing::default();
+        composing.sent(told("ab", 2), (0, 0), "", true);
+        composing.sent(told("ab", 2), (0, 0), "日本", false);
+        assert!(!composing.told(&told("ab日本", 8)));
+        assert!(!composing.told(&told("", 0)));
     }
 
     #[test]

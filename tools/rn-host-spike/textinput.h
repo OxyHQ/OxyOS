@@ -362,6 +362,8 @@ class TextEditing {
   void scrolled(const facebook::react::ShadowView& view, facebook::react::Point scroll,
                 const TextInputGeometry& geometry);
   void selectionChanged();
+  // Reports the composition the focused input draws when it changed (Report::composition).
+  void reportComposition();
   void submit();
 
   const ViewTree& tree_;
@@ -378,6 +380,8 @@ class TextEditing {
   // Its styled segments (OXYOS_PREEDIT_*), as offsets into the text, from the transaction that
   // made it; none for a composition from Preedit.
   std::vector<TextInputEdit::Segment> segments_;
+  // The composition last reported of each input (Report::composition), null for none.
+  std::map<facebook::react::Tag, folly::dynamic> reportedCompositions_;
   bool shift_ = false, ctrl_ = false, alt_ = false;
   bool dragging_ = false;
   // The x that consecutive Up and Down moves keep, from where they began.

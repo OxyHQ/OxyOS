@@ -1,0 +1,293 @@
+---
+title: Desktop interaction coverage
+description: Which regressions check input methods, text editing, menus from the keyboard, popups following their windows, scrolling and accessibility, what each one asserts, what nothing checks, and what the performance scenarios bound.
+order: 9
+---
+
+# Desktop interaction coverage
+
+This page audits the regressions behind six areas of desktop interaction in the Bloom host and the compositor. For each behaviour the ADRs promise, it lists the scenarios (`tools/rn-host-spike/scenarios/*.json`) and unit tests that check it, what they assert, and the gap. The audit was made on 9 November 2026 against main at `049e10eb`. The regressions added with it, and with the input-method fixes that came before it (`ime-preedit`, `ime-japanese-interrupted`), are marked **added**.
+
+The bar is the owner's: a regression must check the **expected result**, the **focus**, and the **exact events delivered**, with no duplicates and no leaks. A frame that changed is not enough.
+
+## How a scenario asserts
+
+Read from `regress.py` (`check_step`):
+
+- **Exact deliveries.**
+  - `react` counts every event React received in the step. An event not listed fails it, so duplicates fail too.
+  - `delivered` counts what the compositor delivered to each surface, exactly.
+  - `transactions` lists the input method's transactions the field was given, in order and whole.
+  - `popup_events`, `host_input`, `a11y_events` and `react_presses` are exact too.
+  - Input that reaches another client fails **every** step, `delivered` or not.
+- **Focus.**
+  - `focus_input` is the focused text input.
+  - `keyboard_focus` is the control the keyboard's navigation focused, with its ring.
+  - `focus_surface` is the compositor's keyboard surface.
+  - An `at` node whose state includes `focused` is the reader's focus.
+- **Outcome.**
+  - `texts`: what is drawn. The probes draw React's state, such as `Line: "abc" [3,3]`, the text and the selection React holds.
+  - `field`: the text, selection and caret rectangle the compositor holds for the field, and so what an input method sees.
+  - `at` and `at_absent`: what the assistive technology holds.
+  - `spoken` and `announcements`: exact lists, so a duplicate fails.
+  - Also `scroll_offset` (exact), `menus`, `clipboard` and `popup_rect(s)`.
+  - **Added:** `composition`, the composition a field draws: its range and styled segments, as the host reports it changing.
+
+In the tables, **O**, **F** and **D** mean outcome, focus and exact deliveries. A step that leaves focus where it was is not marked down for lacking **F**. Only steps where focus could move without being checked are.
+
+The scenario gate runs every scenario on the gate machine (seldon) in the merge queue (`.github/workflows/scenarios.yml`). Unit tests run in `native-ci.yml`.
+
+## 1. Input methods
+
+Sources: [ADR 0008](./adr/0008-input-method) and [ADR 0041](./adr/0041-input-methods).
+
+| Behaviour | Regression(s) | Asserts | Gap |
+| --- | --- | --- | --- |
+| A field describes itself: purpose, hints, text, selection, caret | `text-input` (focus steps); scene `a_field_must_describe_itself_within_its_limits` | O (`field`), F, D | — |
+| A field emptied is told empty | **added:** `ime-preedit` "the cancelled composition is no edit…"; scene `a_field_emptied_is_told_empty`; client `a_field_emptied_says_so` | O (`field`), F, D | **Bug fixed.** A commit keeps the text it does not describe again, and surrounding chunks of none could not say "empty". So a field emptied by an undo, a cut or a deletion stayed told with its old text, to the input method too. Protocol version 39 adds `TextInputEmpty`. |
+| Composition, caret at its end | `ime-pinyin`, `ime-japanese`, `ime-hangul`, `ime-emoji`, `ime-sources` (real engine); **added:** `ime-preedit` | O, D (`transactions` with cursor and segments, `react`, `delivered`); **added:** `composition` | — |
+| The composition's caret moved inside it, its text unchanged | **added:** `ime-preedit` "the composition's caret moves back…" | O (React's selection inside it, `composition` unchanged), F, D (`selectionChange` and `keyPress` once, no `change`) | Never sent by the real engine: the session's frontend always sends a collapsed cursor (`input_methods.rs`), and pinyin's ← inside a composition is not driven. |
+| A range selected inside the composition | `text-input` "converting it…"; **added:** `ime-preedit` "yz selected…" | O, F, D | — |
+| Several segments of different styles at once; the error style | `text-input` "converting it…" (converting and composing); **added:** `ime-preedit` (composing with converting, converting with error) | O (`composition` segments), D | How they are drawn (`renderer.cpp`) has no pixel check. The real engine never sends `Error`. |
+| Commit | `ime-*` commit steps; `input-method`; `shell-candidates`; `text-input` | O, D | `focus_input` is not asserted after a commit in the real-engine steps (focus does not move). |
+| Cancel (Escape) | `shell-candidates` "Escape cancels…" (development input method); `text-editing-mac` "Escape cancels it" (dead key); **added:** `ime-preedit` (empty transaction), `ime-japanese-interrupted` (the real engine) | O, F, D, `composition` | The emoji search's Escape is not covered. |
+| A press elsewhere in the field mid-composition | **added:** `ime-preedit`, `ime-japanese-interrupted` | O, F, D, `transactions`, `composition` | **Bug fixed.** The host ended the composition, as Android's `finishComposingText` does, but the engine kept it. The next key put it in again at the caret: あい composed, a press at the start, then u gave あいうあい. The session's frontend now resets the engine when the field tells a state none of the engine's changes made (`Composing` in `crates/oxyos-compositor/src/input_methods.rs`, with unit tests). |
+| Focus moved to another field mid-composition | **added:** `ime-preedit` "a press in the email field…" | O, F, D | Not with the real engine. |
+| The window loses the keyboard mid-composition | **added:** `ime-japanese-interrupted` (Super+F8) | O, F, D, `composition` | **Bug fixed.** The host kept the composition while the engine was reset with the field's deactivation, so the next composition replaced it. The host now ends it when its surface loses the keyboard (`textinput.cpp`). |
+| Switching source mid-composition commits it | `ime-sources` (and scaled) | O, D, speech | Not through the top bar's menu with the engine running. |
+| Stale serial: commit kept, deletion dropped | `input-method`; scene `done_names_the_latest_commit_and_stale_serials_are_refused` | O, D | No `transactions` key. |
+| Deletion after the caret (`delete [0, n]`) | scene only | unit | No scenario. |
+| Candidates placed under the caret | `shell-candidates*`, `ime-*` | O (rect, exact) | Above the caret, and slid to stay on the output, are scene tests only. |
+| Candidates follow the window as it moves | scene `candidates_follow_the_caret_and_the_window` | unit | **No scenario.** `shell-candidates` never moves its window. |
+| The reader says candidates | `shell-candidates*`, `ime-japanese*`, scaled `ime-*` | speech (exact), `at` | `ime-pinyin` and `ime-hangul` at 1 have none. |
+| The reader says a commit as typed text | — | — | **Contradicted.** ADR 0041 decision 5 says it does. `ime-pinyin-scaled` and `ime-sources-scaled` assert `spoken: []` at the commit. |
+| Dead keys while an input method is current | — | — | Not covered. |
+| Secure fields never reach an input method | `input-method`, `text-input`, `secure-field`; scene `a_password_never_reaches_the_input_method` | O, F, D | Not with the real engine. `secure-field` has no `react`. |
+
+## 2. Text selection, caret and editing
+
+Sources: [ADR 0037](./adr/0037-text-editing) and [ADR 0007](./adr/0007-clipboard). Every step of these scenarios checks `react` exactly and fails on a leak. Most check the selection only as React holds it (`texts`). The field the compositor holds (`field`) is in 5 of `text-editing-mac`'s 38 steps, and in none of `text-editing` or `text-selection`. That is the state an input method reads.
+
+| Behaviour | Regression(s) | Asserts | Gap |
+| --- | --- | --- | --- |
+| Move by character; a selection collapses to its side | `text-editing` "Right collapses…", `text-editing-mac` | O, D | Plain ← untested. No `field`. |
+| By word (Alt), Shift extending | `text-editing` Alt steps, `text-editing-mac`, `edit-menu` | O, D | A move without Shift starting from the selection's side, and a secure field moving by one word, are untested. |
+| Line edges (Ctrl+←→, Home/End), text edges, paragraphs (Alt+↑↓) | `text-editing`, `text-editing-mac`, `text-layout` | O, D; F in `text-layout` | Ctrl+→, Ctrl+Shift+←, Shift+Home/End, Ctrl+↑, Ctrl+Shift+↓, Ctrl+Shift+Home/End and Shift+Alt+↑↓ are untested. |
+| ↑↓ keep the goal column; Page Up and Page Down | `text-editing` | O, D, `text_scroll` | Shift+↑ and Shift+Page Up/Down untested. |
+| Delete by word (Alt+⌫, Alt+⌦) | `text-editing`, `text-editing-mac` | O, D | — |
+| Delete to the line's start or end (Ctrl+⌫, Ctrl+⌦) | `text-editing-mac` (Ctrl+⌫ only) | O, D | **Ctrl+Delete is untested anywhere.** So is joining lines at a line's edge. |
+| Select all | `text-editing-mac`, `edit-menu`, `text-inactive-sheet` | O | `clipboard.json`'s Ctrl+A steps check no selection range. |
+| Undo and redo; typing and deleting merged | `text-editing`, `text-editing-mac`, `text-input`; **added:** `ime-preedit` (a composition kept, then undone whole; a cancelled one recording nothing) | O, D | **Undo after a cut is untested.** Only merging is checked, never a split: a caret move between typing, typing then deleting, and a new edit clearing redo. |
+| Copy, cut, paste in a field | `text-editing`, `text-editing-mac`, `text-field-menu` | O, D; F and `clipboard` in `text-field-menu` | `text-editing(-mac)` never checks the clipboard's content. A line break pasted into a single-line field, and paste over `maxLength`, are untested. Paste over `maxLength` drops it whole (`replace`) where a drop truncates. |
+| Copy between applications | `edit-menu` (through the bar); compositor test `a_copy_in_one_application_is_pasted_in_another_through_a_pipe` | O, D | Ctrl+C in one Bloom app then Ctrl+V in another is never driven by keys. |
+| Clipboard refused to the background | scene tests only | unit | ADR 0007's promised scenario does not exist. |
+| A secure field never copies | `edit-menu`, `text-field-menu` (menu rows disabled) | O | Ctrl+C and Ctrl+X pressed in a secure field are untested. |
+| Double and triple click, drags by word, Shift+click | `text-selection(-scaled)`, `text-editing-mac` | O, D; F at focus | A backward drag, a drag in a multiline field and a triple-click drag are untested. There is no `triple_drag` action. |
+| The context menu | `text-field-menu(-scaled)` | O (`field`, `clipboard`), F, D on 14 of 20 steps | The best covered here. |
+| Caret blink | `text-caret-blink`, `settings-caret-blink(-scaled)` | O, D, `host_input` | No pixel check of the caret on whole device pixels at 1.25. |
+| Caret kept in view | `text-editing` | O (`text_scroll` exact), D | At 1 only. |
+| Inactive window: caret hidden, grey selection | `text-inactive-window(-scaled)` 7/7, `text-inactive-sheet` | O (pixels, `field`), F, D | The dark grey (#464646) is untested. |
+| Dragging text | `text-drag(-scaled)` | O, D (both applications), F on cross-field drops | No `field`. The drop caret and the drag image are unasserted. |
+| The reader's editing echo | `oxyos-reader` unit tests; `launchpad-reader` (Backspace) | unit; speech | No scenario on a Bloom field. |
+
+## 3. Keyboard in menus
+
+Sources: [ADR 0021](./adr/0021-menu-bar), [ADR 0024](./adr/0024-system-shortcuts) decision 9, and [ADR 0039](./adr/0039-keyboard-access). In-window menus are Bloom's `DropdownMenu` in a compositor popup. Their keys reach `floating/popup-navigation.tsx` once each (`key@…`).
+
+| Behaviour | Regression(s) | Asserts | Gap |
+| --- | --- | --- | --- |
+| Super+F2 to the bar; ← → across titles, wrapping | `menu-bar-keyboard(-scaled)`, `menu-bar-reader-*` | O, F, D, speech | Wrapping is driven only with ←. A letter jumping to a title is untested. |
+| Down, Return or Space opens on the first enabled row | `menu-bar-keyboard` | O, D | The row focused is shown only by what the next step chooses. |
+| Up and Down within a menu; disabled rows and separators skipped | `menu-bar-keyboard`, `text-field-menu`, `dock-menu`, `sample` | O (`at` focused row), D | Up skipping a disabled row is untested. So is wrapping past the last or first row. |
+| Submenus: → opens with the keyboard inside, ← and Escape close one level | `menu-submenu-keys(-scaled)`, `menu-bar-keyboard` | O, F (`focus_surface`), D (`popup_events`, `react`) | Escape inside a bar submenu is untested. |
+| **Type-select** | `sample` "typing d finds Delete"; `menu-bar-keyboard` "a letter finds its row…"; **added:** `menu-type-select(-scaled)` | **added:** O (`at`: the row active at every step), F (`focus_surface`), D (`key@message-actions` once per letter, `delivered`) | The added scenario covers a letter, the same letter again going on to the next row that starts with it and round to the first, two letters typed together as one query, and a letter matching nothing leaving the row. A query typed letter by letter at a person's pace is not deterministic: Bloom times its 500 ms with `Date.now()` when each key reaches JavaScript, not by the keys' times ([the adaptation's](./react-native-android-adaptation) known limit, Bloom's to fix). |
+| Return chooses once; Escape chooses nothing; the keyboard goes back to the trigger | `menu-bar-keyboard` (Return, Escape twice: O, F, D); `sample` "Escape closes it without choosing" (`a11y_events focus@open-menu`); **added:** `menu-type-select` (both, with `a11y_events`, `focus_surface` and `delivered`) | O, F, D | `menu-submenu-keys` "Enter chooses…" asserts no return to the trigger. In `menu-bar-pointer` and `menu-bar-morph`, Escape after a pointer-opened bar menu asserts neither `focus_surface` nor `delivered`, which ADR 0021 step 4 promises. So does Escape in `battery-menu`, `backup-menu` and `dock-menu`. |
+| Space chooses a row | — | — | Untested. |
+| An item's shortcut pressed with its menu open | — | — | Untested. For bar menus the shell holds the keyboard and never runs chords. |
+| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys` | O, F, speech | No `delivered`, and no row is ever chosen. The menu never opens for a focused text field, or for a control focused by a press: `navigationKey` returns before it (`bloom-host.cpp`). This contradicts ADR 0039 decision 9. |
+| Popover: Tab stays inside, Escape returns | `keyboard-popover(-scaled)` | F, speech | No `react` or `delivered` on any step. |
+| Menus inside a popover, sheet or modal | — | — | Untested. |
+
+## 4. Popups following their windows
+
+Sources: [ADR 0001](./adr/0001-native-platform-boundaries) (its table against a Mac), [ADR 0016](./adr/0016-windows) and [ADR 0018](./adr/0018-several-displays).
+
+| Behaviour | Regression(s) | Asserts | Gap |
+| --- | --- | --- | --- |
+| A menu follows a move in the same frame, not placed again: at 1 | `sample`, `popup-window`; **added:** `popup-follows` | O (rects), F, D | — |
+| The same at 1.25 | `popup-follows-scaled`, `popup-window-scaled` | O, F, D | — |
+| Placed again after a resize, at 1 and at 1.25 | `sample` (no F or `delivered`); **added:** `popup-follows`, and `focus_surface` and `delivered` in `popup-follows-scaled` | O (`popup_rect`, `frame_px`, `reposition` counted), F, D | Growing the window back repositions twice on purpose. First the anchor is kept within the frame still shown, then the trigger is used once the larger frame is shown. Two different places, not a duplicate. The pointer enters or leaves the menu as the menu moves under it, and that is delivered. |
+| It keeps the keyboard and takes input after moving and resizing | **added:** `popup-follows(-scaled)` Home, then a press on a row | O (`at` row), F, D (`key` once; the close's `focus.in` and `enter` exact) | The menu moving under the still pointer moves its active row, as a Mac's highlight follows the pointer: Down after the resizes lands past the row the menu was opened on. The scenario uses Home, which does not depend on it. |
+| Moved to a display of another scale | `popup-window-displays(-scaled)` (1→1.25 and back) | O, F, D | 1→2 only on the scene. |
+| Output scale changed with a menu open | `sample` (1→1.5: size only) | O, F, D | **None at 1.25,** none where the popup's logical size changes, none through Settings, none on a second output. |
+| Flip or slide at the output's edge, the dock's work area | `placement.rs` and scene tests | geometry | **No scenario.** |
+| Context menus, popovers, submenu chains on move, resize or display change | — | — | **None.** |
+| Output removed with a popup open | scene `output_scale_change_reconfigures_and_output_removal_dismisses_popups` | the reason only | No scenario. No `do` action unplugs an output. |
+| The window closed, minimized or zoomed with a menu open | `popup-window(-scaled)` (Super+M, the zoom bubble) | O, F, D | The close bubble with a menu open, and zoom with a tooltip, are untested. |
+| A file chooser's sheet follows its window | scene `a_sheet_moves_with_its_window_and_its_drag_moves_the_window` | geometry | No scenario. The sheet is centred once, when it attaches, and is not re-centred when its window resizes (`choosers.rs`). |
+| Bloom sheets and `Modal` on resize | — | — | None. |
+| Menu-bar menus on a second display | `session-two-outputs` | O | No F, `delivered`, `popup_events` or keys. Nothing at 1.25. |
+| Candidate windows follow the window | scene only | unit | See section 1. |
+
+## 5. Scrolling
+
+Sources: [ADR 0042](./adr/0042-scrolling) and [the adaptation's Scrolling row](./react-native-android-adaptation).
+
+| Behaviour | Regression(s) | Asserts | Gap |
+| --- | --- | --- | --- |
+| A wheel's notch moves at once | `sample`, `touchpad-scroll`, `scrollbars(-scaled)` | O (`scroll_offset` exact), D | `touchpad-scroll-scaled` "a wheel's notch…" has no `scroll_offset`. |
+| Touchpad drag and fling, Android's distance | `touchpad-scroll(-scaled)`, `touchpad-hold(-scaled)`, `overscroll(-scaled)` | O (`glide`: velocity, distance within a pixel, event order, one way, frames), F, D (one view) | — |
+| **Momentum slows** | **added:** `glide` fails a frame faster than the one before (`glide_speeding`, unit-tested in `test_regress.py`) in every glide step | O | Before, a glide that went faster, or began again, passed. |
+| A glide stopped by resting fingers | `touchpad-hold(-scaled)` | O (`held`: momentum ended once, as the host handled the hold, nothing after), D | — |
+| A glide stopped by a click | **added:** `touchpad-hold(-scaled)` third step (`flick_press`, a new action) | O (`pressed`: the same), F, D (the press, `touchStart`/`touchEnd` once) | A wheel's notch or new fingers stopping a glide is untested. Those stops, and the click's, ignore which surface the input came from (`input.cpp`), where the hold's does not. |
+| Rubber band | `overscroll(-scaled)` | O (`stretch`), D | EdgeEffect's constants are recalled, not taken from AOSP. The scenario recomputes the same formula. |
+| Natural scrolling | `natural-scrolling(-scaled)`; preference, input and compositor unit tests | O, D | Through `uinput` only. |
+| Keys: Page Up/Down, Space, arrows, Home/End | `scroll-keys(-scaled)` | O, D, `host_input` | Chaining outward when the inner view cannot move is untested. So is Shift, Alt or Super scrolling nothing. |
+| **Scroll into view** on Tab, every scroll view, at 1 and 1.25 | `scroll-reveal(-scaled)`: 35 of 35 steps O+F+D | O (offsets on device pixels), F (`keyboard_focus`), D | A control taller than its view is untested. |
+| The caret kept in view in a field | `text-editing` | O (`text_scroll`), D | At 1 only. |
+| Overlay scrollbars: show, fade, widen, drag, track page | `scrollbars(-scaled)`, `window-activation-scrollbar(-scaled)` | O, D | At 1.25, `scrollbar_thumbs: {}` asserts nothing. The hover step has no `react`. `showsHorizontalScrollIndicator` and `indicatorStyle` are claimed by ADR 0042 but never set by a probe. |
+| Nested scroll views (inner first, then outward) by wheel or fingers | — | — | **Untested.** |
+| Horizontal wheel or touchpad | — | — | **Untestable.** The scroll actions take only a vertical distance. Shift+wheel turning horizontal is not implemented. |
+| Scroll in an inactive window | scene `scrolls_go_to_the_surface_under_the_pointer_without_activating_it`; `natural-scrolling` (`uinput`) | unit; O, D | Not in a plain host scenario. |
+| The reader's scroll actions | `accessibility-actions` | O, D | At 1 only. No `scrollbars` or speech. |
+
+## 6. Accessibility
+
+Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-screen-reader) and [ADR 0039](./adr/0039-keyboard-access).
+
+| Behaviour | Regression(s) | Asserts | Gap |
+| --- | --- | --- | --- |
+| Names, roles, states, values, positions published | `accessibility-collections`, `accessibility-actions`, `live-regions`, the `*-reader` scenarios | O (`at`) | — |
+| A window's whole tree in reading order | `sample` (a popup's, `a11y_nodes` exact); `a11y_order` (a subsequence) elsewhere | O | No application window's tree is asserted whole. |
+| **The reader's Next and Previous through a window, its end stops** | `screen-reader` (3 Next, 1 Previous); unit `the_cursor_moves_through_what_has_something_to_say`; **added:** `screen-reader` walks on from the last element (nothing said), then Previous through every element to the first (nothing said past it) | speech (exact, each step), D (`react` none, and `delivered`: the reader's arrows never reach the window, only the modifiers held with them) | Crossing surfaces is untested. The cursor goes into surfaces in the order their trees arrived (`oxyos-reader`'s `reader.rs`), not by stacking or place, and no ADR says so. The cursor never focuses what it reads, so reader and keyboard focus diverge after a reader move, by design but unpinned. |
+| Activate goes to `click`, or to a declared `activate` action | `accessibility-actions`, `screen-reader`, `menu-reader`, `sample` | O, F, D, speech | The declared `activate` path (`accessibility.cpp`) has no probe. |
+| Increment, decrement, custom actions | `accessibility-actions`, `keyboard-dock-arrange` | O (text), D (count), speech | `react` counts `accessibilityAction@view` without its name, so increment and decrement are told apart only by their drawn result. |
+| Unoffered actions refused | `accessibility-actions`; unit `reader_actions_reach_the_owner_and_nobody_else_can_act` | D (none), speech (none) | — |
+| Dismiss closes a modal as Escape does | `accessibility-actions` "dismiss closes it…" | O | No `react` (`requestClose`) and no focus return. A popup dismissed by the reader is untested. |
+| Live regions polite or assertive, said once | `live-regions(-scaled)`, `accessibility-actions`, `screen-reader`; unit tests in `oxyos-reader` | F, speech (exact, so once) | `live-regions` has no `react`: what was typed into its field is not asserted. |
+| Reader focus follows keyboard focus | `dropsea-list-keys`, `keyboard-dropsea` (F, D, speech); `atlas-reader`, `keyboard-settings`, `keyboard-popover`, `settings-*-reader` (F, speech) | | The second group has no `react`, so a duplicate `focus` or `blur` would pass. |
+| Tab order wrapping at both ends | `scroll-keys` (Shift+Tab round to the last: F, D); `keyboard-popover`, `keyboard-wifi` (Tab round, in a popup and a sheet) | partial | **A forward Tab wrap in an application window is untested.** |
+| Focus back after a popup or menu closes | `sample`, `menu-reader` (O, F, D, speech); **added:** `menu-type-select`, `popup-follows(-scaled)` (`a11y_events focus@open-menu`, `focus_surface`); `keyboard-popover`, `dropsea-list-keys` (F, speech) | | The last two have no `react`. |
+| Focus back after a modal or sheet closes | `dropsea-list-keys`, `atlas-reader`, `keyboard-wifi` | F, speech | No in-window `Modal` close asserts focus, events and speech together. `modal` and `sheet` assert no focus at all. |
+| The application told a reader runs | `android-adaptation` (`isScreenReaderEnabled` false) | O | **The host always answers that no assistive technology runs** (`AccessibilityInfo`), even while the reader does, and `screenReaderChanged` never fires. This is documented as the adaptation's, not ADR 0014's. `isReduceTransparencyEnabled` is always false although the session has the setting. |
+
+## Performance
+
+`perf.py` measures and [Performance](./performance) records the numbers. In the gate every scenario runs with `--renderer cpu`, and the scenarios that hold a budget on time (`perf-*`, `refresh-*`) run alone in phase 2. **The gate holds** `latency_ms`, `content_ms_max`, the 33 ms backstop on a step's JavaScript, `zoom_presented_ms_max`, the `diagnostics` limits, commit counts, and frame bounds from above. **It does not hold** the JavaScript CPU budgets, frame spacing, or the frame-count minimums (capped at 2 by `frames_least`). Those, and `perf.py --check` (compose and host p95 within a refresh, GPU time, idle, first frame, memory), are run by hand.
+
+| Scenario | What it bounds | Where it runs |
+| --- | --- | --- |
+| `perf-window-drag(-scaled)` | a window drag composed in ≥90 frames, nothing read back | CPU, gate phase 2 |
+| `perf-dropsea(-scaled)` | Dropsea's latencies: opening a folder 120 ms, a view switch 600, a context menu 250, Escape 120 | CPU, gate phase 2 |
+| `perf-dropsea-home` | latencies 120, 600 and 450 ms; JavaScript per step (not held in the gate) | CPU, gate phase 2 |
+| `perf-dropsea-launch-signed-in` | launch to content 500 ms | CPU, gate phase 2 |
+| `perf-dropsea-resize` | a resize's JavaScript p95 8 ms and busy refreshes (not held), unanswered frames 0, zoom presented 150 ms | CPU, gate phase 2 |
+| `perf-glass(-reduced)` | frames during a glass animation [8, 80] (held as [2, 80]) | CPU, gate phase 2 |
+| `perf-settings-scroll` | only that it scrolled; its time is judged by `perf.py interactions` | CPU, gate phase 2 |
+| `refresh-60-windows`, `refresh-120-windows`, `refresh-120-animations` | frames and their spacing at 60 and 120 Hz (spacing not held) | CPU at a paced refresh, gate phase 2 |
+| `frame-diagnostics`, `held-frames`, `input-timing`, `memory-idle`, `battery-idle` | the diagnostics themselves, held frames, input time, idle buffers and timers: functional, not speed | CPU, gate phase 1 |
+| `gpu-client`, `session-shell --gpu-only`, the one-GPU tests (`oxyos-gpu-device`, `only_the_compositors_drivers`) | GPU frames latched and presented; only the GPU driving a display opened | a GPU only: gate phase 4. **Never on seldon**, which has no GPU. |
+
+**Interactions with no time bound at all:**
+
+- input methods (preedit, candidates, commit);
+- text editing per keystroke (only `sample`'s whole typed string, 250 ms);
+- menus from the keyboard and the bar's menus (only Dropsea's context menu and `sample`'s menu);
+- popups following a move or resize;
+- momentum and keyboard scrolling;
+- everything the reader says.
+
+**On real hardware.** The ThinkPad (Intel Iris Xe and an NVIDIA T550) has run `perf.py --runs 3 --gpu-only --check` with every part on the Iris Xe (6 November). All budgets held but the genie at 120 Hz: compose p95 9.98 ms against 8.3 ([Performance](./performance#every-part-on-the-thinkpads-gpu)). Nothing in CI or a deploy runs `perf.py`. A device run must never touch the NVIDIA GPU and never disturb the signed-in session. It needs:
+
+- `VK_DRIVER_FILES` set to Intel's ICD alone, so the loader cannot load NVK. Without it, `vulkaninfo` in the gate's phase 4 enumerates every ICD, which froze the machine on 1 November ([ADR 0031](./adr/0031-gpu-buffers)). So the gate is never run there as it is.
+- `/dev/dri` on a tmpfs in the run's own namespace (`unshare -rm`), with only the Iris card and its render node bound back.
+- `strace -f -e trace=openat`, checking that no NVIDIA node is opened. Also check that the T550's `runtime_status` stays `suspended`.
+- `--gpu-only`, never `--kms`: `--kms` needs DRM master and would take the display from the session.
+
+## The native audit's claims against the code
+
+[BloomUI native integration audit](./bloom-native-audit) was checked line by line. About 45 claims hold, with code and a regression asserting outcome and exact deliveries. This change corrects the stale ones:
+
+- **Known gaps.** The list said touch-drag scrolling and remote images were missing, and parked a screen reader, announcements, actions beyond activate and focus, selection by the assistive technology and hiding trees while locked. All of these are implemented and checked (`touchpad-*`, `remote-images*`, `screen-reader`, `live-regions`, `accessibility-actions`, `desktop-accessibility`). It said `ContextMenu`, `Popover` and `Menubar` still needed the native popup panel, but all three have it (`text-field-menu`, `keyboard-popover`, `menu-bar`). Only `Select` is still an in-window sheet.
+- **The capability matrix and the plan.** They said "Bloom host pending" and "native scrolling and the control's input are not". Both are done (`sample.json`).
+- **The shell.** "Not yet" headed `Intl`, which is implemented (`intl.json`), and said the shell's applications were a fixture. Launching applications is implemented (`launch-application`, `launch-records`).
+- **Frame pacing.** The audit said frames come at most 60 a second. The host paces by the compositor's refresh (`display-refresh.h`, `refresh-120-animations`).
+
+**Claims that are implemented but have no regression:**
+
+- Ctrl+Delete.
+- A stale transaction keeping its commit (unit only).
+- Undo history kept across focus.
+- `autoFocus`.
+- An input keeping its scroll unfocused.
+- The multiline hint.
+- How segments are drawn.
+- Ctrl+C and Ctrl+X refused in a secure field.
+- A secure field's caret and selection following its bullets.
+- `pointerEvents` hit-testing.
+- A declared `activate` action.
+- The popup's transparent corners.
+- "Reported once" for unsupported calls and SVG elements.
+- The minute clock.
+- The `Platform.OS` split, `android` inside React Native and `oxyos` for applications.
+
+**Claims whose regressions lack focus or exact deliveries:**
+
+- `secure-field` (no `react`).
+- `modal` and `sheet` (no focus after closing).
+- `accessibility-actions`' dialog steps.
+- `sample`'s resize and reader-activation steps.
+- The shell's menus in `session-shell` and `session-two-outputs` (no `focus_surface` or `popup_events`).
+- `field-description` (Space with no `react`).
+
+## React Native's Android internals reused
+
+[React Native's Android implementation on OxyOS](./react-native-android-adaptation) is the contract. Each reuse should be documented there, as an adaptation with a test. These are not:
+
+- **`fbgloginit`** (ReactAndroid's first-party JNI, linked by the text input's library) is not documented. Its logcat sink is behind `__ANDROID__`, so it is harmless.
+- **`android-shim/android/log.h`** (`__android_log_print` to stderr, for Reanimated's and Worklets' cores) is not documented.
+- **Codegen run with `--platform android`** for OxyOS's own platform specs. The doc mentions only React Native's specs.
+- **Android-only props parsed from raw props** (`android-view-props.cpp`): `focusable`, `accessibilityCollection`/`accessibilityCollectionItem`, and react-native-macos's `acceptsFirstMouse` are not in the doc. `elevation` is pinned only against Chromium, which draws no elevation, so Android's shadow is not pinned.
+- **The `AccessibilityProps.cpp` backport** is documented only in the native audit, not in the adaptation's contract.
+- **The ReactCommon Android text input's shadow nodes** are compiled from a patched copy. "Unchanged with `RN_SERIALIZABLE_STATE`" has no test, since there is no Android build.
+
+**Where the host answers as Android does without doing it** (the adaptation's rule is that an API OxyOS does not provide fails visibly):
+
+- **Unknown native components are silently drawn as plain views** (`UnimplementedViewComponentDescriptor` in `bloom-host.cpp`): `AndroidProgressBar` (Bloom's `ActivityIndicator`), `AndroidSwitch`, `AndroidSwipeRefreshLayout`, `AndroidDrawerLayout`. They are counted only in the PNG mode's stats line. No scenario asserts there are none, and neither document says so.
+- **"Accepted with no effect"** (`forceRTL`, `setColorScheme`, and untested others such as `allowRTL`, `setAccessibilityFocus`, `exitApp` and StatusBar's setters) contradicts the doc's own rule. `android-adaptation` asserts them as `ok`.
+- **`BackHandler`**: `hardwareBackPress` is never emitted, so its listeners never fire, and `exitApp()` resolves doing nothing. Neither is documented as such.
+- **`AccessibilityInfo`** says no assistive technology runs while the screen reader does (section 6).
+- **The adaptation doc contradicts the code**:
+  - It says AppState is "always active", but `background` is reported.
+  - It says Appearance is "the light scheme", but the session's dark setting is followed.
+  - It says `canOpenURL` is false and `openURL` rejects, but both now open by scheme through the session.
+  - It does not mention that `Dimensions.get('screen')` is the window's size, or that `KeyboardObserver` (an iOS name) is served with listeners that never fire.
+
+These are listed for their owners to decide. This change fixes none of them.
+
+## Gaps, ranked
+
+**Closed by this change**, each asserting outcome, focus and exact deliveries:
+
+1. **A composition the field ends itself** (input methods):
+   - A press elsewhere in the field, the window losing the keyboard, and the real engine's Escape: `ime-japanese-interrupted`.
+   - The composition's own caret, a selection inside it, segments in every style, a cancel recording no edit, and a press in the field or in another field: `ime-preedit`.
+   - Three product bugs fixed with them: the engine reset when the field takes its composition; the host ending the composition when its surface loses the keyboard; an emptied field told empty (protocol version 39).
+2. **Type-select in menus, and the keyboard back on the trigger:** `menu-type-select(-scaled)`.
+3. **Popups following a move and a resize at both scales:** `popup-follows`, and `popup-follows-scaled`'s focus and deliveries, then a key and a press on the moved menu.
+4. **Momentum** must only slow, and a click stops a glide (`flick_press`): `touchpad-hold(-scaled)`. Scroll into view was already complete at both scales (`scroll-reveal`).
+5. **The reader's order through a window, both ways and its ends:** `screen-reader`.
+
+**Open, most important first:**
+
+1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
+2. Ctrl+Delete, undo after a cut, and undo splits. `field` is missing from `text-editing` and `text-selection`.
+3. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
+4. Shift+F10 and the Menu key never open a focused text field's menu (`navigationKey`).
+5. A glide stopped by a wheel or new fingers. These stops ignore the input's surface.
+6. Nested and horizontal scrolling. The scroll actions need a horizontal distance.
+7. The reader crossing surfaces. The order is when trees arrived, undocumented.
+8. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
+9. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
+10. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
+11. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
