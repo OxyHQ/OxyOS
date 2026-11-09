@@ -547,7 +547,7 @@ function SpotlightPanel({
     actions.openUrl?.(url);
     close(false);
   }, [selectedItem, actions, close]);
-  const escape = useCallback(() => {
+  const dismiss = useCallback(() => {
     if (text) change("");
     else close(true);
   }, [text, close]);
@@ -583,7 +583,7 @@ function SpotlightPanel({
   // What a key does, from the platform's keys before the field, else the field's own.
   const onKey = (key: string, ctrl: boolean): boolean => {
     if (key === "Escape") {
-      escape();
+      dismiss();
       return true;
     }
     if (key === "Enter") {
@@ -611,8 +611,8 @@ function SpotlightPanel({
 
   const latestReveal = useRef(reveal);
   latestReveal.current = reveal;
-  const latestEscape = useRef(escape);
-  latestEscape.current = escape;
+  const latestEscape = useRef(dismiss);
+  latestEscape.current = dismiss;
   const lastReveal = useRef(revealRequest);
   useEffect(() => {
     if (lastReveal.current !== revealRequest) latestReveal.current();
