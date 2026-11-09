@@ -6,7 +6,8 @@
 # below exist only while a migration is asked for; the always-running backup service keeps its own
 # read-only sandbox (oxyos-backupd.service).
 #
-# Not installed by the image yet (ADR 0059, step 5 brings it with the session).
+# Not installed by the image yet (ADR 0059, step 5 brings it with the session); a deploy to a test
+# machine installs and enables it (tools/deploy/system-files, docs/developing.mdx).
 
 [Unit]
 Description=OxyOS migration from a backup

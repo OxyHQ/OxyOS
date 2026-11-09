@@ -170,7 +170,7 @@ The owner's rule: a proven engine, never a backup format of OxyOS's own.
 
 ## What to verify on the ThinkPad
 
-With step 2 deployed, `restic` and `rclone` installed (`apt install restic rclone`), and `oxyos-backupd` installed as root with its unit:
+With a deploy (`tools/deploy/deploy.sh`, docs/developing.mdx), which installs `restic` and `rclone` from Debian, `oxyos-backupd` as root with its units, enabled and running, and the migration's socket (no destination: adding one is the person's):
 
 1. A USB disk (ext4 or exFAT) connected: Settings › General › Backups lists it; added with a password, a backup starts at once (`journalctl -u oxyos-backupd`), the menu bar's item says how far; `sudo restic -r '/run/oxyos/backupd/volumes/<uuid>/OxyOS Backups/<id>' snapshots` (from the service's namespace: `sudo nsenter -t $(systemctl show -p MainPID --value oxyos-backupd) -m`) lists it, opened by the backup password.
 2. Disconnected after the backup: nothing is mounted (`findmnt` in the service's namespace), nothing fails; an hour later, connected: backed up at once.
