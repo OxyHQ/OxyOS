@@ -356,14 +356,14 @@ void PointerInput::handle(const OxyOSEvent& event) {
     return;
   }
   // Protocol positions and distances are in 1/256 logical pixels.
-  // A touchpad's fingers coming to rest stop the glide their last flick left on that surface, as
-  // macOS stops a scroll's momentum under resting fingers: its momentum ends where it is, once,
-  // with no scroll after. Resting fingers are no drag: no scrollBeginDrag (they may lift unmoved);
+  // A touchpad's fingers coming to rest stop the glides on that surface, as macOS stops a scroll's
+  // momentum under resting fingers: each one's momentum ends where it is, once, with no scroll
+  // after. Resting fingers are no drag: no scrollBeginDrag (they may lift unmoved);
   // moving on, they are a scroll, which begins one. A stretch springing back on that surface
   // (overscroll) is caught where it is, as a finger landing on Android's catches it, and let go
   // again when they lift or move on (a scroll that follows catches it again as its drag begins).
   if (event.kind == OXYOS_EVENT_HOLD) {
-    if (event.detail == OXYOS_PINCH_BEGIN && glide_ && glide_->surface == event.surface) stopGlide();
+    if (event.detail == OXYOS_PINCH_BEGIN) stopGlides(event.surface);
     double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
     for (auto& [tag, overscroll] : overscroll_) {
       if (overscroll.surface != event.surface) continue;
@@ -392,7 +392,8 @@ void PointerInput::handle(const OxyOSEvent& event) {
     if (!drag_) content_ = *content;
     if (event.detail == OXYOS_SCROLL_FINGER) return fingerScroll(event.x / 256.0f, event.y / 256.0f, event.flag);
     if (event.flag) return;  // a continuous device's stop moves nothing
-    stopGlide();
+    // A wheel's notch stops the glides on its surface where they are, then scrolls.
+    stopGlides(event.surface);
     return scroll(event.x / 256.0f, event.y / 256.0f);
   }
   float x = event.x / 256.0f, y = event.y / 256.0f;
@@ -452,7 +453,7 @@ void PointerInput::handle(const OxyOSEvent& event) {
   }
   switch (event.detail) {
     case OXYOS_POINTER_PRESS: {
-      stopGlide();
+      stopGlides(event.surface);
       // A press stops the animated scrolls of the scroll views under it, as a touch aborts
       // Android's ScrollView's scroller.
       Tag under = hitTest(tree_, *content, x, y);
@@ -663,12 +664,20 @@ float frictionOf(const ShadowView& view) {
 void PointerInput::fingerScroll(float dx, float dy, bool stop) {
   if (!drag_) {
     if (stop) return;
-    stopGlide();
+    // New fingers stop the glides on their surface where they are, then begin their drag.
+    stopGlides(content_.surface);
     drag_ = Drag{};
     drag_->surface = content_.surface;
-    // The scroll view this drag moves: the innermost that can move its way, unless a text input
+    // The scroll view this drag moves, latched for the whole gesture as AppKit latches a
+    // trackpad's gesture to the scroll view it began in: the innermost that can move along the
+    // move's predominant axis, its way (NSScrollView's usesPredominantAxisScrolling: a mostly
+    // vertical move over a horizontal scroll view is its enclosing one's), unless a text input
     // under the pointer takes it first (its text scrolls, with no momentum: Android's text view
-    // drags its text, which a touchpad's fingers would select instead).
+    // drags its text, which a touchpad's fingers would select instead). An inner scroll view at its
+    // end in the move's way is passed over, so a new gesture there scrolls the outer one; one that
+    // reaches its end during the gesture stretches there and hands nothing over, nor does its glide.
+    int axis = std::abs(dy) >= std::abs(dx) ? 1 : 0;
+    float along = axis ? dy : dx;
     Tag target = hitTest(tree_, content_, x_, y_);
     for (auto path = ancestry(tree_, target); target >= 0 && !path.empty(); path.pop_back()) {
       Tag at = path.back();
@@ -677,9 +686,8 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
       auto range = scrollRange(at);
       if (!range) continue;
       auto [current, end] = *range;
-      bool moves = (dx > 0 && current.x < end.x) || (dx < 0 && current.x > 0) || (dy > 0 && current.y < end.y) ||
-                   (dy < 0 && current.y > 0);
-      if (!moves) continue;
+      float offset = axis ? current.y : current.x, last = axis ? end.y : end.x;
+      if (!((along > 0 && offset < last) || (along < 0 && offset > 0))) continue;
       drag_->view = at;
       break;
     }
@@ -687,7 +695,6 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
     // the drag all the same, as Android's ScrollView intercepts a drag whichever way it goes once
     // its content scrolls, and may stretch past its end.
     if (drag_->view < 0) {
-      int axis = std::abs(dy) >= std::abs(dx) ? 1 : 0;
       for (auto path = ancestry(tree_, target); target >= 0 && !path.empty(); path.pop_back()) {
         Tag at = path.back();
         const auto& view = tree_.views().at(at).view;
@@ -764,14 +771,13 @@ void PointerInput::fingerScroll(float dx, float dy, bool stop) {
   scrollEvent(view, surface, "momentumScrollBegin");
   auto range = scrollRange(view);
   Glide glide;
-  glide.view = view;
   glide.surface = surface;
   glide.from = range ? range->first : Point{};
   glide.began = std::chrono::steady_clock::now();
   float friction = frictionOf(tree_.views().at(view).view);
   if (std::abs(vx) >= kMinimumFlingVelocity) glide.x = SplineFling(vx, friction);
   if (std::abs(vy) >= kMinimumFlingVelocity) glide.y = SplineFling(vy, friction);
-  glide_ = glide;
+  glides_[view] = glide;
   if (tracing()) {
     std::cerr << "[input] fling " << view << " at " << vx << "," << vy << " dp/s: " << glide.y.distance() << " in "
               << glide.y.durationMs() << " ms\n";
@@ -843,40 +849,48 @@ bool PointerInput::tick(bool ready) {
   // A press held in a scrollbar's track pages on.
   if (barPress_ && !barPress_->thumb && barPress_->repeat && now >= *barPress_->repeat) pageTowardsPointer();
   moved |= stepBars(now);
-  if (!glide_) return moved;
-  if (glide_->stepped && now - *glide_->stepped < period) return moved;
-  glide_->stepped = now;
-  auto range = scrollRange(glide_->view);
-  if (!range) {
-    glide_.reset();
-    return moved;
+  // Each glide steps once a frame, as each of Android's OverScrollers is stepped on the vsync.
+  for (auto it = glides_.begin(); it != glides_.end();) {
+    Tag tag = it->first;
+    Glide& glide = it->second;
+    if (glide.stepped && now - *glide.stepped < period) {
+      ++it;
+      continue;
+    }
+    glide.stepped = now;
+    auto range = scrollRange(tag);
+    if (!range) {
+      it = glides_.erase(it);
+      continue;
+    }
+    double ms = std::chrono::duration<double, std::milli>(now - glide.began).count();
+    auto [current, end] = *range;
+    Point to{static_cast<float>(glide.from.x + glide.x.at(ms)), static_cast<float>(glide.from.y + glide.y.at(ms))};
+    // A glide reaching an end strikes the stretch there with its velocity (onAbsorb), as Android's
+    // ScrollView.computeScroll does when the scroller crosses its range.
+    const float wanted[2] = {to.x, to.y}, ends[2] = {end.x, end.y};
+    const SplineFling* flings[2] = {&glide.x, &glide.y};
+    for (int axis = 0; axis < 2; ++axis) {
+      if (flings[axis]->distance() == 0 || (wanted[axis] >= 0 && wanted[axis] <= ends[axis])) continue;
+      if (!canOverscroll(tag, axis)) continue;
+      auto& overscroll = overscroll_[tag];
+      overscroll.surface = glide.surface;
+      overscroll.side[axis] = wanted[axis] < 0 ? -1 : 1;
+      overscroll.axis[axis].absorb(flings[axis]->velocity(ms),
+                                   std::chrono::duration<double, std::milli>(now.time_since_epoch()).count());
+      stretchChanged_ = true;
+      reportStretch(tag);
+    }
+    to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
+    moved |= scrollView(tag, to.x - current.x, to.y - current.y, glide.surface);
+    // It ends when its time is up, or at the end it was flung towards, which the stretch then takes
+    // (as Android 12's ScrollView aborts its scroller once its edge absorbs it).
+    bool done = ms >= std::max(glide.x.durationMs(), glide.y.durationMs()) ||
+                ((glide.x.distance() == 0 || to.x <= 0 || to.x >= end.x) &&
+                 (glide.y.distance() == 0 || to.y <= 0 || to.y >= end.y));
+    ++it;
+    if (done) stopGlide(tag);
   }
-  double ms = std::chrono::duration<double, std::milli>(now - glide_->began).count();
-  auto [current, end] = *range;
-  Point to{static_cast<float>(glide_->from.x + glide_->x.at(ms)), static_cast<float>(glide_->from.y + glide_->y.at(ms))};
-  // A glide reaching an end strikes the stretch there with its velocity (onAbsorb), as Android's
-  // ScrollView.computeScroll does when the scroller crosses its range.
-  const float wanted[2] = {to.x, to.y}, ends[2] = {end.x, end.y};
-  const SplineFling* flings[2] = {&glide_->x, &glide_->y};
-  for (int axis = 0; axis < 2; ++axis) {
-    if (flings[axis]->distance() == 0 || (wanted[axis] >= 0 && wanted[axis] <= ends[axis])) continue;
-    if (!canOverscroll(glide_->view, axis)) continue;
-    auto& overscroll = overscroll_[glide_->view];
-    overscroll.surface = glide_->surface;
-    overscroll.side[axis] = wanted[axis] < 0 ? -1 : 1;
-    overscroll.axis[axis].absorb(flings[axis]->velocity(ms),
-                                 std::chrono::duration<double, std::milli>(now.time_since_epoch()).count());
-    stretchChanged_ = true;
-    reportStretch(glide_->view);
-  }
-  to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
-  moved |= scrollView(glide_->view, to.x - current.x, to.y - current.y, glide_->surface);
-  // It ends when its time is up, or at the end it was flung towards, which the stretch then takes
-  // (as Android 12's ScrollView aborts its scroller once its edge absorbs it).
-  bool done = ms >= std::max(glide_->x.durationMs(), glide_->y.durationMs()) ||
-              ((glide_->x.distance() == 0 || to.x <= 0 || to.x >= end.x) &&
-               (glide_->y.distance() == 0 || to.y <= 0 || to.y >= end.y));
-  if (done) stopGlide();
   return moved;
 }
 
@@ -886,7 +900,7 @@ std::optional<std::chrono::steady_clock::time_point> PointerInput::nextFrame(boo
   std::optional<std::chrono::steady_clock::time_point> next;
   auto now = std::chrono::steady_clock::now();
   auto due = [&](std::chrono::steady_clock::time_point at) { next = next ? std::min(*next, at) : at; };
-  if (glide_) next = glide_->stepped ? *glide_->stepped + period : now;
+  for (const auto& [tag, glide] : glides_) due(glide.stepped ? *glide.stepped + period : now);
   for (const auto& [tag, animation] : animations_) due(animation.stepped ? *animation.stepped + period : now);
   if (barPress_ && barPress_->repeat) due(*barPress_->repeat);
   // Scrollbars fading or growing step once a frame; one held shown is due when its hold ends.
@@ -981,11 +995,20 @@ void PointerInput::reportStretch(Tag tag) {
   Report::get().stretch(view->second.view, amount.x, amount.y, distance.x, distance.y);
 }
 
-void PointerInput::stopGlide() {
-  if (!glide_) return;
-  Glide glide = *glide_;
-  glide_.reset();
-  if (tree_.views().find(glide.view) != tree_.views().end()) scrollEvent(glide.view, glide.surface, "momentumScrollEnd");
+void PointerInput::stopGlides(uint32_t surface) {
+  std::vector<Tag> stopped;
+  for (const auto& [tag, glide] : glides_) {
+    if (glide.surface == surface) stopped.push_back(tag);
+  }
+  for (Tag tag : stopped) stopGlide(tag);
+}
+
+void PointerInput::stopGlide(Tag tag) {
+  auto it = glides_.find(tag);
+  if (it == glides_.end()) return;
+  uint32_t surface = it->second.surface;
+  glides_.erase(it);
+  if (tree_.views().find(tag) != tree_.views().end()) scrollEvent(tag, surface, "momentumScrollEnd");
 }
 
 // When a scroll event is dispatched, in milliseconds of the monotonic clock (performance.now()'s):
@@ -1194,7 +1217,7 @@ void PointerInput::startAnimation(Tag tag, uint32_t surface, Point to, ScrollAni
   if (!range) return;
   auto [current, end] = *range;
   to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
-  if (glide_ && glide_->view == tag) stopGlide();
+  stopGlide(tag);
   // A scroll already animating there goes on from where it is (its momentum, if any, still framing
   // it); a new one starts.
   auto it = animations_.find(tag);
@@ -1300,7 +1323,7 @@ void PointerInput::command(const ShadowView& view, const std::string& name, cons
   }
   if (!range || (name != "scrollTo" && name != "scrollToEnd")) return;
   // As ReactScrollViewManager: abortAnimation, then the scroll, animated or at once.
-  if (glide_ && glide_->view == tag) stopGlide();
+  stopGlide(tag);
   stopAnimation(tag);
   range = scrollRange(tag);
   auto [current, end] = *range;
@@ -1457,7 +1480,7 @@ bool PointerInput::stepBars(std::chrono::steady_clock::time_point now) {
 }
 
 void PointerInput::pressBar(const SurfaceContent& content, Tag tag, int axis, float x, float y) {
-  stopGlide();
+  stopGlides(content.surface);
   stopAnimation(tag);
   auto range = scrollRange(tag);
   auto frame = windowFrame(tree_, tag);

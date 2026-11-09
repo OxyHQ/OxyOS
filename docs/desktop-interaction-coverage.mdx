@@ -139,15 +139,16 @@ Sources: [ADR 0042](./adr/0042-scrolling) and [the adaptation's Scrolling row](.
 | Touchpad drag and fling, Android's distance | `touchpad-scroll(-scaled)`, `touchpad-hold(-scaled)`, `overscroll(-scaled)` | O (`glide`: velocity, distance within a pixel, event order, one way, frames), F, D (one view) | — |
 | **Momentum slows** | **added:** `glide` fails a frame faster than the one before (`glide_speeding`, unit-tested in `test_regress.py`) in every glide step | O | Before, a glide that went faster, or began again, passed. |
 | A glide stopped by resting fingers | `touchpad-hold(-scaled)` | O (`held`: momentum ended once, as the host handled the hold, nothing after), D | — |
-| A glide stopped by a click | **added:** `touchpad-hold(-scaled)` third step (`flick_press`, a new action) | O (`pressed`: the same), F, D (the press, `touchStart`/`touchEnd` once) | A wheel's notch or new fingers stopping a glide is untested. Those stops, and the click's, ignore which surface the input came from (`input.cpp`), where the hold's does not. |
+| A glide stopped by a click | **added:** `touchpad-hold(-scaled)` third step (`flick_press`, a new action) | O (`pressed`: the same), F, D (the press, `touchStart`/`touchEnd` once) | — |
+| A glide stopped by a wheel's notch or new fingers; left alone by input on another surface | **added:** `touchpad-hold(-scaled)` (`flick_wheel`, `flick_fingers`), `glide-elsewhere(-scaled)` (a popup's notch, fingers and click); `glide`'s `stopped_by` and `kept_by`, unit-tested | O (stopped once as the host handled it, then the notch's one scroll or the fingers' drag from there; or the whole glide), F, D | **Bug fixed.** The notch's, the fingers' and the click's stops ignored the input's surface: a click in a popup stopped the window's glide, and one glide served every surface. Each surface's input now stops its own glides, each scroll view gliding on its own (ADR 0042, decision 7). |
 | Rubber band | `overscroll(-scaled)` | O (`stretch`), D | EdgeEffect's constants are recalled, not taken from AOSP. The scenario recomputes the same formula. |
 | Natural scrolling | `natural-scrolling(-scaled)`; preference, input and compositor unit tests | O, D | Through `uinput` only. |
 | Keys: Page Up/Down, Space, arrows, Home/End | `scroll-keys(-scaled)` | O, D, `host_input` | Chaining outward when the inner view cannot move is untested. So is Shift, Alt or Super scrolling nothing. |
 | **Scroll into view** on Tab, every scroll view, at 1 and 1.25 | `scroll-reveal(-scaled)`: 35 of 35 steps O+F+D | O (offsets on device pixels), F (`keyboard_focus`), D | A control taller than its view is untested. |
 | The caret kept in view in a field | `text-editing` | O (`text_scroll`), D | At 1 only. |
 | Overlay scrollbars: show, fade, widen, drag, track page | `scrollbars(-scaled)`, `window-activation-scrollbar(-scaled)` | O, D | At 1.25, `scrollbar_thumbs: {}` asserts nothing. The hover step has no `react`. `showsHorizontalScrollIndicator` and `indicatorStyle` are claimed by ADR 0042 but never set by a probe. |
-| Nested scroll views (inner first, then outward) by wheel or fingers | — | — | **Untested.** |
-| Horizontal wheel or touchpad | — | — | **Untestable.** The scroll actions take only a vertical distance. Shift+wheel turning horizontal is not implemented. |
+| Nested scroll views (inner first, then outward) by wheel or fingers | **added:** `scroll-nested(-scaled)` | O (both views' offsets exact), F, D (each view's scroll events) | **Bug fixed.** A gesture went to the innermost view that could move along either axis: a drag mostly down, drifting right, over a row that scrolls across moved the row. It now goes by the gesture's predominant axis, as AppKit's (ADR 0042, decision 8). |
+| Horizontal wheel or touchpad; Shift with the wheel | **added:** `scroll-across(-scaled)`; the scene's `a_wheel_turned_with_shift_held_scrolls_across` | O (offsets exact; `glide` along x), D | The scroll actions take `[dx, dy]` (scenarios that give a number are unchanged). Shift with a wheel's notch now scrolls across, turned by the compositor (ADR 0042, decision 9). Not through the virtual devices (`uinput`), whose wheel turns only down. |
 | Scroll in an inactive window | scene `scrolls_go_to_the_surface_under_the_pointer_without_activating_it`; `natural-scrolling` (`uinput`) | unit; O, D | Not in a plain host scenario. |
 | The reader's scroll actions | `accessibility-actions` | O, D | At 1 only. No `scrollbars` or speech. |
 
@@ -277,6 +278,7 @@ These are listed for their owners to decide. This change fixes none of them.
 3. **Popups following a move and a resize at both scales:** `popup-follows`, and `popup-follows-scaled`'s focus and deliveries, then a key and a press on the moved menu.
 4. **Momentum** must only slow, and a click stops a glide (`flick_press`): `touchpad-hold(-scaled)`. Scroll into view was already complete at both scales (`scroll-reveal`).
 5. **The reader's order through a window, both ways and its ends:** `screen-reader`.
+6. **What stops a glide, nested scroll views and scrolling across:** `touchpad-hold(-scaled)`, `glide-elsewhere(-scaled)`, `scroll-nested(-scaled)`, `scroll-across(-scaled)`, with two product bugs fixed (stops from any surface, a gesture latched by either axis) and Shift with the wheel (ADR 0042, decisions 7 to 9).
 
 **Open, most important first:**
 
@@ -284,10 +286,8 @@ These are listed for their owners to decide. This change fixes none of them.
 2. Ctrl+Delete, undo after a cut, and undo splits. `field` is missing from `text-editing` and `text-selection`.
 3. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
 4. Shift+F10 and the Menu key never open a focused text field's menu (`navigationKey`).
-5. A glide stopped by a wheel or new fingers. These stops ignore the input's surface.
-6. Nested and horizontal scrolling. The scroll actions need a horizontal distance.
-7. The reader crossing surfaces. The order is when trees arrived, undocumented.
-8. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
-9. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
-10. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
-11. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
+5. The reader crossing surfaces. The order is when trees arrived, undocumented.
+6. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
+7. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
+8. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
+9. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.

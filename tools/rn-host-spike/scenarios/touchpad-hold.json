@@ -1,5 +1,5 @@
 {
-  "about": "A touchpad's glide and the fingers that stop it (sample/GlideProbe.tsx, input.h): a flick leaves the list gliding its Android distance (SplineOverScroller's, for the lift's velocity), its scroll events each stamped when the host dispatched it, as React Native's Android ScrollEvent takes SystemClock.uptimeMillis() when it is obtained: the glide's scrolls rising, the momentum's begin and end stamped (before, every glide scroll carried the lift's device time and the drag's and momentum's events none). A second flick, and two fingers coming to rest on the touchpad 150 ms after the lift (libinput's hold gesture, carried by the protocol's Hold event): the glide stops where they find it, short of its distance, its momentum ended once in the frame the host handled the hold, no scroll after it, as macOS stops a scroll under resting fingers; the fingers lifting unmoved begin no drag (before, the protocol had no hold and the glide ran its full distance under them). A third flick, and a click 150 ms after the lift: the glide stops where the click finds it, as a touch stops Android's fling, its momentum ended once, no scroll after it, and the click is the list's press. Every glide's frames only slow.",
+  "about": "A touchpad's glide and the fingers that stop it (sample/GlideProbe.tsx, input.h): a flick leaves the list gliding its Android distance (SplineOverScroller's, for the lift's velocity), its scroll events each stamped when the host dispatched it, as React Native's Android ScrollEvent takes SystemClock.uptimeMillis() when it is obtained: the glide's scrolls rising, the momentum's begin and end stamped (before, every glide scroll carried the lift's device time and the drag's and momentum's events none). A second flick, and two fingers coming to rest on the touchpad 150 ms after the lift (libinput's hold gesture, carried by the protocol's Hold event): the glide stops where they find it, short of its distance, its momentum ended once in the frame the host handled the hold, no scroll after it, as macOS stops a scroll under resting fingers; the fingers lifting unmoved begin no drag (before, the protocol had no hold and the glide ran its full distance under them). A third flick, and a click 150 ms after the lift: the glide stops where the click finds it, as a touch stops Android's fling, its momentum ended once, no scroll after it, and the click is the list's press. A fourth flick, and a wheel's notch 150 ms after the lift: the glide stops where the notch finds it, its momentum ended once, and the notch then scrolls the list once from there; a fifth, and new fingers scrolling: the glide stops where they find it and their drag begins there, going their way (before, the notch's and the fingers' stops, and the click's, stopped a glide on any surface of the application, docs/adr/0042-scrolling.mdx, decision 7). Every glide's frames only slow.",
   "module": "GlideProbe",
   "window": [600, 360],
   "steps": [
@@ -56,6 +56,42 @@
         "glide": {"view": "list", "velocity": [900, 1500], "pressed": true},
         "scroll_times": "dispatch",
         "texts": ["Glide 3: scrolls stamped rising yes, momentum stamped yes"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a fourth flick, and a wheel's notch where the fingers were 150 ms after the lift: the glide stops where the notch finds it, its momentum ending once, then the notch scrolls the list from there, once",
+      "do": ["flick_wheel", [150, 150, 120, 6, 60, 150, 40]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [9, 41],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {"1": {"scroll": 8}},
+        "glide": {"view": "list", "velocity": [900, 1500], "stopped_by": "wheel"},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 4: scrolls stamped rising yes, momentum stamped yes"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a fifth flick, and new fingers scrolling down 150 ms after the lift: the glide stops where they find it, its momentum ending once, then their drag begins there and goes their way, resting before they lift so nothing is flung",
+      "do": ["flick_fingers", [150, 150, 120, 6, 60, 150, 60, 6]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 2,
+          "scroll@list": [14, 46],
+          "scrollEndDrag@list": 2,
+          "momentumScrollBegin@list": 2,
+          "momentumScrollEnd@list": 2
+        },
+        "delivered": {"1": {"scroll": 14}},
+        "glide": {"view": "list", "velocity": [900, 1500], "stopped_by": "fingers"},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 6: scrolls stamped rising no, momentum stamped yes"],
         "focus_surface": 1
       }
     }

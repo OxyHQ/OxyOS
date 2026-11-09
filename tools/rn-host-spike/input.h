@@ -203,9 +203,13 @@ class PointerInput {
   // then moves; its stop is the finger lifted: onScrollEndDrag with the velocity it left with,
   // then the momentum events around the fling it starts, if it is fast enough.
   void fingerScroll(float dx, float dy, bool stop);
-  // Ends the glide going on, if any, where it is (onMomentumScrollEnd): a press, a wheel or new
-  // fingers stop it, as a touch stops Android's.
-  void stopGlide();
+  // Ends glides where they are (onMomentumScrollEnd, once each). Input stops only the glides of
+  // the surface it reaches (a press, a wheel's notch, new fingers, fingers coming to rest), as
+  // Android aborts a view's OverScroller only for input its window receives: a popup's or another
+  // window's input leaves them gliding (docs/adr/0042-scrolling.mdx, decision 7). A scroll view's
+  // own glide also ends for an animated scroll of it or JavaScript's scrollTo.
+  void stopGlides(uint32_t surface);
+  void stopGlide(facebook::react::Tag tag);
   // Overscroll, as Android 12's ScrollView stretches (EdgeEffect, TYPE_STRETCH): the axis a scroll
   // view scrolls along (0 for x, 1 for y), whether it may stretch along it (its overScrollMode:
   // always, never, or only when its content scrolls, React Native's "auto"), the stretch showing
@@ -327,17 +331,16 @@ class PointerInput {
     ScrollVelocity velocity;
   };
   std::optional<Drag> drag_;
-  // The glide after it: the scroll view, where it began and when, its fling on each axis, and
-  // when it last stepped.
+  // The glides after them, one a scroll view as each of Android's has its own OverScroller: on
+  // which surface, where it began and when, its fling on each axis, and when it last stepped.
   struct Glide {
-    facebook::react::Tag view = -1;
     uint32_t surface = 0;
     facebook::react::Point from{};
     std::chrono::steady_clock::time_point began;
     SplineFling x{0}, y{0};
     std::optional<std::chrono::steady_clock::time_point> stepped;
   };
-  std::optional<Glide> glide_;
+  std::map<facebook::react::Tag, Glide> glides_;
   // Each scroll view's stretch along each axis, and which end it is past (-1 its start, 1 its end),
   // while one shows; when the receding ones last stepped.
   struct Overscroll {
