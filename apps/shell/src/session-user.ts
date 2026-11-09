@@ -22,7 +22,7 @@ export function pictureUri(picture: unknown): string | undefined {
 }
 
 /** What a screen calls the person: their full name, else their short name; empty when the
-    platform names nobody. */
+    platform names nobody, where the screen says `unnamedAccount` ("Oxy Account"). */
 export function personName(user: { name?: string; fullName?: string } | null | undefined): string {
   return user?.fullName?.trim() || user?.name?.trim() || "";
 }
@@ -30,11 +30,11 @@ export function personName(user: { name?: string; fullName?: string } | null | u
 /**
  * The session's user from the platform's snapshot of the session: a signed-in account's username
  * and display name. Without one (signed out elsewhere, the accounts' service away for a moment, a
- * development session with no accounts' service), the full name the system keeps for the user
- * (passwd's GECOS, which the accounts' service writes from the same profile), and no short name:
- * never the Unix user's name.
+ * development session with no accounts' service), no name at all, and a screen calls the person
+ * "Oxy Account" (`unnamedAccount`): never a name of the machine's (passwd's GECOS or the Unix
+ * user's), which would differ from one computer to the next.
  */
-export function sessionUserFrom(snapshot: unknown, systemFullName?: string | null): SessionUser {
+export function sessionUserFrom(snapshot: unknown): SessionUser {
   if (typeof snapshot === "object" && snapshot !== null) {
     const { status, account } = snapshot as { status?: unknown; account?: unknown };
     if (status === "signed_in" && typeof account === "object" && account !== null) {
@@ -54,6 +54,5 @@ export function sessionUserFrom(snapshot: unknown, systemFullName?: string | nul
       }
     }
   }
-  const fullName = typeof systemFullName === "string" ? systemFullName.trim() : "";
-  return fullName ? { name: "", fullName } : { name: "" };
+  return { name: "" };
 }

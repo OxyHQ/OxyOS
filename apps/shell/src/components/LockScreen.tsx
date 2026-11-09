@@ -216,7 +216,8 @@ export const LockScreen = memo(function LockScreen({
   safeMode?: boolean;
 }) {
   const messages = useShellMessages();
-  const name = personName(lock.user);
+  // Always named, as a Mac's lock screen: "Oxy Account" when the platform names nobody.
+  const name = personName(lock.user) || messages.power.unnamedAccount;
   const summary = notifications
     ? lockSummary(notifications.list, applications, notifications.previews, messages)
     : [];
@@ -254,14 +255,12 @@ export const LockScreen = memo(function LockScreen({
         </Box>
       ) : null}
       <UserPicture picture={lock.user.picture} testID="shell-lock-picture" />
-      {name ? (
-        <Text
-          testID="shell-lock-name"
-          style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
-        >
-          {name}
-        </Text>
-      ) : null}
+      <Text
+        testID="shell-lock-name"
+        style={{ ...textShadow, color: "#fff", fontSize: 15, fontWeight: "600", marginTop: 10 }}
+      >
+        {name}
+      </Text>
       <SecretFields
         testID="shell-lock"
         pin={lock.pin}
