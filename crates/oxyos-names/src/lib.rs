@@ -1,7 +1,9 @@
 //! The names OxyOS gives things, each rule in one place. A leaf with no dependencies, so the
 //! registry, the package format, the install service, the preferences and the files service
-//! all take an application's id by the same rule.
+//! all take an application's id by the same rule, and every crate that reads the system's
+//! locale reads it the same way ([`locale`]).
 
+pub mod locale;
 #[cfg(test)]
 mod tests;
 

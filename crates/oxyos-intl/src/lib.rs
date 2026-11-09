@@ -118,9 +118,7 @@ pub fn system_locale() -> String {
 
 /// [`system_locale`] from the environment `variable` gives.
 fn posix_locale(variable: impl Fn(&str) -> Option<String>) -> String {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .iter()
-        .find_map(|name| variable(name).filter(|value| !value.is_empty()))
+    oxyos_names::locale::messages_locale(variable)
         .and_then(|value| from_posix(&value))
         .and_then(|locale| lookup(&locale))
         .map_or_else(|| "en-US".into(), |id| id.to_string())
@@ -128,15 +126,11 @@ fn posix_locale(variable: impl Fn(&str) -> Option<String>) -> String {
 
 /// `es_ES.UTF-8` as `es-ES`; `sr_RS@latin` as `sr-Latn-RS`. `None` for `C` and `POSIX`.
 fn from_posix(value: &str) -> Option<Locale> {
-    let (name, modifier) = value.split_once('@').unwrap_or((value, ""));
-    let name = name.split_once('.').map_or(name, |(name, _codeset)| name);
-    if matches!(name, "C" | "POSIX") {
-        return None;
-    }
-    let mut locale = Locale::try_from_str(&name.replace('_', "-")).ok()?;
-    let script = match modifier {
-        "latin" => Some(icu_locale_core::subtags::script!("Latn")),
-        "cyrillic" => Some(icu_locale_core::subtags::script!("Cyrl")),
+    let posix = oxyos_names::locale::PosixLocale::parse(value)?;
+    let mut locale = Locale::try_from_str(&posix.name.replace('_', "-")).ok()?;
+    let script = match posix.modifier {
+        Some("latin") => Some(icu_locale_core::subtags::script!("Latn")),
+        Some("cyrillic") => Some(icu_locale_core::subtags::script!("Cyrl")),
         _ => None,
     };
     locale.id.script = script.or(locale.id.script);

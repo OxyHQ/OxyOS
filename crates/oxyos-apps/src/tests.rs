@@ -199,6 +199,21 @@ fn a_locales_languages_are_its_region_then_its_language() {
     assert_eq!(languages_of("fi"), ["fi"]);
     assert!(languages_of("C.UTF-8").is_empty() && languages_of("POSIX").is_empty());
     assert!(languages_of("").is_empty());
+    // `languages_of` before oxyos-names split the locale, as it was.
+    let before = |locale: &str| {
+        let base = locale.split(['.', '@']).next().unwrap_or_default();
+        let mut out = Vec::new();
+        if !base.is_empty() && base != "C" && base != "POSIX" {
+            out.push(base.to_string());
+            if let Some((language, _)) = base.split_once('_') {
+                out.push(language.to_string());
+            }
+        }
+        out
+    };
+    for &locale in oxyos_names::locale::EXAMPLES {
+        assert_eq!(languages_of(locale), before(locale), "{locale:?}");
+    }
 }
 
 #[test]

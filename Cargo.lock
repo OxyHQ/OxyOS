@@ -2966,6 +2966,7 @@ dependencies = [
  "icu_provider",
  "icu_time",
  "jiff",
+ "oxyos-names",
  "tinystr",
  "writeable",
  "zerovec",
@@ -3301,6 +3302,7 @@ dependencies = [
 name = "oxyos-speech"
 version = "0.1.0"
 dependencies = [
+ "oxyos-names",
  "oxyos-protocol",
  "rustix",
 ]

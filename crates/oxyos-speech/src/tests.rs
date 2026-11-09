@@ -17,6 +17,22 @@ fn the_language_is_the_sessions_spanish_or_english() {
 }
 
 #[test]
+fn a_locales_language_is_what_it_was() {
+    // `of_locale` before oxyos-names split the locale, as it was.
+    let before = |locale: &str| {
+        let language = locale.split(['_', '-', '.', '@']).next().unwrap_or("");
+        if language.eq_ignore_ascii_case("es") {
+            Language::Spanish
+        } else {
+            Language::English
+        }
+    };
+    for &locale in oxyos_names::locale::EXAMPLES {
+        assert_eq!(Language::of_locale(locale), before(locale), "{locale:?}");
+    }
+}
+
+#[test]
 fn an_element_is_said_by_its_name_value_state_and_role() {
     use AccessibleRole as R;
     let cases = [

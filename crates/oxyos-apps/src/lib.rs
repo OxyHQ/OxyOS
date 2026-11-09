@@ -831,23 +831,18 @@ fn base_directory(
 /// The session's languages, the most wanted first, from `LC_ALL`, `LC_MESSAGES` or `LANG`
 /// (`es_ES.UTF-8` gives `es_ES`, `es`).
 pub fn languages() -> Vec<String> {
-    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .into_iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .find(|value| !value.is_empty())
-        .unwrap_or_default();
-    languages_of(&locale)
+    languages_of(&oxyos_names::locale::environment_messages_locale().unwrap_or_default())
 }
 
-/// The languages of a POSIX locale name, the most wanted first.
+/// The languages of a POSIX locale name, the most wanted first: its name as written, then its
+/// language when it has a territory. None for `C`, `POSIX` or none.
 pub fn languages_of(locale: &str) -> Vec<String> {
-    let base = locale.split(['.', '@']).next().unwrap_or_default();
-    let mut out = Vec::new();
-    if !base.is_empty() && base != "C" && base != "POSIX" {
-        out.push(base.to_string());
-        if let Some((language, _)) = base.split_once('_') {
-            out.push(language.to_string());
-        }
+    let Some(posix) = oxyos_names::locale::PosixLocale::parse(locale) else {
+        return Vec::new();
+    };
+    let mut out = vec![posix.name.to_string()];
+    if posix.territory.is_some() {
+        out.push(posix.language.to_string());
     }
     out
 }
