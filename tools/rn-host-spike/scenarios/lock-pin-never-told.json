@@ -59,11 +59,8 @@
     {
       "name": "locked, the read refused: the password's field first, Usar PIN beside it",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "allow_unchanged": true,
       "expect": {

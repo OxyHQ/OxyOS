@@ -46,11 +46,8 @@
     {
       "name": "locked: the service says there is a PIN, offered first",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -149,11 +146,8 @@
     {
       "name": "locked again: the read is refused, and the PIN is still offered first",
       "do": [
-        "press_output",
-        [
-          82,
-          142
-        ]
+        "press_named",
+        "Bloquear pantalla"
       ],
       "allow_unchanged": true,
       "expect": {
