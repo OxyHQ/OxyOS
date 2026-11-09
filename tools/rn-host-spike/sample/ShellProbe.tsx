@@ -458,6 +458,22 @@ export function ShellSession() {
 /** No system sheet waiting (the shell's sheets before the session told any). */
 const NO_SHEETS: readonly { sheet: number; text: string }[] = [];
 
+/**
+ * What the Control Center shows of the sound (docs/adr/0056-sound-devices.mdx): whether its server
+ * answers and the outputs to choose, the same state while they stay. The volume and mute are the
+ * levels' (the controls'), so a volume set by the slider or a key renders the level's card alone,
+ * never the shell around it.
+ */
+let soundShown: { available?: unknown; outputs: string; state: unknown } | null = null;
+function soundForControlCenter(state: unknown): unknown {
+  if (state === null || typeof state !== 'object') return state;
+  const told = state as { available?: unknown; output?: { devices?: unknown } };
+  const outputs = JSON.stringify(told.output?.devices ?? null);
+  if (soundShown && soundShown.available === told.available && soundShown.outputs === outputs) return soundShown.state;
+  soundShown = { available: told.available, outputs, state };
+  return state;
+}
+
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
@@ -467,7 +483,7 @@ function SessionShell() {
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useFollowed(network.wifi);
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
-  const sound = useFollowed(audio.state);
+  const sound = useFollowed(audio.state, soundForControlCenter);
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
   const bluetoothDevices = useFollowed(bluetooth.state);
   // The input sources as the session tells them (ADR 0041): the top bar's item.
