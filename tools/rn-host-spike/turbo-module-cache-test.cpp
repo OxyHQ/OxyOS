@@ -3,7 +3,9 @@
 // full collection and thousands of lookups. The module is a C++ TurboModule as React Native
 // generates them (a method map whose host functions hold the module by `this`), so a module
 // destroyed under its method is a use after free, which a build with AddressSanitizer reports
-// (docs/bloom-host-sanitizers.mdx); --uncached runs the same without the cache, to see it.
+// (docs/bloom-host-sanitizers.mdx); --uncached runs the same without the cache, to see it. It also
+// checks what the cache says of names it has no module for: each once per runtime, none of the
+// probes with a fallback of their own (kProbedWithFallback).
 #include "turbo-module-cache.h"
 
 #include <ReactCommon/TurboModuleBinding.h>
@@ -12,8 +14,10 @@
 
 #include <cstring>
 #include <iostream>
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace jsi = facebook::jsi;
 using facebook::react::CallInvoker;
@@ -62,7 +66,11 @@ int main(int argc, char** argv) {
       if (name == "OxyOSTurboModuleProbe") return std::make_shared<ProbeModule>(nullptr);
       return nullptr;
     };
-    TurboModuleBinding::install(rt, cached ? oxyos::cachedTurboModules(std::move(provider)) : std::move(provider));
+    // What the cache says of a name it has no module for, in order.
+    std::vector<std::string> said;
+    auto unavailable = [&said](const std::string& name) { said.push_back(name); };
+    TurboModuleBinding::install(
+        rt, cached ? oxyos::cachedTurboModules(std::move(provider), unavailable) : std::move(provider));
 
     auto run = [&rt](const char* code) {
       return rt.evaluateJavaScript(std::make_shared<jsi::StringBuffer>(code), "turbo-module-cache-test.js");
@@ -83,6 +91,30 @@ int main(int argc, char** argv) {
     check(run("nativeModuleProxy.OxyOSTurboModuleProbe.add(-40)").getNumber() == 0,
           "a lookup after the collection reaches the same module");
     check(run("nativeModuleProxy.Missing0 === null").getBool(), "a module the provider has none for is null");
+
+    if (cached) {
+      std::vector<std::string> missing;
+      for (int i = 0; i < 7; ++i) missing.push_back("Missing" + std::to_string(i));
+      std::vector<std::string> sorted = said;
+      std::sort(sorted.begin(), sorted.end());
+      check(sorted == missing, "10000 lookups of 7 missing names: each said once (" + std::to_string(said.size()) +
+                                   " said)");
+      check(!said.empty() && said.front() == "Missing0", "said in the order first asked");
+      // The probes with a fallback, looked up as their packages do (TurboModuleRegistry.get, and
+      // `NativeModules.X` through the same proxy), twice: nothing said, and each still null.
+      said.clear();
+      std::string probes;
+      for (auto name : oxyos::kProbedWithFallback) {
+        probes += "nativeModuleProxy['" + std::string(name) + "'] === null && ";
+        probes += "nativeModuleProxy['" + std::string(name) + "'] === null && ";
+      }
+      check(run((probes + "true").c_str()).getBool(), "every probe with a fallback is null");
+      check(said.empty(), "no probe with a fallback is said (" + std::to_string(said.size()) + " said)");
+      // An application's call of a documented absent module is worth a line: said, once.
+      run("nativeModuleProxy.ToastAndroid; nativeModuleProxy.ToastAndroid; nativeModuleProxy.Vibration;");
+      check(said == std::vector<std::string>{"ToastAndroid", "Vibration"},
+            "a module an application calls is said once each (" + std::to_string(said.size()) + " said)");
+    }
   }
   check(alive == 0, "the module was destroyed with the runtime (alive " + std::to_string(alive) + ")");
   std::cout << (failures ? "turbo module cache: FAILED\n" : "turbo module cache: passed\n");
