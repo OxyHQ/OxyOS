@@ -1,5 +1,6 @@
 {
-  "about": "Dropsea launched signed in shows its home's listing without waiting for the network (launch to content, content_ms_max). Its Oxy SDK (@oxy.so/services' host mode, on the platform's session) rendered the whole app as nothing until it knew the account's language, which waited for the boot token from the accounts' service (often a mint over the network) and then GET /users/me: on the owner's ThinkPad (about 200 ms to api.oxy.so, about a third of first connections lost) its listing came 1.4 to 9 s after launch signed in and about 0.3 s signed out, and in a run whose /users/me fails it never came. The account's languages are in the platform's snapshot (Spanish here, the machine's language English), so the listing is shown at once, in Spanish: the token answered 5 s after it was asked (account.token_delay_ms) and /users/me 10 s after (store.late_ms), both past the step, and its listing held to 1.5 s from the host's start, about five times what it takes signed out on the gate's machine unloaded, far below what either answer costs.",
+  "about": "Dropsea launched signed in shows its home's listing at once, in the system's language, without waiting for the network or the account (launch to content, content_ms_max). Its Oxy SDK (@oxy.so/services' host mode, on the platform's session) rendered the whole app as nothing until it knew the account's language, which waited for the boot token from the accounts' service (often a mint over the network) and then GET /users/me. The account here is shaped as the owner's own on the ThinkPad: a profile of id, handle, display name and avatar and no languages (the accounts' service keeps them only after a profile read, and an account may have none), the one the platform's account languages (oxy ADR 0058 R10) never reached: there it showed a blank window for 6.1 s (launch 04:25:48.12, the listing at 04:25:54.25), and 8.3, 9.1 and 15.5 s on other launches. The platform's session host names the system's language in every snapshot (preferredLanguages, R11), so the app speaks it from its first render, as a Mac's applications speak the system's preferred languages: the machine is in Spanish and the account says nothing, and the listing is in Spanish. The token is answered 5 s after it was asked (account.token_delay_ms) and /users/me 10 s after (store.late_ms), both past the step, and the listing is held to 500 ms from the host's start, about three times what it takes signed out on the gate's machine unloaded, far below what either answer costs.",
+  "locale": "es_ES.UTF-8",
   "module": "Dropsea",
   "window": [
     1024,
@@ -25,9 +26,7 @@
         "id": "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
         "handle": "ada",
         "displayName": "Ada Lovelace",
-        "languages": [
-          "es-ES"
-        ]
+        "avatar": "01a1236a-7bb5-79ea-b83f-cb38c5e2944f"
       }
     },
     "token_delay_ms": 5000
@@ -39,7 +38,7 @@
   },
   "steps": [
     {
-      "name": "Dropsea opens on the home, its listing in the account's Spanish before the token or the account's API answer",
+      "name": "Dropsea opens on the home, its listing in the system's Spanish before the token or the account's API answer, the account naming no language",
       "do": [
         "wait",
         2500
@@ -52,7 +51,7 @@
           "notas.txt",
           "3 elementos"
         ],
-        "content_ms_max": 1500
+        "content_ms_max": 500
       }
     }
   ]

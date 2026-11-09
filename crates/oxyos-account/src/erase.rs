@@ -204,15 +204,10 @@ fn ordered(mut enrolled: Vec<Enrollment>, uid: u32) -> Vec<Enrollment> {
     enrolled
 }
 
-/// An account's name: its display name, else its handle, else its user's.
+/// What the person is called ([`crate::api::Profile::name`]); empty when the account has no name,
+/// never its user's.
 fn name_of(enrollment: &Enrollment) -> String {
-    let profile = &enrollment.profile;
-    [&profile.display_name, &profile.username]
-        .into_iter()
-        .flatten()
-        .map(|name| name.trim())
-        .find(|name| !name.is_empty())
-        .map_or_else(|| enrollment.user.as_str().to_owned(), str::to_owned)
+    enrollment.profile.name().unwrap_or_default().to_owned()
 }
 
 /// Erasing the machine, Settings' requests on the session socket.

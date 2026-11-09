@@ -38,7 +38,7 @@ class ShellState {
   //   menuBar: { window, serial, items: [{ parent, kind, enabled, checkable, checked, label, shortcut }] }
   //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
-  //   user: { name, fullName }, capsLock,
+  //   user: { fullName } (passwd's GECOS full name; never the user's name), capsLock,
 //   wallpaper: { key, uri: "file://..." or null, fit, color: "#rrggbb", slow } or null (none told:
 //   the shell's own; `slow`, the clock brought it: a variant of the sun's or a shuffle's next),
   //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null }],
@@ -178,7 +178,7 @@ class ShellState {
   static std::string oxyApi();
   // The session's user, from the account database: the login name, and the full name of its
   // GECOS field (empty if it has none).
-  std::string user_, fullName_;
+  std::string fullName_;
 };
 
 }  // namespace oxyos

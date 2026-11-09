@@ -21,7 +21,7 @@
 //! The scene ends no process, keeps no list and opens nothing.
 
 use super::launch::assemble;
-use super::{ClientId, Scene, SurfaceKey};
+use super::{ClientId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{
     ApplicationListKind, ErrorCode, Event, PreeditText, TextChunk, MAX_APPLICATION_LIST_BYTES,
     MAX_URL_BYTES,
@@ -214,6 +214,48 @@ impl Scene {
         }
         self.dock.force_quits.push(clients);
         Ok(())
+    }
+
+    /// Activity Monitor's Quit of the application the session launched as `id`
+    /// (docs/adr/0063-activity-monitor.mdx): each of its windows asked to close, as the dock's Quit
+    /// asks (it may refuse). False when it has no window to ask.
+    pub fn quit_application_by_id(&mut self, id: &str) -> bool {
+        let window = self
+            .nodes
+            .iter()
+            .find(|(key, node)| {
+                node.role == Role::Toplevel
+                    && !node.dismissed
+                    && node.mapped
+                    && self.window_number(**key).is_some()
+                    && self.application(key.client) == Some(id)
+            })
+            .map(|(key, _)| *key);
+        let Some(window) = window else {
+            return false;
+        };
+        self.quit_application(window);
+        true
+    }
+
+    /// Activity Monitor's Force Quit of the application the session launched as `id`: its clients
+    /// the session started, for the program to end, as the dock's Force Quit (decision 4). False
+    /// when none is connected.
+    pub fn force_quit_application_by_id(&mut self, id: &str) -> Result<bool, ErrorCode> {
+        let clients: Vec<ClientId> = self
+            .clients
+            .keys()
+            .copied()
+            .filter(|client| self.application(*client) == Some(id))
+            .collect();
+        if clients.is_empty() {
+            return Ok(false);
+        }
+        if self.dock.force_quits.len() >= MAX_PENDING {
+            return Err(ErrorCode::QuotaExceeded);
+        }
+        self.dock.force_quits.push(clients);
+        Ok(true)
     }
 
     /// The clients the shell asked to force-quit since the last call, each application's

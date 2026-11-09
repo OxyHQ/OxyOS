@@ -14,3 +14,6 @@ fonts-noto-cjk fonts-noto-color-emoji
 libjson-c5 libxkbcommon0 libuuid1 libexpat1 libsystemd0 libfmt10 libboost-iostreams1.83.0 libzstd1 libhangul1 libhangul-data libanthy1t64 anthy-common iso-codes
 # The one-GPU check (tools/gate/run-scenarios.sh) and a deploy's.
 strace
+# The backup engine the scenarios' development backup service runs (`backups` in regress.py,
+# docs/adr/0059-backups.mdx), as the image's oxyos-backupd does.
+restic

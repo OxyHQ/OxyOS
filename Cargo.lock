@@ -2622,6 +2622,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-activity"
+version = "0.1.0"
+dependencies = [
+ "oxyos-power",
+ "rustix",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oxyos-app-storage"
 version = "0.1.0"
 dependencies = [
@@ -2757,6 +2767,7 @@ dependencies = [
  "async-channel",
  "drm",
  "jiff",
+ "oxyos-activity",
  "oxyos-apps",
  "oxyos-audio",
  "oxyos-auth",
@@ -3188,8 +3199,11 @@ dependencies = [
 name = "oxyos-recovery-tool"
 version = "0.1.0"
 dependencies = [
+ "jiff",
+ "oxyos-backup",
  "oxyos-recovery",
  "rustix",
+ "serde_json",
  "zeroize",
 ]
 

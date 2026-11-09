@@ -155,6 +155,78 @@ const en = (f: Formats) => ({
     /** The Shift key in a menu's chord. */
     shift: "Shift",
   },
+  /** Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+      the Oxy menu's rows, the session's question and its countdown, and what it says when an
+      application or the system kept it from ending. Each `action` is "restart", "shutDown" or
+      "logOut" (and "sleep" for what failed). */
+  power: {
+    sleep: "Sleep",
+    restartMenu: "Restart…",
+    /** Option's alternate, and the question's and the login screen's button. */
+    restartNow: "Restart",
+    shutDownMenu: "Shut Down…",
+    shutDownNow: "Shut Down",
+    /** The question's and the login screen's button. */
+    shutDownButton: "Shut Down",
+    /** Log Out *name*…, as a Mac's always names the person (docs/adr/0020-oxy-account-login.mdx,
+        decision 1 as amended on 2026-11-09): `name` their display name, else their username, else
+        `unnamedAccount`, never the Unix user's. */
+    logOutMenu: (name: string) => `Log Out ${name}…`,
+    logOutNow: (name: string) => `Log Out ${name}`,
+    /** The person with neither a display name nor a username, as the login screen calls them. */
+    unnamedAccount: "Oxy Account",
+    logOutButton: "Log Out",
+    question: {
+      shutDown: "Are you sure you want to shut down your computer now?",
+      restart: "Are you sure you want to restart your computer now?",
+      logOut: "Are you sure you want to quit all applications and log out now?",
+    },
+    /** What happens by itself, `seconds` from now, if the person does nothing. */
+    countdown: {
+      shutDown: (seconds: number) =>
+        `If you do nothing, the computer will shut down automatically in ${f.plural(seconds, { one: "1 second", other: `${f.number(seconds)} seconds` })}.`,
+      restart: (seconds: number) =>
+        `If you do nothing, the computer will restart automatically in ${f.plural(seconds, { one: "1 second", other: `${f.number(seconds)} seconds` })}.`,
+      logOut: (seconds: number) =>
+        `If you do nothing, you will be logged out automatically in ${f.plural(seconds, { one: "1 second", other: `${f.number(seconds)} seconds` })}.`,
+    },
+    reopenWindows: "Reopen windows when logging back in",
+    /** The checkbox's state, said with the question. */
+    reopenWindowsOn: "Windows will reopen when you log back in.",
+    reopenWindowsOff: "Windows won't reopen when you log back in.",
+    cancelled: {
+      shutDown: (name: string) => `“${name}” canceled shut down.`,
+      restart: (name: string) => `“${name}” canceled restart.`,
+      logOut: (name: string) => `“${name}” canceled log out.`,
+    },
+    timedOut: {
+      shutDown: (name: string) => `Shut down has timed out because the application “${name}” failed to quit.`,
+      restart: (name: string) => `Restart has timed out because the application “${name}” failed to quit.`,
+      logOut: (name: string) => `Log out has timed out because the application “${name}” failed to quit.`,
+    },
+    tryAgain: {
+      shutDown: (name: string) => `To try again, quit ${name} and shut down again.`,
+      restart: (name: string) => `To try again, quit ${name} and restart again.`,
+      logOut: (name: string) => `To try again, quit ${name} and log out again.`,
+    },
+    failed: {
+      shutDown: "Your computer can't shut down now.",
+      restart: "Your computer can't restart now.",
+      logOut: "You can't log out now.",
+      sleep: "Your computer can't sleep now.",
+    },
+    /** Why: logind's `Can…` was not `yes`. */
+    notPermitted: {
+      shutDown: "Someone else is logged in to this computer, or an application is keeping it on. An administrator must shut it down.",
+      restart: "Someone else is logged in to this computer, or an application is keeping it on. An administrator must restart it.",
+      logOut: "OxyOS isn't allowed to end this session.",
+      sleep: "An application is keeping this computer awake, or it can't sleep.",
+    },
+    /** Why: no logind, or the call failed. */
+    unavailable: "OxyOS couldn't reach the system's power service.",
+    /** Why: applications are being asked to quit already. */
+    busy: "Applications are already being asked to quit.",
+  },
   /** The machine's levels, battery, Wi-Fi and Bluetooth (controls.ts). */
   controls: {
     names: {
@@ -717,6 +789,63 @@ const es = (f: Formats): Catalogue => ({
     hideApp: (name) => `Ocultar ${name}`,
     quitApp: (name) => `Salir de ${name}`,
     shift: "Mayús",
+  },
+  power: {
+    sleep: "Reposo",
+    restartMenu: "Reiniciar…",
+    restartNow: "Reiniciar",
+    shutDownMenu: "Apagar equipo…",
+    shutDownNow: "Apagar equipo",
+    shutDownButton: "Apagar",
+    logOutMenu: (name) => `Cerrar sesión de ${name}…`,
+    logOutNow: (name) => `Cerrar sesión de ${name}`,
+    unnamedAccount: "Cuenta de Oxy",
+    logOutButton: "Cerrar sesión",
+    question: {
+      shutDown: "¿Seguro que quieres apagar el ordenador ahora?",
+      restart: "¿Seguro que quieres reiniciar el ordenador ahora?",
+      logOut: "¿Seguro que quieres salir de todas las apps y cerrar la sesión ahora?",
+    },
+    countdown: {
+      shutDown: (seconds) =>
+        `Si no haces nada, el ordenador se apagará automáticamente en ${f.plural(seconds, { one: "1 segundo", other: `${f.number(seconds)} segundos` })}.`,
+      restart: (seconds) =>
+        `Si no haces nada, el ordenador se reiniciará automáticamente en ${f.plural(seconds, { one: "1 segundo", other: `${f.number(seconds)} segundos` })}.`,
+      logOut: (seconds) =>
+        `Si no haces nada, la sesión se cerrará automáticamente en ${f.plural(seconds, { one: "1 segundo", other: `${f.number(seconds)} segundos` })}.`,
+    },
+    reopenWindows: "Volver a abrir las ventanas al volver a iniciar sesión",
+    reopenWindowsOn: "Las ventanas se volverán a abrir al iniciar sesión.",
+    reopenWindowsOff: "Las ventanas no se volverán a abrir al iniciar sesión.",
+    cancelled: {
+      shutDown: (name) => `“${name}” ha cancelado el apagado.`,
+      restart: (name) => `“${name}” ha cancelado el reinicio.`,
+      logOut: (name) => `“${name}” ha cancelado el cierre de sesión.`,
+    },
+    timedOut: {
+      shutDown: (name) => `Se ha agotado el tiempo para apagar el ordenador porque la app “${name}” no se ha cerrado.`,
+      restart: (name) => `Se ha agotado el tiempo para reiniciar porque la app “${name}” no se ha cerrado.`,
+      logOut: (name) => `Se ha agotado el tiempo para cerrar la sesión porque la app “${name}” no se ha cerrado.`,
+    },
+    tryAgain: {
+      shutDown: (name) => `Para volver a intentarlo, cierra ${name} y vuelve a apagar el ordenador.`,
+      restart: (name) => `Para volver a intentarlo, cierra ${name} y reinicia de nuevo.`,
+      logOut: (name) => `Para volver a intentarlo, cierra ${name} y vuelve a cerrar la sesión.`,
+    },
+    failed: {
+      shutDown: "El ordenador no puede apagarse ahora.",
+      restart: "El ordenador no puede reiniciarse ahora.",
+      logOut: "No puedes cerrar la sesión ahora.",
+      sleep: "El ordenador no puede entrar en reposo ahora.",
+    },
+    notPermitted: {
+      shutDown: "Hay otra persona con la sesión iniciada en este ordenador, o una app lo mantiene encendido. Tiene que apagarlo un administrador.",
+      restart: "Hay otra persona con la sesión iniciada en este ordenador, o una app lo mantiene encendido. Tiene que reiniciarlo un administrador.",
+      logOut: "OxyOS no puede terminar esta sesión.",
+      sleep: "Una app mantiene activo este ordenador, o no puede entrar en reposo.",
+    },
+    unavailable: "OxyOS no ha podido conectar con el servicio de energía del sistema.",
+    busy: "Ya se está pidiendo a las apps que se cierren.",
   },
   controls: {
     names: {

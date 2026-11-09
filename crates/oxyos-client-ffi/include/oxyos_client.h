@@ -98,6 +98,13 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
 /* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 36). */
 #define OXYOS_EVENT_SAFE_MODE 166
+/* A long answer of the session's vocabulary whole (docs/adr/0063-activity-monitor.mdx, protocol
+ * version 37). */
+#define OXYOS_EVENT_SYSTEM_DATA 167
+/* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, protocol version 38). */
+#define OXYOS_EVENT_QUIT_REQUESTED 168
+/* The modifiers held changed (protocol version 38), as a Mac's flagsChanged:. */
+#define OXYOS_EVENT_MODIFIERS 169
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -557,6 +564,17 @@ typedef struct OxyOSClient OxyOSClient;
  *                      OXYOS_BACKGROUND_* status (protocol version 33).
  *   SAFE_MODE          to the shell and the login screen: the session started in Safe Mode, told
  *                      once as it connects; show it until the session ends (protocol version 36).
+ *   SYSTEM_DATA        the session's answer to the oxyos_client_system_request `code` (0: told
+ *                      unasked) whole, `detail` bytes of JSON: oxyos_client_system_data gives it
+ *                      (docs/adr/0063-activity-monitor.mdx, protocol version 37).
+ *   QUIT_REQUESTED     to an application: the person logs out, restarts or shuts down, and the
+ *                      session asks it to quit first; `code` the request's serial, `detail` why
+ *                      (OXYOS_SESSION_END_*). Answer with oxyos_client_reply_to_quit, then end the
+ *                      process if it quits (protocol version 38,
+ *                      docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+ *   MODIFIERS          to the surface with the keyboard: the modifiers held changed, or were held
+ *                      as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's
+ *                      flagsChanged: (protocol version 38).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -780,8 +798,9 @@ int oxyos_client_create_toplevel(OxyOSClient* client, uint32_t surface, uint32_t
 #define OXYOS_EDGE_RIGHT 4
 /* Requests a shell surface of `kind` at `edge` of `output`, of the given logical size (a panel's
  * thickness along its edge; a background takes the whole output), keeping `exclusive` logical
- * pixels of a panel's edge out of where windows are placed. The compositor answers with a
- * configure. */
+ * pixels of a panel's edge out of where windows are placed. A notification is at the output's
+ * top-right corner: at the right edge a banner, which slides in; with no edge a bezel, shown at
+ * once. The compositor answers with a configure. */
 int oxyos_client_create_shell_surface(OxyOSClient* client, uint32_t surface, uint8_t kind, uint8_t edge,
                                       uint32_t output, uint32_t width, uint32_t height, uint32_t exclusive);
 /* Names a window: its title, or with a non-zero `app_id` its application id (`length` bytes of
@@ -959,6 +978,16 @@ int oxyos_client_search_request(OxyOSClient* client, uint32_t serial, const char
  * _REGISTER, _UNREGISTER); a BACKGROUND_ITEM_STATE naming `serial` answers. An error, sending
  * nothing, to a compositor of a version before 33. */
 int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t kind, uint8_t action);
+/* The session ending (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): why it asks an
+ * application to quit (a QUIT_REQUESTED's `detail`), and the application's answer to the request
+ * `serial` (`quit` 1: it quits, ending its own process; 0: the whole end is cancelled), as a Mac's
+ * applicationShouldTerminate:. An error, sending nothing, to a compositor of a version before
+ * OXYOS_QUIT_REQUESTS_VERSION, which never asks. */
+#define OXYOS_SESSION_END_LOG_OUT 1
+#define OXYOS_SESSION_END_RESTART 2
+#define OXYOS_SESSION_END_SHUT_DOWN 3
+#define OXYOS_QUIT_REQUESTS_VERSION 38
+int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),
@@ -1446,6 +1475,10 @@ typedef struct OxyOSInputCandidates {
   uint8_t flags;
 } OxyOSInputCandidates;
 
+/* The text of the SYSTEM_DATA event just returned: its UTF-8, not NUL-terminated, in `*text` and
+ * `*length`, valid until the next oxyos_client_poll. 1 with them filled; 0 when it could not be
+ * read (docs/adr/0063-activity-monitor.mdx). */
+int oxyos_client_system_data(OxyOSClient* client, const char** text, size_t* length);
 /* The candidates the INPUT_CANDIDATES event just returned completed: 1 with `*out` filled, or 0. */
 int oxyos_client_input_candidates(OxyOSClient* client, OxyOSInputCandidates* out);
 /* The shell's candidates surface, of the given logical size, one per connection: the compositor
@@ -2086,7 +2119,8 @@ int64_t oxyos_digest(const char* algorithm, const uint8_t* data, size_t length, 
 
 /* The enrolled Oxy accounts (docs/adr/0020-oxy-account-login.mdx), from the accounts' service
  * (OXYOS_ACCOUNTD_SOCKET, else /run/oxyos/accountd/socket), for the login screen: JSON,
- * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "pin" ("none", "set" or
+ * [{"user" (its Unix user's name), "name", "picture" (a file, or null), "signInAgain" (Oxy signed
+ * it out, or it was restored from a backup: it is set up again online), "pin" ("none", "set" or
  * "locked"), "password" (whether it signs in)}]. Written as
  * oxyos_applications writes; -1 when the service could not be asked or refused (oxyos_last_error). */
 int64_t oxyos_accounts(char* out, size_t capacity);
@@ -2098,8 +2132,8 @@ int64_t oxyos_accounts(char* out, size_t capacity);
  * strictly and written rebuilt. A message is at most OXYOS_ACCOUNT_MESSAGE_MAX bytes. */
 #define OXYOS_ACCOUNT_MESSAGE_MAX 16384
 /* The session's snapshot, asked once, as JSON {"status" ("signed_in", "signed_out" or
- * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?, "languages"?
- * (its locales, primary first)} or null), "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
+ * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?, "picture"?
+ * (its picture's file on this machine), "languages"? (its locales, primary first)} or null), "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
  * asked or refused (oxyos_last_error). */
 int64_t oxyos_account_session_snapshot(char* out, size_t capacity);
 /* A short token for the calling application, `reason` "boot", "preflight" or "response-401" (which
@@ -2193,7 +2227,8 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
  * the password and the PIN at least. Blocks while the service sets the account up, telling its
  * steps to oxyos_account_enrollment_on_progress's function. The answer, JSON:
- * {"enrolled": {"accountId", "user"}}, "secondFactorRequired",
+ * {"enrolled": {"accountId", "user", "name"}} (name: what the person is called, empty for none;
+ * the user is never shown), "secondFactorRequired",
  * {"failed": {"reason": "unreachable" | "localFailure"}} (Oxy could not be reached, or the machine
  * could not be set up and was put back: the sign-in is kept, oxyos_account_enrollment_retry tries
  * again, never a new sign-in) or {"refused": {"reason", "retryAfterSeconds"}}, which ends the setup
@@ -2240,6 +2275,41 @@ int oxyos_account_enrollment_on_waiting(OxyOSAccountEnrollment* enrollment,
 int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);
 /* Ends a setup: closing its connection abandons what the service had not finished. */
 void oxyos_account_enrollment_free(OxyOSAccountEnrollment* enrollment);
+
+/* Migrate from a Backup (docs/adr/0059-backups.mdx, decision 7), for the login screen of a computer
+ * nobody has set up yet: one conversation with the migration service (OXYOS_MIGRATE_SOCKET, else
+ * /run/oxyos/migrate/socket), which answers root and the login screen's user alone, and only while
+ * no account is enrolled. Each answer is JSON, read strictly and written rebuilt, at most
+ * OXYOS_MIGRATION_MESSAGE_MAX bytes; any of them may be {"refused": {"reason"}} ("notPermitted",
+ * "alreadySetUp", "notConnected", "noBackup", "wrongPassword", "shareRefused", "unreachable",
+ * "inUse", "full", "invalidBackup", "clash", "failed", ...). Each call blocks: never on the
+ * interface's thread. OXYOS_ERROR (oxyos_last_error) once the conversation has ended. */
+#define OXYOS_MIGRATION_MESSAGE_MAX 65536
+typedef struct OxyOSMigration OxyOSMigration;
+/* 1 when this computer migrates from a backup (the migration service's socket is there), else 0:
+ * setup offers Transfer Your Data only then. */
+int32_t oxyos_migration_available(void);
+/* NULL when the service cannot be reached (oxyos_last_error). */
+OxyOSMigration* oxyos_migration_new(void);
+/* The disks that may hold backups: {"disks": [{"uuid", "label", "fsType", "size"}]}. */
+int64_t oxyos_migration_disks(OxyOSMigration* migration, char* out, size_t capacity);
+/* The computers whose backups `password` opens at `source` (JSON {"disk": {"uuid"}} or
+ * {"share": {"share": {"host", "share", "user"}}}), `share_password` a share's or NULL (secrets:
+ * copied into buffers this library overwrites; overwrite your own): {"backups": {"computers":
+ * [{"repository", "name", "backups": [{"snapshot", "time"}] (newest first), "accounts": [{"user",
+ * "name", "administrator"}]}], "unopened"}}. The source stays open for the conversation. */
+int64_t oxyos_migration_backups(OxyOSMigration* migration, const char* source, const char* password,
+                                const char* share_password, char* out, size_t capacity);
+/* Asks for a backup of the computers listed to be migrated into this one. 0, or OXYOS_ERROR. */
+int oxyos_migration_migrate(OxyOSMigration* migration, const char* repository, const char* snapshot);
+/* The migration's next message, waiting for it: {"migrating": {"step" ("accounts", "files",
+ * "finishing"), "percent" (0 to 1)}} while it goes on, then {"migrated": {"computer", "accounts":
+ * [{"user", "name"}]}} or a refusal. */
+int64_t oxyos_migration_next(OxyOSMigration* migration, char* out, size_t capacity);
+/* The last answer again, for a buffer that was too small. */
+int64_t oxyos_migration_answer(const OxyOSMigration* migration, char* out, size_t capacity);
+/* Ends the conversation; a migration under way is finished by the service all the same. */
+void oxyos_migration_free(OxyOSMigration* migration);
 
 /* Wallpapers (docs/adr/0048-wallpapers.mdx). Each writes JSON into `out` (`capacity` bytes,
    NUL-terminated when it fits) and returns its length: larger than `capacity`, call again with

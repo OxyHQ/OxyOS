@@ -403,7 +403,7 @@ fn a_setup_answers_a_second_factor_on_its_connection_and_keeps_no_secret() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert!(
         enrollment.second_factor(&Secret::new("123456")).is_err(),
@@ -651,7 +651,7 @@ fn a_setup_tells_its_steps_and_a_failure_that_kept_the_sign_in_is_retried() {
     let enrolled = enrollment.retry().unwrap().to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert_eq!(told.borrow()[4..], ["preparing", "signingIn", "finishing"]);
     assert!(
@@ -744,7 +744,7 @@ fn a_wait_oxy_asks_of_a_setup_is_told_and_its_answer_waited_for() {
         .to_owned();
     assert_eq!(
         serde_json::from_str::<Value>(&enrolled).unwrap(),
-        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc"}})
+        json!({"enrolled": {"accountId": "a1", "user": "oxy-abc", "name": "nate"}})
     );
     assert_eq!(
         *told.borrow(),

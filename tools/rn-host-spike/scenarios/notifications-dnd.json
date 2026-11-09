@@ -176,11 +176,8 @@
     {
       "name": "the top bar's Control Center (ADR 0025) shows Do Not Disturb on",
       "do": [
-        "press_output",
-        [
-          1149,
-          14
-        ]
+        "press_named",
+        "Centro de control"
       ],
       "expect": {
         "texts": [

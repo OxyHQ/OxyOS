@@ -1,5 +1,5 @@
 {
- "about": "The login screen's account chooser from the keyboard (docs/adr/0020-oxy-account-login.mdx; docs/adr/0039-keyboard-access.mdx), as a Mac's login window with Full Keyboard Access and VoiceOver, Bloom's ChoiceList: the Bloom host's OxyOSLogin as the login screen's one client over the login program's development path, three enrolled accounts, the screen reader on in Spanish. The accounts are one list and one Tab stop, the chosen account; the arrows move the keyboard among them without choosing (a row has no ↑ ↓; the list stops at its ends; Home, End), each said once with its place; Return or Space chooses the one focused, whose own password field then takes the focus; leaving the list without choosing gives the stop back to the chosen account. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1.25 (1600 × 1000).",
+ "about": "The login screen's account chooser from the keyboard (docs/adr/0020-oxy-account-login.mdx; docs/adr/0039-keyboard-access.mdx), as a Mac's login window with Full Keyboard Access and VoiceOver, Bloom's ChoiceList: the Bloom host's OxyOSLogin as the login screen's one client over the login program's development path, three enrolled accounts (the third one Oxy names nothing: shown and said as \"Cuenta de Oxy\", never by its Unix user), the screen reader on in Spanish. The accounts are one list and one Tab stop, the chosen account; the arrows move the keyboard among them without choosing (a row has no ↑ ↓; the list stops at its ends; Home, End), each said once with its place; Return or Space chooses the one focused, whose own password field then takes the focus; leaving the list without choosing gives the stop back to the chosen account. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1.25 (1600 × 1000).",
  "locale": "es_ES.UTF-8",
  "shell": "OxyOSLogin",
  "login": {
@@ -21,7 +21,7 @@
     "accountId": "0123456789abcdef01234569",
     "user": "oxy-cccccccccccccccccccc",
     "uid": 1003,
-    "name": "Carlos Ruiz"
+    "name": ""
    }
   ],
   "record": [
@@ -73,7 +73,7 @@
       },
       {
        "role": "ListItem",
-       "name": "Carlos Ruiz",
+       "name": "Cuenta de Oxy",
        "state": [],
        "position": [
         3,
@@ -190,7 +190,7 @@
    }
   },
   {
-   "name": "→: Carlos, the last",
+   "name": "→: the third account, the last, which Oxy names nothing: said as an Oxy account, never by its user",
    "do": [
     "key",
     [
@@ -201,7 +201,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Carlos Ruiz, 3 de 3",
+      "text": "Cuenta de Oxy, 3 de 3",
       "interrupting": true
      }
     ],
@@ -221,7 +221,7 @@
       },
       {
        "role": "ListItem",
-       "name": "Carlos Ruiz",
+       "name": "Cuenta de Oxy",
        "state": [
         "focused"
        ],
@@ -261,7 +261,7 @@
    }
   },
   {
-   "name": "↓: a row has no ↓; the keyboard stays on Carlos, nothing said",
+   "name": "↓: a row has no ↓; the keyboard stays on the third account, nothing said",
    "do": [
     "key",
     [
@@ -393,7 +393,7 @@
    }
   },
   {
-   "name": "End: Carlos",
+   "name": "End: the third account",
    "do": [
     "key",
     [
@@ -404,7 +404,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Carlos Ruiz, 3 de 3",
+      "text": "Cuenta de Oxy, 3 de 3",
       "interrupting": true
      }
     ],

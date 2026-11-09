@@ -170,18 +170,19 @@ fn interrupt(pid: u32) {
     }
 }
 
-/// How far a backup is, as restic says it once a second.
+/// How far a backup or a restore is, as restic says it once a second (a restore's counts are
+/// `files_restored` and `bytes_restored`).
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct Progress {
     #[serde(default)]
     pub percent_done: f64,
     #[serde(default)]
     pub total_files: u64,
-    #[serde(default)]
+    #[serde(default, alias = "files_restored")]
     pub files_done: u64,
     #[serde(default)]
     pub total_bytes: u64,
-    #[serde(default)]
+    #[serde(default, alias = "bytes_restored")]
     pub bytes_done: u64,
     #[serde(default)]
     pub seconds_remaining: Option<u64>,
@@ -512,6 +513,24 @@ impl Engine {
         }
     }
 
+    /// The id of the key `repository`'s password opens (`key list`, the one restic marks
+    /// current): what `RESTIC_KEY_HINT` names, so each later run derives that key alone (scrypt,
+    /// calibrated to half a second) rather than trying the repository's keys in turn.
+    pub fn key_id(&self, repository: &Repository) -> Result<String> {
+        let output = self.run(repository, &["key", "list", "--no-lock"], None)?;
+        #[derive(Deserialize)]
+        struct Key {
+            current: bool,
+            id: String,
+        }
+        let keys: Vec<Key> =
+            serde_json::from_str(output.trim()).map_err(|e| Error::Failed(e.to_string()))?;
+        keys.into_iter()
+            .find(|key| key.current)
+            .map(|key| key.id)
+            .ok_or_else(|| Error::Failed("restic named no current key".into()))
+    }
+
     /// The repository's snapshots of `host`, oldest first.
     pub fn snapshots(&self, repository: &Repository, host: Option<&str>) -> Result<Vec<Snapshot>> {
         let mut arguments = vec!["snapshots", "--no-lock"];
@@ -662,7 +681,8 @@ impl Engine {
 
     /// Restores `snapshot`'s `includes` (absolute paths, as they were backed up) into `target`,
     /// owners and modes as they were: the recovery's and the migration's, as root, into a
-    /// system's root.
+    /// system's root. `snapshot` may name a folder of it (`ID:/folder`, restic's own), whose
+    /// contents are then restored into `target` and the includes are read from it.
     pub fn restore(
         &self,
         repository: &Repository,
@@ -744,8 +764,9 @@ impl Drop for Running {
     }
 }
 
-/// How restic ended, from its exit status (restic's documented ones) and what it said.
-fn classify(code: Option<i32>, stderr: &str) -> Error {
+/// How restic ended, from its exit status (restic's documented ones) and what it said; rclone's
+/// own words for a share as well.
+pub(crate) fn classify(code: Option<i32>, stderr: &str) -> Error {
     let said = said(stderr);
     let lowered = said.to_lowercase();
     // What rclone said of a share comes before restic's last words.

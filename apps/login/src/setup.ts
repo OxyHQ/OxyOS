@@ -6,6 +6,11 @@
  * The steps, only those that apply, in order, as a Mac's Setup Assistant shows them:
  *
  * 1. **Welcome**, on the computer's first account only.
+ * 1a. **Transfer Your Data**, on the computer's first account only and where the platform migrates
+ *    (docs/adr/0059-backups.mdx, decision 7): another computer's accounts brought over from its
+ *    backup, as a Mac's Setup Assistant offers Migration Assistant before its first user; or Not
+ *    Now, to set up as new. Migrating ends the assistant: the accounts brought over are listed,
+ *    each to sign in again.
  * 2. **Connect to the internet**, only while offline: setup is online only.
  * 3. **Sign in with Oxy**: the SDK's own sign-in (the platform's, with OxyOS's client id from the
  *    accounts' service), the QR a phone scans or a way typed in; it obtains a device credential,
@@ -23,6 +28,8 @@
  * happened and what to do next, and keeps whatever can be kept: the sign-in, the PIN and the
  * choices survive a transient failure, and only a sign-in that can no longer be used is done again.
  */
+
+import type { MigrateStep } from "./migrate";
 
 /** Where the SDK's sign-in runs: Oxy's API and OxyOS's public client id (neither secret). */
 export type SetupPlatform = { api: string; clientId: string };
@@ -119,7 +126,9 @@ export type SetupProblem = "unreachable" | "machine" | "expired" | "failed";
 
 /** The accounts' service's answer to a setup's turn, or why it could not be asked. */
 export type EnrollAnswer =
-  | { enrolled: { accountId: string; user: string } }
+  /** Set up: the account's id, its Unix user (what the login program signs in; never shown) and
+      what the person is called (the profile's display name, else its username; empty: none). */
+  | { enrolled: { accountId: string; user: string; name: string } }
   | "secondFactorRequired"
   | { refused: { reason: string; retryAfterSeconds?: number | null } }
   | { failed: { reason: string } };
@@ -128,6 +137,10 @@ export type EnrollAnswer =
 export type SetupStep =
   /** The first account's welcome. */
   | { step: "welcome" }
+  /** Transfer Your Data: from a backup, or set up as new. */
+  | { step: "transfer" }
+  /** Migrating from a backup, where it stands. */
+  | { step: "migrate"; migrate: MigrateStep }
   /** The connection being checked before the sign-in. */
   | { step: "checking" }
   | { step: "offline" }
@@ -156,13 +169,17 @@ export type SetupStep =
   | { step: "signingIn"; account: SignedInAccount; user: string; accepted?: boolean };
 
 /** The assistant's pages: a setup step is shown on one. */
-export type PageId = "welcome" | "network" | "signIn" | "password" | "pin" | "appearance" | "settingUp";
+export type PageId = "welcome" | "transfer" | "migrate" | "network" | "signIn" | "password" | "pin" | "appearance" | "settingUp";
 
 /** The page a step is shown on. */
 export function pageOf(step: SetupStep): PageId {
   switch (step.step) {
     case "welcome":
       return "welcome";
+    case "transfer":
+      return "transfer";
+    case "migrate":
+      return "migrate";
     case "offline":
     case "notConfigured":
       return "network";
@@ -187,8 +204,15 @@ export function pageOf(step: SetupStep): PageId {
  * welcome on the first account alone; the network's page only while it is the problem; the
  * password's only for an account that is asked it.
  */
-export function pagesFor(step: SetupStep, first: boolean): PageId[] {
+export function pagesFor(step: SetupStep, first: boolean, transfer = false): PageId[] {
   const pages: PageId[] = first ? ["welcome"] : [];
+  // Transfer Your Data on the first account where the platform migrates; migrating, the
+  // assistant ends with it.
+  if (first && transfer) pages.push("transfer");
+  if (step.step === "migrate") {
+    pages.push("migrate");
+    return pages;
+  }
   if (step.step === "offline" || step.step === "notConfigured") pages.push("network");
   pages.push("signIn");
   if ("account" in step && asksPassword(step.account)) pages.push("password");
@@ -197,15 +221,22 @@ export function pagesFor(step: SetupStep, first: boolean): PageId[] {
 }
 
 /**
- * Where Back leads from a step, or null where there is no going back (setting up, signing in).
+ * Where Back leads from a step, or null where there is no going back (setting up, signing in,
+ * migrating). `transfer`: the first account's assistant offers Transfer Your Data.
  * `first`: the computer's first account, whose assistant begins at the welcome; otherwise Back
  * from the beginning closes the setup (`"close"`). Going back past the sign-in gives it up.
  */
-export function backFrom(step: SetupStep, first: boolean): SetupStep | "close" | "signIn" | null {
-  const start = first ? ({ step: "welcome" } as const) : "close";
+export function backFrom(step: SetupStep, first: boolean, transfer = false): SetupStep | "close" | "signIn" | null {
+  const start = first ? ({ step: transfer ? "transfer" : "welcome" } as const) : "close";
   switch (step.step) {
     case "welcome":
       return first ? null : "close";
+    case "transfer":
+      return { step: "welcome" };
+    case "migrate": {
+      const to = migrateBack(step.migrate);
+      return to === "transfer" ? { step: "transfer" } : to === null ? null : { step: "migrate", migrate: to };
+    }
     case "checking":
     case "offline":
     case "notConfigured":
@@ -232,7 +263,7 @@ export function backFrom(step: SetupStep, first: boolean): SetupStep | "close" |
 
 /** Where an answer of the accounts' service leads the setup of `account`. */
 export type AfterEnroll =
-  | { next: "enrolled"; user: string }
+  | { next: "enrolled"; user: string; name: string }
   | { next: "secondFactor"; invalid: boolean }
   /** The password again (only an account that is asked it): `wait` seconds before another try. */
   | { next: "password"; problem: "incorrect" | "throttled" | "unusable"; wait: number }
@@ -243,7 +274,7 @@ export type AfterEnroll =
 /** Where an answer of the accounts' service leads the setup of `account`. */
 export function afterEnroll(account: SignedInAccount, answer: EnrollAnswer): AfterEnroll {
   if (answer === "secondFactorRequired") return { next: "secondFactor", invalid: false };
-  if ("enrolled" in answer) return { next: "enrolled", user: answer.enrolled.user };
+  if ("enrolled" in answer) return { next: "enrolled", user: answer.enrolled.user, name: answer.enrolled.name };
   const reason = "failed" in answer ? answer.failed.reason : answer.refused.reason;
   // A password the setup sent without asking (typed in the sign-in) that Oxy refuses is a
   // sign-in to do again: the password field is only for an account that was asked it.
@@ -286,7 +317,8 @@ export function enrollAnswerFrom(told: unknown): EnrollAnswer {
     const answer = told as Record<string, Record<string, unknown> | undefined>;
     const enrolled = answer.enrolled;
     if (enrolled && typeof enrolled.accountId === "string" && typeof enrolled.user === "string" && enrolled.user) {
-      return { enrolled: { accountId: enrolled.accountId, user: enrolled.user } };
+      const name = typeof enrolled.name === "string" ? enrolled.name.trim() : "";
+      return { enrolled: { accountId: enrolled.accountId, user: enrolled.user, name } };
     }
     const refused = answer.refused;
     if (refused && typeof refused.reason === "string") {
@@ -297,4 +329,25 @@ export function enrollAnswerFrom(told: unknown): EnrollAnswer {
     if (failed && typeof failed.reason === "string") return { failed: { reason: failed.reason } };
   }
   return { failed: { reason: "invalidAnswer" } };
+}
+
+/** Where Back leads from a step of the migration: the step before, `transfer` (the assistant's
+    Transfer Your Data, giving the backups up), or null while it runs. */
+export function migrateBack(step: MigrateStep): MigrateStep | "transfer" | null {
+  const source: MigrateStep = { step: "source", disks: null, problem: null };
+  switch (step.step) {
+    case "source":
+    case "failed":
+      return "transfer";
+    case "share":
+    case "password":
+    case "computer":
+      return source;
+    case "backup":
+      return step.several ? { step: "computer", computers: step.several } : source;
+    case "confirm":
+      return { step: "backup", computer: step.computer, several: step.several };
+    case "migrating":
+      return null;
+  }
 }

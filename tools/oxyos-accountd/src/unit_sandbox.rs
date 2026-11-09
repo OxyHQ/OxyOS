@@ -1,7 +1,8 @@
 //! The service's sandbox as systemd runs it: `oxyos-accountd.service` itself, unchanged but for
 //! what it starts (a drop-in starts this test binary's [`inside_the_unit`] instead of the
 //! service), sets a user up with the system's own tools, as setting an account up does (the user
-//! made with its home, its verifier, made an administrator, locked), and removes it with its home.
+//! made with its home, its verifier, made an administrator, named, locked), and removes it with its
+//! home.
 //! A unit whose sandbox leaves `/home` read-only fails here, as it failed on a real machine
 //! (`useradd` could not make the home, exit 12), and so does one that stops hiding `/root` and
 //! `/run/user`, or that lets the service write outside what it needs.
@@ -108,6 +109,14 @@ fn the_units_sandbox_sets_a_user_up() {
         ),
     )
     .unwrap();
+    // The pictures' directory, as a machine's tmpfiles make it (kept: it is the machine's).
+    let tmpfiles = Path::new(env!("CARGO_MANIFEST_DIR")).join("oxyos-accountd.tmpfiles");
+    let made = Command::new("systemd-tmpfiles")
+        .arg("--create")
+        .arg(&tmpfiles)
+        .status()
+        .unwrap();
+    assert!(made.success(), "systemd-tmpfiles --create failed");
     let reloaded = Command::new("systemctl")
         .arg("daemon-reload")
         .status()
@@ -176,6 +185,33 @@ fn inside_the_unit() {
         .make_administrator(&name)
         .expect("it is made an administrator");
     assert!(users.is_administrator(&name).unwrap());
+    // Named as its account is: passwd's full name (GECOS), which the system's tools show.
+    assert_eq!(users.set_full_name(&name, "Ada Lovelace"), Ok(true));
+    assert_eq!(
+        oxyos_account::users::passwd_gecos(std::path::Path::new("/etc/passwd"), name.as_str()),
+        Ok(Some("Ada Lovelace".into()))
+    );
+    // Its picture, which the login screen and its session read: root's, 0644, in a directory
+    // root's and 0755; nothing else of /var/lib/oxyos but the service's own is written.
+    let store = oxyos_account::store::Store::open(Path::new("/var/lib/oxyos/accounts"))
+        .expect("the service's state")
+        .with_pictures(Path::new(oxyos_account::store::PICTURES_DIRECTORY));
+    let picture = store
+        .put_picture(
+            &name,
+            "01a1236a-7bb5-79ea-b83f-cb38c5e2944f",
+            b"\x89PNG\r\n\x1a\n",
+        )
+        .expect("its picture is kept");
+    let metadata = fs::metadata(&picture).unwrap();
+    assert_eq!((metadata.uid(), metadata.mode() & 0o777), (0, 0o644));
+    let directory = fs::metadata(oxyos_account::store::PICTURES_DIRECTORY).unwrap();
+    assert_eq!((directory.uid(), directory.mode() & 0o777), (0, 0o755));
+    store
+        .remove_pictures(&name)
+        .expect("its picture is removed");
+    assert!(!picture.exists());
+    refused("/var/lib/oxyos/oxyos-accountd-sandbox-probe");
     // Signing it out of the machine, and removing it with its home.
     users.lock(&name).expect("it is locked");
     users.remove(&name).expect("it is removed with its home");

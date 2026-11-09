@@ -38,6 +38,7 @@ const icons = {
   'so.oxy.shell': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.login': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.settings': 'tools/shell-preview/assets/apps/settings.png',
+  'so.oxy.activitymonitor': 'tools/shell-preview/assets/apps/activity-monitor.png',
   'so.oxy.inbox': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.allo': 'tools/shell-preview/assets/apps/allo.png',
   'so.oxy.dropsea': 'tools/shell-preview/assets/apps/dropsea.png',
@@ -58,6 +59,7 @@ const entries = {
   'so.oxy.shell': 'entries/shell.js',
   'so.oxy.login': 'entries/login.js',
   'so.oxy.settings': 'entries/settings.js',
+  'so.oxy.activitymonitor': 'entries/activity-monitor.js',
   'so.oxy.inbox': 'entries/inbox.js',
   'so.oxy.allo': 'entries/allo.js',
   // A probe installed as an application of its own (the scenarios' install service publishes it).

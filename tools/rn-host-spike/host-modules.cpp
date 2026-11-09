@@ -1847,7 +1847,29 @@ std::shared_ptr<TurboModule> createHostModule(
         // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
         "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : ""))(
         // Its login item and background activity can be asked about (protocol version 32).
-        "backgroundItems", static_cast<bool>(services.backgroundItems.ask));
+        "backgroundItems", static_cast<bool>(services.backgroundItems.ask))(
+        // The session asks it to quit before an end of the session (protocol version 38,
+        // docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5).
+        "quitRequests", services.quit.available);
+    });
+    // Whether JavaScript answers the session's requests to quit (`@oxyos/platform`'s
+    // `application.onQuitRequest`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): while it
+    // does, `OxyOSQuitRequested` ({serial, reason}) tells it; while it does not, the host answers
+    // quit at once.
+    module->method("handlesQuit", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 1 || !args[0].isBool()) throw jsi::JSError(rt, "OxyOSApplication.handlesQuit: whether it does");
+      if (services.quit.handles) services.quit.handles(args[0].getBool());
+      return jsi::Value::undefined();
+    });
+    // (serial, quit): the application's answer to the request `serial`; whether it was sent.
+    // Answering quit ends the host, as a close request does, background activity or not.
+    module->method("replyToQuit", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+        throw jsi::JSError(rt, "OxyOSApplication.replyToQuit: a request's serial and whether it quits");
+      }
+      double serial = args[0].asNumber();
+      if (!services.quit.reply || serial < 1 || serial > 4294967295.0) return jsi::Value(false);
+      return jsi::Value(services.quit.reply(static_cast<uint32_t>(serial), args[1].getBool()));
     });
     // Login items and background activity (`@oxyos/platform`'s `application`,
     // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or
@@ -2010,9 +2032,15 @@ std::shared_ptr<TurboModule> createHostModule(
     //   `changeLocal(change, {pin, password, currentPin})`, a promise of {localSignIn} or {refused:
     //   {reason, retryAfter?}}.
     // - Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx): `passkey(ceremony, options)`.
+    // - Who the session is for, in the session's shell too (`follows`): `snapshot()` and
+    //   `subscribe()`, so the lock screen and the menu bar name the person as the account is
+    //   named (decision 1), never by the Unix user. The shell is registered with the service as
+    //   OxyOS itself; the login screen is not, and the service refuses it. The shell is never the
+    //   SDK's session host (`available` stays false there).
     bool available = services.application.recorded && !services.shellWindow;
     bool setup = services.shellWindow;
-    module->constants(folly::dynamic::object("available", available)("setup", setup));
+    bool follows = available || services.shellWindow;
+    module->constants(folly::dynamic::object("available", available)("setup", setup)("follows", follows));
     auto session = [&services, setup]() -> AccountSession& {
       if (!services.accountSession) {
         services.accountSession = std::make_unique<AccountSession>();
@@ -2059,12 +2087,12 @@ std::shared_ptr<TurboModule> createHostModule(
         });
       };
     };
-    module->method("snapshot", [available](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      if (!available) return jsi::Value::null();
+    module->method("snapshot", [follows](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!follows) return jsi::Value::null();
       return jsi::valueFromDynamic(rt, AccountSession::snapshot());
     });
-    module->method("subscribe", [&services, available, session](jsi::Runtime&, const jsi::Value*, size_t) {
-      if (!available) return jsi::Value(false);
+    module->method("subscribe", [&services, follows, session](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (!follows) return jsi::Value(false);
       return jsi::Value(session().subscribe([&services](const folly::dynamic& snapshot) {
         if (services.emit) services.emit("OxyOSAccountSessionChanged", snapshot);
       }));
@@ -2232,6 +2260,96 @@ std::shared_ptr<TurboModule> createHostModule(
       return jsi::Value::undefined();
     });
     module->listeners();
+  } else if (name == "OxyOSMigration") {
+    // Migrate from a Backup (migration.h, docs/adr/0059-backups.mdx, decision 7), the login
+    // screen's alone, where the computer migrates (`available`): `disks()`, `backups(source, password, sharePassword?)` and
+    // `migrate(repository, snapshot, onProgress)`, each a promise of the migration service's answer
+    // ({failed: {reason}} when it could not be asked), `onProgress` called with each
+    // {migrating: {step, percent}} before `migrate`'s answer; `end()` ends the conversation. The
+    // passwords go to the service and are forgotten here; nothing of them is logged. The service
+    // itself answers only the login screen's user, and only while no account is enrolled.
+    // Offered where the computer migrates: its migration service's socket is there.
+    bool available = services.shellWindow && oxyos_migration_available() == 1;
+    module->constants(folly::dynamic::object("available", available));
+    auto migration = [&services]() -> Migration& {
+      if (!services.migration) services.migration = std::make_unique<Migration>();
+      return *services.migration;
+    };
+    auto unavailable = [](jsi::Runtime& rt) {
+      return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                    "failed", folly::dynamic::object("reason", "unavailable"))));
+    };
+    // The answer as a value on the JavaScript thread, or {failed: {reason}}.
+    auto deliverTo = [invoker](std::shared_ptr<jsi::Value> callback, const char* what) {
+      return [invoker, callback, what](Migration::Answer& answer) {
+        auto json = std::make_shared<std::string>(answer.json.value_or(""));
+        std::string error = answer.error;
+        if (!answer.json) std::cerr << "[host] the migration's " << what << ": " << error << "\n";
+        invoker->invokeAsync([callback, json, error](jsi::Runtime& rt) {
+          jsi::Value value = json->empty()
+                                 ? jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                                 "failed", folly::dynamic::object("reason", error)))
+                                 : jsi::Value::createFromJsonUtf8(rt, reinterpret_cast<const uint8_t*>(json->data()),
+                                                                  json->size());
+          callback->asObject(rt).asFunction(rt).call(rt, value);
+        });
+      };
+    };
+    auto promise = [](jsi::Runtime& rt, std::function<void(std::shared_ptr<jsi::Value> resolve)> start) {
+      auto run = jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "settle"), 2,
+          [start = std::move(start)](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
+            start(std::make_shared<jsi::Value>(rt, args[0]));
+            return jsi::Value::undefined();
+          });
+      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, run);
+    };
+    module->method("disks", [available, migration, unavailable, deliverTo, promise](jsi::Runtime& rt,
+                                                                                    const jsi::Value*, size_t) {
+      if (!available) return unavailable(rt);
+      return promise(rt, [migration, deliverTo](std::shared_ptr<jsi::Value> resolve) {
+        migration().disks(deliverTo(resolve, "disks"));
+      });
+    });
+    module->method("backups", [available, migration, unavailable, deliverTo, promise](
+                                  jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isObject() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSMigration.backups: a source and the backup password");
+      }
+      if (!available) return unavailable(rt);
+      std::string source = folly::toJson(jsi::dynamicFromValue(rt, args[0]));
+      std::string password = args[1].asString(rt).utf8(rt);
+      std::optional<std::string> sharePassword;
+      if (count > 2 && args[2].isString()) sharePassword = args[2].asString(rt).utf8(rt);
+      return promise(rt, [migration, deliverTo, source = std::move(source), password = std::move(password),
+                          sharePassword = std::move(sharePassword)](std::shared_ptr<jsi::Value> resolve) mutable {
+        migration().backups(std::move(source), std::move(password), std::move(sharePassword),
+                            deliverTo(resolve, "backups"));
+      });
+    });
+    module->method("migrate", [available, migration, unavailable, deliverTo, promise](
+                                  jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSMigration.migrate: a computer's repository and a backup");
+      }
+      if (!available) return unavailable(rt);
+      std::shared_ptr<jsi::Value> progress;
+      if (count > 2 && args[2].isObject() && args[2].asObject(rt).isFunction(rt)) {
+        progress = std::make_shared<jsi::Value>(rt, args[2]);
+      }
+      std::string repository = args[0].asString(rt).utf8(rt);
+      std::string snapshot = args[1].asString(rt).utf8(rt);
+      return promise(rt, [migration, deliverTo, progress, repository = std::move(repository),
+                          snapshot = std::move(snapshot)](std::shared_ptr<jsi::Value> resolve) mutable {
+        migration().migrate(std::move(repository), std::move(snapshot),
+                            progress ? Migration::Done(deliverTo(progress, "progress")) : Migration::Done{},
+                            deliverTo(resolve, "migration"));
+      });
+    });
+    module->method("end", [&services](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (services.migration) services.migration->end();
+      return jsi::Value::undefined();
+    });
   } else if (name == "RNCAsyncStorage") {
     // @react-native-async-storage/async-storage (application.h, crates/oxyos-app-storage): kept in
     // the application's data directory, by its id, on a thread of its own; each callback as its

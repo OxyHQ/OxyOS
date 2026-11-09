@@ -149,13 +149,18 @@ fn the_login_screen_is_listed_each_account_without_its_credential() {
     assert_eq!(listed[0].name, "Ada Lovelace");
     assert_eq!(listed[0].picture, None);
     assert!(!format!("{listed:?}").contains(DEVICE_SECRET));
-    // The picture is the user's file of the pictures' directory, never a link.
-    let picture = pictures.join(account().user_name().as_str());
+    // The picture is the user's file of the pictures' directory for its avatar, never a link.
+    let mut pictured = enrollment();
+    pictured.profile.avatar = Some("avatar-1".into());
+    store.put(&pictured).unwrap();
+    let picture = pictures.join(format!("{}-avatar-1", account().user_name()));
     std::os::unix::fs::symlink("/etc/shadow", &picture).unwrap();
     assert_eq!(store.list().unwrap().0[0].picture, None);
     fs::remove_file(&picture).unwrap();
     fs::write(&picture, b"png").unwrap();
-    assert_eq!(store.list().unwrap().0[0].picture, Some(picture));
+    assert_eq!(store.list().unwrap().0[0].picture, Some(picture.clone()));
+    fs::remove_file(&picture).unwrap();
+    store.put(&enrollment()).unwrap();
     // Without a display name, the username; a file that is no account's is left out and said.
     let mut nameless = enrollment();
     nameless.profile.display_name = Some("  ".into());
@@ -166,6 +171,10 @@ fn the_login_screen_is_listed_each_account_without_its_credential() {
     assert_eq!(listed[0].name, "ada");
     assert_eq!(broken.len(), 1);
     assert!(broken[0].starts_with("oxy-other"));
+    // With neither, no name: the user's (`oxy-…`) is an identifier, never shown as one.
+    nameless.profile.username = None;
+    store.put(&nameless).unwrap();
+    assert_eq!(store.list().unwrap().0[0].name, "");
 }
 
 #[test]
@@ -253,4 +262,40 @@ fn the_flag_is_kept_and_a_version_1_file_is_read_as_ready() {
     )
     .unwrap();
     assert!(store.get(&account()).is_err());
+}
+
+#[test]
+fn a_picture_is_its_avatars_readable_by_all_and_the_last_one_read_until_another_is() {
+    let dir = TempDir::new("store-pictures");
+    let pictures = dir.path().join("pictures");
+    fs::create_dir(&pictures).unwrap();
+    let store = Store::open(&dir.path().join("accounts"))
+        .unwrap()
+        .with_pictures(&pictures);
+    let user = account().user_name();
+    assert_eq!(store.picture(&user, Some("avatar-1")), None);
+    assert!(!store.has_picture(&user, "avatar-1"));
+    // Written whole, root's (the service's) and 0644 whatever the umask: the login screen and the
+    // account's session read it.
+    let first = store.put_picture(&user, "avatar-1", b"one").unwrap();
+    assert_eq!(first, pictures.join(format!("{user}-avatar-1")));
+    assert_eq!(mode(&first), 0o644);
+    assert_eq!(fs::read(&first).unwrap(), b"one");
+    assert!(store.has_picture(&user, "avatar-1"));
+    assert_eq!(store.picture(&user, Some("avatar-1")), Some(first.clone()));
+    // The avatar changed and its picture not read yet (offline): the last one read is shown.
+    assert_eq!(store.picture(&user, Some("avatar-2")), Some(first.clone()));
+    assert_eq!(store.picture(&user, None), Some(first.clone()));
+    // Read: a new file (an image is never told apart by its name alone), the old one gone.
+    let second = store.put_picture(&user, "avatar-2", b"two").unwrap();
+    assert_ne!(second, first);
+    assert!(!first.exists());
+    assert_eq!(store.picture(&user, Some("avatar-2")), Some(second.clone()));
+    // Another user's pictures are not this user's; an id that names no file is no picture.
+    fs::write(pictures.join("oxy-other-avatar-1"), b"x").unwrap();
+    assert!(store.put_picture(&user, "../escape", b"x").is_err());
+    assert!(store.put_picture(&user, "a.b", b"x").is_err());
+    store.remove_pictures(&user).unwrap();
+    assert_eq!(store.picture(&user, Some("avatar-2")), None);
+    assert!(pictures.join("oxy-other-avatar-1").exists());
 }

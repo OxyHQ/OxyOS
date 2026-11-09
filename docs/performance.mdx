@@ -560,11 +560,16 @@ api.oxy.so, a third of first connections lost) its home's listing came 1.4 to 9 
 signed in, about 0.3 s signed out. A step's `content_ms_max` (`regress.py`) holds launch to content:
 the first frame showing every one of the step's texts at most so many ms after the host's `main`,
 by the wall clock, held as `latency_ms` is (by every run but `--collect`'s, which `perf.py` judges
-at the median of its runs). `perf-dropsea-launch-signed-in.json` launches Dropsea signed in with
-the token answered 5 s late (`account.token_delay_ms`) and `/users/me` 10 s late (`store.late_ms`),
-the account's language Spanish in the platform's snapshot and the machine's English, and holds its
-Spanish listing to 1.5 s: about five times what it takes signed out on the gate's machine, far
-below either answer.
+at the median of its runs). The account's languages in the platform's snapshot (`oxy` ADR 0058
+R10) did not reach the owner's account, which names none (the accounts' service keeps them only
+after a profile read): its listing still came 6.1 s after launch (8.3, 9.1 and 15.5 s on other
+launches), the window blank, black in the dark appearance, until then. The platform's language is
+now the application's (R11, [ADR 0040](./adr/0040-language-and-region), decision 1), named in
+every snapshot. `perf-dropsea-launch-signed-in.json` launches Dropsea signed in as an account
+shaped as the owner's (id, handle, display name, avatar, no languages), the machine in Spanish, the
+token answered 5 s late (`account.token_delay_ms`) and `/users/me` 10 s late (`store.late_ms`), and
+holds its Spanish listing to 500 ms: about three times what it takes signed out on the gate's
+machine, far below either answer.
 
 ### Idle
 
@@ -577,6 +582,18 @@ Five seconds sampled, two after the first frame; median of three runs.
 | Settings | 0.85 % | 59.6 | 0.00 % | 0 |
 
 An application holding a WebSocket open (`WebSocket open`: `sample/WebSocketProbe.tsx`'s `held`, to `regress.py`'s local server, which sends nothing) is as idle, 7 November 2026: 0.00 % and 0 wakeups a second over the five seconds sampled, the socket's thread asleep in `poll` (`crates/oxyos-net`'s `websocket.rs`); the engine's own test (`an_open_idle_socket_wakes_nothing`) holds its thread to at most one wakeup over two idle seconds.
+
+### Activity Monitor
+
+[ADR 0063](./adr/0063-activity-monitor): the session samples every two seconds only while Activity Monitor's window is shown. Hidden (minimized, another desktop, locked, the displays off), its sampling thread waits on its jobs alone. `activity/tests.rs` holds it to no wakeup in five seconds hidden, and the scenarios' last step to no sample taken or sent and no wakeup of the thread in six. What a sample costs, measured on 8 November 2026 in the development compositor on the development machine (WSL2, 32 cores, about 485 processes and 2,400 threads, at a load of 130 to 150, so every figure is inflated by contention), the sampling thread's CPU time per sample by view:
+
+| view | what it reads beyond every process's `stat` | CPU per sample |
+|---|---|---|
+| Network | the interfaces alone | 10 ms |
+| Memory | each process's `status` | 19 ms |
+| CPU | each thread's `schedstat` (wakeups), the applications' DRM fdinfo | 25 ms |
+
+That is 0.5 % to 1.2 % of one core at a sample every two seconds on that machine. A session has a third of those processes and threads, unloaded, so the ThinkPad's figures are to be measured there (`perf.py` has no Activity Monitor mode yet). The first host measured spent most of its time on each sample building JavaScript values out of a `folly::dynamic` and formatting every row's numbers through `Intl`. A sample now reaches JavaScript as text (`SystemData`, `JSON.parse`), formats are kept, names are ranked once per sample, and only the rows on screen are drawn. Its cost after those changes is still to be measured on an unloaded machine.
 
 ### Memory
 

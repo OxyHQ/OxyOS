@@ -8,6 +8,8 @@ order: 66
 
 Status: **accepted; implemented** (the session's side, the menu bar's battery menu, Settings › Battery, scenarios over played services); what only the ThinkPad can show is in [What to verify on the ThinkPad](#what-to-verify-on-the-thinkpad). Amended on 8 November 2026 (decision 2): the charge limit across reboots, batteries put back and waking, verified in UPower 1.90.9's source, and kept in effect. Builds on [ADR 0006](./0006-seat) (logind), [ADR 0010](./0010-lock-screen) (the idle lock and sleep held back for the lock), [ADR 0019](./0019-settings) (preferences, Settings and its grant), [ADR 0025](./0025-hardware-keys-and-control-center) (the battery from UPower, followed by its signals), [ADR 0026](./0026-notifications) and [ADR 0030](./0030-installing-applications) (the session's vocabulary over `SystemRequest`).
 
+**9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** the menu bar's Sleep, the power key's and the login screen's are logind's `Suspend(false)` as decision 6's idle sleep is, through the session's ending part; the played logind (`oxyos_power::played`) also plays `CanReboot`, `Reboot`, `CanPowerOff`, `PowerOff`, `HandlePowerKey` and `Inhibit` for its tests and scenarios.
+
 ## Problem
 
 The top bar drew the battery's charge (ADR 0025) and nothing else of energy: no menu, no percentage, no Settings page, no Low Power Mode, no charge limit, no display that turns off or machine that sleeps for want of input (the session only locked, ADR 0010), no warning when the battery runs low, no way to know which application drains it. A Mac has all of it:

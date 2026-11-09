@@ -459,6 +459,7 @@ bool deliverApplication(oxyos::HostServices& services) {
   bool busy = services.storage && services.storage->deliver();
   if (services.connectivity) busy |= services.connectivity->deliver();
   if (services.accountSession) busy |= services.accountSession->deliver();
+  if (services.migration) busy |= services.migration->deliver();
   return busy;
 }
 
@@ -471,6 +472,7 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
     fds.push_back(services.accountSession->fd());
     if (int subscription = services.accountSession->subscriptionFd(); subscription >= 0) fds.push_back(subscription);
   }
+  if (services.migration) fds.push_back(services.migration->fd());
   return fds;
 }
 
@@ -1547,6 +1549,11 @@ int main(int argc, char** argv) {
     // closes, as the session last said (an answer, or a change the person made), and whether it is.
     uint32_t backgroundSerial = 0;
     bool backgroundEnabled = false;
+    // The session asking it to quit before an end of the session
+    // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5): whether JavaScript
+    // answers (it registered a handler), and whether it answered quit, which ends the host.
+    bool quitHandled = false;
+    bool quitAnswered = false;
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
     // requests, assembled from chunks. A request and an answer cite the latest press or key, as
     // the session requires.
@@ -1616,6 +1623,20 @@ int main(int argc, char** argv) {
         oxyos::Report::get().input("background.ask", 0,
                                    folly::dynamic::object("kind", kind)("action", action)("sent", sent));
         return sent ? backgroundSerial : 0;
+      };
+    }
+    // An application's window of a compositor that asks it to quit before logging out,
+    // restarting or shutting down (protocol version 38): JavaScript answers while it handles the
+    // question, the host at once otherwise.
+    if (!shellMode && window && window->protocolVersion() >= OXYOS_QUIT_REQUESTS_VERSION) {
+      services.quit.available = true;
+      services.quit.handles = [&quitHandled](bool handles) { quitHandled = handles; };
+      services.quit.reply = [&window, &quitAnswered](uint32_t serial, bool quit) {
+        bool sent = window->replyToQuit(serial, quit);
+        oxyos::Report::get().input("quit.replied", 0,
+                                   folly::dynamic::object("serial", serial)("quit", quit)("sent", sent));
+        if (sent && quit) quitAnswered = true;
+        return sent;
       };
     }
     window->onClipboardChanged([&instance, &window] {
@@ -2199,9 +2220,12 @@ int main(int argc, char** argv) {
         std::vector<std::pair<OxyOSEvent, std::string>> screenshots;
         std::vector<OxyOSEvent> bezels;
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
-        std::vector<std::pair<uint32_t, std::string>> systemAnswers, sheets, filesChosen, searchAnswers;
-        std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates;
+        std::vector<std::pair<uint32_t, std::string>> systemAnswers, systemData, sheets, filesChosen, searchAnswers;
+        std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates, quitRequests;
         bool responded = false;
+        // The modifiers held, as the compositor last told them this turn (protocol version 38, a
+        // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
+        std::optional<uint8_t> modifiersHeld;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
@@ -2215,6 +2239,10 @@ int main(int argc, char** argv) {
                 if (auto text = systemTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
                   systemAnswers.emplace_back(event.code, std::move(*text));
                 }
+              }
+              // A long answer whole (ADR 0063), handed to JavaScript as text.
+              if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
+                if (auto text = window->systemData()) systemData.emplace_back(event.code, std::move(*text));
               }
               if (event.kind == OXYOS_EVENT_SEARCH_TEXT) {
                 if (auto text = searchTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
@@ -2235,6 +2263,8 @@ int main(int argc, char** argv) {
               }
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
+              if (event.kind == OXYOS_EVENT_QUIT_REQUESTED && !shellMode) quitRequests.push_back(event);
+              if (event.kind == OXYOS_EVENT_MODIFIERS) modifiersHeld = event.modifiers;
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
@@ -2455,6 +2485,43 @@ int main(int argc, char** argv) {
           diagnostics.setRefresh(refresh.periodMs());
           oxyos::Report::get().refresh(toldRefresh);
         }
+        // The modifiers held changed (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision
+        // 2): told to JavaScript as their own event, as a Mac's flagsChanged:, so the Oxy menu's
+        // alternates follow Option the instant it goes down or up, not at the next key or move.
+        if (modifiersHeld) {
+          uint8_t held = *modifiersHeld;
+          oxyos::Report::get().input("modifiers.changed", 0, folly::dynamic::object("modifiers", static_cast<int>(held)));
+          instance->callFunctionOnModule(
+              "RCTDeviceEventEmitter", "emit",
+              folly::dynamic::array("OxyOSModifiersChanged",
+                                    folly::dynamic::object("altKey", (held & OXYOS_MODIFIER_ALT) != 0)(
+                                        "ctrlKey", (held & OXYOS_MODIFIER_CONTROL) != 0)(
+                                        "metaKey", (held & OXYOS_MODIFIER_SUPER) != 0)(
+                                        "shiftKey", (held & OXYOS_MODIFIER_SHIFT) != 0)));
+        }
+        // The session asks it to quit before logging out, restarting or shutting down
+        // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5), as a Mac asks
+        // `applicationShouldTerminate:`: JavaScript decides while it handles the question (an
+        // unsaved document asks to be saved, or cancels the whole end); otherwise it quits at once.
+        for (const auto& asked : quitRequests) {
+          const char* reason = asked.detail == OXYOS_SESSION_END_LOG_OUT  ? "logOut"
+                               : asked.detail == OXYOS_SESSION_END_RESTART ? "restart"
+                                                                            : "shutDown";
+          folly::dynamic told = folly::dynamic::object("serial", asked.code)("reason", reason);
+          oxyos::Report::get().input("quit.requested", 0, told);
+          if (quitHandled) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("OxyOSQuitRequested", told));
+          } else if (services.quit.reply) {
+            services.quit.reply(asked.code, true);
+          }
+        }
+        // Answered quit (here or by JavaScript): it ends now, as for a close request, whatever its
+        // background activity, since the session is ending. Its answer was sent as it was given.
+        if (quitAnswered) {
+          std::cerr << "[host] " << applicationName << " quits: the session is ending\n";
+          break;
+        }
         if (closeRequested || closeAsked) {
           if (closeAsked) oxyos::Report::get().input("close.asked", oxyos::Window::kToplevel);
           // Its background activity (docs/adr/0060-login-items-and-background-activity.mdx): an
@@ -2555,6 +2622,17 @@ int main(int argc, char** argv) {
                                                                folly::dynamic::object("serial", serial)("answer", answer)));
           oxyos::Report::get().input("system", oxyos::Window::kToplevel,
                                      folly::dynamic::object("serial", serial)("answer", answer));
+        }
+        // A long answer (SystemData, docs/adr/0063-activity-monitor.mdx: Activity Monitor's samples, tens
+        // of kilobytes every two seconds) as the text the session wrote, which JavaScript parses
+        // itself (oxyos/system.js): Hermes' JSON.parse, never a folly::dynamic made into thousands
+        // of JSI values; the report records its size, not its text.
+        for (const auto& [serial, text] : systemData) {
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("OxyOSSystemAnswer",
+                                                               folly::dynamic::object("serial", serial)("text", text)));
+          oxyos::Report::get().input("system", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("serial", serial)("bytes", text.size()));
         }
         // Search (docs/adr/0051-search.mdx): the index's answers as it wrote them, JSON text the
         // window's search client reads (sample/oxyos/search.js).
