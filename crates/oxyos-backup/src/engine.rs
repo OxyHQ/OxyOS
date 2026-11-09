@@ -513,6 +513,24 @@ impl Engine {
         }
     }
 
+    /// The id of the key `repository`'s password opens (`key list`, the one restic marks
+    /// current): what `RESTIC_KEY_HINT` names, so each later run derives that key alone (scrypt,
+    /// calibrated to half a second) rather than trying the repository's keys in turn.
+    pub fn key_id(&self, repository: &Repository) -> Result<String> {
+        let output = self.run(repository, &["key", "list", "--no-lock"], None)?;
+        #[derive(Deserialize)]
+        struct Key {
+            current: bool,
+            id: String,
+        }
+        let keys: Vec<Key> =
+            serde_json::from_str(output.trim()).map_err(|e| Error::Failed(e.to_string()))?;
+        keys.into_iter()
+            .find(|key| key.current)
+            .map(|key| key.id)
+            .ok_or_else(|| Error::Failed("restic named no current key".into()))
+    }
+
     /// The repository's snapshots of `host`, oldest first.
     pub fn snapshots(&self, repository: &Repository, host: Option<&str>) -> Result<Vec<Snapshot>> {
         let mut arguments = vec!["snapshots", "--no-lock"];

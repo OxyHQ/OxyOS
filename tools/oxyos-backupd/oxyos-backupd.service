@@ -3,7 +3,8 @@
 # backup disk when it is connected with nobody signed in, and keeps the destinations' keys, root's
 # alone; it runs nothing but restic and rclone.
 #
-# Not installed by the image yet (ADR 0059, step 5 brings it with the session).
+# Not installed by the image yet (ADR 0059, step 5 brings it with the session); a deploy to a test
+# machine installs and enables it (tools/deploy/system-files, docs/developing.mdx).
 
 [Unit]
 Description=OxyOS backups
