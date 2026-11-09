@@ -150,6 +150,44 @@ test("a QR sets a PIN alone, a typed password is taken, and only a sign-in that 
   assert.equal(pinOptional(account("other", false)), false);
 });
 
+test("Transfer Your Data comes after the welcome on the first account, and migrating ends the assistant", () => {
+  const source = { step: "source", disks: null, problem: null } as const;
+  const computer = {
+    repository: "0123456789abcdef",
+    name: "ada-laptop",
+    backups: [{ snapshot: "bbbb2222", time: 1_794_000_000 }],
+    accounts: [{ user: "oxy-a", name: "Ada", administrator: true }],
+  };
+  // Offered on the first account where the platform migrates, never on another.
+  assert.deepEqual(pagesFor({ step: "welcome" }, true, true), ["welcome", "transfer", "signIn", "pin", "appearance", "settingUp"]);
+  assert.deepEqual(pagesFor({ step: "checking" }, false, true), ["signIn", "pin", "appearance", "settingUp"]);
+  assert.deepEqual(pagesFor({ step: "migrate", migrate: source }, true, true), ["welcome", "transfer", "migrate"]);
+  assert.equal(pageOf({ step: "transfer" }), "transfer");
+  assert.equal(pageOf({ step: "migrate", migrate: source }), "migrate");
+  // Back: from the sign-in to Transfer Your Data, from it to the welcome; through the migration
+  // step by step, to Transfer Your Data from its first page; none while it runs.
+  assert.deepEqual(backFrom({ step: "checking" }, true, true), { step: "transfer" });
+  assert.deepEqual(backFrom({ step: "transfer" }, true, true), { step: "welcome" });
+  assert.deepEqual(backFrom({ step: "migrate", migrate: source }, true, true), { step: "transfer" });
+  assert.deepEqual(backFrom({ step: "migrate", migrate: { step: "share", problem: null } }, true, true), {
+    step: "migrate",
+    migrate: source,
+  });
+  assert.deepEqual(
+    backFrom({ step: "migrate", migrate: { step: "confirm", computer, backup: computer.backups[0]!, several: null } }, true, true),
+    { step: "migrate", migrate: { step: "backup", computer, several: null } },
+  );
+  assert.deepEqual(backFrom({ step: "migrate", migrate: { step: "backup", computer, several: null } }, true, true), {
+    step: "migrate",
+    migrate: source,
+  });
+  assert.equal(
+    backFrom({ step: "migrate", migrate: { step: "migrating", computer, progress: { step: "files", percent: 0.4 } } }, true, true),
+    null,
+  );
+  assert.deepEqual(backFrom({ step: "migrate", migrate: { step: "failed", problem: "clash" } }, true, true), { step: "transfer" });
+});
+
 test("a wait Oxy asks for is a time it ends, inside the QR's ten minutes, else none", () => {
   assert.equal(waitFrom(12, 1_000), 13_000);
   assert.equal(waitFrom(2.2, 0), 3_000, "rounded up: never sooner than asked");

@@ -9,8 +9,17 @@
  */
 
 /** The session's user: `name`, the short name (the account's username), and `fullName`, the
-    display name; either may be empty. Neither is ever the Unix user's name. */
-export type SessionUser = { name: string; fullName?: string };
+    display name; either may be empty. Neither is ever the Unix user's name. `picture`, the
+    account's picture (its Oxy avatar, which the accounts' service keeps on the machine, so it shows
+    offline too) as a `file://` URI; none: the system's default picture. */
+export type SessionUser = { name: string; fullName?: string; picture?: string };
+
+/** The account's picture as the snapshot names it (an absolute path of the machine's), as an
+    image's URI; anything else is none. */
+export function pictureUri(picture: unknown): string | undefined {
+  if (typeof picture !== "string" || !picture.startsWith("/") || picture.includes("\0")) return undefined;
+  return `file://${picture.split("/").map(encodeURIComponent).join("/")}`;
+}
 
 /** What a screen calls the person: their full name, else their short name; empty when the
     platform names nobody. */
@@ -29,10 +38,19 @@ export function sessionUserFrom(snapshot: unknown, systemFullName?: string | nul
   if (typeof snapshot === "object" && snapshot !== null) {
     const { status, account } = snapshot as { status?: unknown; account?: unknown };
     if (status === "signed_in" && typeof account === "object" && account !== null) {
-      const { handle, displayName } = account as { handle?: unknown; displayName?: unknown };
+      const { handle, displayName, picture } = account as {
+        handle?: unknown;
+        displayName?: unknown;
+        picture?: unknown;
+      };
       if (typeof handle === "string") {
         const fullName = typeof displayName === "string" ? displayName.trim() : "";
-        return fullName ? { name: handle.trim(), fullName } : { name: handle.trim() };
+        const uri = pictureUri(picture);
+        return {
+          name: handle.trim(),
+          ...(fullName ? { fullName } : {}),
+          ...(uri ? { picture: uri } : {}),
+        };
       }
     }
   }

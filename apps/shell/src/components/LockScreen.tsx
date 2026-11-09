@@ -240,7 +240,7 @@ export const LockScreen = memo(function LockScreen({
           ))}
         </Box>
       ) : null}
-      <UserPicture />
+      <UserPicture picture={lock.user.picture} testID="shell-lock-picture" />
       {name ? (
         <Text
           testID="shell-lock-name"

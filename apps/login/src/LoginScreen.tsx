@@ -11,10 +11,12 @@ import type { ShellLock, ShellWallpaper } from "../../shell/src/model";
 import type { MaskedProps } from "../../shell/src/platform";
 import { chosenAccount, opensOnSetup, type Accounts, type LoginAccount } from "./model";
 import { SetupAssistant, type SetupActions } from "./SetupAssistant";
+import type { MigrationActions } from "./MigratePages";
 import { useLoginMessages } from "./useLoginMessages";
 
 export type { LoginAccount, Accounts } from "./model";
 export type { SetupActions, SetupAssistantFrameProps, AssistantPage, EnrollRequest, SetupProgress } from "./SetupAssistant";
+export type { MigrationActions } from "./MigratePages";
 
 /** What the login screen asks of its platform. It holds no authority over who signs in. */
 export type LoginActions = {
@@ -31,6 +33,9 @@ export type LoginActions = {
   online: (api?: string) => Promise<boolean>;
   /** Adding an account; none where the platform sets none up. */
   setup?: SetupActions;
+  /** Migrating from a backup at the first account's Transfer Your Data
+      (docs/adr/0059-backups.mdx); none where the platform migrates nothing. */
+  migration?: MigrationActions;
   /** The accounts again, once one was added. */
   reloadAccounts?: () => void;
   /** Says a text to assistive technologies (the platform's), else React Native's announcement. */
@@ -173,6 +178,16 @@ export function LoginScreen({
           capsLock: actions.capsLock,
           announce: actions.announce,
           reloadAccounts: actions.reloadAccounts,
+          migration: actions.migration,
+          migrated: (brought) => {
+            // The accounts brought over listed, each to sign in again, said once.
+            const said = words.migrate.migrated(brought.length);
+            if (actions.announce) actions.announce(said, false);
+            else AccessibilityInfo.announceForAccessibility(said);
+            actions.reloadAccounts?.();
+            if (brought[0]) setChosen(brought[0].user);
+            setSettingUp(null);
+          },
         }}
         close={account && !first ? () => setSettingUp(null) : undefined}
         enrolled={(user, name) => {
@@ -217,8 +232,24 @@ export function LoginScreen({
         )}
         {/* Fields of their own for each account: what was typed for one is never sent for
             another. Its PIN first when it has one, as Windows Hello offers it; a PIN locked out
-            with no password to fall back on is set anew by signing in with Oxy. */}
-        {account.pin === "locked" && account.password === false ? (
+            with no password to fall back on is set anew by signing in with Oxy. An account to
+            sign in again (Oxy signed it out, or it was brought over from a backup) has nothing
+            its password or PIN opens until it is set up again online: that is what is offered. */}
+        {account.signInAgain ? (
+          <>
+            <Text
+              testID="login-sign-in-again"
+              style={{ ...white(13, "400", 0.9), marginTop: 12, maxWidth: 320, textAlign: "center" }}
+            >
+              {words.signInAgain.description(account.name || words.unnamedAccount)}
+            </Text>
+            <Link
+              testID="login-sign-in-again-action"
+              label={words.signInAgain.action}
+              onPress={() => setSettingUp({ first: false })}
+            />
+          </>
+        ) : account.pin === "locked" && account.password === false ? (
           <>
             <Text
               testID="login-pin-locked"

@@ -30,3 +30,15 @@ test("what a screen calls the person: the full name, else the short name", () =>
   assert.equal(personName({ name: "" }), "");
   assert.equal(personName(null), "");
 });
+
+test("the session's user's picture is the account's, as the platform keeps it on this computer", () => {
+  const user = sessionUserFrom(
+    signedIn({ id: "a1", handle: "nate", displayName: "Nate", picture: "/var/lib/oxyos/pictures/oxy-n-01a1" }),
+    "",
+  );
+  assert.deepEqual(user, { name: "nate", fullName: "Nate", picture: "file:///var/lib/oxyos/pictures/oxy-n-01a1" });
+  // No picture, or one that is not a path of the machine's: the default picture.
+  assert.equal(sessionUserFrom(signedIn({ id: "a1", handle: "nate" }), "").picture, undefined);
+  assert.equal(sessionUserFrom(signedIn({ id: "a1", handle: "nate", picture: "https://x/y.png" }), "").picture, undefined);
+  assert.equal(sessionUserFrom(null, "Nate").picture, undefined);
+});

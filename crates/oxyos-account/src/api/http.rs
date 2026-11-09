@@ -11,29 +11,66 @@ use zeroize::Zeroizing;
 /// The longest answer read; Oxy's are a few kilobytes.
 const MAX_ANSWER: u64 = 256 * 1024;
 
+/// Oxy's cloud, where files are served publicly (the SDK's `OXY_CLOUD_URL`): an avatar's image.
+pub const OXY_CLOUD: &str = "https://cloud.oxy.so";
+
+/// How long a picture may take: it is never waited for by anyone.
+const PICTURE_TIMEOUT: Duration = Duration::from_secs(20);
+
 pub struct HttpApi {
     pub(crate) agent: Agent,
     pub(crate) base: String,
+    /// Oxy's cloud ([`OXY_CLOUD`]) and the agent its pictures are read with, which follows the
+    /// cloud's redirects to the file (over HTTPS alone when the cloud is HTTPS).
+    pub(crate) cloud: String,
+    pub(crate) pictures: Agent,
+}
+
+/// `base` as a base URL of Oxy's: HTTPS, or plain HTTP to this machine alone (a development
+/// server); no query, fragment or user. Whether it is HTTPS.
+fn base_url(base: &str) -> Result<bool, String> {
+    let url = url::Url::parse(base).map_err(|error| format!("{base}: {error}"))?;
+    let loopback = match url.host() {
+        Some(url::Host::Ipv4(address)) => address.is_loopback(),
+        Some(url::Host::Ipv6(address)) => address.is_loopback(),
+        Some(url::Host::Domain(name)) => name == "localhost",
+        None => false,
+    };
+    let https = match url.scheme() {
+        "https" => true,
+        "http" if loopback => false,
+        _ => return Err(format!("{base}: Oxy is reached over HTTPS")),
+    };
+    if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
+        return Err(format!("{base}: a base URL has no query, fragment or user"));
+    }
+    Ok(https)
+}
+
+fn pictures_agent(https: bool) -> Agent {
+    Agent::config_builder()
+        .http_status_as_error(false)
+        // The cloud answers a file's URL with a redirect to where it is kept.
+        .max_redirects(3)
+        .https_only(https)
+        .timeout_global(Some(PICTURE_TIMEOUT))
+        .timeout_resolve(Some(Duration::from_secs(10)))
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .user_agent("oxyos-accountd")
+        .tls_config(
+            TlsConfig::builder()
+                .root_certs(RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .build()
+        .into()
 }
 
 impl HttpApi {
-    /// The API at `base`: HTTPS, or plain HTTP to this machine alone (a development server).
+    /// The API at `base`: HTTPS, or plain HTTP to this machine alone (a development server). Its
+    /// pictures from [`OXY_CLOUD`], unless [`HttpApi::with_cloud`] names another.
     pub fn new(base: &str) -> Result<Self, String> {
-        let url = url::Url::parse(base).map_err(|error| format!("{base}: {error}"))?;
-        let loopback = match url.host() {
-            Some(url::Host::Ipv4(address)) => address.is_loopback(),
-            Some(url::Host::Ipv6(address)) => address.is_loopback(),
-            Some(url::Host::Domain(name)) => name == "localhost",
-            None => false,
-        };
-        match url.scheme() {
-            "https" => {}
-            "http" if loopback => {}
-            _ => return Err(format!("{base}: Oxy's API is reached over HTTPS")),
-        }
-        if url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() {
-            return Err(format!("{base}: a base URL has no query, fragment or user"));
-        }
+        base_url(base)?;
         let agent = Agent::config_builder()
             // A refusal is an answer: its status and code say what it was.
             .http_status_as_error(false)
@@ -54,7 +91,39 @@ impl HttpApi {
         Ok(Self {
             agent,
             base: base.trim_end_matches('/').to_owned(),
+            cloud: OXY_CLOUD.to_owned(),
+            pictures: pictures_agent(true),
         })
+    }
+
+    /// Pictures from the cloud at `cloud` (a development server's), as [`HttpApi::new`] takes a
+    /// base.
+    pub fn with_cloud(mut self, cloud: &str) -> Result<Self, String> {
+        let https = base_url(cloud)?;
+        self.cloud = cloud.trim_end_matches('/').to_owned();
+        self.pictures = pictures_agent(https);
+        Ok(self)
+    }
+
+    /// A picture's bytes at `url`: none when the cloud has no such file (404).
+    fn picture_at(&self, url: &str) -> Result<Option<Vec<u8>>, ApiError> {
+        let mut response = self
+            .pictures
+            .get(url)
+            .header("Accept", "image/*")
+            .call()
+            .map_err(transport)?;
+        match response.status().as_u16() {
+            200..=299 => response
+                .body_mut()
+                .with_config()
+                .limit(MAX_PICTURE_BYTES)
+                .read_to_vec()
+                .map(Some)
+                .map_err(|error| ApiError::Unexpected(format!("the picture: {error}"))),
+            404 => Ok(None),
+            status => Err(ApiError::Refused { status, code: None }),
+        }
     }
 
     fn post(&self, path: &str, body: &impl Serialize) -> Result<Answer, ApiError> {
@@ -388,6 +457,24 @@ fn signed_in(answer: SignInAnswer, arrived: std::time::Instant) -> Result<Signed
 }
 
 impl OxyApi for HttpApi {
+    fn picture(&self, avatar: &str) -> Result<Vec<u8>, ApiError> {
+        let id = avatar_id(avatar)
+            .ok_or_else(|| ApiError::Unexpected("not an avatar's file id".into()))?;
+        // Its thumbnail, as Oxy's apps show an avatar; the image itself where it has none.
+        let bytes = match self.picture_at(&format!("{}/{id}?variant=thumb", self.cloud))? {
+            Some(bytes) => bytes,
+            None => self
+                .picture_at(&format!("{}/{id}", self.cloud))?
+                .ok_or(ApiError::Refused {
+                    status: 404,
+                    code: None,
+                })?,
+        };
+        picture_kind(&bytes)
+            .ok_or_else(|| ApiError::Unexpected("the picture is not an image".into()))?;
+        Ok(bytes)
+    }
+
     fn mint_token(
         &self,
         credential: &DeviceCredential,
