@@ -1171,7 +1171,9 @@ def director_args(step, out):
     if kind == "a11y-action":
         return args + ["--a11y-action", f"{value[0]},{value[1]}"]
     if kind == "scale":
-        return args + ["--scale", str(value)]
+        # The primary output's scale in 120ths (150 is 1.25), or [id, scale]: that output's, its id
+        # from 1 in `outputs`' order.
+        return args + ["--scale", f"{value[0]}:{value[1]}" if isinstance(value, list) else str(value)]
     if kind == "wait":
         # Milliseconds of real time with no input: what fades on its own clock (a bezel, ADR 0025).
         return args + ["--wait", str(value)]

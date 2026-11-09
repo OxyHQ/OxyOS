@@ -174,6 +174,23 @@
         ],
         "react": {
           "key@message-actions": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "2": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "popup_events": {
+          "close@2": 1
+        },
+        "a11y_events": {
+          "focus@open-menu": 1
         }
       }
     },
@@ -272,7 +289,17 @@
             266,
             222
           ]
-        ]
+        ],
+        "delivered": {
+          "4": {
+            "focus.in": 1
+          },
+          "5": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
       }
     },
     {
@@ -330,6 +357,21 @@
         "popup_events": {
           "close@4": 1,
           "close@6": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "6": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1,
+            "popup.done": 1
+          }
+        },
+        "a11y_events": {
+          "focus@open-menu": 1
         }
       }
     }

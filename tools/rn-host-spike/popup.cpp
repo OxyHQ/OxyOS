@@ -94,6 +94,11 @@ OxyOSPositioner positioner(const OxyOSPopupViewProps& props, Rect anchor, Size s
     p.offset_y = offset(props.alignOffset);
     p.adjust = kFlipX | kSlideX | kSlideY;
   }
+  // A menu at a point (a context menu, opened where the pointer was) opens on the point's other
+  // side on either axis where it does not fit, as a Mac's: near the screen's right edge it hangs
+  // left of the pointer rather than sliding back under it, near the bottom above it. Only then is
+  // it slid, where neither side fits. A menu at its trigger slides along it instead (ADR 0002).
+  if (props.hasPoint) p.adjust = kFlipX | kFlipY | kSlideX | kSlideY;
   return p;
 }
 

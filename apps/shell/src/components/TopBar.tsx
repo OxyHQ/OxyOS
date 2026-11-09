@@ -51,13 +51,16 @@ import { SafeModeLabel } from "./SafeModeLabel";
 import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
-    and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
+    and separators. A choice calls `onCommand` with the entry's id; the menu closes. With
+    `shortcuts`, a command's chord chooses it too, as a press on its row would. */
 function MenuEntries({
   items,
   onCommand,
+  shortcuts,
 }: {
   items: readonly ShellMenuItem[];
   onCommand: (id: string) => void;
+  shortcuts: boolean;
 }) {
   return (
     <>
@@ -74,15 +77,18 @@ function MenuEntries({
             <MenubarSub key={item.id}>
               <MenubarSubTrigger disabled={item.enabled === false}>{item.label}</MenubarSubTrigger>
               <MenubarSubContent label={item.label}>
-                <MenuEntries items={item.items} onCommand={onCommand} />
+                <MenuEntries items={item.items} onCommand={onCommand} shortcuts={shortcuts} />
               </MenubarSubContent>
             </MenubarSub>
           );
         }
         // The chord as the session shows it (Ctrl, not the application's `Mod`), as the row's
-        // trailing hint. Never the row's `shortcut`: the application runs its own chords, and
-        // the shell would run them a second time.
+        // trailing hint. It is the row's `shortcut` too only while the bar has the keyboard (a
+        // menu open, or its titles from Super+F2): the window has it the rest of the time, and
+        // runs its own chords. With a menu open a chord chooses its command and closes the menu,
+        // as a Mac's key equivalent does while a menu is tracking (Bloom's Menubar closes it).
         const chord = item.shortcut ? <MenubarShortcut>{item.shortcut}</MenubarShortcut> : undefined;
+        const shortcut = shortcuts ? item.shortcut : undefined;
         if (item.checked !== undefined) {
           return (
             <MenubarCheckboxItem
@@ -90,6 +96,7 @@ function MenuEntries({
               checked={item.checked}
               disabled={item.enabled === false}
               trailing={chord}
+              shortcut={shortcut}
               onCheckedChange={() => onCommand(item.id)}
             >
               {item.label}
@@ -101,6 +108,7 @@ function MenuEntries({
             key={item.id}
             disabled={item.enabled === false}
             trailing={chord}
+            shortcut={shortcut}
             onPress={() => onCommand(item.id)}
           >
             {item.label}
@@ -887,6 +895,9 @@ const BarMenus = memo(function BarMenus({
   };
   const highlight = (value: string) =>
     focused === value ? { backgroundColor: keyboardHighlight } : undefined;
+  // A menu open (by a press or the keys) or a title with the keyboard: the window has none, so
+  // the commands' chords are the bar's to take.
+  const barHasKeyboard = open !== undefined || focused !== undefined;
   return (
     <Menubar
       label={messages.topBar.menuBar}
@@ -956,7 +967,7 @@ const BarMenus = memo(function BarMenus({
               </Button>
             </MenubarTrigger>
             <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
-              <MenuEntries items={menu.items} onCommand={command} />
+              <MenuEntries items={menu.items} onCommand={command} shortcuts={barHasKeyboard} />
             </MenubarContent>
           </MenubarMenu>
         );

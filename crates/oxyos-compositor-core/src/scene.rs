@@ -3172,6 +3172,14 @@ impl Scene {
     /// Sends PopupDone to `key` (if it is a child or privileged surface) and every descendant,
     /// releases their content and makes them inert until the client destroys them.
     fn dismiss(&mut self, key: SurfaceKey, reason: DismissReason) {
+        self.dismiss_tree(key, reason, true);
+    }
+
+    /// Dismisses `key` and the popups above it. The keyboard is settled once, by the popup the
+    /// others go with (`settle`): it goes from the top of the chain straight to where that one
+    /// gives it, so no popup going is told on the way that it has it (a submenu's dismissal used
+    /// to hand it for an instant to its menu going too).
+    fn dismiss_tree(&mut self, key: SurfaceKey, reason: DismissReason, settle: bool) {
         let Some(node) = self.nodes.get_mut(&key) else {
             return;
         };
@@ -3182,7 +3190,7 @@ impl Scene {
         node.dismissed = true;
         let children = node.children.clone();
         for child in children.iter().rev() {
-            self.dismiss(*child, reason);
+            self.dismiss_tree(*child, reason, false);
         }
         if shown {
             self.appeared(key, appearances::Change::Gone);
@@ -3197,11 +3205,29 @@ impl Scene {
         );
         self.release_all(key);
         self.detach_input(key);
+        if settle {
+            self.settle_focus(key);
+            // A popup going that still has the keyboard (outside the chain) gives it to the next
+            // window.
+            if self
+                .focus
+                .is_some_and(|focus| self.nodes.get(&focus).is_some_and(|node| node.dismissed))
+            {
+                self.set_focus(None);
+                self.focus_next();
+            }
+        }
+    }
+
+    /// The keyboard after `key` and the popups above it went: the grab chain ends below `key`, and
+    /// the keyboard goes to the popup below it, or, the chain empty, back to the surface that had
+    /// it before the grab (the next window when that one has gone).
+    fn settle_focus(&mut self, key: SurfaceKey) {
         if let Some(index) = self.grab.iter().position(|popup| *popup == key) {
             self.grab.truncate(index);
             if self.grab.is_empty() {
                 let restore = self.focus_before_grab.take();
-                self.set_focus(restore.filter(|k| self.focusable(*k)));
+                self.set_focus(restore.filter(|k| *k != key && self.focusable(*k)));
                 if self.focus.is_none() {
                     self.focus_next();
                 }
@@ -3209,10 +3235,6 @@ impl Scene {
                 let top = self.grab.last().copied();
                 self.set_focus(top);
             }
-        }
-        if self.focus == Some(key) {
-            self.set_focus(None);
-            self.focus_next();
         }
     }
 
@@ -3341,9 +3363,13 @@ impl Scene {
         let children = node.children.clone();
         let parent = node.parent;
         let popup = node.is_popup();
+        // A popup in the grab chain: its popups go with it and the keyboard is settled once, by
+        // it, below (the client destroying a menu with the keyboard in its submenu, a row chosen
+        // there, gives it from the submenu straight back to the window).
+        let settled_here = !node.dismissed && self.grab.contains(&key);
         for child in children {
             if self.nodes.get(&child).is_some_and(|n| !n.dismissed) {
-                self.dismiss(child, DismissReason::ParentGone);
+                self.dismiss_tree(child, DismissReason::ParentGone, !settled_here);
             }
             if let Some(orphan) = self.nodes.get_mut(&child) {
                 orphan.parent = None;
@@ -3358,21 +3384,7 @@ impl Scene {
             node.dismissed = true;
             self.release_all(key);
             self.detach_input(key);
-            if let Some(index) = self.grab.iter().position(|popup| *popup == key) {
-                self.grab.truncate(index);
-                if self.grab.is_empty() {
-                    let restore = self.focus_before_grab.take();
-                    self.set_focus(restore.filter(|k| *k != key && self.focusable(*k)));
-                    // Nothing to give it back to (the window it was opened over has gone): the
-                    // next window, as when the menu is dismissed.
-                    if self.focus.is_none() {
-                        self.focus_next();
-                    }
-                } else {
-                    let top = self.grab.last().copied();
-                    self.set_focus(top);
-                }
-            }
+            self.settle_focus(key);
         }
         if let Some(parent) = parent.and_then(|p| self.nodes.get_mut(&p)) {
             parent.children.retain(|child| *child != key);

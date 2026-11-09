@@ -296,6 +296,10 @@
    "allow_unchanged": true,
    "expect": {
     "popups": 0,
+    "focus_surface": 1,
+    "react": {"key@options-popover": 1, "focus@options": 1},
+    "delivered": {"1": {"focus.in": 1}, "2": {"focus.out": 1, "key.press": 1, "key.release": 1}},
+    "popup_events": {"close@2": 1},
     "keyboard_focus": {
      "target": "options",
      "ring": true,

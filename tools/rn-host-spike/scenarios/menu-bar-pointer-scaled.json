@@ -322,7 +322,13 @@
             }
           ]
         },
-        "react": {}
+        "react": {},
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
       }
     },
     {
@@ -584,7 +590,13 @@
           "new documents: 0",
           "wrap lines: on"
         ],
-        "react": {}
+        "react": {},
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
       }
     }
   ],

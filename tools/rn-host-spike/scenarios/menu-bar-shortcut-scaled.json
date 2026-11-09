@@ -1,0 +1,196 @@
+{
+  "about": "A command's chord with its menu open in the session's menu bar, as a Mac's key equivalent while a menu tracks (ADR 0021, decision 4): Allo (sample/MenuBarProbe.tsx, its menus in the shell's bar) with its note field focused, at 1.25 (menu-bar-shortcut.json is the same at 1). With File open by a press, Ctrl+N chooses New: it runs in the application once, the menu closes and the window has the keyboard, its field still focused. The same from File opened from the keys (Super+F2, Right, Right, Down), the bar left. With Edit open, a disabled Undo's Ctrl+Z and Ctrl+J, no command's, do nothing and the menu stays open; Down then Space chooses Wrap Lines once. Escape closes File choosing nothing, the keyboard back with the window. Before, the shell held the keyboard with a menu open and ran no chord: the menu stayed open and nothing ran. Every step checks what React receives, what the application is delivered, the focus and what the assistive technology holds.",
+  "locale": "es_ES.UTF-8",
+  "module": "MenuBarProbe",
+  "window": [600, 360],
+  "shell": "OxyOSShell",
+  "app": {"id": "so.oxy.allo", "title": "Allo"},
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "a press in the note field focuses it",
+      "do": ["press", [100, 90]],
+      "expect": {
+        "focus_input": "note",
+        "focus_surface": 1,
+        "react": {"touchStart@note": 1, "touchEnd@note": 1, "focus@note": 1, "selectionChange@note": 1},
+        "delivered": {"1": {"enter": 1, "press": 1, "release": 1}}
+      }
+    },
+    {
+      "name": "typing in it",
+      "do": ["type", "hola"],
+      "expect": {
+        "texts": ["hola"],
+        "react": {"change@note": 1, "selectionChange@note": 1},
+        "delivered": {"1": {"text_input": 1}}
+      }
+    },
+    {
+      "name": "a press on File opens it under its title, the keyboard its",
+      "do": ["press_output", [100, 14]],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {"texts": ["New", "Ctrl+N", "Open Recent"]},
+        "focus_surface": null,
+        "at": {"shell": [{"role": "Button", "name": "File", "state": ["expanded"]}]},
+        "react": {},
+        "delivered": {"1": {"focus.out": 1, "leave": 1}}
+      }
+    },
+    {
+      "name": "Ctrl+N with File open chooses New: it runs in the application once, the menu closes, the window has the keyboard back with its field focused",
+      "do": ["key", [29, 49]],
+      "expect": {
+        "texts": ["new documents: 1", "hola"],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "in_shell": {"absent": ["Open Recent"]},
+        "react": {"menuActivated@menu-bar": 1},
+        "delivered": {"1": {"focus.in": 1, "menu.activated": 1}},
+        "at": {"shell": [{"role": "Button", "name": "File", "state": ["collapsed", "focused"]}]}
+      }
+    },
+    {
+      "name": "what is typed goes to the field",
+      "do": ["type", "!"],
+      "expect": {
+        "texts": ["hola!", "new documents: 1"],
+        "react": {"keyPress@note": 1, "change@note": 1, "selectionChange@note": 1},
+        "delivered": {"1": {"text_input": 1}}
+      }
+    },
+    {
+      "name": "Super+F2 moves the keyboard to the bar",
+      "do": ["key", [125, 60]],
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"focus.out": 1}},
+        "focus_surface": null,
+        "at": {"shell": [{"role": "Button", "name": "Menú de Oxy", "state": ["collapsed", "focused"]}]}
+      }
+    },
+    {
+      "name": "Right: the application's menu",
+      "do": ["key", 106],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {"shell": [{"role": "Button", "name": "Allo", "state": ["collapsed", "focused"]}]}
+      }
+    },
+    {
+      "name": "Right: File",
+      "do": ["key", 106],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {"shell": [{"role": "Button", "name": "File", "state": ["collapsed", "focused"]}]}
+      }
+    },
+    {
+      "name": "Down opens File on New",
+      "do": ["key", 108],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "in_shell": {"texts": ["New", "Open Recent"]},
+        "at": {"shell": [{"role": "Button", "name": "File", "state": ["expanded"]}, {"role": "MenuItem", "name": "New", "state": ["focused"]}]}
+      }
+    },
+    {
+      "name": "Ctrl+N chooses New again: the menu closes and the bar is left, the keyboard and the assistive technology's focus back with the window",
+      "do": ["key", [29, 49]],
+      "expect": {
+        "texts": ["new documents: 2", "hola!"],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "in_shell": {"absent": ["Open Recent"]},
+        "react": {"menuActivated@menu-bar": 1},
+        "delivered": {"1": {"focus.in": 1, "menu.activated": 1}},
+        "at_absent": {"shell": [{"state": ["focused"]}, {"state": ["collapsed", "focused"]}, {"state": ["expanded", "focused"]}]},
+        "at": {"shell": [{"role": "Button", "name": "File", "state": ["collapsed"]}]}
+      }
+    },
+    {
+      "name": "a press on Edit opens it",
+      "do": ["press_output", [137, 14]],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {"texts": ["Undo", "Wrap Lines"]},
+        "focus_surface": null,
+        "react": {},
+        "delivered": {"1": {"focus.out": 1}}
+      }
+    },
+    {
+      "name": "Ctrl+Z, the disabled Undo's chord, does nothing: the menu stays open",
+      "do": ["key", [29, 44]],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {"texts": ["Undo", "Wrap Lines"]},
+        "focus_surface": null,
+        "react": {},
+        "delivered": {},
+        "texts": ["hola!"]
+      }
+    },
+    {
+      "name": "Ctrl+J, no command's chord, does nothing either",
+      "do": ["key", [29, 36]],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {"texts": ["Undo", "Wrap Lines"]},
+        "focus_surface": null,
+        "react": {},
+        "delivered": {},
+        "texts": ["new documents: 2"]
+      }
+    },
+    {
+      "name": "Down: Wrap Lines, its first enabled row",
+      "do": ["key", 108],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {"shell": [{"role": "CheckBox", "name": "Wrap Lines", "state": ["focused"]}]}
+      }
+    },
+    {
+      "name": "Space chooses Wrap Lines: it turns on once, the menu closes, the window has the keyboard",
+      "do": ["key", 57],
+      "expect": {
+        "texts": ["wrap lines: on", "new documents: 2"],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "in_shell": {"absent": ["Wrap Lines"]},
+        "react": {"menuActivated@menu-bar": 1},
+        "delivered": {"1": {"focus.in": 1, "menu.activated": 1}}
+      }
+    },
+    {
+      "name": "File by a press once more",
+      "do": ["press_output", [100, 14]],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {"texts": ["New"]},
+        "focus_surface": null,
+        "react": {},
+        "delivered": {"1": {"focus.out": 1}}
+      }
+    },
+    {
+      "name": "Escape closes it choosing nothing: the keyboard back with the window",
+      "do": ["key", 1],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {"absent": ["Open Recent"]},
+        "texts": ["new documents: 2", "wrap lines: on"],
+        "focus_input": "note",
+        "focus_surface": 1,
+        "react": {},
+        "delivered": {"1": {"focus.in": 1}}
+      }
+    }
+  ]
+}

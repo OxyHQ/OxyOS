@@ -511,7 +511,13 @@
         "texts": [
           "new documents: 0",
           "wrap lines: off"
-        ]
+        ],
+        "focus_surface": 1,
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        }
       }
     }
   ]

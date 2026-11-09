@@ -150,7 +150,11 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "launched": {
+            "focus.out": 1
+          }
+        },
         "shell": {
           "surfaces": [
             [
@@ -230,7 +234,11 @@
       ],
       "expect": {
         "react": {},
-        "delivered": {},
+        "delivered": {
+          "launched": {
+            "focus.in": 1
+          }
+        },
         "in_shell": {
           "absent": [
             "Mostrar todas las ventanas",
@@ -239,7 +247,8 @@
         },
         "output_pixels": {
           "922,996": "#64717a"
-        }
+        },
+        "focus_surface": null
       }
     },
     {
@@ -446,7 +455,8 @@
             "Mostrar todas las ventanas",
             "Salir"
           ]
-        }
+        },
+        "focus_surface": 1
       }
     },
     {

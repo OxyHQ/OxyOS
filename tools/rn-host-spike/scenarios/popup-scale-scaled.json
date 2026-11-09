@@ -1,0 +1,212 @@
+{
+  "about": "Popups through a change of their output's scale (ADR 0001, Popup lifecycle: logical geometry kept, the surfaces reconfigured at the new scale): PopupWindowProbe (sample/PopupWindowProbe.tsx) on one display, at 1.25 changed to 1 and back (popup-scale.json is the same from 1). Its menu, open with the keyboard, stays where it is against its trigger and is drawn at each scale; its logical width is 266 at 1 and 265 at 1.25 (the least whose device pixels hold its content), so the host places it again once at each change. It keeps the keyboard throughout: Down reaches it once at either scale, and Space chooses its row once, closing it with the keyboard back on its trigger. The context menu, opened where the area is pressed, goes through both changes the same way and takes a press on its row and Escape; the tooltip, which takes no keyboard, is drawn at each scale where it was. Each step checks the popups' rectangles and their frames' pixels, the window's, the compositor's focus, what each surface was delivered, exactly what React heard, the popups' events and where the assistive technology's focus went.",
+  "module": "PopupWindowProbe",
+  "window": [900, 600],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "a press on the page: the window is the active one",
+      "do": ["press", [600, 500]],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "window_rect": [190, 100, 900, 600],
+        "react": {"touchStart@settings-page": 1, "touchEnd@settings-page": 1},
+        "delivered": {"1": {"enter": 1, "press": 1, "release": 1}}
+      }
+    },
+    {
+      "name": "the menu opens under its trigger and takes the keyboard",
+      "do": ["press_named", "Actions"],
+      "expect": {
+        "popup_rects": [[524, 272, 265, 72]],
+        "focus_surface": 2,
+        "frame_px": {"popup": [332, 90]},
+        "react": {"touchStart@menu-trigger": 1, "touchEnd@menu-trigger": 1},
+        "popup_events": {"open@actions": 1},
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "press": 1, "release": 1}, "2": {"focus.in": 1}},
+        "texts": ["menu opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "the output's scale changes with the menu open: it stays at its trigger, drawn at the new scale and placed again for its width, the keyboard still its; nothing is delivered",
+      "do": ["scale", 120],
+      "expect": {
+        "popup_rects": [[524, 272, 266, 72]],
+        "focus_surface": 2,
+        "frame_px": {"window": [900, 600], "popup": [266, 72]},
+        "react": {},
+        "popup_events": {"reposition@actions": 1},
+        "delivered": {},
+        "texts": ["menu opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "Down reaches the menu once, at the new scale: its first row active",
+      "do": ["key", 108],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {"key@actions": 1},
+        "popup_events": {},
+        "delivered": {"2": {"key.press": 1, "key.release": 1}},
+        "at": {"popup": [{"role": "MenuItem", "name": "Archive", "state": ["focused"]}]}
+      }
+    },
+    {
+      "name": "the scale changes back: the menu as it was, its row still active",
+      "do": ["scale", 150],
+      "expect": {
+        "popup_rects": [[524, 272, 265, 72]],
+        "focus_surface": 2,
+        "frame_px": {"window": [1125, 750], "popup": [332, 90]},
+        "react": {},
+        "popup_events": {"reposition@actions": 1},
+        "delivered": {},
+        "at": {"popup": [{"role": "MenuItem", "name": "Archive", "state": ["focused"]}]}
+      }
+    },
+    {
+      "name": "Down: Delete active",
+      "do": ["key", 108],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {"key@actions": 1},
+        "popup_events": {},
+        "delivered": {"2": {"key.press": 1, "key.release": 1}},
+        "at": {"popup": [{"role": "MenuItem", "name": "Delete", "state": ["focused"]}]}
+      }
+    },
+    {
+      "name": "Space chooses Delete, once: the menu closes and the keyboard is back on its trigger",
+      "do": ["key", 57],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Delete", "menu opened 1, closed 1"],
+        "react": {"key@actions": 1},
+        "popup_events": {"close@2": 1},
+        "a11y_events": {"focus@menu-trigger": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "2": {"key.press": 1, "key.release": 1, "focus.out": 1}}
+      }
+    },
+    {
+      "name": "the context menu opens where the area is pressed",
+      "do": ["press_secondary_named", "Area"],
+      "expect": {
+        "popup_rects": [[664, 321, 265, 72]],
+        "focus_surface": 3,
+        "frame_px": {"popup": [332, 90]},
+        "react": {},
+        "popup_events": {"open@Context menu": 1},
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "press": 1, "release": 1}, "3": {"focus.in": 1}},
+        "texts": ["context opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "the scale changes with the context menu open: drawn at it where it was",
+      "do": ["scale", 120],
+      "expect": {
+        "popup_rects": [[664, 321, 266, 72]],
+        "focus_surface": 3,
+        "frame_px": {"window": [900, 600], "popup": [266, 72]},
+        "react": {},
+        "popup_events": {"reposition@Context menu": 1},
+        "delivered": {},
+        "texts": ["context opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "a press on its second row, in logical coordinates, chooses Duplicate once; the keyboard back on the area",
+      "do": ["press_popup", [60, 54]],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Duplicate", "context opened 1, closed 1"],
+        "react": {"touchStart@context-Duplicate": 1, "touchEnd@context-Duplicate": 1},
+        "popup_events": {"close@3": 1},
+        "a11y_events": {"focus@context-area": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "3": {"enter": 1, "press": 1, "release": 1, "focus.out": 1}}
+      }
+    },
+    {
+      "name": "the context menu again, at this scale",
+      "do": ["press_secondary_named", "Area"],
+      "expect": {
+        "popup_rects": [[664, 321, 266, 72]],
+        "focus_surface": 4,
+        "frame_px": {"popup": [266, 72]},
+        "react": {},
+        "popup_events": {"open@Context menu": 1},
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "press": 1, "release": 1}, "4": {"focus.in": 1}},
+        "texts": ["context opened 2, closed 1"]
+      }
+    },
+    {
+      "name": "the scale back with it open",
+      "do": ["scale", 150],
+      "expect": {
+        "popup_rects": [[664, 321, 265, 72]],
+        "focus_surface": 4,
+        "frame_px": {"window": [1125, 750], "popup": [332, 90]},
+        "react": {},
+        "popup_events": {"reposition@Context menu": 1},
+        "delivered": {},
+        "texts": ["context opened 2, closed 1"]
+      }
+    },
+    {
+      "name": "Escape closes it choosing nothing, the keyboard back on the area",
+      "do": ["key", 1],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": ["Chosen: Duplicate", "context opened 2, closed 2"],
+        "react": {"key@Context menu": 1},
+        "popup_events": {"close@4": 1},
+        "a11y_events": {"focus@context-area": 1},
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "4": {"focus.out": 1, "key.press": 1, "key.release": 1}}
+      }
+    },
+    {
+      "name": "the tooltip shows under its button, not taking the keyboard",
+      "do": ["press_named", "Help"],
+      "expect": {
+        "popup_rects": [[605, 271, 240, 37]],
+        "focus_surface": 1,
+        "react": {"touchStart@tip-trigger": 1, "touchEnd@tip-trigger": 1},
+        "popup_events": {"open@Explains the page": 1},
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "texts": ["tooltip opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "the scale changes with the tooltip shown: drawn at it where it was",
+      "do": ["scale", 120],
+      "expect": {
+        "popup_rects": [[605, 271, 240, 37]],
+        "focus_surface": 1,
+        "frame_px": {"window": [900, 600], "popup": [240, 37]},
+        "react": {},
+        "popup_events": {},
+        "delivered": {},
+        "texts": ["tooltip opened 1, closed 0"]
+      }
+    },
+    {
+      "name": "and back",
+      "do": ["scale", 150],
+      "expect": {
+        "popup_rects": [[605, 271, 240, 37]],
+        "focus_surface": 1,
+        "frame_px": {"window": [1125, 750], "popup": [300, 47]},
+        "react": {},
+        "popup_events": {},
+        "delivered": {},
+        "texts": ["tooltip opened 1, closed 0"]
+      }
+    }
+  ]
+}

@@ -6,7 +6,7 @@ order: 9
 
 # Desktop interaction coverage
 
-This page audits the regressions behind six areas of desktop interaction in the Bloom host and the compositor. For each behaviour the ADRs promise, it lists the scenarios (`tools/rn-host-spike/scenarios/*.json`) and unit tests that check it, what they assert, and the gap. The audit was made on 9 November 2026 against main at `049e10eb`. The regressions added with it, and with the input-method fixes that came before it (`ime-preedit`, `ime-japanese-interrupted`), are marked **added**.
+This page audits the regressions behind six areas of desktop interaction in the Bloom host and the compositor. For each behaviour the ADRs promise, it lists the scenarios (`tools/rn-host-spike/scenarios/*.json`) and unit tests that check it, what they assert, and the gap. The audit was made on 9 November 2026 against main at `049e10eb`. The regressions added with it, with the input-method fixes that came before it (`ime-preedit`, `ime-japanese-interrupted`), and with the menu and popup fixes after it (`popup-scale`, `popup-edges`, `menu-bar-shortcut`, each at 1 and 1.25), are marked **added**.
 
 The bar is the owner's: a regression must check the **expected result**, the **focus**, and the **exact events delivered**, with no duplicates and no leaks. A frame that changed is not enough.
 
@@ -101,11 +101,11 @@ Sources: [ADR 0021](./adr/0021-menu-bar), [ADR 0024](./adr/0024-system-shortcuts
 | Up and Down within a menu; disabled rows and separators skipped | `menu-bar-keyboard`, `text-field-menu`, `dock-menu`, `sample` | O (`at` focused row), D | Up skipping a disabled row is untested. So is wrapping past the last or first row. |
 | Submenus: → opens with the keyboard inside, ← and Escape close one level | `menu-submenu-keys(-scaled)`, `menu-bar-keyboard` | O, F (`focus_surface`), D (`popup_events`, `react`) | Escape inside a bar submenu is untested. |
 | **Type-select** | `sample` "typing d finds Delete"; `menu-bar-keyboard` "a letter finds its row…"; **added:** `menu-type-select(-scaled)` | **added:** O (`at`: the row active at every step), F (`focus_surface`), D (`key@message-actions` once per letter, `delivered`) | The added scenario covers a letter, the same letter again going on to the next row that starts with it and round to the first, two letters typed together as one query, and a letter matching nothing leaving the row. A query typed letter by letter at a person's pace is not deterministic: Bloom times its 500 ms with `Date.now()` when each key reaches JavaScript, not by the keys' times ([the adaptation's](./react-native-android-adaptation) known limit, Bloom's to fix). |
-| Return chooses once; Escape chooses nothing; the keyboard goes back to the trigger | `menu-bar-keyboard` (Return, Escape twice: O, F, D); `sample` "Escape closes it without choosing" (`a11y_events focus@open-menu`); **added:** `menu-type-select` (both, with `a11y_events`, `focus_surface` and `delivered`) | O, F, D | `menu-submenu-keys` "Enter chooses…" asserts no return to the trigger. In `menu-bar-pointer` and `menu-bar-morph`, Escape after a pointer-opened bar menu asserts neither `focus_surface` nor `delivered`, which ADR 0021 step 4 promises. So does Escape in `battery-menu`, `backup-menu` and `dock-menu`. |
-| Space chooses a row | — | — | Untested. |
-| An item's shortcut pressed with its menu open | — | — | Untested. For bar menus the shell holds the keyboard and never runs chords. |
-| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys` | O, F, speech | No `delivered`, and no row is ever chosen. The menu never opens for a focused text field, or for a control focused by a press: `navigationKey` returns before it (`bloom-host.cpp`). This contradicts ADR 0039 decision 9. |
-| Popover: Tab stays inside, Escape returns | `keyboard-popover(-scaled)` | F, speech | No `react` or `delivered` on any step. |
+| Return chooses once; Escape chooses nothing; the keyboard goes back to the trigger | `menu-bar-keyboard` (Return, Escape twice: O, F, D); `sample` "Escape closes it without choosing" (`a11y_events focus@open-menu`); **added:** `menu-type-select` (both, with `a11y_events`, `focus_surface` and `delivered`); `focus_surface` and `delivered` on Escape in `menu-bar-pointer`, `menu-bar-morph` (every variant), `battery-menu`, `backup-menu` and `dock-menu` (the launched Inbox given the keyboard back, `launched`), each at 1.25 too; `a11y_events focus@open-menu`, `popup_events` and `delivered` on Enter in `menu-submenu-keys(-scaled)`; Escape and Return in `popup-scale` and `popup-edges` (menu and context menu) | O, F, D | **Bug fixed:** a row chosen in a submenu closes its menu, and the compositor told the menu going `focus.in` and `focus.out` on the way from the submenu back to the window. The keyboard now goes straight back (`menu-submenu-keys` "Enter chooses Copy link"; scene `a_menu_closed_from_its_submenu_gives_the_keyboard_straight_back`, also for an outside press). |
+| Space chooses a row | **added:** `popup-scale(-scaled)` (an in-window menu: Delete chosen once, `key@actions` once), `menu-bar-shortcut(-scaled)` (a bar menu: Wrap Lines chosen once, `menuActivated` once) | O, F, D | — |
+| An item's shortcut pressed with its menu open | **added:** `menu-bar-shortcut(-scaled)`: Ctrl+N with File open by a press and from the keys, a disabled Undo's Ctrl+Z, a chord no command has | O (the command run once, the menu closed), F (`focus_surface`, `focus_input`, the reader's focus), D (`menuActivated` once) | **Bug fixed:** with a bar menu open the shell holds the keyboard, and a chord reached nothing, the menu staying open. The bar's commands now take their chords while the bar has the keyboard, as a Mac's key equivalents while a menu tracks (ADR 0021, decision 4). In-window menus have no chords of their own: Bloom's `DropdownMenuShortcut` is a hint, and a `Menubar` in the window already closes its open menu after a chord. |
+| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys`; **added:** `react`, `delivered` and `focus_surface` on its three Escapes | O, F, speech; D on Escape | No row is ever chosen. The menu never opens for a focused text field, or for a control focused by a press: `navigationKey` returns before it (`bloom-host.cpp`). This contradicts ADR 0039 decision 9. |
+| Popover: Tab stays inside, Escape returns | `keyboard-popover(-scaled)`; **added:** Escape's `react`, `delivered`, `popup_events` and `focus_surface` | F, speech; O, F, D on Escape | No `react` or `delivered` on the Tab steps. |
 | Menus inside a popover, sheet or modal | — | — | Untested. |
 
 ## 4. Popups following their windows
@@ -118,10 +118,10 @@ Sources: [ADR 0001](./adr/0001-native-platform-boundaries) (its table against a 
 | The same at 1.25 | `popup-follows-scaled`, `popup-window-scaled` | O, F, D | — |
 | Placed again after a resize, at 1 and at 1.25 | `sample` (no F or `delivered`); **added:** `popup-follows`, and `focus_surface` and `delivered` in `popup-follows-scaled` | O (`popup_rect`, `frame_px`, `reposition` counted), F, D | Growing the window back repositions twice on purpose. First the anchor is kept within the frame still shown, then the trigger is used once the larger frame is shown. Two different places, not a duplicate. The pointer enters or leaves the menu as the menu moves under it, and that is delivered. |
 | It keeps the keyboard and takes input after moving and resizing | **added:** `popup-follows(-scaled)` Home, then a press on a row | O (`at` row), F, D (`key` once; the close's `focus.in` and `enter` exact) | The menu moving under the still pointer moves its active row, as a Mac's highlight follows the pointer: Down after the resizes lands past the row the menu was opened on. The scenario uses Home, which does not depend on it. |
-| Moved to a display of another scale | `popup-window-displays(-scaled)` (1→1.25 and back) | O, F, D | 1→2 only on the scene. |
-| Output scale changed with a menu open | `sample` (1→1.5: size only) | O, F, D | **None at 1.25,** none where the popup's logical size changes, none through Settings, none on a second output. |
-| Flip or slide at the output's edge, the dock's work area | `placement.rs` and scene tests | geometry | **No scenario.** |
-| Context menus, popovers, submenu chains on move, resize or display change | — | — | **None.** |
+| Moved to a display of another scale | `popup-window-displays(-scaled)` (1→1.25 and back); **added:** `delivered` on every step, `a11y_events` and `popup_events` as the menu closes | O, F, D | 1→2 only on the scene. |
+| Output scale changed with a menu open | `sample` (1→1.5: size only); **added:** `popup-scale` (1→1.25→1) and `popup-scale-scaled` (1.25→1→1.25): a menu, a context menu and a tooltip, each open through both changes; `popup-window-displays(-scaled)`: the second display's scale changed with the menu on it (`scale` takes an output, `[2, 120]`) | O (rects; the menu's logical width 266 at 1 and 265 at 1.25, so placed again once, `reposition` exact; frames at each scale), F, D (nothing delivered; a key, Space and a press on a row after, each once) | None through Settings. |
+| Flip or slide at the output's edge, the dock's work area | `placement.rs` and scene tests; **added:** `popup-edges(-scaled)`: a menu under its trigger near the bottom opens above it; a context menu near the bottom-right corner opens left of and above its point; a menu near the right edge slides along it; the window moved down with its menu open, the menu is placed above its trigger in the same move, keeping the keyboard, then End and Return choose a row | O (rects), F, D | **Bug fixed:** a context menu at a point near the right edge slid back under the pointer; it now flips as a Mac's (`popup.cpp`, ADR 0002). No scenario has the dock's work area. |
+| Context menus, popovers, submenu chains on move, resize or display change | **added:** a context menu through scale changes (`popup-scale`) and at the screen's edge (`popup-edges`) | O, F, D | Popovers and submenu chains: none. |
 | Output removed with a popup open | scene `output_scale_change_reconfigures_and_output_removal_dismisses_popups` | the reason only | No scenario. No `do` action unplugs an output. |
 | The window closed, minimized or zoomed with a menu open | `popup-window(-scaled)` (Super+M, the zoom bubble) | O, F, D | The close bubble with a menu open, and zoom with a tooltip, are untested. |
 | A file chooser's sheet follows its window | scene `a_sheet_moves_with_its_window_and_its_drag_moves_the_window` | geometry | No scenario. The sheet is centred once, when it attaches, and is not re-centred when its window resizes (`choosers.rs`). |
@@ -278,16 +278,19 @@ These are listed for their owners to decide. This change fixes none of them.
 4. **Momentum** must only slow, and a click stops a glide (`flick_press`): `touchpad-hold(-scaled)`. Scroll into view was already complete at both scales (`scroll-reveal`).
 5. **The reader's order through a window, both ways and its ends:** `screen-reader`.
 
+**Closed after it**, each asserting outcome, focus and exact deliveries, at 1 and at 1.25:
+
+6. **Popups through a scale change and at the screen's edge:** `popup-scale`, `popup-edges`, and the second display's scale in `popup-window-displays`. A context menu near the right edge flips (bug fixed).
+7. **Menus' keys:** Space chooses a row; a bar command's chord with its menu open chooses it and closes the menu (bug fixed: `menu-bar-shortcut`); focus and deliveries on Escape in `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, and on Enter in `menu-submenu-keys`, where the menu was told it had the keyboard for an instant as its submenu closed (bug fixed).
+
 **Open, most important first:**
 
-1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
-2. Ctrl+Delete, undo after a cut, and undo splits. `field` is missing from `text-editing` and `text-selection`.
-3. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
-4. Shift+F10 and the Menu key never open a focused text field's menu (`navigationKey`).
-5. A glide stopped by a wheel or new fingers. These stops ignore the input's surface.
-6. Nested and horizontal scrolling. The scroll actions need a horizontal distance.
-7. The reader crossing surfaces. The order is when trees arrived, undocumented.
-8. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
-9. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
-10. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
-11. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
+1. Ctrl+Delete, undo after a cut, and undo splits. `field` is missing from `text-editing` and `text-selection`.
+2. Shift+F10 and the Menu key never open a focused text field's menu (`navigationKey`).
+3. A glide stopped by a wheel or new fingers. These stops ignore the input's surface.
+4. Nested and horizontal scrolling. The scroll actions need a horizontal distance.
+5. The reader crossing surfaces. The order is when trees arrived, undocumented.
+6. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
+7. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
+8. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
+9. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
