@@ -26,7 +26,11 @@ jobs:
       matrix:
         runner: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    # Twenty minutes for building and testing, and ten more at most for the system's packages (their
+    # own step's limit below): a slow mirror fails that step, saying so, and never eats the build's.
+    timeout-minutes: 30
+    env:
+      APT_PACKAGES: libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - id: toolchain
@@ -43,7 +47,56 @@ jobs:
       # headers with libclang (docs/adr/0044-system-sounds.mdx).
       # oxyos-audio's tests follow and change a PipeWire daemon of their own, with PipeWire's own
       # tools (pipewire-bin: pipewire, pw-cli, pw-metadata; docs/adr/0056-sound-devices.mdx).
-      - run: sudo apt-get update -q && sudo apt-get install -y -q libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
+      #
+      # The packages are kept between runs (actions/cache), so a slow archive mirror cannot hold the
+      # gate up: the key is the package list and the runner's image, whose apt sources and installed
+      # packages decide what apt fetches. On a hit the indexes and .debs it saved install with no
+      # network at all (--no-download). Otherwise the newest cache of an older image lends its .debs,
+      # apt fetches only what they lack, and the result is saved for the next run, right away, so a
+      # run cancelled later still leaves it.
+      - id: apt-key
+        run: |
+          image="${ImageOS:-$(. /etc/os-release && echo "$ID$VERSION_ID")}"
+          packages=$(printf '%s' "$APT_PACKAGES" | sha256sum | cut -c1-16)
+          echo "prefix=apt-$image-$RUNNER_ARCH-$packages-" >> "$GITHUB_OUTPUT"
+          echo "key=apt-$image-$RUNNER_ARCH-$packages-${ImageVersion:-unversioned}" >> "$GITHUB_OUTPUT"
+      - id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-cache
+          key: ${{ steps.apt-key.outputs.key }}
+          restore-keys: ${{ steps.apt-key.outputs.prefix }}
+      - name: The system's packages
+        timeout-minutes: 10
+        env:
+          HIT: ${{ steps.apt-cache.outputs.cache-hit }}
+        run: |
+          cache=~/apt-cache
+          if compgen -G "$cache/archives/*.deb" > /dev/null; then
+            sudo cp "$cache"/archives/*.deb /var/cache/apt/archives/
+          fi
+          if [ "$HIT" = true ] && [ -d "$cache/lists" ]; then
+            sudo cp "$cache"/lists/* /var/lib/apt/lists/
+            if sudo apt-get install -y -q --no-download $APT_PACKAGES; then
+              exit 0
+            fi
+            echo "::warning::The cached packages did not install alone; fetching what they lack"
+          fi
+          sudo apt-get update -q -o Acquire::Retries=3
+          sudo apt-get install -y -q -o Acquire::Retries=3 $APT_PACKAGES
+          sudo apt-get autoclean -q
+          rm -rf "$cache" && mkdir -p "$cache/archives" "$cache/lists"
+          if ! compgen -G "/var/cache/apt/archives/*.deb" > /dev/null; then
+            echo "::warning::apt kept no packages to cache"
+          else
+            cp /var/cache/apt/archives/*.deb "$cache/archives/"
+          fi
+          find /var/lib/apt/lists -maxdepth 1 -type f ! -name lock -exec cp -t "$cache/lists/" {} +
+      - if: steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-cache
+          key: ${{ steps.apt-key.outputs.key }}
       - run: cargo fmt --all --check
       - run: cargo test --workspace --locked
         env:
