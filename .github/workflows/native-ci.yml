@@ -3,7 +3,7 @@ name: Native foundation
 on:
   push:
     branches: [main]
-    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml']
+    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml', 'scripts/**', 'ruff.toml']
   # Every pull request and every merge queue entry: its jobs are required checks of main
   # (docs/developing.mdx), so they report whatever a change touches.
   pull_request:
@@ -135,6 +135,11 @@ jobs:
           sudo "$offscreen" --ignored --exact uinput::tests::libinput_counts_the_virtual_touchpads_swipes_and_pinches_of_three_and_four_fingers
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: python3 scripts/check-native-boundary.py
+      # The Python (ruff.toml: pyflakes, syntax errors, bugbear; lint only), once: the same files on
+      # either architecture.
+      - name: Ruff
+        if: matrix.runner == 'ubuntu-latest'
+        run: pipx run ruff==0.17.4 check .
       # regress.py's own checks (the input-delivery invariant) on records written by hand.
       - run: python3 tools/rn-host-spike/test_regress.py
       # The scenario gate's builds below every gate's scenarios (tools/gate/run-scenarios.sh).
