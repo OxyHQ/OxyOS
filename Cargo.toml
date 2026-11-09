@@ -1,5 +1,63 @@
 [workspace]
-members = ["crates/oxyos-protocol", "crates/oxyos-compositor-core", "crates/oxyos-ipc", "crates/oxyos-seqpacket", "crates/oxyos-client", "crates/oxyos-client-ffi", "crates/oxyos-gpu", "crates/oxyos-dmabuf", "crates/oxyos-paint", "crates/oxyos-gpu-device", "crates/oxyos-kms", "crates/oxyos-input", "crates/oxyos-vt", "crates/oxyos-seat", "crates/oxyos-compositor", "crates/oxyos-net", "tools/oxyos-platform-probe", "tools/oxyos-kms-probe", "tools/oxyos-kms-show", "tools/oxyos-offscreen", "tools/oxyos-session", "crates/oxyos-image", "crates/oxyos-vector", "crates/oxyos-gestures", "crates/oxyos-intl", "crates/oxyos-auth", "crates/oxyos-solar", "crates/oxyos-apps", "crates/oxyos-app-storage", "crates/oxyos-speech", "crates/oxyos-sound", "crates/oxyos-audio", "tools/oxyos-reader", "crates/oxyos-preferences", "crates/oxyos-wallpaper", "tools/oxyos-boot-logo", "crates/oxyos-account", "crates/oxyos-keychain", "crates/oxyos-controls", "crates/oxyos-input-methods", "crates/oxyos-networks", "crates/oxyos-power", "crates/oxyos-activity", "crates/oxyos-bluetooth", "crates/oxyos-files", "crates/oxyos-search", "tools/oxyos-accountd", "tools/oxyos-login", "crates/oxyos-package", "crates/oxyos-install", "tools/oxyos-installd", "tools/oxyos-pack", "tools/oxyos-gpu-client", "crates/oxyos-recovery", "tools/oxyos-recovery", "crates/oxyos-backup", "tools/oxyos-backupd"]
+members = [
+  "crates/oxyos-account",
+  "crates/oxyos-activity",
+  "crates/oxyos-app-storage",
+  "crates/oxyos-apps",
+  "crates/oxyos-audio",
+  "crates/oxyos-auth",
+  "crates/oxyos-backup",
+  "crates/oxyos-bluetooth",
+  "crates/oxyos-client",
+  "crates/oxyos-client-ffi",
+  "crates/oxyos-compositor",
+  "crates/oxyos-compositor-core",
+  "crates/oxyos-controls",
+  "crates/oxyos-dmabuf",
+  "crates/oxyos-files",
+  "crates/oxyos-gestures",
+  "crates/oxyos-gpu",
+  "crates/oxyos-gpu-device",
+  "crates/oxyos-image",
+  "crates/oxyos-input",
+  "crates/oxyos-input-methods",
+  "crates/oxyos-install",
+  "crates/oxyos-intl",
+  "crates/oxyos-ipc",
+  "crates/oxyos-keychain",
+  "crates/oxyos-kms",
+  "crates/oxyos-net",
+  "crates/oxyos-networks",
+  "crates/oxyos-package",
+  "crates/oxyos-paint",
+  "crates/oxyos-power",
+  "crates/oxyos-preferences",
+  "crates/oxyos-protocol",
+  "crates/oxyos-recovery",
+  "crates/oxyos-search",
+  "crates/oxyos-seat",
+  "crates/oxyos-seqpacket",
+  "crates/oxyos-solar",
+  "crates/oxyos-sound",
+  "crates/oxyos-speech",
+  "crates/oxyos-vector",
+  "crates/oxyos-vt",
+  "crates/oxyos-wallpaper",
+  "tools/oxyos-accountd",
+  "tools/oxyos-backupd",
+  "tools/oxyos-boot-logo",
+  "tools/oxyos-gpu-client",
+  "tools/oxyos-installd",
+  "tools/oxyos-kms-probe",
+  "tools/oxyos-kms-show",
+  "tools/oxyos-login",
+  "tools/oxyos-offscreen",
+  "tools/oxyos-pack",
+  "tools/oxyos-platform-probe",
+  "tools/oxyos-reader",
+  "tools/oxyos-recovery",
+  "tools/oxyos-session",
+]
 resolver = "2"
 
 [workspace.package]
@@ -7,11 +65,96 @@ edition = "2021"
 rust-version = "1.88"
 publish = false
 
+[workspace.dependencies]
+# Third-party crates more than one member uses: one version requirement and the features they
+# all need; a member adds its own (`foo = { workspace = true, features = [...] }`).
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+ash = { version = "0.38", default-features = false, features = ["loaded", "std"] }
+async-channel = "2"
+async-io = "2"
+base64 = "0.23"
+ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
+data-encoding = "2.11.1"
+drm = "0.15"
+evdev = "0.13"
+futures-lite = "2"
+jiff = { version = "0.2", default-features = false, features = ["std"] }
+libc = "0.2"
+pipewire = { version = "0.10", features = ["v0_3_49"] }
+png = "0.18"
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+ring = "0.17.14"
+rustix = { version = "1.1.6", default-features = false }
+serde = "1"
+serde_json = "1"
+sha1 = "0.10.7"
+sha2 = "0.10.9"
+signal-hook = { version = "0.3", default-features = false }
+subtle = "2"
+tempfile = "3"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
+url = "2"
+zbus = "5"
+zeroize = "1"
+
+# The workspace's own crates, by one path each.
+oxyos-account = { path = "crates/oxyos-account", default-features = false }
+oxyos-activity = { path = "crates/oxyos-activity" }
+oxyos-app-storage = { path = "crates/oxyos-app-storage" }
+oxyos-apps = { path = "crates/oxyos-apps" }
+oxyos-audio = { path = "crates/oxyos-audio" }
+oxyos-auth = { path = "crates/oxyos-auth" }
+oxyos-backup = { path = "crates/oxyos-backup" }
+oxyos-backupd = { path = "tools/oxyos-backupd" }
+oxyos-bluetooth = { path = "crates/oxyos-bluetooth" }
+oxyos-client = { path = "crates/oxyos-client" }
+oxyos-compositor = { path = "crates/oxyos-compositor" }
+oxyos-compositor-core = { path = "crates/oxyos-compositor-core" }
+oxyos-controls = { path = "crates/oxyos-controls" }
+oxyos-dmabuf = { path = "crates/oxyos-dmabuf" }
+oxyos-files = { path = "crates/oxyos-files", default-features = false }
+oxyos-gestures = { path = "crates/oxyos-gestures" }
+oxyos-gpu = { path = "crates/oxyos-gpu" }
+oxyos-gpu-device = { path = "crates/oxyos-gpu-device" }
+oxyos-image = { path = "crates/oxyos-image" }
+oxyos-input = { path = "crates/oxyos-input" }
+oxyos-input-methods = { path = "crates/oxyos-input-methods" }
+oxyos-install = { path = "crates/oxyos-install" }
+oxyos-intl = { path = "crates/oxyos-intl" }
+oxyos-ipc = { path = "crates/oxyos-ipc" }
+oxyos-keychain = { path = "crates/oxyos-keychain" }
+oxyos-kms = { path = "crates/oxyos-kms" }
+oxyos-net = { path = "crates/oxyos-net" }
+oxyos-networks = { path = "crates/oxyos-networks" }
+oxyos-package = { path = "crates/oxyos-package" }
+oxyos-paint = { path = "crates/oxyos-paint" }
+oxyos-power = { path = "crates/oxyos-power" }
+oxyos-preferences = { path = "crates/oxyos-preferences" }
+oxyos-protocol = { path = "crates/oxyos-protocol" }
+oxyos-recovery = { path = "crates/oxyos-recovery" }
+oxyos-search = { path = "crates/oxyos-search" }
+oxyos-seat = { path = "crates/oxyos-seat" }
+oxyos-seqpacket = { path = "crates/oxyos-seqpacket" }
+oxyos-solar = { path = "crates/oxyos-solar" }
+oxyos-sound = { path = "crates/oxyos-sound" }
+oxyos-speech = { path = "crates/oxyos-speech" }
+oxyos-vector = { path = "crates/oxyos-vector" }
+oxyos-vt = { path = "crates/oxyos-vt" }
+oxyos-wallpaper = { path = "crates/oxyos-wallpaper" }
+
+# One lint policy for every member (`[lints] workspace = true`). `unsafe` is denied, not forbidden,
+# so the crates that need it (the C ABI, mlock, ioctls, a getsockopt rustix lacks) can allow it
+# where it is used, documented; scripts/check-native-boundary.py keeps the list of those crates,
+# and fails on an `allow(unsafe_code)` anywhere else.
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
-all = "warn"
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
 
 # Argon2id at the keychain's cost (64 MiB, three passes) takes seconds unoptimized; tests derive
 # keybag keys at that cost, so its crates are optimized in debug builds too.

@@ -12,47 +12,39 @@ x25519-dalek = { version = "2.0.1", default-features = false, features = ["stati
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 hkdf = "0.12.4"
 hmac = "0.12.1"
-sha1 = "0.10.7"
-sha2 = "0.10.9"
+sha1.workspace = true
+sha2.workspace = true
 # The keybag's key from the account's password (OxyOS ADR 0050 decision 2).
-argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+argon2.workspace = true
 # The system's CSPRNG (getrandom), and uniform draws from it.
-rand_core = { version = "0.6.4", features = ["getrandom"] }
+rand_core.workspace = true
 rand = { version = "0.8.5", default-features = false, features = ["std", "getrandom"] }
 # Secrets overwritten when dropped.
-zeroize = { version = "1", features = ["derive"] }
+zeroize = { workspace = true, features = ["derive"] }
 # The wire's JSON, its RFC 8785 canonical form, base64url and Crockford base32.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 serde_json_canonicalizer = "0.4.1"
-base64 = "0.23"
-data-encoding = "2.11.1"
+base64.workspace = true
+data-encoding.workspace = true
 # The otpauth:// URI of a verification code, decoded into buffers that are overwritten.
 percent-encoding = "2"
 # Comparing a typed-back recovery key and a commitment in constant time.
-subtle = "2"
+subtle.workspace = true
 # A weak password is one zxcvbn estimates under 10⁸ guesses (ADR 0050 decision 8), as Dropbox's.
 zxcvbn = { version = "3", default-features = false }
 # The store's checks: the effective user, opening without following a link; locking keys in
 # memory (mlock) and the page size.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "process", "fs", "mm", "param"] }
+rustix = { workspace = true, features = ["std", "process", "fs", "mm", "param"] }
 # Passkeys (OxyOS ADR 0050 decision 7): ES256 keys and signatures from RustCrypto's P-256, kept as
 # PKCS #8; WebAuthn's CBOR (the COSE key, the attestation object) from ciborium.
 p256 = { version = "0.13.2", default-features = false, features = ["std", "ecdsa", "pkcs8", "arithmetic"] }
-ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
+ciborium.workspace = true
 
 [dev-dependencies]
 hex = "0.4"
 # An independent verifier of the passkeys' signatures: ring's ECDSA, not RustCrypto's.
-ring = "0.17.14"
+ring.workspace = true
 
-[lints.rust]
-# The workspace forbids `unsafe`. Locking keys in memory needs mlock(2), which takes an address:
-# this crate denies it instead and allows it in `memory` alone, saying why each call is sound.
-unsafe_code = "deny"
-unsafe_op_in_unsafe_fn = "deny"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
-undocumented_unsafe_blocks = "deny"
-missing_safety_doc = "deny"
+[lints]
+workspace = true

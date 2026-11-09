@@ -6,13 +6,13 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-oxyos-account = { path = "../../crates/oxyos-account" }
+oxyos-account = { workspace = true, default-features = true }
 # The administrator's password that authorizes erasing the machine, checked by PAM and throttled as
 # the lock checks one (src/passwords.rs).
-oxyos-auth = { path = "../../crates/oxyos-auth" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+oxyos-auth.workspace = true
+rustix = { workspace = true, features = ["std", "process"] }
 # The PIN read from PAM, overwritten once handed on (oxyos-pin-check).
-zeroize = "1"
+zeroize.workspace = true
 
 [lints]
 workspace = true

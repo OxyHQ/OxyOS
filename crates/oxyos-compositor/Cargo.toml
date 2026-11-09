@@ -6,66 +6,66 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-oxyos-protocol = { path = "../oxyos-protocol" }
-oxyos-compositor-core = { path = "../oxyos-compositor-core" }
-oxyos-ipc = { path = "../oxyos-ipc" }
+oxyos-protocol.workspace = true
+oxyos-compositor-core.workspace = true
+oxyos-ipc.workspace = true
 # Buffers of a display's own card, scanned out directly (tests/scanout.rs).
-drm = "0.15"
-oxyos-gpu = { path = "../oxyos-gpu" }
-oxyos-dmabuf = { path = "../oxyos-dmabuf" }
-oxyos-vector = { path = "../oxyos-vector" }
-oxyos-kms = { path = "../oxyos-kms" }
-oxyos-input = { path = "../oxyos-input" }
-oxyos-vt = { path = "../oxyos-vt" }
-oxyos-seat = { path = "../oxyos-seat" }
-oxyos-preferences = { path = "../oxyos-preferences" }
-oxyos-solar = { path = "../oxyos-solar" }
-oxyos-auth = { path = "../oxyos-auth" }
-oxyos-controls = { path = "../oxyos-controls" }
+drm.workspace = true
+oxyos-gpu.workspace = true
+oxyos-dmabuf.workspace = true
+oxyos-vector.workspace = true
+oxyos-kms.workspace = true
+oxyos-input.workspace = true
+oxyos-vt.workspace = true
+oxyos-seat.workspace = true
+oxyos-preferences.workspace = true
+oxyos-solar.workspace = true
+oxyos-auth.workspace = true
+oxyos-controls.workspace = true
 # The sound's outputs and inputs, through PipeWire (docs/adr/0056-sound-devices.mdx).
-oxyos-audio = { path = "../oxyos-audio" }
+oxyos-audio.workspace = true
 # The system's sounds (docs/adr/0044-system-sounds.mdx).
-oxyos-sound = { path = "../oxyos-sound" }
+oxyos-sound.workspace = true
 # The input-method engine and the session as its frontend (ADR 0041).
-oxyos-input-methods = { path = "../oxyos-input-methods" }
+oxyos-input-methods.workspace = true
 # The install service, for the store's, Settings' and applications' requests (ADR 0030).
-oxyos-install = { path = "../oxyos-install" }
+oxyos-install.workspace = true
 # What a file chooser's answer may name, by the rule applications' files follow (ADR 0029,
 # decision 8; ADR 0028), without the service's transfers.
-oxyos-files = { path = "../oxyos-files", default-features = false }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+oxyos-files.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 # AutoFill's credentials overwritten when they go (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
-zeroize = { version = "1", features = ["serde"] }
+zeroize = { workspace = true, features = ["serde"] }
 # Wi-Fi and networks through NetworkManager (docs/adr/0038-networks.mdx).
-oxyos-networks = { path = "../oxyos-networks" }
+oxyos-networks.workspace = true
 # The applications the shell lists, which the session's search is told (docs/adr/0051-search.mdx).
-oxyos-apps = { path = "../oxyos-apps" }
+oxyos-apps.workspace = true
 # Bluetooth (docs/adr/0055-bluetooth.mdx): BlueZ followed and the pairing agent served by
 # oxyos-bluetooth on a thread of the session's, its commands sent over an async channel.
-oxyos-bluetooth = { path = "../oxyos-bluetooth" }
-async-channel = "2"
+oxyos-bluetooth.workspace = true
+async-channel.workspace = true
 # Battery and energy: UPower's details, power-profiles-daemon, logind's sleep, the history and
 # each application's use (docs/adr/0057-battery-and-energy.mdx).
-oxyos-power = { path = "../oxyos-power" }
+oxyos-power.workspace = true
 # Activity Monitor's samplers: the machine's use and every process's (docs/adr/0063-activity-monitor.mdx).
-oxyos-activity = { path = "../oxyos-activity" }
+oxyos-activity.workspace = true
 # The backup service's socket and its vocabulary (docs/adr/0059-backups.mdx).
-oxyos-backup = { path = "../oxyos-backup" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "fs"] }
+oxyos-backup.workspace = true
+rustix = { workspace = true, features = ["std", "event", "time", "pipe", "fs"] }
 # Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): encoded as PNG (image-rs's png, as
 # oxyos-image decodes), named by the local time (jiff, as oxyos-solar finds the sun).
-png = "0.18"
-jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+png.workspace = true
+jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
 
 [dev-dependencies]
-oxyos-client = { path = "../oxyos-client" }
+oxyos-client.workspace = true
 # Only cards that drive displays are opened (tests/scanout.rs).
-oxyos-gpu-device = { path = "../oxyos-gpu-device" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "pipe", "fs", "thread", "net"] }
-oxyos-ipc = { path = "../oxyos-ipc" }
+oxyos-gpu-device.workspace = true
+rustix = { workspace = true, features = ["std", "pipe", "fs", "thread", "net"] }
+oxyos-ipc.workspace = true
 # Buffers of a display's own card, scanned out directly (tests/scanout.rs).
-drm = "0.15"
+drm.workspace = true
 
 [lints]
 workspace = true

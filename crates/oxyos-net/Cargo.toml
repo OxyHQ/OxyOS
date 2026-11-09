@@ -7,24 +7,24 @@ publish.workspace = true
 
 [dependencies]
 # HTTP with TLS in Rust (rustls, verified against the system's certificates).
-ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier", "gzip", "brotli"] }
+ureq = { workspace = true, features = ["gzip", "brotli"] }
 # The process's cookie jar; redirects are followed here so each hop's cookies are kept and sent.
 cookie_store = { version = "0.22", default-features = false }
-url = "2"
+url.workspace = true
 # rtnetlink, told of every link, address and route change (connectivity.rs).
-rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "event"] }
+rustix = { workspace = true, features = ["std", "net", "event"] }
 # WebSockets (websocket.rs): the protocol is tungstenite's, over a TLS of rustls (the one ureq
 # builds) verified as ureq verifies, against the system's certificates.
-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tungstenite.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-platform-verifier = "0.7"
 # A proxy's answer to CONNECT, and its credentials (both tungstenite's own dependencies).
 httparse = "1"
-data-encoding = "2"
+data-encoding.workspace = true
 
 # The HTTP cache (cache.rs): its entries' file names (SHA-256 of their URL) and HTTP's dates.
-sha2 = "0.10"
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+sha2.workspace = true
+jiff.workspace = true
 
 [dev-dependencies]
 # A certificate authority of the tests' own, for a TLS echo server.

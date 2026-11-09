@@ -6,57 +6,57 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-oxyos-protocol = { path = "../../crates/oxyos-protocol" }
-oxyos-compositor-core = { path = "../../crates/oxyos-compositor-core" }
-oxyos-apps = { path = "../../crates/oxyos-apps" }
-oxyos-ipc = { path = "../../crates/oxyos-ipc" }
-oxyos-client = { path = "../../crates/oxyos-client" }
-oxyos-gpu = { path = "../../crates/oxyos-gpu" }
-oxyos-kms = { path = "../../crates/oxyos-kms" }
-oxyos-input = { path = "../../crates/oxyos-input" }
-oxyos-vt = { path = "../../crates/oxyos-vt" }
-oxyos-seat = { path = "../../crates/oxyos-seat" }
+oxyos-protocol.workspace = true
+oxyos-compositor-core.workspace = true
+oxyos-apps.workspace = true
+oxyos-ipc.workspace = true
+oxyos-client.workspace = true
+oxyos-gpu.workspace = true
+oxyos-kms.workspace = true
+oxyos-input.workspace = true
+oxyos-vt.workspace = true
+oxyos-seat.workspace = true
 # The power services played on a run's own bus (docs/adr/0057-battery-and-energy.mdx).
-oxyos-power = { path = "../../crates/oxyos-power" }
+oxyos-power.workspace = true
 # The development backup service, played on a run's own folders (`--play-backup`,
 # docs/adr/0059-backups.mdx), and its socket, which a step asks.
-oxyos-backupd = { path = "../oxyos-backupd" }
-oxyos-install = { path = "../../crates/oxyos-install" }
-oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+oxyos-backupd.workspace = true
+oxyos-install.workspace = true
+oxyos-compositor.workspace = true
 # Wi-Fi Diagnostics' probe of the played network (`--network-bus`, docs/adr/0038-networks.mdx).
-oxyos-networks = { path = "../../crates/oxyos-networks" }
+oxyos-networks.workspace = true
 # The search service, which this program runs as its child (docs/adr/0051-search.mdx).
-oxyos-search = { path = "../../crates/oxyos-search" }
+oxyos-search.workspace = true
 # The system's sounds, recorded (docs/adr/0044-system-sounds.mdx).
-oxyos-sound = { path = "../../crates/oxyos-sound" }
-oxyos-input-methods = { path = "../../crates/oxyos-input-methods" }
-oxyos-auth = { path = "../../crates/oxyos-auth" }
+oxyos-sound.workspace = true
+oxyos-input-methods.workspace = true
+oxyos-auth.workspace = true
 # The accounts' service's save confirmations (`--autofill-saves`, docs/adr/0050-keychain-autofill-and-passkeys.mdx):
 # its sockets only.
-oxyos-account = { path = "../../crates/oxyos-account", default-features = false }
-oxyos-controls = { path = "../../crates/oxyos-controls" }
+oxyos-account.workspace = true
+oxyos-controls.workspace = true
 # The sound played (docs/adr/0056-sound-devices.mdx).
-oxyos-audio = { path = "../../crates/oxyos-audio" }
+oxyos-audio.workspace = true
 # The input methods the preferences know (`--input-sources-available`, ADR 0041) and the JSON
 # the session tells of them.
-oxyos-preferences = { path = "../../crates/oxyos-preferences" }
-serde_json = "1"
+oxyos-preferences.workspace = true
+serde_json.workspace = true
 # A played NetworkManager's control interface (`--network-bus`, docs/adr/0038-networks.mdx), and
 # the played BlueZ (`oxyos-fake-bluez`, docs/adr/0055-bluetooth.mdx), which serves its bus.
-zbus = "5"
-serde = "1"
+zbus.workspace = true
+serde.workspace = true
 # zbus's reactor, started before the descriptors are counted.
-async-io = "2"
+async-io.workspace = true
 # The run's home, which a file chooser's answer is checked against (ADR 0029, decision 8).
-oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
+oxyos-files.workspace = true
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.
-evdev = "0.13"
-rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "process"] }
+evdev.workspace = true
+rustix = { workspace = true, features = ["std", "event", "time", "pipe", "process"] }
 
 [dev-dependencies]
 # The session's connection to BlueZ, tested against the played one (tests/bluetooth_*.rs).
-oxyos-bluetooth = { path = "../../crates/oxyos-bluetooth" }
-async-channel = "2"
+oxyos-bluetooth.workspace = true
+async-channel.workspace = true
 
 [lints]
 workspace = true

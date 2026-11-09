@@ -6,15 +6,14 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-oxyos-protocol = { path = "../oxyos-protocol" }
-oxyos-ipc = { path = "../oxyos-ipc" }
-oxyos-dmabuf = { path = "../oxyos-dmabuf" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "pipe"] }
+oxyos-protocol.workspace = true
+oxyos-ipc.workspace = true
+oxyos-dmabuf.workspace = true
+rustix = { workspace = true, features = ["std", "pipe"] }
 # A fill's credential overwritten when it goes (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
-zeroize = "1"
+zeroize.workspace = true
 
 [lints]
 workspace = true
-
 [dev-dependencies]
-rustix = { version = "1.1.6", default-features = false, features = ["fs"] }
+rustix = { workspace = true, features = ["fs"] }

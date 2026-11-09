@@ -9,52 +9,44 @@ publish.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-oxyos-client = { path = "../oxyos-client" }
-oxyos-net = { path = "../oxyos-net" }
-oxyos-image = { path = "../oxyos-image" }
-oxyos-gestures = { path = "../oxyos-gestures" }
-oxyos-intl = { path = "../oxyos-intl" }
-oxyos-solar = { path = "../oxyos-solar" }
+oxyos-client.workspace = true
+oxyos-net.workspace = true
+oxyos-image.workspace = true
+oxyos-gestures.workspace = true
+oxyos-intl.workspace = true
+oxyos-solar.workspace = true
 # The person's wallpapers: what a display shows, the catalog, thumbnails (docs/adr/0048-wallpapers.mdx).
-oxyos-preferences = { path = "../oxyos-preferences" }
-oxyos-wallpaper = { path = "../oxyos-wallpaper" }
-oxyos-apps = { path = "../oxyos-apps" }
-oxyos-files = { path = "../oxyos-files" }
-oxyos-app-storage = { path = "../oxyos-app-storage" }
+oxyos-preferences.workspace = true
+oxyos-wallpaper.workspace = true
+oxyos-apps.workspace = true
+oxyos-files = { workspace = true, default-features = true }
+oxyos-app-storage.workspace = true
 # The accounts' service's sockets and their types, without its HTTP client.
-oxyos-account = { path = "../oxyos-account", default-features = false }
+oxyos-account.workspace = true
 # The migration service's socket (docs/adr/0059-backups.mdx, migration.rs): SOCK_SEQPACKET messages
 # of up to 64 KiB, a computer's list of backups among them.
-oxyos-install = { path = "../oxyos-install" }
-oxyos-protocol = { path = "../oxyos-protocol" }
-oxyos-paint = { path = "../oxyos-paint" }
-oxyos-gpu-device = { path = "../oxyos-gpu-device" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "rand", "event"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+oxyos-install.workspace = true
+oxyos-protocol.workspace = true
+oxyos-paint.workspace = true
+oxyos-gpu-device.workspace = true
+rustix = { workspace = true, features = ["std", "rand", "event"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 # Secrets (a password, a device secret, a token) in buffers overwritten when dropped (account_session.rs).
-zeroize = "1"
+zeroize.workspace = true
 # expo-crypto's digests (the ring rustls already builds).
-ring = "0.17"
+ring.workspace = true
 # A passkey's client data and its answers, base64url as WebAuthn's JSON carries them.
-base64 = "0.23"
+base64.workspace = true
 
 [dev-dependencies]
 # A WebSocket server for the C ABI's test.
-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
-png = "0.18"
-oxyos-ipc = { path = "../oxyos-ipc" }
-oxyos-dmabuf = { path = "../oxyos-dmabuf" }
+tungstenite.workspace = true
+png.workspace = true
+oxyos-ipc.workspace = true
+oxyos-dmabuf.workspace = true
 # A backup service played on a socket for the files' test (its SOCK_SEQPACKET and SCM_RIGHTS).
-oxyos-install = { path = "../oxyos-install" }
+oxyos-install.workspace = true
 
-# The workspace forbids `unsafe`. A C ABI needs it, so this crate denies it instead and allows it
-# item by item; every unsafe block states why it is sound.
-[lints.rust]
-unsafe_code = "deny"
-unsafe_op_in_unsafe_fn = "deny"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
-undocumented_unsafe_blocks = "deny"
-missing_safety_doc = "deny"
+[lints]
+workspace = true

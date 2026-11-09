@@ -7,15 +7,14 @@ publish.workspace = true
 
 [dependencies]
 # fcitx5's D-Bus frontend, on the session's private bus, in safe Rust.
-zbus = "5"
+zbus.workspace = true
 # The bodies of its calls.
-serde = "1"
+serde.workspace = true
 # Waiting on the bus with its own block_on, never async-io's (`engine_bus`).
-futures-lite = "2"
+futures-lite.workspace = true
 
 [lints]
 workspace = true
-
 [dev-dependencies]
 # zbus's reactor started before a test counts descriptors.
-async-io = "2"
+async-io.workspace = true

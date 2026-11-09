@@ -7,15 +7,15 @@ publish.workspace = true
 
 [dependencies]
 # The person's choice and its grammar (docs/adr/0048-wallpapers.mdx).
-oxyos-preferences = { path = "../oxyos-preferences" }
+oxyos-preferences.workspace = true
 # Where the sun is: a dynamic wallpaper's variant (docs/adr/0012-solar-wallpaper.mdx).
-oxyos-solar = { path = "../oxyos-solar" }
+oxyos-solar.workspace = true
 # A photo's thumbnail decoded at its size, as the hosts decode images, and kept as a PNG.
-oxyos-image = { path = "../oxyos-image" }
-png = "0.18"
+oxyos-image.workspace = true
+png.workspace = true
 # The catalog's JSON, read strictly.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 
 [dev-dependencies]
 # The Solar Gradients wallpaper's renderer (examples/make-solar-gradients.rs) writes its variants as
