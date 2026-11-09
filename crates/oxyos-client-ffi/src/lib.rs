@@ -489,6 +489,9 @@ pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSI
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
+/// Whether the session's screen reader runs (ADR 0014, decision 8, protocol version 40): `flag` 1
+/// while it does; told as the client connects while it runs, and whenever it starts or stops.
+pub const OXYOS_EVENT_SCREEN_READER: u32 = 182;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA: u32 = 201;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED: u32 = 202;
@@ -1989,6 +1992,13 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::SafeMode {} => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_SAFE_MODE,
+                ..out
+            }
+        }
+        Event::ScreenReaderState { running } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SCREEN_READER,
+                flag: u8::from(running),
                 ..out
             }
         }

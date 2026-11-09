@@ -211,6 +211,45 @@ class DeliveredCounts(unittest.TestCase):
         self.assertTrue(regress.counts_match({}, {}))
 
 
+class UnimplementedComponentsAreDeclared(unittest.TestCase):
+    """unimplemented-components.h: a native component a host drew as a plain view is the scenario's to
+    declare, exactly, whichever host of the run drew it."""
+
+    REPORTS = {
+        "host-report.jsonl": [{"kind": "frame", "t": 1}, {"kind": "unimplemented", "t": 2, "component": "AndroidProgressBar"}],
+        "host-report.jsonl.shell": [{"kind": "unimplemented", "t": 3, "component": "AndroidSwitch"}],
+    }
+
+    def check(self, declared, reports=REPORTS):
+        failures = []
+        regress.check_unimplemented(declared, reports, failures)
+        return failures
+
+    def test_each_drawn_declared_passes_in_any_order(self):
+        self.assertEqual(self.check(["AndroidSwitch", "AndroidProgressBar"]), [])
+
+    def test_none_drawn_none_declared_passes(self):
+        self.assertEqual(self.check(None, {"host-report.jsonl": [{"kind": "frame", "t": 1}]}), [])
+        self.assertEqual(self.check([], {}), [])
+
+    def test_one_drawn_and_not_declared_fails(self):
+        failures = self.check(["AndroidProgressBar"])
+        self.assertEqual(len(failures), 1)
+        self.assertIn("AndroidSwitch", failures[0])
+        self.assertIn("does not declare", failures[0])
+        # A scenario that declares nothing fails for each.
+        self.assertEqual(len(self.check(None)), 2)
+
+    def test_one_declared_and_not_drawn_fails(self):
+        failures = self.check(["AndroidProgressBar", "AndroidSwitch", "AndroidDrawerLayout"])
+        self.assertEqual(failures, ["the scenario declares AndroidDrawerLayout unimplemented, but no host drew it"])
+
+    def test_a_component_two_hosts_drew_is_declared_once(self):
+        reports = {**self.REPORTS, "host-report.jsonl.launched": [
+            {"kind": "unimplemented", "t": 4, "component": "AndroidProgressBar"}]}
+        self.assertEqual(self.check(["AndroidProgressBar", "AndroidSwitch"], reports), [])
+
+
 class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
     """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""
 

@@ -971,6 +971,7 @@ fn events() -> Vec<Event> {
             last: true,
             text: PreeditText::new("es-MX-u-hc-h12").unwrap(),
         },
+        Event::ScreenReaderState { running: true },
         Event::ApplicationOutput {
             output: 2,
             size: Size::new(1280, 720),
@@ -3233,6 +3234,23 @@ fn version_38_quit_requests_are_only_version_38s() {
     let mut old = Vec::new();
     assert!(!write_event_for(&mut old, &flags, 37).unwrap());
     assert!(old.is_empty());
+}
+
+#[test]
+fn version_40_screen_reader_state_is_only_version_40s() {
+    for running in [true, false] {
+        let event = Event::ScreenReaderState { running };
+        assert_eq!(event_since(&event), 40);
+        assert_eq!(crate::SCREEN_READER_STATE_VERSION, 40);
+        // A client of version 39 is never told: it reads that no screen reader runs.
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 39).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 40).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 39).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 40).unwrap(), event);
+    }
 }
 
 #[test]

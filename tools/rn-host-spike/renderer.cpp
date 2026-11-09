@@ -10,6 +10,7 @@
 
 #include "svg.h"
 #include "text.h"
+#include "unimplemented-components.h"
 
 #include <react/renderer/components/androidtextinput/AndroidTextInputProps.h>
 #include <react/renderer/components/androidtextinput/AndroidTextInputState.h>
@@ -170,14 +171,6 @@ bool touches(const Draw& draw, float x, float y, float w, float h) {
   return !draw.canvas->quickReject(SkRect::MakeXYWH(x, y, w, h));
 }
 
-const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Text", "RawText", "ScrollView",
-                                            "AndroidTextInput", "AndroidHorizontalScrollContentView",
-                                            "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid",
-                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
-                                            "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
-                                            "ViewManagerAdapter_ExpoImage",
-                                            kWindowViewComponent, kMinimizeTargetComponent,
-                                            kScrollTargetComponent};
 // The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
 // number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -813,7 +806,7 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   float x = ox + map.tx, y = oy + map.ty, w = frame.size.width, h = frame.size.height;
   RenderStats& stats = *draw.stats;
   ++stats.views;
-  if (!kImplemented.count(name)) {
+  if (isUnimplementedComponent(name)) {
     ++stats.unimplemented;
     if (std::find(stats.unimplementedNames.begin(), stats.unimplementedNames.end(), name) ==
         stats.unimplementedNames.end()) {

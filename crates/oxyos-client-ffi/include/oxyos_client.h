@@ -111,6 +111,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_GPU_SCANOUT 173
 #define OXYOS_EVENT_KEYBOARD_LAYOUT 180
 #define OXYOS_EVENT_LOCALE 181
+/* Whether the session's screen reader runs (docs/adr/0014-screen-reader.mdx, decision 8, protocol
+ * version 40). */
+#define OXYOS_EVENT_SCREEN_READER 182
 #define OXYOS_EVENT_APPLICATION_OUTPUT 200
 #define OXYOS_EVENT_APPLICATION_OUTPUT_WORK_AREA 201
 #define OXYOS_EVENT_APPLICATION_OUTPUT_REMOVED 202
@@ -596,6 +599,10 @@ typedef struct OxyOSClient OxyOSClient;
  *                      session's locale, one BCP 47 tag (`es-ES`, `en-US`, `es-MX-u-hc-h12`: the
  *                      hour cycle only when the person chose one), in chunks as KEYBOARD_LAYOUT:
  *                      `detail` its index (0 begins it), `flag` 1 on the last, `text` the chunk.
+ *   SCREEN_READER      to every client as it connects while the session's screen reader runs, and
+ *                      whenever it starts or stops (ADR 0014, decision 8; protocol version 40, an
+ *                      older compositor never sends it): `flag` 1 while it runs. A client never told
+ *                      reads that none runs: what Android's AccessibilityManager says of TalkBack.
 
  *               oxyos_client_confirm_displays keeps it within `detail` seconds; 0, kept or gone
  *               back. */

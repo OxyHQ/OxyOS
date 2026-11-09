@@ -367,6 +367,11 @@ void Report::scrollbar(const char* event, const ShadowView& view, folly::dynamic
       "thumbs", std::move(thumbs))("alpha", alpha));
 }
 
+void Report::unimplemented(const std::string& component) {
+  if (!file_) return;
+  write(folly::dynamic::object("kind", "unimplemented")("component", component));
+}
+
 void Report::textScroll(const ShadowView& view, float x, float y) {
   if (!file_) return;
   write(folly::dynamic::object("kind", "text_scroll")("target", name(view))("x", x)("y", y));

@@ -837,6 +837,11 @@ messages! {
         // region and, when the person chose one, its hour cycle), in chunks as KeyboardLayout's:
         // what `Intl`'s default locale, the system's own text and the screen reader's speech are.
         181 => Locale { index: u8, last: bool, text: PreeditText },
+        // To every client (version 40, docs/adr/0014-screen-reader.mdx, decision 8): whether the
+        // session's screen reader runs (a client holding `screen_reader` is connected), as it
+        // connects while one does and whenever that changes. A client never told it reads that none
+        // runs. What Android's AccessibilityManager tells an application of TalkBack.
+        182 => ScreenReaderState { running: bool },
         // To every client, when it connects and as they change (ADR 0029, amending ADR 0018):
         // each output the session shows, without its place in the global space, which stays the
         // shell's: its size in logical pixels, scale in 120ths, refresh in mHz and whether it is

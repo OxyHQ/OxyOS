@@ -1,0 +1,107 @@
+{
+  "about": "What React Native's AccessibilityInfo tells an application of the session as it runs (sample/AccessibilityInfoProbe.tsx), through the real screen reader process (docs/adr/0014-screen-reader.mdx, decision 8) and the session's Reduce Transparency (docs/adr/0019-settings.mdx). The reader runs from the start: isScreenReaderEnabled() and isAccessibilityServiceEnabled() answer true at once, as the session told the window at connect, and no change is told. Super+F5 stops it: screenReaderChanged and accessibilityServiceChanged each fire once, false, and isScreenReaderEnabled() answers false then; Super+F5 starts it again, once more each, true. Toggle (granted `settings`, as the session grants Settings) turns Reduce Transparency on and off: isReduceTransparencyEnabled() answers it and reduceTransparencyChanged fires once each time, which React Native's Android AccessibilityInfo never did. Each step checks what React received (nothing but Toggle's press) and what was said. With the host answering that no assistive technology runs, the start shows false and no change is ever told, and it fails.",
+  "locale": "en_US.UTF-8",
+  "module": "AccessibilityInfoProbe",
+  "window": [640, 320],
+  "app": {
+    "id": "so.oxy.accessibilityinfoprobe",
+    "title": "Accessibility Info"
+  },
+  "settings": {
+    "app": "so.oxy.accessibilityinfoprobe",
+    "preferences": {
+      "reduce_transparency": "false"
+    }
+  },
+  "reader": {},
+  "steps": [
+    {
+      "name": "the reader runs from the start: AccessibilityInfo answers so at once, and tells no change",
+      "do": ["wait", 1500],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "texts": [
+          "Screen reader at start: true",
+          "Screen reader changes: []",
+          "Screen reader asked: -",
+          "Service at start: true",
+          "Service changes: []",
+          "Reduce transparency at start: false",
+          "Reduce transparency changes: []",
+          "Reduce transparency asked: -"
+        ],
+        "spoken": [{"text": "Screen reader on", "interrupting": true}]
+      }
+    },
+    {
+      "name": "Super+F5 stops the reader: screenReaderChanged and accessibilityServiceChanged once each, false",
+      "do": ["strokes", [[125, 63]]],
+      "expect": {
+        "react": {},
+        "texts": [
+          "Screen reader at start: true",
+          "Screen reader changes: [false]",
+          "Screen reader asked: false",
+          "Service changes: [false]"
+        ],
+        "spoken": []
+      }
+    },
+    {
+      "name": "Super+F5 starts it again: once more each, true",
+      "do": ["strokes", [[125, 63]]],
+      "expect": {
+        "react": {},
+        "texts": [
+          "Screen reader changes: [false,true]",
+          "Screen reader asked: true",
+          "Service changes: [false,true]",
+          "Reduce transparency changes: []"
+        ],
+        "spoken": [{"text": "Screen reader on", "interrupting": true}]
+      }
+    },
+    {
+      "name": "and stops it: once more each, false, before the presses",
+      "do": ["strokes", [[125, 63]]],
+      "expect": {
+        "react": {},
+        "texts": [
+          "Screen reader changes: [false,true,false]",
+          "Screen reader asked: false",
+          "Service changes: [false,true,false]"
+        ],
+        "spoken": []
+      }
+    },
+    {
+      "name": "Toggle turns Reduce Transparency on: isReduceTransparencyEnabled() answers it and reduceTransparencyChanged fires once",
+      "do": ["press", [490, 36]],
+      "expect": {
+        "react": {"touchStart@toggle": 1, "touchEnd@toggle": 1},
+        "texts": [
+          "Reduce transparency changes: [true]",
+          "Reduce transparency asked: true",
+          "Screen reader changes: [false,true,false]"
+        ],
+        "preferences": {"reduceTransparency": true},
+        "spoken": []
+      }
+    },
+    {
+      "name": "Toggle again turns it off: once more, false",
+      "do": ["press", [490, 36]],
+      "expect": {
+        "react": {"touchStart@toggle": 1, "touchEnd@toggle": 1},
+        "texts": [
+          "Reduce transparency changes: [true,false]",
+          "Reduce transparency asked: false",
+          "Screen reader changes: [false,true,false]"
+        ],
+        "preferences": {"reduceTransparency": false},
+        "spoken": []
+      }
+    }
+  ]
+}

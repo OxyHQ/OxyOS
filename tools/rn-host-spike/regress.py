@@ -525,6 +525,13 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
+A scenario's `unimplemented` lists the native components its hosts have no implementation of and draw
+as plain views (React Native's Android `AndroidProgressBar`, ActivityIndicator's; unimplemented-
+components.h, docs/react-native-android-adaptation.mdx): every run checks that the components the
+hosts reported (`unimplemented` lines, any host of the run, the shell's among them) are exactly those
+it lists, so a scenario never draws one silently, and a name nothing draws any more is no longer
+listed.
+
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
 as oxyos-session reads `oxyos.safe-mode=1` on the kernel's command line): nothing opened at login,
@@ -3678,6 +3685,20 @@ def host_reports(out):
     return {path.name: ended_report(path) for path in sorted(out.glob("host-report.jsonl*")) if path.is_file()}
 
 
+def check_unimplemented(declared, reports, failures):
+    """The native components the run's hosts have no implementation of and drew as plain views
+    (unimplemented-components.h), each host's report saying each once (`unimplemented`): exactly the
+    scenario's `unimplemented`, in any order. One drawn that the scenario does not declare fails, as
+    does one it declares that no host drew."""
+    drawn = {line["component"] for lines in reports.values() for line in lines if line["kind"] == "unimplemented"}
+    declared = set(declared or ())
+    for name in sorted(drawn - declared):
+        failures.append(f"a host drew {name}, a native component it has no implementation of, as a plain "
+                        f"view: the scenario does not declare it (`unimplemented`)")
+    for name in sorted(declared - drawn):
+        failures.append(f"the scenario declares {name} unimplemented, but no host drew it")
+
+
 def check_input_delivery(summary, reports, failures):
     """The person's input reached exactly whom it should, once (docs/adr/0016-windows.mdx, decision
     11), checked for every scenario and every step from the compositor's record of every
@@ -6781,7 +6802,10 @@ def main():
         check_views(index, step, result, summary["steps"], failures)
         check_activity(index, step, result, summary["steps"], processes, failures)
     # The person's input reached whom it should, once (every scenario, every step).
-    check_input_delivery(summary, host_reports(out), failures)
+    reports = host_reports(out)
+    check_input_delivery(summary, reports, failures)
+    # Native components drawn as plain views, each declared (every scenario).
+    check_unimplemented(scenario.get("unimplemented"), reports, failures)
     # Each host's frame diagnostics against its report, and the log they wrote to.
     check_diagnostics(report, run.stdout + run.stderr, failures)
     primary = (scenario.get("outputs") or "").split(",")[0]

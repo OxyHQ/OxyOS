@@ -1156,3 +1156,39 @@ fn a_search_request_is_sent_in_chunks_and_never_to_a_compositor_of_version_29() 
     client.send(&Request::Goodbye {}).unwrap();
     assert_eq!(server.recv_request().unwrap().0, Request::Goodbye {});
 }
+
+#[test]
+fn whether_the_screen_reader_runs_is_read_as_told_and_never_from_an_older_compositor() {
+    // Version 40 (docs/adr/0014-screen-reader.mdx, decision 8): each change is read as told, in
+    // order.
+    let (mut client, server) = connected();
+    assert_eq!(client.version(), oxyos_protocol::VERSION);
+    for running in [true, false, true] {
+        server
+            .send_event(&Event::ScreenReaderState { running }, None)
+            .unwrap();
+    }
+    for running in [true, false, true] {
+        assert_eq!(
+            client.poll().unwrap(),
+            Poll::Event(Event::ScreenReaderState { running })
+        );
+    }
+    assert_eq!(client.poll().unwrap(), Poll::Empty);
+    // A compositor of version 39 writes nothing of it: its client reads that none runs.
+    let (client, server) = Connection::pair().unwrap();
+    let compositor = std::thread::spawn(move || {
+        server.recv_request().unwrap();
+        server
+            .send_event(&Event::Welcome { version: 39 }, None)
+            .unwrap();
+        server
+    });
+    let mut client = Client::handshake(client).unwrap();
+    let server = compositor.join().unwrap();
+    assert_eq!(client.version(), 39);
+    server
+        .send_event_for(&Event::ScreenReaderState { running: true }, None, 39)
+        .unwrap();
+    assert_eq!(client.poll().unwrap(), Poll::Empty);
+}

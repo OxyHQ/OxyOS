@@ -27,6 +27,8 @@
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
 //   {"t":…,"kind":"memory","malloc_in_use":…,"hermes_heap":…,"skia_gpu":…,"buffers":…,…}  (memory.h, idle)
 //   {"t":…,"kind":"image","event":"cancelled","uri":"https://…"}  (a remote image's load, images.h)
+//   {"t":…,"kind":"unimplemented","component":"AndroidProgressBar"}  (a native component the host has no
+//       implementation of, created: once per name, unimplemented-components.h)
 //   {"t":…,"kind":"react_render","renders":[["DockIcon",9,{"DockIcon":1,"View":4,…}],…]}  (a commit of
 //       React's: where each re-render began, how many components rendered in it and which; watchReactCommits)
 //
@@ -200,6 +202,9 @@ class Report {
   // A frame of requestAnimationFrame (animation-frames.h): its timestamp, as the callbacks get it,
   // and how many callbacks it ran.
   void animationFrame(double timestamp, size_t callbacks);
+  // A native component the host has no implementation of, created for the first time: drawn as a
+  // plain view (unimplemented-components.h).
+  void unimplemented(const std::string& component);
   // What the image loader did with a remote image (images.h): "fetch", a request started (or
   // answered from a cache), "cancelled", one no view waits for any more.
   void image(const char* event, const std::string& uri);

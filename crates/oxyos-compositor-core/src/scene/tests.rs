@@ -8374,6 +8374,8 @@ mod menus;
 /// Where each window minimizes into (ADR 0011's genie).
 mod minimize_targets;
 mod notifications;
+/// Whether the screen reader runs (docs/adr/0014-screen-reader.mdx, decision 8).
+mod reader_state;
 /// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
 mod safe_mode;
 mod screenshots;

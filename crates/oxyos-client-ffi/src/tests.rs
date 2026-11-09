@@ -7589,6 +7589,20 @@ fn safe_mode_crosses_the_abi() {
 }
 
 #[test]
+fn whether_the_screen_reader_runs_crosses_the_abi() {
+    assert_eq!(
+        define("OXYOS_EVENT_SCREEN_READER"),
+        i64::from(OXYOS_EVENT_SCREEN_READER)
+    );
+    for running in [true, false] {
+        let told = convert(&Event::ScreenReaderState { running }).unwrap();
+        assert_eq!(told.kind, OXYOS_EVENT_SCREEN_READER);
+        assert_eq!(told.flag, u8::from(running));
+        assert_eq!(told.surface, 0);
+    }
+}
+
+#[test]
 fn a_request_to_quit_and_its_answer_cross_the_abi() {
     for (name, value) in [
         (

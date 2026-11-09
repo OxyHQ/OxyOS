@@ -370,6 +370,10 @@ struct HostServices {
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;
+  // Whether the session's screen reader runs (docs/adr/0014-screen-reader.mdx, decision 8), as the
+  // compositor last told the window: AccessibilityInfo's touch exploration and accessibility
+  // service. Unset without a window: none runs.
+  std::function<bool()> screenReader;
   // The application it runs (application.h): its id, module, directories and embedded app config.
   Application application{};
   // Its AsyncStorage, made when it is first asked for (in its data directory), and the machine's
