@@ -49,7 +49,7 @@ test("the service's answers are read strictly", () => {
   assert.equal(progressFrom({ migrated: { computer: "x", accounts: [] } }), null);
   assert.deepEqual(migratedFrom({ migrated: { computer: "ada-laptop", accounts: [{ user: "oxy-a", name: "" }] } }), {
     computer: "ada-laptop",
-    accounts: [{ user: "oxy-a", name: "oxy-a" }],
+    accounts: [{ user: "oxy-a", name: "" }],
   });
   assert.equal(migratedFrom({ refused: { reason: "clash" } }), "clash");
 });
@@ -65,7 +65,8 @@ test("computers come the most recently backed up first, their backups newest fir
     computers[0]!.backups.map((backup) => backup.snapshot),
     ["bbbb2222", "aaaa1111"],
   );
-  assert.equal(computers[0]!.accounts[1]!.name, "oxy-b");
+  // A blank name is none: the Unix user (`oxy-…`) is never shown as one.
+  assert.equal(computers[0]!.accounts[1]!.name, "");
   // None opened: the password, when others' were there; else no backups at all.
   assert.equal(computersFrom({ backups: { computers: [], unopened: 2 } }), "wrongPassword");
   assert.equal(computersFrom({ backups: { computers: [], unopened: 0 } }), "noBackup");

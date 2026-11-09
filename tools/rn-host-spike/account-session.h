@@ -12,6 +12,10 @@
 // - **The keychain's "ask to save"** (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5):
 //   an application asks to save a login it has just used; the service asks the person in the
 //   session's sheet and saves it only on their yes.
+// - **Passkeys** (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): an application's
+//   WebAuthn ceremonies, in WebAuthn's JSON shapes, which wait for the person on the system's
+//   sheet: each on a thread of its own, so a token is never kept waiting behind one, and the host
+//   never waits for one to end (the thread holds only its own outbox, never the answer's callback).
 //
 // Secrets (a token, a password, a device secret, a code) pass through here only on their way:
 // every buffer that held one is overwritten once it is handed on, and nothing of them is logged.
@@ -26,6 +30,7 @@
 #include <condition_variable>
 #include <memory>
 #include <deque>
+#include <map>
 #include <functional>
 #include <mutex>
 #include <optional>
@@ -85,6 +90,9 @@ class AccountSession {
   void keychain(std::string request, Done done);
   // The password is forgotten here once sent; `domain` may be empty (none).
   void savePassword(std::string username, std::string password, std::string domain, Done done);
+  // A passkey ceremony ("create" or "get") with WebAuthn's options JSON: {"credential"} or
+  // {"error": {"name", "reason"}}.
+  void passkey(std::string ceremony, std::string options, Done done);
   // The login screen's setup. The device credential the SDK's sign-in handed over is held here,
   // not in JavaScript, until the person gives the account's password once more and chooses a PIN
   // for this computer (a credential held before replaces it); `enroll` sends them (an empty
@@ -127,6 +135,18 @@ class AccountSession {
   std::deque<std::pair<Answer, Done>> answers_;
   bool stopping_ = false;
   std::thread worker_;
+  // Passkeys' answers, from their threads: shared with them, so a thread still waiting for the
+  // person when the host ends writes into this and not into a session gone. Their callbacks stay
+  // here, on the JavaScript thread, by ticket.
+  struct PasskeyOutbox {
+    std::mutex mutex;
+    std::deque<std::pair<uint64_t, Answer>> answers;
+    int wake = -1;
+    ~PasskeyOutbox();
+  };
+  std::shared_ptr<PasskeyOutbox> passkeys_;
+  std::map<uint64_t, Done> passkeyDone_;
+  uint64_t passkeyTickets_ = 0;
   // The setup under way: touched only by the worker.
   OxyOSAccountEnrollment* enrollment_ = nullptr;
   // The snapshot followed: touched only on the JavaScript thread.

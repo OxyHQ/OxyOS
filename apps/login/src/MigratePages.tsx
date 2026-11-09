@@ -265,7 +265,9 @@ export function useMigratePage({
   if (!step || !migration) return null;
   const said = (problem: MigrateProblem | null) =>
     problem ? <Message text={words.problems[problem]} tone="problem" /> : null;
-  const names = (accounts: { name: string }[]) => words.list(accounts.map((account) => account.name));
+  // An account without a name is said as one, never by its Unix user.
+  const names = (accounts: { name: string }[]) =>
+    words.list(accounts.map((account) => account.name || catalogue.unnamedAccount));
   const id = "migrate";
 
   switch (step.step) {

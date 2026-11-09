@@ -328,6 +328,15 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
+  // A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+  // passkey chosen and the Oxy account's password the person typed, to the session alone, citing
+  // the press or key that submitted it. The session takes it only from the shell, for a passkey
+  // sheet it shows, and hands it to the accounts' service, never to the application.
+  const answerPasskey = React.useCallback((sheet, choice, password) => {
+    const passkey = choice === undefined ? { sheet, password } : { sheet, choice, password };
+    native?.request(JSON.stringify({ passkey }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
   // An application that quit (docs/adr/0061-crashes-and-resetting-an-application.mdx): its
   // notice's Reset… answers the notice no and asks the session to reset it, citing the press; the
   // session asks the person in a sheet of its own, and opens it again once it is reset.
@@ -336,5 +345,5 @@ export function useSystemSheets() {
     void connection.request({ resetApplication: { id, reopen: true } });
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword, answerCode, resetApplication };
+  return { sheets, answer, answerPassword, answerCode, answerPasskey, resetApplication };
 }

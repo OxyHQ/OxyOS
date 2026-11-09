@@ -552,6 +552,20 @@ Dropsea 177 (183). Of Settings' first frame with its text, about 40 ms was workl
 Reanimated's and Bloom's worklets from their source on the UI runtime, which the framework now
 compiles ahead (below, *What was fixed*).
 
+**Signed in.** An application's first frame with text says nothing of one that renders nothing
+until the network answers. Dropsea's Oxy SDK did that signed in: it rendered the app as nothing
+until it knew the account's language, which waited for the boot token from the accounts' service
+(often a mint over the network) and then `GET /users/me`. On the ThinkPad (about 200 ms to
+api.oxy.so, a third of first connections lost) its home's listing came 1.4 to 9 s after launch
+signed in, about 0.3 s signed out. A step's `content_ms_max` (`regress.py`) holds launch to content:
+the first frame showing every one of the step's texts at most so many ms after the host's `main`,
+by the wall clock, held as `latency_ms` is (by every run but `--collect`'s, which `perf.py` judges
+at the median of its runs). `perf-dropsea-launch-signed-in.json` launches Dropsea signed in with
+the token answered 5 s late (`account.token_delay_ms`) and `/users/me` 10 s late (`store.late_ms`),
+the account's language Spanish in the platform's snapshot and the machine's English, and holds its
+Spanish listing to 1.5 s: about five times what it takes signed out on the gate's machine, far
+below either answer.
+
 ### Idle
 
 Five seconds sampled, two after the first frame; median of three runs.

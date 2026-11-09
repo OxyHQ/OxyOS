@@ -105,7 +105,7 @@ export function computersFrom(told: unknown): BackupComputer[] | MigrateProblem 
     const accounts = (Array.isArray(computer.accounts) ? computer.accounts : []).flatMap((item) => {
       const account = record(item);
       return account && typeof account.user === "string" && typeof account.name === "string"
-        ? [{ user: account.user, name: account.name.trim() || account.user, administrator: account.administrator === true }]
+        ? [{ user: account.user, name: account.name.trim(), administrator: account.administrator === true }]
         : [];
     });
     return [{ repository: computer.repository, name: computer.name || computer.repository, backups, accounts }];
@@ -137,7 +137,7 @@ export function migratedFrom(told: unknown): { computer: string; accounts: { use
     accounts: migrated.accounts.flatMap((item) => {
       const account = record(item);
       return account && typeof account.user === "string"
-        ? [{ user: account.user, name: typeof account.name === "string" && account.name.trim() ? account.name : account.user }]
+        ? [{ user: account.user, name: typeof account.name === "string" ? account.name.trim() : "" }]
         : [];
     }),
   };

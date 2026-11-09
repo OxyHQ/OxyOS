@@ -127,7 +127,8 @@ pub struct Listed {
     pub account: AccountId,
     pub user: UserName,
     pub uid: u32,
-    /// The account's display name, else its username, else its user's.
+    /// What the person is called ([`Profile::name`]): the account's display name, else its
+    /// username; empty when it has neither, never its user's.
     pub name: String,
     /// The account's picture, a file of the pictures' directory, when it has one.
     pub picture: Option<PathBuf>,
@@ -291,13 +292,7 @@ impl Store {
         // Which field the screen shows; PAM decides what signs in, so an unreadable one shows the
         // password's and hides no account.
         let local = self.local(&account.user_name()).unwrap_or_default();
-        let profile = &stored.profile;
-        let name = [&profile.display_name, &profile.username]
-            .into_iter()
-            .flatten()
-            .find(|name| !name.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| user.to_owned());
+        let name = stored.profile.name().unwrap_or_default().to_owned();
         Ok(Listed {
             user: account.user_name(),
             account,

@@ -4,9 +4,12 @@
  * an account stands. Nothing here decides who signs in: the login program does, with PAM.
  */
 
-/** An enrolled account: its Unix user (what the password is for), its name and its picture. */
+/** An enrolled account: its Unix user (what the password is for: an identifier, never shown), its
+    name and its picture. */
 export type LoginAccount = {
   user: string;
+  /** What the person is called (the account's display name, else its username); empty when the
+      account has neither, never the Unix user's name. */
   name: string;
   /** The picture's file (`file://...`), or none. */
   picture?: string | null;
@@ -33,7 +36,7 @@ export function accountsFrom(listed: unknown): Accounts {
     return [
       {
         user,
-        name: typeof name === "string" && name.trim() ? name : user,
+        name: typeof name === "string" ? name.trim() : "",
         picture: typeof picture === "string" && picture ? `file://${picture}` : null,
         signInAgain: signInAgain === true,
         pin: pin === "set" || pin === "locked" ? pin : undefined,

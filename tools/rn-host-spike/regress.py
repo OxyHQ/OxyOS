@@ -311,6 +311,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   `selectInputSource`) and the emoji pickers asked for ("emoji", `showEmoji`), each key given
   matching;
 - latency_ms: budget from injecting the input to the first changed frame;
+- content_ms_max: launch to content, with `texts`: the first frame (each surface's latest presented
+  frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
+  after the host's start (its report's first `stage` "main"), by the wall clock: what a person
+  waits for from launching an application to seeing what they opened, an application that renders
+  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
+  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
+  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -328,10 +335,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
   unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
   presented within a refresh; "logged", patterns (regular expressions) each
-  matching a line written in the step. Every run also checks, for each host's report, that every
+  matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
+  the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
+  "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
+  the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
+  frames presented in it that timed an input. Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
   its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
-  work its `timing` line has, and that each summary's numbers are those of the frames presented
+  work its `timing` line has, that a hold is at least the host's bound long and the frame after it
+  is not charged its wait, and that each summary's numbers are those of the frames presented
   since the summary before;
 - js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
   work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
@@ -428,7 +440,10 @@ file onto the dock's Trash, ADR 0035; held over it, docs/adr/0044-system-sounds.
 ([name, ms]) waits, the session served all along, until the assistive technology holds a node so
 named on a shown surface, and fails if none is within `ms`: an answer that comes on the application's
 own clock (a store that is down, asked again until the application says so) is waited for as it
-shows, never for a set time it might outlast.
+shows, never for a set time it might outlast. A `wait_sheet_keyboard` step (ms) waits the same way
+until a system sheet the session asked has the keyboard (the shell's overlay showing it focused), and
+fails if none has within `ms`: the keys typed next are the sheet's, whenever the shell's request for
+the keyboard was granted.
 
 A step settles once what the session shows stops changing: the director's application's frames,
 the companion's, the shell's, and the windows of the applications the session launched (their place
@@ -575,7 +590,8 @@ refused, so nothing of the network outside reaches the run. The server answers t
 as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
 (summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
 reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
-store that is down; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
+store that is down; `store.late_ms` ({PATH: MS}) sends what it answers for a path (a 404 for one it
+does not play, `/users/me` among them) that long after it was asked, as over a slow network; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
 document, as a listing's `icon` may be a file URL or path), and `{store_files}` in any answer is the
 directory holding them. It also answers NetInfo's check that the Internet is reachable
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
@@ -666,7 +682,9 @@ application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refu
 service restarting as a package upgrade restarts it: every subscription closed under its
 application, then every process refused `notPermitted` for MS, as the real service refuses one until
 the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
-credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
+credential; `account.token_delay_ms` answers each `token` (boot, preflight...) that long after it was
+asked, as a mint over a slow network does, its other answers (`snapshot`, `subscribe`) as at once
+(each connection is answered on its own; the token is recorded when it is answered). Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
 password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says
@@ -746,7 +764,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "clipboard", "menu", "transition_clock",
+             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -904,9 +922,20 @@ def check_diagnostics(report, log_text, failures, who="the application"):
     the wall clock is its time on the CPU, blocked and preempted (thread-clock.h), and each summary
     sums up exactly the frames presented since the summary before."""
     logged = set(log_text.splitlines())
-    frames, last_slow = [], None
+    frames, last_slow, after_hold = [], None, None
     for line in report:
+        if line["kind"] == "held":
+            # A hold is a wait for the compositor's answer of at least the host's bound; what it
+            # waited is the hold's, never the frame's after it.
+            if line["held_ms"] < line["held_after_ms"]:
+                failures.append(f"{who}'s hold of {line['held_ms']:.2f} ms is shorter than its bound "
+                                f"({line['held_after_ms']:.0f} ms)")
+            after_hold = line
         if line["kind"] == "timing":
+            if after_hold is not None and line["wait_ms"] >= after_hold["held_after_ms"]:
+                failures.append(f"{who}'s frame after a hold of {after_hold['held_ms']:.2f} ms was charged a wait of "
+                                f"{line['wait_ms']:.2f} ms")
+            after_hold = None
             # Slow exactly when its work, and its wait beyond a refresh, pass a refresh: a fast
             # frame is never said to be slow, however loaded the machine.
             late = line["work_ms"] + max(0.0, line["wait_ms"] - line["refresh_ms"])
@@ -1102,6 +1131,10 @@ def director_args(step, out):
         # Real time until the assistive technology holds a node of this name, at most so many
         # milliseconds: [name, ms] (an answer on the application's own clock).
         return args + ["--wait-named", str(value[1]), value[0]]
+    if kind == "wait_sheet_keyboard":
+        # Real time until a system sheet the session asked has the keyboard, at most so many
+        # milliseconds: what is typed next is the sheet's.
+        return args + ["--wait-sheet-keyboard", str(value)]
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]
@@ -1813,6 +1846,10 @@ def serve_account_session(path, spec, log):
                         if message == "subscribe":
                             subscribers.append(connection)
                 elif asked.startswith("token "):
+                    # A mint over a slow network (`account.token_delay_ms`): this connection waits,
+                    # each other is answered on its own thread meanwhile.
+                    time.sleep(spec.get("token_delay_ms", 0) / 1000)
+                    snapshot = ACCOUNT["snapshot"]
                     if snapshot["status"] == "signed_in" and snapshot["online"] and not spec.get("refuse_tokens"):
                         token = {"accessToken": played_token(application, message["token"]["reason"]),
                                  "expiresAt": "2026-11-06T12:05:00.000Z"}
@@ -2863,6 +2900,25 @@ def latest_frames(report, until, closed_before):
         if line["kind"] == "frame" and line["t"] <= until:
             frames[line["surface"]] = line
     return {s: f for s, f in frames.items() if s not in closed_before}
+
+
+def content_shown_ms(report, texts):
+    """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
+    "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
+    reads them (in each surface's latest frame, a closed popup's left out); None when they never
+    all were, or the host reported no start."""
+    main = next((line["t"] for line in report if line["kind"] == "stage" and line.get("name") == "main"), None)
+    if main is None:
+        return None
+    shown = {}
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True):
+            shown[line["surface"]] = line.get("texts", [])
+            if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
+                return round((line["t"] - main) / 1e6, 1)
+    return None
 
 
 def png_pixel_reader(path):
@@ -4049,6 +4105,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         for pattern in wanted.get("logged", []):
             if not any(re.search(pattern, text) for text in logs):
                 fail(f"no line matching {pattern!r} was written: {logs}")
+        holds = [line for line in report if line["kind"] == "held" and start <= line["t"] <= end]
+        if "held" in wanted and not wanted["held"][0] <= len(holds) <= wanted["held"][1]:
+            fail(f"{len(holds)} holds ended, expected {wanted['held'][0]} to {wanted['held'][1]}: {logs}")
+        timings = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
+        waited = max((line["wait_ms"] for line in timings), default=0.0)
+        if waited > wanted.get("wait_max_ms", float("inf")):
+            fail(f"a frame waited {waited:.2f} ms for the compositor, expected at most {wanted['wait_max_ms']}: {logs}")
+        timed = [line["latency_ms"] for line in timings if line["presented"] and line["latency_ms"] is not None]
+        if max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
+            fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
+        if len(timed) < wanted.get("timed_inputs_min", 0):
+            fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
     if "js_work" in expect:
         # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
         # frame, and the work that drew none but ran JavaScript.
@@ -5104,6 +5172,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
         if differing:
             fail(f"AutoFill has {differing}, expected {wanted}")
+    if "passkeys" in expect:
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): what
+        # the fixture accounts' service was answered so far, exactly, in order.
+        held, wanted = (result.get("passkeys") or {}).get("told"), expect["passkeys"]["told"]
+        if held != wanted:
+            fail(f"the passkeys' service was told {held}, expected {wanted}")
     if "input_sources" in expect:
         held, wanted = result.get("input_sources") or {}, expect["input_sources"]
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
@@ -5125,6 +5199,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "latency_ms" in expect and result.get("latency_ms") is not None and not COLLECT:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
+    if "content_ms_max" in expect:
+        # Launch to content: a budget with nothing to wait for is no check.
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_ms_max needs the step's texts")
+        result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
+        if not COLLECT:
+            if shown_ms is None:
+                fail(f"launch to content: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_ms_max']} ms budget from the host's start)")
+            elif shown_ms > expect["content_ms_max"]:
+                fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
+                     f"start, over the {expect['content_ms_max']} ms budget")
     return end
 
 
@@ -5505,6 +5591,8 @@ def store_fixture(spec, out):
                 down = failing.get(url.path, 0) > 0
                 if down:
                     failing[url.path] -= 1
+            # An answer arriving late (`store.late_ms`), as over a slow network.
+            time.sleep(spec.get("late_ms", {}).get(url.path, 0) / 1000)
             if down:
                 return self.reply(503, {"message": "The store is down for the scenario"})
             if url.path in spec.get("images", {}):
@@ -5901,7 +5989,7 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
                         help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
@@ -6107,6 +6195,11 @@ def main():
             # Applications' requests to save a login (decision 5), told by the played accounts'
             # service (`account`) and asked in the shell's sheet, as the session asks them.
             command += ["--autofill-saves"]
+    if scenario.get("passkeys"):
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7) asked by
+        # the development compositor's fixture accounts' service for the application named, its
+        # account password made up (oxyos-offscreen's passkeys.rs).
+        command += ["--passkey-fixture", scenario["passkeys"]["application"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
@@ -6481,6 +6574,9 @@ def main():
             "median": round(statistics.median(flips), 2) if flips else None,
             "max": round(max(flips), 2) if flips else None,
         },
+        # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
+        "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
+                       if "content_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }

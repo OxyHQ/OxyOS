@@ -181,6 +181,10 @@ export const Shell = memo(function Shell({
     /** A Bluetooth pairing code's answer (docs/adr/0055-bluetooth.mdx): the passkey or PIN typed,
         to the session alone. Without it such a sheet cannot be answered but by Cancel. */
     answerCode?: (code: string) => void;
+    /** A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the passkey
+        chosen and the Oxy account's password, to the session alone. Without it such a sheet
+        cannot be answered but by Cancel. */
+    answerPasskey?: (choice: number | undefined, password: string) => void;
     /** What else a sheet offers, pressed (an application that quit: Reset…, which asks the session
         to reset it, docs/adr/0061-crashes-and-resetting-an-application.mdx). */
     act?: (action: SheetAction) => void;
@@ -1154,6 +1158,7 @@ export const Shell = memo(function Shell({
               answer={sheet.answer}
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
+              answerPasskey={sheet.answerPasskey}
               act={sheet.act}
               copy={sheet.copy}
               keyboard={platform.keyboard}

@@ -93,7 +93,7 @@ function AccountChooser({
       onValueChange={choose}
       options={accounts.map((account) => ({
         value: account.user,
-        label: account.name,
+        label: account.name || words.unnamedAccount,
         testID: `login-account-${account.user}`,
       }))}
       style={{ gap: 28 }}
@@ -193,7 +193,7 @@ export function LoginScreen({
         enrolled={(user, name) => {
           // Set up but not signed in (the login program refused what was just chosen): the new
           // account listed and chosen, its field focused, said once.
-          const added = words.setup.added(name || user);
+          const added = words.setup.added(name);
           if (actions.announce) actions.announce(added, false);
           else AccessibilityInfo.announceForAccessibility(added);
           actions.reloadAccounts?.();
@@ -225,7 +225,9 @@ export function LoginScreen({
         ) : (
           <>
             <UserPicture picture={account.picture} />
-            <Text style={{ ...white(15, "600"), marginTop: 10 }}>{account.name}</Text>
+            <Text testID="login-account-name" style={{ ...white(15, "600"), marginTop: 10 }}>
+              {account.name || words.unnamedAccount}
+            </Text>
           </>
         )}
         {/* Fields of their own for each account: what was typed for one is never sent for
@@ -239,7 +241,7 @@ export function LoginScreen({
               testID="login-sign-in-again"
               style={{ ...white(13, "400", 0.9), marginTop: 12, maxWidth: 320, textAlign: "center" }}
             >
-              {words.signInAgain.description(account.name)}
+              {words.signInAgain.description(account.name || words.unnamedAccount)}
             </Text>
             <Link
               testID="login-sign-in-again-action"

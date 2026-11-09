@@ -19,7 +19,8 @@ test("the accounts' service's list becomes the screen's accounts", () => {
     ]),
     [
       { user: "oxy-a", name: "Ada Lovelace", picture: "file:///var/lib/oxyos/pictures/oxy-a", signInAgain: false, pin: "set", password: true },
-      { user: "oxy-b", name: "oxy-b", picture: null, signInAgain: true, pin: "locked", password: false },
+      // A blank name is none: the Unix user (`oxy-…`) is never shown as one.
+      { user: "oxy-b", name: "", picture: null, signInAgain: true, pin: "locked", password: false },
     ],
   );
   // An older service's list (no PIN, nothing said of the password): the password, as before.

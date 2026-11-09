@@ -2009,9 +2009,16 @@ std::shared_ptr<TurboModule> createHostModule(
     //   shell's lock screen: the service answers system applications alone), and Settings'
     //   `changeLocal(change, {pin, password, currentPin})`, a promise of {localSignIn} or {refused:
     //   {reason, retryAfter?}}.
+    // - Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx): `passkey(ceremony, options)`.
+    // - Who the session is for, in the session's shell too (`follows`): `snapshot()` and
+    //   `subscribe()`, so the lock screen and the menu bar name the person as the account is
+    //   named (decision 1), never by the Unix user. The shell is registered with the service as
+    //   OxyOS itself; the login screen is not, and the service refuses it. The shell is never the
+    //   SDK's session host (`available` stays false there).
     bool available = services.application.recorded && !services.shellWindow;
     bool setup = services.shellWindow;
-    module->constants(folly::dynamic::object("available", available)("setup", setup));
+    bool follows = available || services.shellWindow;
+    module->constants(folly::dynamic::object("available", available)("setup", setup)("follows", follows));
     auto session = [&services, setup]() -> AccountSession& {
       if (!services.accountSession) {
         services.accountSession = std::make_unique<AccountSession>();
@@ -2058,12 +2065,12 @@ std::shared_ptr<TurboModule> createHostModule(
         });
       };
     };
-    module->method("snapshot", [available](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      if (!available) return jsi::Value::null();
+    module->method("snapshot", [follows](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!follows) return jsi::Value::null();
       return jsi::valueFromDynamic(rt, AccountSession::snapshot());
     });
-    module->method("subscribe", [&services, available, session](jsi::Runtime&, const jsi::Value*, size_t) {
-      if (!available) return jsi::Value(false);
+    module->method("subscribe", [&services, follows, session](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (!follows) return jsi::Value(false);
       return jsi::Value(session().subscribe([&services](const folly::dynamic& snapshot) {
         if (services.emit) services.emit("OxyOSAccountSessionChanged", snapshot);
       }));
@@ -2128,6 +2135,25 @@ std::shared_ptr<TurboModule> createHostModule(
                           currentPin = std::move(currentPin)](std::shared_ptr<jsi::Value> resolve) mutable {
         session().changeLocal(std::move(change), std::move(pin), std::move(password), std::move(currentPin),
                               settle(resolve, "local sign-in", false));
+      });
+    });
+    // Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7), in an application the
+    // session launched: `passkey(ceremony, options)`, "create" or "get" with WebAuthn's options as
+    // JSON text, a promise of {credential} (RegistrationResponseJSON or AuthenticationResponseJSON)
+    // or {error: {name, reason}} (WebAuthn's DOMException name), {failed} when the service could not
+    // be asked. The person verifies in the system's sheet; the client data is made by the platform.
+    module->method("passkey", [available, session, promise, settle](jsi::Runtime& rt, const jsi::Value* args,
+                                                                    size_t count) {
+      if (count < 2 || !args[0].isString() || !args[1].isString()) {
+        throw jsi::JSError(rt, "OxyOSAccountSession.passkey: a ceremony and its options as JSON");
+      }
+      if (!available) return resolved(rt, jsi::valueFromDynamic(rt, folly::dynamic::object(
+                                                "failed", folly::dynamic::object("reason", "unavailable"))));
+      std::string ceremony = args[0].asString(rt).utf8(rt);
+      std::string options = args[1].asString(rt).utf8(rt);
+      return promise(rt, [session, settle, ceremony = std::move(ceremony),
+                          options = std::move(options)](std::shared_ptr<jsi::Value> resolve) mutable {
+        session().passkey(std::move(ceremony), std::move(options), settle(resolve, "passkey", false));
       });
     });
     // Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): one of

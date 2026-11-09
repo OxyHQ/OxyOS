@@ -2155,6 +2155,16 @@ int64_t oxyos_account_session_keychain(const char* request, char* out, size_t ca
  * OXYOS_ERROR when the service could not be asked. */
 int64_t oxyos_account_session_save_password(const char* username, const char* password,
                                             const char* domain, char* out, size_t capacity);
+/* A passkey ceremony for the calling application (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 7): `ceremony` "create" with WebAuthn's PublicKeyCredentialCreationOptionsJSON, or "get"
+ * with PublicKeyCredentialRequestOptionsJSON (binary as base64url; `rp.id` / `rpId` required). The
+ * client data is made here (origin https://<rpId>); the person verifies in the system's sheet.
+ * Blocks while they answer (up to six and a half minutes): never on the interface's thread. JSON
+ * {"credential": RegistrationResponseJSON | AuthenticationResponseJSON} or {"error": {"name"
+ * (WebAuthn's DOMException name: "NotAllowedError", "InvalidStateError", "NotSupportedError",
+ * "TypeError", "UnknownError"), "reason"}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when
+ * the service could not be asked. */
+int64_t oxyos_account_session_passkey(const char* ceremony, const char* options, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */
@@ -2184,7 +2194,8 @@ OxyOSAccountEnrollment* oxyos_account_enrollment_new(void);
  * secrets are copied into buffers this library overwrites, the caller overwrites its own. One of
  * the password and the PIN at least. Blocks while the service sets the account up, telling its
  * steps to oxyos_account_enrollment_on_progress's function. The answer, JSON:
- * {"enrolled": {"accountId", "user"}}, "secondFactorRequired",
+ * {"enrolled": {"accountId", "user", "name"}} (name: what the person is called, empty for none;
+ * the user is never shown), "secondFactorRequired",
  * {"failed": {"reason": "unreachable" | "localFailure"}} (Oxy could not be reached, or the machine
  * could not be set up and was put back: the sign-in is kept, oxyos_account_enrollment_retry tries
  * again, never a new sign-in) or {"refused": {"reason", "retryAfterSeconds"}}, which ends the setup
