@@ -1,5 +1,5 @@
 {
-  "about": "Hardware keys and the Control Center (ADR 0025) on the OxyOS shell, over a played machine (the development compositor's --controls: a ThinkPad's volumes, display backlight, battery on 64 % discharging, Wi-Fi on LukeSkyRouter, Bluetooth with one device). Allo (sample/EditingProbe.tsx) has its field focused throughout. Volume up, down, mute and up again, Shift+Alt+volume up (a quarter step), the microphone's mute and the display's brightness keys each change the machine as a Mac's do (sixteen steps, a volume key unmuting) and show the shell's bezel, its level said to the screen reader, which fades on its own after a moment; Allo receives nothing of any of those keys. The top bar shows the battery and Wi-Fi as the machine has them. Its Control Center button opens the Control Center: Wi-Fi on LukeSkyRouter, Bluetooth with one device, the display's and the sound's sliders, the battery; pressing the sliders sets the machine's levels, Wi-Fi's switch turns it off (the top bar follows) and on again, and Dark Mode sets the user's appearance (the file the session keeps, and Allo told dark). A press outside closes it. As a control, keys typed without the hardware keys are Allo's. With the compositor not taking the hardware keys, it fails. No step begins in the last 1.5 s of a minute (`clear_of_minute_ms`): the top bar's clock turning as a key's step settles would hold it past its bezel. A press on a level's slider renders its card, not the Control Center (`renders`): a press is three updates, each rendering only what it changes: the pointer down lifts the thumb (Bloom's SliderBase, 7 components), the pointer up lowers it (the same 7), and the level the session reports back renders the card (73 for the display's, 80 for the sound's, its mute button among them). React commits them together or apart as they reach JavaScript in one turn or several, so each limit is their sum, the most a press can render whatever the timing: 94 and 87.",
+  "about": "Hardware keys and the Control Center (ADR 0025) on the OxyOS shell, over a played machine (the development compositor's --controls: a ThinkPad's display backlight, battery on 64 % discharging and Bluetooth with one device; --sound: its speakers at half and its microphone, whose volumes are the machine's as PipeWire's are a session's; and a NetworkManager played on the run's own bus, Wi-Fi joined to LukeSkyRouter). Allo (sample/EditingProbe.tsx) has its field focused throughout. Volume up, down, mute and up again, Shift+Alt+volume up (a quarter step), the microphone's mute and the display's brightness keys each change the machine as a Mac's do (sixteen steps, a volume key unmuting) and show the shell's bezel, its level said to the screen reader, which fades on its own after a moment; Allo receives nothing of any of those keys. The top bar shows the battery and Wi-Fi as the machine has them. Its Control Center button opens the Control Center: Wi-Fi on LukeSkyRouter, Bluetooth with one device, the display's and the sound's sliders, the battery; pressing the sliders sets the machine's levels, Wi-Fi's switch turns it off (the top bar follows) and on again, and Dark Mode sets the user's appearance (the file the session keeps, and Allo told dark). A press outside closes it. As a control, keys typed without the hardware keys are Allo's. With the compositor not taking the hardware keys, it fails. No step begins in the last 1.5 s of a minute (`clear_of_minute_ms`): the top bar's clock turning as a key's step settles would hold it past its bezel. A press on a level's slider renders its card, not the Control Center (`renders`): a press is three updates, each rendering only what it changes: the pointer down lifts the thumb (Bloom's SliderBase, 7 components), the pointer up lowers it (the same 7), and the level the session reports back renders the card (73 for the display's, 80 for the sound's, its mute button among them). React commits them together or apart as they reach JavaScript in one turn or several, so each limit is their sum, the most a press can render whatever the timing: 94 and 87. Each thing done twice has one owner (docs/adr/0058-the-platform-api.mdx, decision 7): the sound's slider sets the volume through the platform's audio, which the session hands to the same controls as the keys, and Wi-Fi's switch is network.setWifi, which the daemon carries out; each step checks the played sound and the daemon. With a played sound the sound's card has its arrow to the Sound view, so its slider is shorter (1006 to 1217) than the display's, and its quarter is pressed at 1059. Wi-Fi turned off is told twice, by the controls (the top bar, the card: 51 components) and by the daemon's networks (the Wi-Fi view's: 99), which React commits apart: its limit is their sum, 150.",
   "locale": "es_ES.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -12,20 +12,51 @@
     "id": "so.oxy.allo",
     "title": "Allo"
   },
+  "sound": {
+    "outputs": [
+      {
+        "id": "alsa_output.speaker",
+        "name": "Speaker",
+        "kind": "speakers",
+        "transport": "builtIn",
+        "volume": 0.5
+      }
+    ],
+    "inputs": [
+      {
+        "id": "alsa_input.dmic",
+        "name": "Digital Microphone",
+        "kind": "microphone",
+        "transport": "builtIn",
+        "volume": 1,
+        "balance": null
+      }
+    ]
+  },
+  "network": {
+    "access_points": [
+      {
+        "ssid": "LukeSkyRouter",
+        "strength": 73,
+        "security": "wpa",
+        "password": "correct horse"
+      }
+    ],
+    "connections": [
+      {
+        "ssid": "LukeSkyRouter",
+        "password": "correct horse"
+      }
+    ],
+    "active": "LukeSkyRouter",
+    "ethernet": "unplugged"
+  },
   "controls": {
-    "output_volume": 0.5,
-    "output_muted": false,
-    "input_volume": 1,
-    "input_muted": false,
     "display_brightness": 0.75,
     "battery": "discharging",
     "battery_percent": 64,
     "battery_minutes": 200,
     "on_ac": false,
-    "wifi": "connected",
-    "wifi_signal": 73,
-    "ssid": "LukeSkyRouter",
-    "wired": false,
     "bluetooth": "on",
     "bluetooth_connected": 1
   },
@@ -86,9 +117,14 @@
         "react": {},
         "delivered": {},
         "focus_input": "line",
-        "controls": {
-          "output_volume": 0.5625,
-          "output_muted": false
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.5625,
+              "muted": false
+            }
+          ]
         },
         "announcements": [
           {
@@ -122,8 +158,13 @@
       "expect": {
         "react": {},
         "delivered": {},
-        "controls": {
-          "output_volume": 0.5
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.5
+            }
+          ]
         },
         "announcements": [
           {
@@ -156,9 +197,14 @@
       "expect": {
         "react": {},
         "delivered": {},
-        "controls": {
-          "output_volume": 0.5,
-          "output_muted": true
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.5,
+              "muted": true
+            }
+          ]
         },
         "announcements": [
           {
@@ -190,9 +236,14 @@
       "expect": {
         "react": {},
         "delivered": {},
-        "controls": {
-          "output_volume": 0.5625,
-          "output_muted": false
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.5625,
+              "muted": false
+            }
+          ]
         },
         "announcements": [
           {
@@ -214,8 +265,13 @@
       "allow_unchanged": true,
       "expect": {
         "react": {},
-        "controls": {
-          "output_volume": 0.578125
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.578125
+            }
+          ]
         },
         "announcements": [
           {
@@ -241,9 +297,14 @@
       "expect": {
         "react": {},
         "delivered": {},
-        "controls": {
-          "input_volume": 1.0,
-          "input_muted": true
+        "sound": {
+          "inputs": [
+            {
+              "id": "alsa_input.dmic",
+              "volume": 1.0,
+              "muted": true
+            }
+          ]
         },
         "announcements": [
           {
@@ -403,7 +464,7 @@
       "do": [
         "press_output",
         [
-          1067,
+          1059,
           345
         ]
       ],
@@ -415,9 +476,14 @@
           }
         },
         "react": {},
-        "controls": {
-          "output_volume": 0.25,
-          "output_muted": false
+        "sound": {
+          "outputs": [
+            {
+              "id": "alsa_output.speaker",
+              "volume": 0.25,
+              "muted": false
+            }
+          ]
         },
         "delivered": {}
       }
@@ -456,8 +522,9 @@
       ],
       "expect": {
         "react": {},
-        "controls": {
-          "wifi": "off"
+        "network": {
+          "wifi_enabled": false,
+          "active": null
         },
         "at": {
           "shell": [
@@ -475,7 +542,7 @@
         },
         "in_shell": {
           "renders": {
-            "components_max": 95
+            "components_max": 150
           },
           "texts": [
             "Desactivada"
@@ -501,8 +568,9 @@
       ],
       "expect": {
         "react": {},
-        "controls": {
-          "wifi": "connected"
+        "network": {
+          "wifi_enabled": true,
+          "active": "LukeSkyRouter"
         },
         "at": {
           "shell": [

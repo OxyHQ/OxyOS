@@ -2,7 +2,9 @@
 // client library's `oxyos_account_*` (crates/oxyos-client-ffi, account_session.rs):
 //
 // - **An application's** (decision 6): the session's snapshot, followed on one connection the
-//   service keeps (its descriptor wakes the host's loop, as the network's does), and short tokens
+//   service keeps from the host's start (its descriptor wakes the host's loop, as the network's
+//   does), the last one held here, so JavaScript reads it without asking the service
+//   (docs/adr/0058-the-platform-api.mdx, decision 8), and short tokens
 //   for the application, minted online, so asked on a thread of its own and answered on the
 //   JavaScript thread. Settings removes its own account the same way, and erases the computer
 //   (docs/adr/0054-recovery-and-erasing.mdx): what erasing would do, then the erase with the
@@ -62,9 +64,14 @@ class AccountSession {
   AccountSession(const AccountSession&) = delete;
   AccountSession& operator=(const AccountSession&) = delete;
 
-  // The snapshot, asked once, at once (the service answers from memory): null when it cannot be
-  // asked or refused.
-  static folly::dynamic snapshot();
+  // Follows the snapshot on one connection the service keeps, which tells it at once and at each
+  // change: started with the host, before JavaScript runs, so its first is held by the time it is
+  // read, and followed again by itself as `subscribe` says. False if it could not start now.
+  bool follow();
+  // The last snapshot the service told, null before the first and once JavaScript was told the
+  // subscription ended: what arrived since the last turn read without waiting, never a question
+  // to the service on the JavaScript thread.
+  folly::dynamic current();
   // Follows the snapshot: `changed` on the JavaScript thread with each one. When a subscription
   // that was followed ends (the accounts' service restarted, then refuses this process until the
   // session registers it again), or the service is not there, it is followed again by itself, after
@@ -126,6 +133,9 @@ class AccountSession {
   static void reported(void* context, const char* stage);
   static void waited(void* context, uint64_t seconds);
   void post(Answer answer, Done done);
+  // Reads what the subscription told since, without waiting, following it again once it is time:
+  // the last held, and told. True if anything arrived, it was followed again or it ended.
+  bool drain();
 
   int wake_ = -1;
   Waiting waiting_;
@@ -151,6 +161,9 @@ class AccountSession {
   OxyOSAccountEnrollment* enrollment_ = nullptr;
   // The snapshot followed: touched only on the JavaScript thread.
   OxyOSAccountSubscription* subscription_ = nullptr;
+  // Whether the host follows it (`follow`), and the last snapshot told: JavaScript thread only.
+  bool following_ = false;
+  folly::dynamic latest_ = nullptr;
   // The credential held for the setup (device id, secret, account id): JavaScript thread only.
   std::shared_ptr<std::array<std::string, 3>> held_;
   std::function<void(const folly::dynamic&)> changed_;

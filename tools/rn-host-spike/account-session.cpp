@@ -63,16 +63,6 @@ AccountSession::~AccountSession() {
   if (wake_ >= 0) close(wake_);
 }
 
-folly::dynamic AccountSession::snapshot() {
-  std::string buffer(kMessage, '\0');
-  auto answer = answered(oxyos_account_session_snapshot(buffer.data(), buffer.size()), buffer);
-  if (!answer.json) {
-    std::cerr << "[host] the Oxy session: " << answer.error << "\n";
-    return nullptr;
-  }
-  return folly::parseJson(*answer.json);
-}
-
 std::optional<std::string> AccountSession::platform() {
   std::string buffer(kMessage, '\0');
   auto answer = answered(oxyos_account_platform(buffer.data(), buffer.size()), buffer);
@@ -80,12 +70,9 @@ std::optional<std::string> AccountSession::platform() {
   return answer.json;
 }
 
-bool AccountSession::subscribe(std::function<void(const folly::dynamic&)> changed) {
-  if (subscription_) {
-    changed_ = std::move(changed);
-    return true;
-  }
-  changed_ = std::move(changed);
+bool AccountSession::follow() {
+  following_ = true;
+  if (subscription_) return true;
   subscription_ = oxyos_account_session_subscribe();
   if (!subscription_) {
     // The service is not there: followed by itself once it is; the caller knows it is not now.
@@ -96,6 +83,16 @@ bool AccountSession::subscribe(std::function<void(const folly::dynamic&)> change
     return false;
   }
   return true;
+}
+
+folly::dynamic AccountSession::current() {
+  drain();
+  return latest_;
+}
+
+bool AccountSession::subscribe(std::function<void(const folly::dynamic&)> changed) {
+  changed_ = std::move(changed);
+  return follow();
 }
 
 int AccountSession::subscriptionFd() const {
@@ -120,7 +117,7 @@ void AccountSession::ended() {
 }
 
 std::optional<std::chrono::steady_clock::time_point> AccountSession::nextDeadline() const {
-  if (subscription_ || !changed_) return std::nullopt;
+  if (subscription_ || !following_) return std::nullopt;
   std::optional<std::chrono::steady_clock::time_point> next = resubscribeAt_;
   if (endedAt_ && !toldEnded_ && (!next || *endedAt_ + kEndedGrace < *next)) next = *endedAt_ + kEndedGrace;
   return next;
@@ -431,10 +428,16 @@ bool AccountSession::deliver() {
     }
     busy = true;
   }
+  busy |= drain();
+  return busy;
+}
+
+bool AccountSession::drain() {
+  bool busy = false;
   // Followed again once it is time: a refusal (the session has not registered this process again
   // yet) ends it at once, and it is tried again later.
   auto now = std::chrono::steady_clock::now();
-  if (!subscription_ && changed_ && resubscribeAt_ && now >= *resubscribeAt_) {
+  if (!subscription_ && following_ && resubscribeAt_ && now >= *resubscribeAt_) {
     resubscribeAt_.reset();
     subscription_ = oxyos_account_session_subscribe();
     if (!subscription_) {
@@ -467,6 +470,7 @@ bool AccountSession::deliver() {
         std::cerr << "[host] the Oxy session's subscription ended: "
                   << (length < 0 ? oxyos_last_error() : "an answer longer than a message") << "\n";
         toldEnded_ = true;
+        latest_ = nullptr;
         if (changed_) changed_(nullptr);
         break;
       }
@@ -477,13 +481,15 @@ bool AccountSession::deliver() {
       toldEnded_ = false;
       resubscribeTries_ = 0;
       resubscribeAt_.reset();
-      if (changed_) changed_(folly::parseJson(std::string_view(buffer.data(), static_cast<size_t>(length))));
+      latest_ = folly::parseJson(std::string_view(buffer.data(), static_cast<size_t>(length)));
+      if (changed_) changed_(latest_);
     }
   }
   // Not followed for longer than a restart takes: JavaScript is told, once.
   if (!subscription_ && endedAt_ && !toldEnded_ && now >= *endedAt_ + kEndedGrace) {
     toldEnded_ = true;
     busy = true;
+    latest_ = nullptr;
     if (changed_) changed_(nullptr);
   }
   return busy;

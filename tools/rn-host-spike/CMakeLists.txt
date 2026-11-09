@@ -282,10 +282,33 @@ target_compile_options(oxyos_android_components PRIVATE -std=c++20 -fexceptions 
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/intl.js OXYOS_INTL_JS)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/intl-js.h.in ${CMAKE_CURRENT_BINARY_DIR}/intl-js.h @ONLY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/intl.js)
+# The platform API's modules (docs/adr/0058-the-platform-api.mdx, decision 5): React Native's codegen
+# makes their C++ bases (NativeOxyOS*CxxSpec, header-only) from the specs @oxyos/platform's
+# frameworks are written over, as ReactAndroid's Gradle tasks make a library's, at every build that
+# changes a spec. The host implements each (platform-modules.cpp) or does not compile.
+find_program(NODE node)
+if(NOT NODE)
+  message(FATAL_ERROR "node is required: React Native's codegen makes the platform API's module bases")
+endif()
+set(PLATFORM_SPECS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/sample/oxyos/platform/specs)
+file(GLOB PLATFORM_SPECS CONFIGURE_DEPENDS ${PLATFORM_SPECS_DIR}/Native*.ts)
+set(PLATFORM_CODEGEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/platform-codegen)
+set(PLATFORM_SPEC_INCLUDE ${PLATFORM_CODEGEN_DIR}/out/jni/react/renderer/components/OxyOSPlatformSpec)
+add_custom_command(OUTPUT ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${PLATFORM_CODEGEN_DIR}
+  COMMAND ${NODE} ../@react-native/codegen/lib/cli/combine/combine-js-to-schema-cli.js --platform android
+    ${PLATFORM_CODEGEN_DIR}/schema.json ${PLATFORM_SPECS_DIR}
+  COMMAND ${NODE} scripts/generate-specs-cli.js --platform android --schemaPath ${PLATFORM_CODEGEN_DIR}/schema.json
+    --outputDir ${PLATFORM_CODEGEN_DIR}/out --libraryName OxyOSPlatformSpec --javaPackageName so.oxy.os.platform
+  WORKING_DIRECTORY ${RN_DIR}
+  DEPENDS ${PLATFORM_SPECS}
+  COMMENT "React Native's codegen: the platform API's module specs"
+  VERBATIM)
+
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-gpu.cpp android-view-props.cpp damage.cpp host-modules.cpp application.cpp account-session.cpp migration.cpp files.cpp clipboard.cpp images.cpp svg-image.cpp network.cpp websocket.cpp worklets-host.cpp intl.cpp
-  reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
+  reanimated-host.cpp native-animated.cpp animation-frames.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp platform-modules.cpp ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
   gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
-target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${PLATFORM_SPEC_INCLUDE})
 target_include_directories(oxyos-bloom-host PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)
 set_source_files_properties(reanimated-host.cpp PROPERTIES COMPILE_OPTIONS

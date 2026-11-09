@@ -570,6 +570,10 @@ fn backups_are_asked_only_inside_the_scope_and_only_with_files_granted() {
     }
     let watch = refused.call(&json!({"op": "watchBackups"}).to_string(), &[]);
     assert!(watch.json.contains("not-permitted"), "{}", watch.json);
+    // `files` granted at first use: the backups come with the person's files.
+    refused.grant_the_persons_files();
+    let granted = ask(&refused, 5, json!({"op": "backups"}));
+    assert_ne!(granted["error"], "not-permitted", "{granted}");
     drop(backupd);
 }
 

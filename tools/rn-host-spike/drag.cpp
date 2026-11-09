@@ -515,7 +515,15 @@ bool DragDrop::deliver() {
     }
     folly::dynamic received = folly::dynamic::object();
     if (!failed) {
-      for (const auto& pipe : it->pipes) received[pipe.mime] = pipe.bytes;
+      for (const auto& pipe : it->pipes) {
+        received[pipe.mime] = pipe.bytes;
+        // The files dropped are the person's to give: the application reaches them from its onDrop.
+        if (giveFiles_ && lowercase(pipe.mime) == "text/uri-list") {
+          for (const auto& line : lines(pipe.bytes)) {
+            if (lowercase(line.substr(0, 5)) == "file:") giveFiles_(line);
+          }
+        }
+      }
     }
     auto event = it->event;
     event["received"] = received;

@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import type { ApplicationConstants } from '../specs/NativeOxyOSApplication.ts';
 import { answerQuit, createApplication } from '../src/application.ts';
 import { codeOf, errorOf, isPlatformError, PlatformError } from '../src/errors.ts';
 import { followed } from '../src/followed.ts';
@@ -58,6 +59,11 @@ test("a session's reasons are the platform's codes, or failed with the reason ke
   const failed = errorOf('network', { failed: { reason: 'wrongPassword' } });
   assert.equal(failed?.code, 'failed');
   assert.equal(failed?.reason, 'wrongPassword');
+  assert.equal(failed?.refused, false);
+  assert.equal(refused?.refused, true);
+  // What else the session said is kept, for a caller that reads it (the store's `told`).
+  const told = errorOf('store', { failed: { reason: 'noRelease', told: true, detail: 'none for this machine' } });
+  assert.deepEqual(told?.details, { told: true, detail: 'none for this machine' });
   assert.equal(errorOf('store', null)?.code, 'failed');
 });
 
@@ -71,6 +77,8 @@ test('a call is the wire request, and resolves with what succeeded', async () =>
   assert.deepEqual(sent.at(-1)?.body, { soundVolume: { direction: 'output', volume: 0.5 } });
   void platform.bluetooth.connect('dev');
   assert.deepEqual(sent.at(-1)?.body, { bluetoothConnect: { id: 'dev' } });
+  void platform.settings.refreshUpdates();
+  assert.deepEqual(sent.at(-1)?.body, { state: {} });
 });
 
 test("Wi-Fi's private address, resetting and diagnostics are the session's requests (ADR 0038)", async () => {
@@ -110,7 +118,7 @@ test('without the host module, or a request not sent, a call rejects with unavai
 test('aborting rejects at once with cancelled, and the answer that comes later is dropped', async () => {
   const { platform, sent, answer } = played();
   const controller = new AbortController();
-  const asked = platform.store.install('so.oxy.inbox', { signal: controller.signal });
+  const asked = platform.store.install({ id: 'so.oxy.inbox' }, { signal: controller.signal });
   controller.abort();
   await assert.rejects(asked, (error) => isPlatformError(error, 'cancelled') && error.domain === 'store');
   answer(sent.at(-1)!.serial, { installed: {} });
@@ -125,7 +133,8 @@ test('aborting rejects at once with cancelled, and the answer that comes later i
 test("an install's progress goes to its caller, then its answer", async () => {
   const { platform, sent, answer } = played();
   const seen: unknown[] = [];
-  const installing = platform.store.install('so.oxy.inbox', { onProgress: (progress) => seen.push(progress) });
+  const installing = platform.store.install({ listing: 'inbox' }, { onProgress: (progress) => seen.push(progress) });
+  assert.deepEqual(sent.at(-1)?.body, { install: { listing: 'inbox' } });
   const { serial } = sent.at(-1)!;
   answer(serial, { progress: { done: 1, total: 2 } });
   answer(serial, { installed: { id: 'so.oxy.inbox' } });
@@ -186,6 +195,28 @@ test('a followed state tells its followers in order and stops each once', () => 
   assert.equal(state.current(), 2);
   assert.deepEqual([starts, stops], [1, 1]);
   assert.ok(new PlatformError('audio', 'busy') instanceof Error);
+});
+
+test('a capability asked at first use is answered by its serial; those asked meanwhile share it', async () => {
+  let listener: ((event: { serial: number; granted: boolean }) => void) | undefined;
+  const events: Events = {
+    addListener(name, handler) {
+      if (name === 'OxyOSCapabilityResult') listener = handler;
+      return { remove() {} };
+    },
+  };
+  const asked: string[] = [];
+  const session = createSession({ request: () => 1, requestCapability: (name) => (asked.push(name), asked.length) }, events);
+  const first = session.requestCapability('files');
+  const second = session.requestCapability('files');
+  assert.deepEqual(asked, ['files']);
+  listener?.({ serial: 1, granted: true });
+  assert.deepEqual(await Promise.all([first, second]), [true, true]);
+  // Answered, it is asked again next time: the session keeps the account's decision.
+  const again = session.requestCapability('files');
+  listener?.({ serial: 2, granted: false });
+  assert.equal(await again, false);
+  assert.equal(await createSession(null, events).requestCapability('files'), false);
 });
 
 test("Activity Monitor's samples are followed while something shows them, of the view it chose", async () => {
@@ -307,6 +338,25 @@ test('asking to save is unavailable without the module and cancellable', async (
   await settle();
 });
 
+/** An application's constants, as the host gives them, with `more`. */
+const applicationConstants = (more: Partial<ApplicationConstants>): ApplicationConstants => ({
+  id: 'so.oxy.chat',
+  recorded: true,
+  module: 'Chat',
+  manifest: null,
+  dataDirectory: null,
+  cacheDirectory: null,
+  deviceName: '',
+  systemVersion: '',
+  launchURL: null,
+  backgroundItems: false,
+  quitRequests: false,
+  ...more,
+});
+/** A session that asks nothing (the application's own calls do not reach it). */
+const quietSession = () => createSession(null, { addListener: () => ({ remove() {} }) });
+const opens = async () => ({ opened: true, refused: null });
+
 /** A played OxyOSApplication: the asks sent, and a way to answer one or tell a change unasked. */
 function playedApplication({ available = true, sends = true } = {}) {
   const asked: { serial: number; kind: string; action: string }[] = [];
@@ -321,8 +371,9 @@ function playedApplication({ available = true, sends = true } = {}) {
   };
   let next = 0;
   const native = {
-    getConstants: () => ({ backgroundItems: available }),
-    backgroundItem(kind: 'loginItem' | 'background', action: 'status' | 'register' | 'unregister') {
+    getConstants: () => applicationConstants({ backgroundItems: available }),
+    open: opens,
+    backgroundItem(kind: string, action: string) {
       if (!sends) return 0;
       next += 1;
       asked.push({ serial: next, kind, action });
@@ -330,7 +381,7 @@ function playedApplication({ available = true, sends = true } = {}) {
     },
   };
   return {
-    application: createApplication(native, events),
+    application: createApplication(native, quietSession(), events),
     asked,
     answer: (serial: number, kind: string, status: string) => listener?.({ serial, kind, status }),
   };
@@ -398,10 +449,11 @@ test('an ask is cancelled with its signal, and without the session it is unavail
 });
 
 test("the account's applications are followed as Settings asks for them and as the session tells them", () => {
-  const { session, answer, tell } = played();
+  const { platform, answer, tell } = played();
   const told: unknown[] = [];
-  session.state.privacy.subscribe((apps) => told.push(apps));
-  void session.request({ privacy: {} });
+  // Settings' Privacy page follows them through the platform's settings.
+  platform.settings.decisions.subscribe((apps) => told.push(apps));
+  void platform.settings.privacy();
   answer(1, { privacy: [{ id: 'so.oxy.chat', capabilities: { background: 'granted' }, runningInBackground: false }] });
   tell({ privacy: [{ id: 'so.oxy.chat', capabilities: { background: 'granted' }, runningInBackground: true }] });
   assert.deepEqual(
@@ -422,7 +474,8 @@ function playedQuit({ quitRequests = true } = {}) {
     },
   };
   const native = {
-    getConstants: () => ({ backgroundItems: false, quitRequests }),
+    getConstants: () => applicationConstants({ quitRequests }),
+    open: opens,
     backgroundItem: () => 0,
     handlesQuit: (handling: boolean) => void handles.push(handling),
     replyToQuit: (serial: number, quit: boolean) => {
@@ -431,7 +484,7 @@ function playedQuit({ quitRequests = true } = {}) {
     },
   };
   return {
-    application: createApplication(native, events),
+    application: createApplication(native, quietSession(), events),
     handles,
     replies,
     ask: (serial: number, reason: string) => ask?.({ serial, reason }),
@@ -511,4 +564,21 @@ test('where the session never asks, a handler is kept and the host is told nothi
   const stop = application.onQuitRequest(() => 'quit');
   stop();
   assert.deepEqual(handles, []);
+});
+
+test("backups and Settings › Storage are the session's requests, rejecting with its refusal", async () => {
+  const { platform, sent, answer } = played();
+  const now = platform.backup.backUpNow();
+  assert.deepEqual(sent.at(-1)?.body, { backupNow: {} });
+  answer(sent.at(-1)!.serial, { refused: { reason: 'needsInput' } });
+  await assert.rejects(now, (error: unknown) => isPlatformError(error, 'needsInput') && error.domain === 'backup');
+  void platform.backup.setExcluded(['/home/a/tmp']);
+  assert.deepEqual(sent.at(-1)?.body, { backupExcluded: { paths: ['/home/a/tmp'] } });
+  const measured = platform.settings.storage();
+  answer(sent.at(-1)!.serial, { storage: { volume: {} } });
+  assert.deepEqual(await measured, { storage: { volume: {} } });
+  void platform.settings.uninstall('so.oxy.chat');
+  assert.deepEqual(sent.at(-1)?.body, { uninstall: { id: 'so.oxy.chat' } });
+  void platform.settings.resetApplication('so.oxy.chat');
+  assert.deepEqual(sent.at(-1)?.body, { resetApplication: { id: 'so.oxy.chat' } });
 });

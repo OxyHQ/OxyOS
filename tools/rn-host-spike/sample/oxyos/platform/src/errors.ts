@@ -20,14 +20,24 @@ export type PlatformErrorCode = (typeof PLATFORM_ERROR_CODES)[number];
 
 /** The framework a call belongs to. */
 export type PlatformDomain =
+  | 'account'
   | 'activity'
   | 'application'
   | 'audio'
+  | 'backup'
   | 'bluetooth'
+  | 'chooser'
+  | 'drag'
+  | 'files'
   | 'keychain'
   | 'network'
+  | 'notifications'
+  | 'pasteboard'
   | 'power'
+  | 'search'
   | 'settings'
+  | 'shell'
+  | 'sounds'
   | 'store';
 
 export class PlatformError extends Error {
@@ -36,13 +46,26 @@ export class PlatformError extends Error {
   readonly code: PlatformErrorCode;
   /** The service's own word for it, when it said one beyond the code (`wrongPassword`). */
   readonly reason: string | undefined;
+  /** Whether the service refused it (no grant, no input to cite, locked: nothing was tried), as
+      against tried and failed. */
+  readonly refused: boolean;
+  /** What else the service said of it (whether it already told the person in its own sheet,
+      `told`; its own words, `detail`), as it said them. */
+  readonly details: Readonly<Record<string, unknown>>;
 
-  constructor(domain: PlatformDomain, code: PlatformErrorCode, reason?: string) {
+  constructor(
+    domain: PlatformDomain,
+    code: PlatformErrorCode,
+    reason?: string,
+    more: { refused?: boolean; details?: Record<string, unknown> } = {},
+  ) {
     super(reason && reason !== code ? `${domain}: ${code} (${reason})` : `${domain}: ${code}`);
     this.name = 'PlatformError';
     this.domain = domain;
     this.code = code;
     this.reason = reason;
+    this.refused = more.refused ?? false;
+    this.details = Object.freeze({ ...more.details });
   }
 }
 
@@ -84,6 +107,7 @@ export function errorOf(domain: PlatformDomain, answer: unknown): PlatformError 
   const told = answer as Answer;
   const refusal = told?.refused ?? told?.failed;
   if (refusal === undefined) return null;
-  const reason = typeof refusal?.reason === 'string' ? refusal.reason : undefined;
-  return new PlatformError(domain, codeOf(reason), reason);
+  const { reason: said, ...details } = (refusal ?? {}) as Record<string, unknown>;
+  const reason = typeof said === 'string' ? said : undefined;
+  return new PlatformError(domain, codeOf(reason), reason, { refused: told?.refused !== undefined, details });
 }

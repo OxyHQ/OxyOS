@@ -59,12 +59,19 @@ pub use scope::{Access, Application, Root, Scope};
 #[cfg(feature = "service")]
 pub use service::{NetworkAccess, Service};
 
+/// Why an application without `files` is refused the person's files.
+pub const NOT_GRANTED_FILES: &str = "this application was not granted the person's files";
+
 /// Why a request was not done.
 #[derive(Debug)]
 pub enum Error {
     /// The path is outside what an application may reach, or names what it may not change (the
     /// home itself, a volume's root, a Trash's insides): the reason.
     Refused(String),
+    /// The person's files (the home and their volumes), which the application was not granted:
+    /// its account has not granted it `files`, and the person did not give it this item
+    /// (docs/adr/0030-installing-applications.mdx, decision 8). Asked at first use.
+    NotGranted,
     /// Nothing is there.
     NotFound,
     /// Something is already there with that name.
@@ -103,6 +110,7 @@ impl Error {
     pub fn code(&self) -> &'static str {
         match self {
             Error::Refused(_) => "refused",
+            Error::NotGranted => "not-granted",
             Error::NotFound => "not-found",
             Error::Exists => "exists",
             Error::NoDestination => "no-destination",
@@ -126,6 +134,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Refused(reason) => write!(f, "refused: {reason}"),
+            Error::NotGranted => f.write_str(NOT_GRANTED_FILES),
             Error::NotFound => f.write_str("nothing is there"),
             Error::Exists => f.write_str("an item with that name is already there"),
             Error::NoDestination => f.write_str("the destination's folder does not exist"),

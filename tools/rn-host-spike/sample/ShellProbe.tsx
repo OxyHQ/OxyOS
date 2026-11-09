@@ -10,17 +10,7 @@ import { BloomProvider } from '@oxy.so/bloom/provider';
 import { oxyosSurfaces } from './oxyos/platform-surface';
 import { oxyosShell } from './oxyos/shell-surface';
 import { useDisplayCovered, useOxyOSShell, useWindowSizes } from './oxyos/shell-state';
-import {
-  backup as backupApi,
-  autofill as autofillApi,
-  inputSources,
-  session as sessionApi,
-  useBackupState,
-  useAutofillState,
-  useInputSourcesState,
-  useSystemSheets,
-} from './oxyos/system';
-import { audio, bluetooth, network, power } from '@oxyos/platform';
+import { audio, backup, bluetooth, network, power, settings, shell as platformShell } from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
@@ -40,6 +30,7 @@ import type {
   ShellEnergyApp,
   ShellInputMethod,
   ShellAutofill,
+  ShellControl,
   ShellLock,
   ShellMenu,
   ShellMenuItem,
@@ -465,31 +456,73 @@ export function ShellSession() {
   );
 }
 
+/** No system sheet waiting (the shell's sheets before the session told any). */
+const NO_SHEETS: readonly { sheet: number; text: string }[] = [];
+
+/**
+ * What the Control Center shows of the sound (docs/adr/0056-sound-devices.mdx): whether its server
+ * answers and the outputs to choose, the same state while they stay. The volume and mute are the
+ * levels' (the controls'), so a volume set by the slider or a key renders the level's card alone,
+ * never the shell around it.
+ */
+/** The networks as the daemon tells them, the same state while what it says is the same: a scan
+    that found what was there renders nothing. */
+let networksShown: { said: string; state: unknown } | null = null;
+function sameNetworks(state: unknown): unknown {
+  const said = JSON.stringify(state ?? null);
+  if (networksShown && networksShown.said === said) return networksShown.state;
+  networksShown = { said, state };
+  return state;
+}
+
+let soundShown: { available?: unknown; outputs: string; state: unknown } | null = null;
+function soundForControlCenter(state: unknown): unknown {
+  if (state === null || typeof state !== 'object') return state;
+  const told = state as { available?: unknown; output?: { devices?: unknown } };
+  const outputs = JSON.stringify(told.output?.devices ?? null);
+  if (soundShown && soundShown.available === told.available && soundShown.outputs === outputs) return soundShown.state;
+  soundShown = { available: told.available, outputs, state };
+  return state;
+}
+
 function SessionShell() {
   const shell = useOxyOSShell();
   // The session's system sheets (ADR 0030): the first waiting, on the display with the dock.
-  const {
-    sheets,
-    answer,
-    answerPassword,
-    answerCode,
-    answerPasskey,
-    resetApplication,
-    choosePowerKey,
-    reopenWindows,
-  } = useSystemSheets();
+  const sheets = useFollowed(platformShell.sheets) ?? NO_SHEETS;
+  const { answerSheet: answer, answerPassword, answerCode } = platformShell;
+  const { answerPasskey, resetApplication, choosePowerKey, setReopenWindows: reopenWindows } = platformShell;
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
-  const networks = useFollowed(network.wifi);
+  const networks = useFollowed(network.wifi, sameNetworks);
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
-  const sound = useFollowed(audio.state);
+  const sound = useFollowed(audio.state, soundForControlCenter);
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
   const bluetoothDevices = useFollowed(bluetooth.state);
   // The input sources as the session tells them (ADR 0041): the top bar's item.
-  const sources = useInputSourcesState();
+  const sources = useFollowed(settings.inputSources);
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
   const powerState = useFollowed(power.state) as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
   // The backup service's state as the session tells it (ADR 0059): the menu bar's backup item.
-  const backupTold = useBackupState();
+  const backupTold = useFollowed(backup.state);
+  // Each thing done twice has one owner (docs/adr/0058-the-platform-api.mdx, decision 7): the
+  // sound's volume and mute are the platform's `audio`, which the session hands to the same
+  // controls as the keys, so the bezel and the top bar follow; Wi-Fi is `network`'s. The display's
+  // and the keyboard's brightness are the shell's own. Made once, so a level's card that did not
+  // change renders nothing when another's level does.
+  const setControlLevel = React.useCallback(
+    (control: ShellControl, level: number) =>
+      control === 'output' || control === 'input'
+        ? void audio.setVolume(control, level).catch(() => {})
+        : shell.setControlLevel(control, level),
+    [shell.setControlLevel],
+  );
+  const setControlMuted = React.useCallback(
+    (control: ShellControl, muted: boolean) =>
+      control === 'output' || control === 'input'
+        ? void audio.setMuted(control, muted).catch(() => {})
+        : shell.setControlMuted(control, muted),
+    [shell.setControlMuted],
+  );
+  const setWifiEnabled = React.useCallback((enabled: boolean) => void network.setWifi(enabled).catch(() => {}), []);
   // One the shell cannot read is refused: it never confirms what it did not show.
   React.useEffect(() => {
     for (const waiting of sheets) if (!readSheet(waiting.text)) answer(waiting.sheet, false);
@@ -733,9 +766,9 @@ function SessionShell() {
       network: told?.network ?? undefined,
       bluetooth: told?.bluetooth ?? undefined,
       bezel,
-      setLevel: shell.setControlLevel,
-      setMuted: shell.setControlMuted,
-      setWifi: shell.setWifiEnabled,
+      setLevel: setControlLevel,
+      setMuted: setControlMuted,
+      setWifi: setWifiEnabled,
       setDark: shell.setAppearance,
       refresh: shell.refreshControls,
       // Wi-Fi's networks (ADR 0038): the session scans and joins, asking a password or saying what
@@ -774,7 +807,7 @@ function SessionShell() {
         shell.openUrl('oxyos-settings://bluetooth');
       },
     };
-  }, [told, bezel, networks, sound, bluetoothDevices, act]);
+  }, [told, bezel, networks, sound, bluetoothDevices, act, setControlLevel, setControlMuted, setWifiEnabled]);
   // The session's notifications (ADR 0026): the compositor keeps them; the shell shows them and
   // says what the person did.
   const toldNotifications: ToldNotification[] = state?.notifications ?? NO_TOLD;
@@ -828,10 +861,10 @@ function SessionShell() {
       },
       sources,
       selectSource: (id) => {
-        inputSources.select(id);
+        settings.selectInputSource(id).catch(() => {});
       },
       showEmoji: () => {
-        inputSources.showEmoji();
+        platformShell.showEmojiPicker().catch(() => {});
       },
       openKeyboardSettings: () => act.menuCommand('system.settings'),
     }),
@@ -868,10 +901,10 @@ function SessionShell() {
       ? {
           state,
           backUpNow: () => {
-            backupApi.backUpNow();
+            backup.backUpNow().catch(() => {});
           },
           skip: () => {
-            backupApi.stop();
+            backup.stop().catch(() => {});
           },
           browse: () => {
             shell.openUrl('dropsea://backups');
@@ -885,12 +918,12 @@ function SessionShell() {
 
   // AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the list the session tells this
   // shell to draw at a field's caret (the shell of the caret's display), and the press that picks.
-  const autofillTold = useAutofillState();
+  const autofillTold = useFollowed(platformShell.autofill);
   const autofill: ShellAutofill = React.useMemo(
     () => ({
       list: readAutofill(autofillTold),
       choose: (index) => {
-        autofillApi.choose(index);
+        platformShell.chooseAutofill(index).catch(() => {});
       },
     }),
     [autofillTold],
@@ -899,8 +932,8 @@ function SessionShell() {
   // asked of the session, citing the menu's press; it decides, and asks its own question.
   const powerActions: ShellPowerActions = React.useMemo(
     () => ({
-      sleep: () => void sessionApi.sleep(),
-      endSession: (action, confirm) => void sessionApi.endSession(action, confirm),
+      sleep: () => void platformShell.sleep().catch(() => {}),
+      endSession: (action, confirm) => void platformShell.endSession(action, confirm).catch(() => {}),
     }),
     [],
   );

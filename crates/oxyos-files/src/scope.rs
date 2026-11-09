@@ -21,7 +21,8 @@ use crate::Error;
 use std::io;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// The application a scope is for: its id and its own folders, canonical.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,6 +32,18 @@ pub struct Application {
     pub documents: PathBuf,
     /// `$XDG_CACHE_HOME/oxyos/apps/ID`: its cache directory.
     pub cache: PathBuf,
+}
+
+/// Whether the person's files (the home and their volumes, not the application's own folders) are
+/// the application's to reach (docs/adr/0030-installing-applications.mdx, decision 8, `files`):
+/// all of them, or, while they are withheld (an installed version whose account has not granted
+/// `files`), only the items the person gave it: chose for it in the system's panel, dropped on it,
+/// opened with it. A given folder gives what it holds. Shared by a scope and every scope made from
+/// it, so `files` granted at first use, or an item given, holds for the whole service at once.
+#[derive(Debug, Default)]
+struct PersonsFiles {
+    withheld: AtomicBool,
+    given: Mutex<Vec<PathBuf>>,
 }
 
 /// The user's part of the file system, and the application's.
@@ -46,6 +59,7 @@ pub struct Scope {
     application: Option<Application>,
     /// The folder the bundle the host runs is in (read, never changed), if it runs from one.
     bundle: Option<PathBuf>,
+    persons_files: Arc<PersonsFiles>,
 }
 
 /// Which root a path is in.
@@ -132,6 +146,7 @@ impl Scope {
             uid,
             application: None,
             bundle: None,
+            persons_files: Arc::default(),
         })
     }
 
@@ -177,6 +192,62 @@ impl Scope {
             cache,
         });
         Ok(self)
+    }
+
+    /// This scope with the person's files withheld: only the application's own folders, its
+    /// bundle and the items the person gives it (`give`) until `files` is granted
+    /// (`grant_the_persons_files`).
+    pub fn withholding_the_persons_files(self) -> Scope {
+        self.persons_files.withheld.store(true, Ordering::Relaxed);
+        self
+    }
+
+    /// The person's files, granted: the account granted `files` (at first use).
+    pub fn grant_the_persons_files(&self) {
+        self.persons_files.withheld.store(false, Ordering::Relaxed);
+    }
+
+    /// Gives the application the item at `path` (and what it holds, for a folder) among the
+    /// person's files, as the person did: they chose it for it, dropped it on it or opened it with
+    /// it. Only an item in the home or a volume, which exists.
+    pub fn give(&self, path: &Path) -> Result<(), Error> {
+        let canonical = std::fs::canonicalize(path)?;
+        if !matches!(
+            self.root_of(&canonical, &self.volumes()),
+            Some(Root::Home | Root::Volume(_))
+        ) {
+            return Err(Error::Refused(format!(
+                "{} is not among the person's files",
+                canonical.display()
+            )));
+        }
+        let mut given = self.persons_files.given.lock().expect("lock");
+        if !given.contains(&canonical) {
+            given.push(canonical);
+        }
+        Ok(())
+    }
+
+    /// Whether every one of the person's files is the application's: what lists or changes them as
+    /// a whole (the places, the Trash, the tags' index) needs it, not an item given.
+    pub fn reaches_the_persons_files(&self) -> Result<(), Error> {
+        if self.persons_files.withheld.load(Ordering::Relaxed) {
+            return Err(Error::NotGranted);
+        }
+        Ok(())
+    }
+
+    /// Whether `canonical`, in the home or a volume, is the application's: all the person's files
+    /// are, or it is in an item the person gave it.
+    fn given(&self, canonical: &Path) -> bool {
+        !self.persons_files.withheld.load(Ordering::Relaxed)
+            || self
+                .persons_files
+                .given
+                .lock()
+                .expect("lock")
+                .iter()
+                .any(|item| canonical.starts_with(item))
     }
 
     /// The home, canonical.
@@ -302,6 +373,9 @@ impl Scope {
             return Err(Error::Refused(
                 "the application's bundle is read-only".into(),
             ));
+        }
+        if matches!(root, Root::Home | Root::Volume(_)) && !self.given(canonical) {
+            return Err(Error::NotGranted);
         }
         Ok(())
     }

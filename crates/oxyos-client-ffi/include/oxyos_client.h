@@ -2032,8 +2032,14 @@ OxyOSFiles* oxyos_files_new(const char* app_id, size_t app_id_length, const char
  * `versions`, `versionContents` and `restoreVersion` fail ({"ok": false, "error": "not-permitted"})
  * before the backup service is asked. */
 #define OXYOS_FILES_NO_BACKUPS 2
-/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK, OXYOS_FILES_NO_BACKUPS); other bits are
- * ignored. The backups are the system's backup service's (/run/oxyos/backupd/socket), or those of the
+/* oxyos_files_new_with's flag: the person's files (the home and their volumes) are withheld (an
+ * installed version whose account has not granted `files`, docs/adr/0030-installing-applications.mdx,
+ * decision 8): only the application's own folders, its bundle and the items given it
+ * (oxyos_files_give) are reached, the rest refused ({"ok": false, "error": "not-granted"}) until
+ * oxyos_files_grant_the_persons_files. */
+#define OXYOS_FILES_NO_PERSONS_FILES 4
+/* oxyos_files_new, with flags (OXYOS_FILES_NO_NETWORK, OXYOS_FILES_NO_BACKUPS,
+ * OXYOS_FILES_NO_PERSONS_FILES); other bits are ignored. The backups are the system's backup service's (/run/oxyos/backupd/socket), or those of the
  * service $OXYOS_BACKUPD_SOCKET names (a developer's, oxyos-backupd --development). */
 OxyOSFiles* oxyos_files_new_with(const char* app_id, size_t app_id_length, const char* bundle, size_t bundle_length,
                                  uint32_t flags);
@@ -2048,6 +2054,13 @@ OxyOSFilesReply* oxyos_files_call(OxyOSFiles* files, const char* json, size_t le
 /* Queues a request as `id` (not 0); its answer is the reply with that id. 0, or OXYOS_ERROR for a
  * request that is not UTF-8 (nothing is queued). */
 int oxyos_files_request(OxyOSFiles* files, uint64_t id, const char* json, size_t length, const uint8_t* bytes, size_t bytes_length);
+/* The person's files, granted to the application (its account granted `files` at first use): every
+ * request after reaches them. NULL is ignored. */
+void oxyos_files_grant_the_persons_files(OxyOSFiles* files);
+/* Gives the application the item `uri` (`length` bytes, a file:// URI) of the person's files, as the
+ * person did: chosen for it in the system's panel, dropped on it, opened with it; a folder with what
+ * it holds. 0, or OXYOS_ERROR for an item that is not there or not among the person's files. */
+int oxyos_files_give(OxyOSFiles* files, const char* uri, size_t length);
 /* The next reply without blocking, NULL when there is none; freed with oxyos_files_reply_free. */
 OxyOSFilesReply* oxyos_files_take(OxyOSFiles* files);
 /* The media type of the file a file:// URI names (`length` bytes): inode/directory for a folder (its

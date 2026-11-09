@@ -33,22 +33,29 @@ import {
 } from '../../../apps/settings/src/wallpaper';
 import { useSessionLocale } from './oxyos/locale';
 import {
-  available,
-  backup as systemBackup,
-  session as systemSession,
-  privacy,
-  storage as systemStorage,
-  updates as systemUpdates,
-  useInputSourcesState,
-  useBackupState,
-  useUpdateState,
-} from './oxyos/system';
-import {
+  application,
   audio as platformAudio,
+  backup as platformBackup,
   bluetooth as platformBluetooth,
+  isPlatformError,
   network as platformNetwork,
   power as platformPower,
+  settings as platformSettings,
 } from '@oxyos/platform';
+/** Whether the session can be asked here (a host in a session, with its connection). */
+const available = platformSettings.available;
+/**
+ * A call of the platform's, settled as the session answered it, for the outcome helpers of
+ * apps/settings that read the session's answers (`{refused: {reason}}`, `{failed: {reason}}`, else
+ * what it answered): its rejection, a PlatformError, said back as the answer it was.
+ */
+function answerOf(call: Promise<unknown>): Promise<any> {
+  return call.catch((error: unknown) => {
+    if (!isPlatformError(error)) return { failed: { reason: 'failed' } };
+    const said = { ...error.details, reason: error.reason ?? error.code };
+    return error.refused ? { refused: said } : { failed: said };
+  });
+}
 import { useFollowed } from '@oxyos/platform/react';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import {
@@ -514,18 +521,25 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
  * install updates with apt: no OxyOS install updates otherwise until ADR 0023's image updates exist.
  */
 function useInstallModel() {
-  const state = useUpdateState();
+  const state = useFollowed(platformSettings.updates);
   const [failed, setFailed] = React.useState<string | null>(null);
   // Without the `updates` grant the session refuses: the page says updates are not available here.
   const [updatesAllowed, setUpdatesAllowed] = React.useState(available);
   React.useEffect(() => {
-    if (available) systemUpdates.state().then((answer: any) => answer?.refused && setUpdatesAllowed(false));
+    if (!available) return;
+    platformSettings.refreshUpdates().catch((error) => {
+      if (isPlatformError(error, 'notPermitted')) setUpdatesAllowed(false);
+    });
   }, []);
   const [apps, setApps] = React.useState<PrivacyApplication[] | null | undefined>(available ? null : undefined);
+  // Without the `privacy` grant the session refuses: the page shows no applications' decisions.
   const reload = React.useCallback(async () => {
-    const answer = await privacy.list();
-    if (answer && Array.isArray(answer.privacy)) setApps(answer.privacy);
-    else if (answer && answer.refused) setApps(undefined);
+    try {
+      const answer = await platformSettings.privacy();
+      if (Array.isArray(answer.privacy)) setApps(answer.privacy as PrivacyApplication[]);
+    } catch (error) {
+      if (isPlatformError(error, 'notPermitted')) setApps(undefined);
+    }
   }, []);
   React.useEffect(() => {
     if (available) reload();
@@ -536,25 +550,39 @@ function useInstallModel() {
   // Told again, unasked, when it changed elsewhere: an application granted a capability as it
   // registered, or one running in the background or no longer
   // (docs/adr/0060-login-items-and-background-activity.mdx).
-  React.useEffect(() => (available ? privacy.subscribe(setApps) : undefined), []);
-  const done = (answer: { refused?: { reason: string }; failed?: { reason: string } } | null) =>
-    setFailed(answer?.refused?.reason ?? answer?.failed?.reason ?? null);
+  React.useEffect(
+    () => (available ? platformSettings.decisions.subscribe((told) => setApps(told as PrivacyApplication[])) : undefined),
+    [],
+  );
+  // A failure is said by the session's own word (its reason), else the platform's code.
+  const failure = (error: unknown) => {
+    const { code, reason } = (error ?? {}) as { code?: string; reason?: string };
+    setFailed(reason ?? code ?? 'failed');
+  };
   // An update answers once it ended, with each application's outcome.
-  const outcomes = (answer: any): UpdateOutcome[] => {
-    done(answer);
-    return Array.isArray(answer?.updated) ? answer.updated : [];
+  const outcomes = (answer: { updated?: unknown }): UpdateOutcome[] => {
+    setFailed(null);
+    return Array.isArray(answer.updated) ? (answer.updated as UpdateOutcome[]) : [];
+  };
+  const none = (error: unknown): UpdateOutcome[] => {
+    failure(error);
+    return [];
   };
   const updates: UpdatesActions = {
-    checkForUpdates: () => systemUpdates.check().then(done),
-    update: (id) => systemUpdates.update([id]).then(outcomes),
-    updateAll: () => systemUpdates.updateAll().then(outcomes),
+    checkForUpdates: () => platformSettings.checkUpdates().then(() => setFailed(null), failure),
+    update: (id) => platformSettings.update([id]).then(outcomes, none),
+    updateAll: () => platformSettings.updateAll().then(outcomes, none),
   };
   return {
     updates: updatesAllowed ? { system: { kind: 'apt' as const }, state, failed } : undefined,
     updatesActions: updatesAllowed ? updates : undefined,
     privacy: apps,
     privacyActions: available
-      ? { decide: (id: string, capability: string, granted: boolean) => privacy.decide(id, capability, granted).then(reload) }
+      ? {
+          // Asked again either way: a decision refused shows as it stays.
+          decide: (id: string, capability: string, granted: boolean) =>
+            platformSettings.decide(id, capability, granted).then(reload, reload),
+        }
       : undefined,
   };
 }
@@ -836,15 +864,17 @@ function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
 /** Backups' requests of the session (docs/adr/0059-backups.mdx), each answered once the backup
     service answered: why not, or null once done. */
 const backupActions: BackupActions = {
-  backUpNow: async () => backupFailureOf(await systemBackup.backUpNow(), 'backupNow'),
-  stop: async () => backupFailureOf(await systemBackup.stop(), 'backupStop'),
-  disks: async () => backupDisksOf(await systemBackup.disks()),
-  addDisk: async (uuid, password) => backupFailureOf(await systemBackup.addDisk(uuid, password), 'backupAddDisk'),
+  backUpNow: async () => backupFailureOf(await answerOf(platformBackup.backUpNow()), 'backupNow'),
+  stop: async () => backupFailureOf(await answerOf(platformBackup.stop()), 'backupStop'),
+  disks: async () => backupDisksOf(await answerOf(platformBackup.disks())),
+  addDisk: async (uuid, password) =>
+    backupFailureOf(await answerOf(platformBackup.addDisk(uuid, password)), 'backupAddDisk'),
   addShare: async (share, sharePassword, password) =>
-    backupFailureOf(await systemBackup.addShare(share, sharePassword, password), 'backupAddShare'),
-  remove: async (id) => backupFailureOf(await systemBackup.remove(id), 'backupRemove'),
-  setExcluded: async (paths) => backupFailureOf(await systemBackup.setExcluded(paths), 'backupExcluded'),
-  setAutomatic: async (enabled) => backupFailureOf(await systemBackup.setAutomatic(enabled), 'backupAutomatic'),
+    backupFailureOf(await answerOf(platformBackup.addShare(share, sharePassword, password)), 'backupAddShare'),
+  remove: async (id) => backupFailureOf(await answerOf(platformBackup.remove(id)), 'backupRemove'),
+  setExcluded: async (paths) => backupFailureOf(await answerOf(platformBackup.setExcluded(paths)), 'backupExcluded'),
+  setAutomatic: async (enabled) =>
+    backupFailureOf(await answerOf(platformBackup.setAutomatic(enabled)), 'backupAutomatic'),
 };
 
 /**
@@ -854,7 +884,7 @@ const backupActions: BackupActions = {
  * page.
  */
 function useBackupModel(): { backup: BackupState | null | undefined; actions: BackupActions | undefined } {
-  const told = useBackupState() as { backup?: unknown } | null;
+  const told = useFollowed(platformBackup.state) as { backup?: unknown } | null;
   if (!available || told === null) return { backup: undefined, actions: undefined };
   return { backup: backupStateOf(told.backup), actions: backupActions };
 }
@@ -995,7 +1025,7 @@ function useBluetoothModel(): { bluetooth: BluetoothState | undefined; actions: 
  * (none until it has); without one, the fixture's preferences with every input method installed.
  */
 function useInputSources(snapshot: SettingsSnapshot, session: boolean) {
-  const told = useInputSourcesState();
+  const told = useFollowed(platformSettings.inputSources);
   if (!session) {
     const { preferences, system } = snapshot;
     return inputSourcesOf(system.keyboardLayout, preferences.inputSources, preferences.inputSource, INPUT_METHODS);
@@ -1155,7 +1185,7 @@ function useStorageActions(): StorageActions {
     const search = oxyosSurfaces.search as any;
     return {
       measure: async () => {
-        const answer = await systemStorage.measure();
+        const answer = await answerOf(platformSettings.storage());
         const measured = measuredOf(answer);
         if (!measured) throw failure(answer);
         return measured;
@@ -1170,7 +1200,7 @@ function useStorageActions(): StorageActions {
           : undefined,
       largest: async (limit) => (search?.largest ? largeFiles((await search.largest({ limit })).items ?? []) : []),
       reveal: async (uri) => {
-        const answer: any = await systemStorage.reveal(uri);
+        const answer = await answerOf(platformSettings.reveal(uri));
         if (!answer?.revealed) throw failure(answer);
       },
       trash: async (uri) => {
@@ -1179,8 +1209,8 @@ function useStorageActions(): StorageActions {
         const [moved] = await files.trash([uri]);
         if (!moved?.ok) throw new Error(moved?.error ?? 'failed');
       },
-      remove: async (id) => removeOutcomeOf(await systemStorage.remove(id)),
-      reset: async (id) => resetOutcomeOf(await systemStorage.reset(id)),
+      remove: async (id) => removeOutcomeOf(await answerOf(platformSettings.uninstall(id))),
+      reset: async (id) => resetOutcomeOf(await answerOf(platformSettings.resetApplication(id))),
     };
   }, []);
 }
@@ -1214,7 +1244,14 @@ const outcome = (answer: unknown, done: (answer: unknown) => boolean): AccountOu
   return { failed: reason?.refused?.reason ?? reason?.failed?.reason ?? 'failed' };
 };
 const accountActions: AccountActions = {
-  signOut: async () => outcome(await systemSession.signOut(), (answer) => !!(answer as { signingOut?: unknown })?.signingOut),
+  signOut: async () => {
+    try {
+      await platformSettings.signOut();
+      return { done: true };
+    } catch (error) {
+      return { failed: isPlatformError(error) ? (error.reason ?? error.code) : 'failed' };
+    }
+  },
   remove: async () => outcome(accountSession ? await accountSession.remove() : null, (answer) => answer === true),
   // The account's sign-in on this computer (docs/adr/0020-oxy-account-login.mdx decision 2): its
   // PIN and password, read and changed by the accounts' service; the secrets go to the host, which
@@ -1282,7 +1319,7 @@ function useAccount(): AccountSnapshot | null {
  * manage the Oxy account, `oxyos-settings://oxy-account`); none for a plain launch.
  */
 function launchPage(): string | undefined {
-  const url: unknown = TurboModuleRegistry.get<any>('OxyOSApplication')?.getConstants().launchURL;
+  const url = application.launchURL;
   const match = typeof url === 'string' ? /^oxyos-settings:\/\/([a-z0-9-]+)\/?$/i.exec(url) : null;
   return match ? match[1]!.toLowerCase() : undefined;
 }

@@ -178,8 +178,9 @@ struct Context {
     tag_index: Mutex<Option<Arc<TagIndex>>>,
     /// The watches told when it changes (`watchTags`).
     tag_watches: Arc<Mutex<BTreeSet<u32>>>,
-    /// The backup service, for an application granted `files`.
-    backups: Option<Backups>,
+    /// The backup service, for an application granted `files` (at its launch, or at first use:
+    /// `Service::grant_the_persons_files`).
+    backups: Mutex<Option<Backups>>,
     /// The backups' state followed while a watch wants it (`watchBackups`), and those watches.
     backup_follower: Mutex<Option<Follower>>,
     backup_watches: Arc<Mutex<BTreeSet<u32>>>,
@@ -189,6 +190,8 @@ struct Context {
 impl Context {
     /// The index of tagged items, started the first time it is wanted.
     fn tag_index(&self) -> Result<Arc<TagIndex>, Error> {
+        // The index crawls every one of the person's files, never only items given.
+        self.scope.reaches_the_persons_files()?;
         let mut index = self.tag_index.lock().expect("lock");
         if let Some(index) = index.as_ref() {
             return Ok(index.clone());
@@ -204,9 +207,11 @@ impl Context {
     }
 
     /// The backup service, if the application may ask it.
-    fn backups(&self) -> Result<&Backups, Error> {
+    fn backups(&self) -> Result<Backups, Error> {
         self.backups
-            .as_ref()
+            .lock()
+            .expect("lock")
+            .clone()
             .ok_or_else(|| Error::NotPermitted(NOT_GRANTED_FILES.into()))
     }
 }
@@ -289,10 +294,10 @@ impl Service {
             transfers: Mutex::new(HashMap::new()),
             tag_index: Mutex::new(None),
             tag_watches: Arc::new(Mutex::new(BTreeSet::new())),
-            backups: match backups {
+            backups: Mutex::new(match backups {
                 BackupAccess::Granted(backups) => Some(backups),
                 BackupAccess::Refused => None,
-            },
+            }),
             backup_follower: Mutex::new(None),
             backup_watches: Arc::new(Mutex::new(BTreeSet::new())),
             shared: shared.clone(),
@@ -353,6 +358,24 @@ impl Service {
         if let Some(requests) = &self.requests {
             let _ = requests.send((id, request.to_string(), bytes));
         }
+    }
+
+    /// The person's files, granted to the application: its account granted `files` at first use
+    /// (docs/adr/0030-installing-applications.mdx, decision 8). Holds for every request after.
+    /// The person's backups come with them, which hold everything their home ever held
+    /// (docs/adr/0059-backups.mdx): the system's backup service, as for a launch with `files`.
+    pub fn grant_the_persons_files(&self) {
+        self.context.scope.grant_the_persons_files();
+        let mut backups = self.context.backups.lock().expect("lock");
+        if backups.is_none() {
+            *backups = Some(Backups::from_environment());
+        }
+    }
+
+    /// The item `uri` (a `file://` URI) of the person's files, given to the application by the
+    /// person: chosen for it in the system's panel, dropped on it, opened with it.
+    pub fn give(&self, uri: &str) -> Result<(), Error> {
+        self.context.scope.give(Path::new(&uri::path_of(uri)?))
     }
 
     /// A file the scope allows opened for reading, at once: a request's body (`Networking`'s
@@ -524,7 +547,7 @@ fn backup_answer(
                     "progress": { "bytesWritten": written, "totalBytes": total },
                 }));
             };
-            crate::restore::restore(scope, backups, &restore, &live.cancel, &progress)
+            crate::restore::restore(scope, &backups, &restore, &live.cancel, &progress)
         }
         other => Err(Error::Invalid(format!("no operation {other:?}"))),
     }
@@ -742,6 +765,14 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
             overwrite: flag(request, "overwrite"),
         })
     };
+    // What lists or changes the person's files as a whole (their places, the Trash) needs them
+    // all, never only items the person gave the application.
+    if matches!(
+        op,
+        "places" | "watchPlaces" | "trashed" | "watchTrash" | "restore" | "erase" | "emptyTrash"
+    ) {
+        scope.reaches_the_persons_files()?;
+    }
     match op {
         "paths" => value(access::paths(scope)),
         "diskSpace" => value(access::disk_space(scope)?),
@@ -980,7 +1011,7 @@ fn run(context: &Context, request: &Value, bytes: &[u8]) -> Result<(Value, Vec<u
             value(watch.into())
         }
         "watchBackups" => {
-            let backups = context.backups()?.clone();
+            let backups = context.backups()?;
             let watch = context.watcher.watch(&[], false)?;
             let mut follower = context.backup_follower.lock().expect("lock");
             if follower.is_none() {

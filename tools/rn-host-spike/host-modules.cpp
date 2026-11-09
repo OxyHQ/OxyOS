@@ -1,4 +1,5 @@
 #include "host-modules.h"
+#include "platform-modules.h"
 
 #include "crash-report.h"
 
@@ -45,17 +46,6 @@ jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& 
     callback.asObject(rt).asFunction(rt).call(rt, argument);
   }
   return jsi::Value::undefined();
-}
-
-// A promise resolved with `value`.
-jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
-  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
-}
-
-// A promise rejected with an Error carrying `message`.
-jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
-  auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
-  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
 }
 
 // The first line of a file, or "" (a file that is not there says nothing).
@@ -525,6 +515,45 @@ class ExpoImageRefHandle : public jsi::HostObject {
 };
 }  // namespace
 
+// A promise resolved with `value`.
+jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
+  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
+}
+
+// A promise rejected with an Error carrying `message`.
+jsi::Value rejected(jsi::Runtime& rt, const std::string& message) {
+  auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, message);
+  return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "reject").call(rt, error);
+}
+
+std::string urlScheme(const std::string& url) {
+  auto colon = url.find(':');
+  std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
+  std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+  return scheme;
+}
+
+bool urlOpensByScheme(const std::string& url) {
+  // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
+  auto scheme = urlScheme(url);
+  bool named = url.find(':') != std::string::npos && !scheme.empty() &&
+               std::isalpha(static_cast<unsigned char>(scheme[0])) &&
+               std::all_of(scheme.begin(), scheme.end(),
+                           [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
+  return named && scheme != "file";
+}
+
+folly::dynamic applicationConstants(const Application& application) {
+  auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
+  const char* launchURL = std::getenv("OXYOS_LAUNCH_URL");
+  return folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
+      "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
+                                                                     : folly::dynamic(nullptr))(
+      "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
+      "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
+      "launchURL", orNull(launchURL ? launchURL : ""));
+}
+
 folly::dynamic deviceDimensions(const Display& display) {
   folly::dynamic window = folly::dynamic::object("width", display.width)("height", display.height)(
       "scale", display.scale)("fontScale", 1.0);
@@ -536,6 +565,8 @@ std::shared_ptr<TurboModule> createHostModule(
     const std::shared_ptr<CallInvoker>& invoker,
     const Display& display,
     HostServices& services) {
+  // A module of the platform API's is its spec's generated base (platform-modules.h).
+  if (auto module = createPlatformModule(name, invoker, services)) return module;
   auto module = std::make_shared<HostModule>(name, invoker);
 
   if (name == "PlatformConstants") {
@@ -955,7 +986,7 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "OxyOSSystem") {
-    // Installing applications (sample/oxyos/system.js, docs/adr/0030-installing-applications.mdx):
+    // The session's vocabulary (the platform's `session`, docs/adr/0030-installing-applications.mdx):
     // a request of the session's vocabulary, answered by `OxyOSSystemAnswer`s naming its serial
     // (0: the update state, unasked); the shell's answer to a sheet (`OxyOSSheet`,
     // `OxyOSSheetDismissed`); a capability asked at first use, answered by
@@ -986,7 +1017,7 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "OxyOSSearch") {
-    // Search (sample/oxyos/search.js, Bloom's PlatformSearch, docs/adr/0051-search.mdx): a request
+    // Search (the platform's `search`, Bloom's PlatformSearch, docs/adr/0051-search.mdx): a request
     // of the search index's vocabulary (JSON), its serial (0 if it was not sent), answered by
     // `OxyOSSearchText`s naming it ({serial, text}; serial 0: what the window asked to watch
     // changed). The compositor tells the index who asks; nothing here says it.
@@ -998,7 +1029,7 @@ std::shared_ptr<TurboModule> createHostModule(
     });
     module->listeners();
   } else if (name == "OxyOSFileChooser") {
-    // File choosers (sample/oxyos/file-chooser.js, docs/adr/0029-chromium-on-oxyos.mdx, decision
+    // File choosers (the platform's `chooser`, docs/adr/0029-chromium-on-oxyos.mdx, decision
     // 8): files asked for this window, answered once by an `OxyOSFilesChosen` naming the request's
     // serial; a request withdrawn; and, in the chooser the session started, what it was asked to
     // show (`request`, null in any other application) and the person's answer. Both cite the
@@ -1027,37 +1058,6 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSFileChooser.answer: the answer's JSON");
       return jsi::Value(services.fileChooser.answer(args[0].asString(rt).utf8(rt)));
-    });
-    module->listeners();
-  } else if (name == "OxyOSNotifications") {
-    // An application's notifications, behind expo-notifications (sample/oxyos/expo-adapter.js,
-    // docs/adr/0026-notifications.mdx): posting, withdrawing, and the responses the session gave.
-    auto ready = [&services](jsi::Runtime& rt) {
-      if (!services.notifications.post) {
-        throw jsi::JSError(rt, "OxyOSNotifications: notifications need a connection to the compositor on OxyOS");
-      }
-    };
-    module->method("post", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      if (count < 2 || !args[0].isNumber() || !args[1].isObject()) {
-        throw jsi::JSError(rt, "OxyOSNotifications.post: a serial and the notification");
-      }
-      // An installed version posts only once its account granted it (ADR 0030, decision 8).
-      if (services.system.allows && !services.system.allows("notifications")) return jsi::Value(false);
-      return jsi::Value(services.notifications.post(static_cast<uint32_t>(args[0].asNumber()),
-                                                    jsi::dynamicFromValue(rt, args[1])));
-    });
-    module->method("withdraw", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      services.notifications.withdraw(count > 0 && args[0].isNumber() ? static_cast<uint32_t>(args[0].asNumber()) : 0);
-      return jsi::Value::undefined();
-    });
-    // Each response once: taken, it is JavaScript's.
-    module->method("takeResponses", [&services](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      folly::dynamic taken = folly::dynamic::array();
-      for (auto& response : services.notifications.responses) taken.push_back(std::move(response));
-      services.notifications.responses.clear();
-      return jsi::valueFromDynamic(rt, taken);
     });
     module->listeners();
   } else if (name == "OxyOSWindow") {
@@ -1322,14 +1322,6 @@ std::shared_ptr<TurboModule> createHostModule(
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });
-  } else if (name == "OxyOSSounds") {
-    // The system's interface sounds (sample/oxyos/platform-surface.js, Bloom's usePlatformSounds;
-    // docs/adr/0044-system-sounds.mdx): an application asks by meaning, the session plays its own.
-    module->constants([&services] { return folly::dynamic::object("available", services.soundsAvailable); });
-    module->method("play", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSSounds.play: a sound's name");
-      return jsi::Value(services.playSystemSound && services.playSystemSound(args[0].asString(rt).utf8(rt)));
-    });
   } else if (name == "OxyOSDrag") {
     // Dragging the application's content to another application (sample/oxyos/platform-surface.js,
     // Bloom's usePlatformDrag; docs/adr/0035-drag-and-drop.mdx): from the press it holds, the
@@ -1378,50 +1370,6 @@ std::shared_ptr<TurboModule> createHostModule(
               });
             };
             services.drag.start(data, actions, preview, items, options, std::move(done), std::move(cancelled));
-            return jsi::Value::undefined();
-          });
-      return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
-    });
-    module->listeners();
-  } else if (name == "OxyOSClipboard") {
-    // The clipboard behind expo-clipboard (sample/oxyos/expo-adapter.js), with the serial of the
-    // latest key or press the app received: the compositor refuses it unless the app has keyboard
-    // focus and that input is one of its latest 16 (docs/adr/0007-clipboard.mdx).
-    auto ready = [&services](jsi::Runtime& rt) {
-      if (!services.clipboard.copy) throw jsi::JSError(rt, "OxyOSClipboard: the clipboard needs a window on OxyOS");
-    };
-    module->method("hasString", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      ready(rt);
-      return resolved(rt, jsi::Value(services.clipboard.hasText()));
-    });
-    module->method("setString", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      return resolved(rt, jsi::Value(services.clipboard.copy(count > 0 ? text(rt, args[0]) : "")));
-    });
-    // A password or a code (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): marked
-    // sensitive, so no clipboard manager keeps it, and cleared after 90 seconds if still there
-    // (docs/adr/0007-clipboard.mdx, decision 6). The text is forgotten here once copied.
-    module->method("setSensitiveString", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      ready(rt);
-      if (!services.clipboard.copySensitive) return resolved(rt, jsi::Value(false));
-      std::string copied = count > 0 ? text(rt, args[0]) : "";
-      bool sent = !copied.empty() && services.clipboard.copySensitive(copied);
-      forget(copied);
-      return resolved(rt, jsi::Value(sent));
-    });
-    // The text arrives later, from the clipboard's owner: the promise settles on the JavaScript
-    // thread, through the module's invoker. A refused paste reads nothing: "".
-    module->method("getString", [&services, ready, invoker](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      ready(rt);
-      auto start = jsi::Function::createFromHostFunction(
-          rt, jsi::PropNameID::forAscii(rt, "paste"), 2,
-          [&services, invoker](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
-            auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
-            services.clipboard.paste([invoker, resolve](std::string pasted) {
-              invoker->invokeAsync([resolve, pasted = std::move(pasted)](jsi::Runtime& rt) {
-                resolve->asObject(rt).asFunction(rt).call(rt, jsi::String::createFromUtf8(rt, pasted));
-              });
-            });
             return jsi::Value::undefined();
           });
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
@@ -1828,73 +1776,6 @@ std::shared_ptr<TurboModule> createHostModule(
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
     module->listeners();
-  } else if (name == "OxyOSApplication") {
-    // The application this host runs (application.h), for the Expo modules built on it
-    // (sample/oxyos/expo-adapter.js): its id (the registry entry's), whether the session started
-    // it, its module, its embedded app config (expo-constants' manifest), its directories, and the
-    // machine's name and version for expo-constants.
-    // Read when JavaScript first asks, once the host has connected (whether it can ask about its
-    // background items is the connection's).
-    module->constants([&services] {
-      const auto& application = services.application;
-      auto orNull = [](const std::string& text) { return text.empty() ? folly::dynamic(nullptr) : folly::dynamic(text); };
-      return folly::dynamic::object("id", orNull(application.id))("recorded", application.recorded)(
-        "module", application.module)("manifest", application.manifest ? folly::dynamic(*application.manifest)
-                                                                       : folly::dynamic(nullptr))(
-        "dataDirectory", orNull(application.dataDirectory))("cacheDirectory", orNull(application.cacheDirectory))(
-        "deviceName", firstLine("/etc/hostname"))("systemVersion", assignment("/etc/os-release", "VERSION_ID"))(
-        // What the session started it to open (its launch record's: a file, or a URL of its own
-        // scheme, docs/adr/0034-the-dock.mdx), as an Android intent's data; none for a launch.
-        "launchURL", orNull(std::getenv("OXYOS_LAUNCH_URL") ? std::getenv("OXYOS_LAUNCH_URL") : ""))(
-        // Its login item and background activity can be asked about (protocol version 32).
-        "backgroundItems", static_cast<bool>(services.backgroundItems.ask))(
-        // The session asks it to quit before an end of the session (protocol version 38,
-        // docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5).
-        "quitRequests", services.quit.available);
-    });
-    // Whether JavaScript answers the session's requests to quit (`@oxyos/platform`'s
-    // `application.onQuitRequest`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): while it
-    // does, `OxyOSQuitRequested` ({serial, reason}) tells it; while it does not, the host answers
-    // quit at once.
-    module->method("handlesQuit", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count < 1 || !args[0].isBool()) throw jsi::JSError(rt, "OxyOSApplication.handlesQuit: whether it does");
-      if (services.quit.handles) services.quit.handles(args[0].getBool());
-      return jsi::Value::undefined();
-    });
-    // (serial, quit): the application's answer to the request `serial`; whether it was sent.
-    // Answering quit ends the host, as a close request does, background activity or not.
-    module->method("replyToQuit", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
-        throw jsi::JSError(rt, "OxyOSApplication.replyToQuit: a request's serial and whether it quits");
-      }
-      double serial = args[0].asNumber();
-      if (!services.quit.reply || serial < 1 || serial > 4294967295.0) return jsi::Value(false);
-      return jsi::Value(services.quit.reply(static_cast<uint32_t>(serial), args[1].getBool()));
-    });
-    // Login items and background activity (`@oxyos/platform`'s `application`,
-    // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or
-    // registering or unregistering it, by name (`loginItem`, `background`; `status`, `register`,
-    // `unregister`): its serial, 0 if it was not sent; `OxyOSBackgroundItemState` answers.
-    module->method("backgroundItem", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
-      if (count < 2 || !args[0].isString() || !args[1].isString()) {
-        throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an action");
-      }
-      std::string kind = args[0].asString(rt).utf8(rt), action = args[1].asString(rt).utf8(rt);
-      uint8_t kindCode = kind == "loginItem"    ? OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
-                         : kind == "background" ? OXYOS_BACKGROUND_ITEM_BACKGROUND
-                                                : 0;
-      uint8_t actionCode = action == "status"       ? OXYOS_BACKGROUND_ITEM_STATUS
-                           : action == "register"   ? OXYOS_BACKGROUND_ITEM_REGISTER
-                           : action == "unregister" ? OXYOS_BACKGROUND_ITEM_UNREGISTER
-                                                    : 0;
-      if (kindCode == 0 || actionCode == 0) {
-        throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an "
-                               "action ('status', 'register' or 'unregister')");
-      }
-      if (!services.backgroundItems.ask) return jsi::Value(0);
-      return jsi::Value(static_cast<double>(services.backgroundItems.ask(kindCode, actionCode)));
-    });
-    module->listeners();
   } else if (name == "IntentAndroid") {
     // React Native's Linking, as its Android module answers it. Its initial URL is what the
     // session started it to open, if it did, as an Android intent's data is: a file (a screenshot's
@@ -1913,26 +1794,12 @@ std::shared_ptr<TurboModule> createHostModule(
     // it. A file is opened by its type, never as a URL. `canOpenURL` says whether an application
     // of the session's registry declares the scheme (its entry's `x-scheme-handler/SCHEME`, as
     // Android's answers whether an activity handles the intent), read off the JavaScript thread.
-    auto schemeOf = [](const std::string& url) {
-      auto colon = url.find(':');
-      std::string scheme = colon == std::string::npos ? url : url.substr(0, colon);
-      std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
-      return scheme;
-    };
-    auto opensByScheme = [&services, schemeOf](const std::string& url) {
-      // A scheme as RFC 3986 has it: a letter, then letters, digits, `+`, `-` and `.`.
-      auto scheme = schemeOf(url);
-      bool named = url.find(':') != std::string::npos && !scheme.empty() &&
-                   std::isalpha(static_cast<unsigned char>(scheme[0])) &&
-                   std::all_of(scheme.begin(), scheme.end(),
-                               [](unsigned char c) { return std::isalnum(c) || c == '+' || c == '-' || c == '.'; });
-      return services.openUrl && named && scheme != "file";
-    };
-    module->method("canOpenURL", [opensByScheme, schemeOf, invoker](jsi::Runtime& rt, const jsi::Value* args,
+    auto opensByScheme = [&services](const std::string& url) { return services.openUrl && urlOpensByScheme(url); };
+    module->method("canOpenURL", [opensByScheme, invoker](jsi::Runtime& rt, const jsi::Value* args,
                                                                    size_t count) {
       std::string url = count > 0 && args[0].isString() ? args[0].asString(rt).utf8(rt) : "";
       if (!opensByScheme(url)) return resolved(rt, jsi::Value(false));
-      std::string scheme = schemeOf(url);
+      std::string scheme = urlScheme(url);
       if (scheme == OXYOS_PLATFORM_SETTINGS_SCHEME) return resolved(rt, jsi::Value(true));
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "canOpenURL"), 2,
@@ -1966,21 +1833,16 @@ std::shared_ptr<TurboModule> createHostModule(
           });
       return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
     });
-    module->method("openURL", [&services, invoker, opensByScheme, schemeOf](jsi::Runtime& rt, const jsi::Value* args,
-                                                                           size_t count) {
+    module->method("openURL", [&services, invoker](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       std::string url = count > 0 ? text(rt, args[0]) : "";
-      if (!opensByScheme(url)) {
-        return rejected(rt, schemeOf(url) == "file"
-                                ? "OxyOS opens a file by its type, never as a URL (" + url + ")"
-                                : "OxyOS opens no " + url + " from here: not a URL it can ask to open");
-      }
+      if (!services.openUrl) return rejected(rt, "OxyOS opens a URL only from an application's window");
       auto start = jsi::Function::createFromHostFunction(
           rt, jsi::PropNameID::forAscii(rt, "openURL"), 2,
           [&services, invoker, url](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t) {
             auto resolve = std::make_shared<jsi::Value>(rt, args[0]);
             auto reject = std::make_shared<jsi::Value>(rt, args[1]);
-            services.openUrl(url, [invoker, resolve, reject, url](bool opened, const std::string& reason) {
-              invoker->invokeAsync([resolve, reject, opened, reason, url](jsi::Runtime& rt) {
+            services.openUrl(url, [invoker, resolve, reject, url](const std::string& refusal, const std::string& reason) {
+              invoker->invokeAsync([resolve, reject, opened = refusal.empty(), reason, url](jsi::Runtime& rt) {
                 if (opened) {
                   resolve->asObject(rt).asFunction(rt).call(rt, jsi::Value(true));
                   return;
@@ -2087,9 +1949,12 @@ std::shared_ptr<TurboModule> createHostModule(
         });
       };
     };
-    module->method("snapshot", [follows](jsi::Runtime& rt, const jsi::Value*, size_t) {
+    // The last snapshot the service told the host, which follows it from its start in an
+    // application (bloom-host.cpp): never a question to the service on the JavaScript thread
+    // (docs/adr/0058-the-platform-api.mdx, decision 8). Null before the first.
+    module->method("snapshot", [follows, session](jsi::Runtime& rt, const jsi::Value*, size_t) {
       if (!follows) return jsi::Value::null();
-      return jsi::valueFromDynamic(rt, AccountSession::snapshot());
+      return jsi::valueFromDynamic(rt, session().current());
     });
     module->method("subscribe", [&services, follows, session](jsi::Runtime&, const jsi::Value*, size_t) {
       if (!follows) return jsi::Value(false);

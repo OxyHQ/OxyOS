@@ -51,6 +51,7 @@
     "../../apps/settings/tests",
     "../../apps/activity-monitor/src",
     "../../apps/activity-monitor/tests",
+    "../rn-host-spike/sample/oxyos/platform/specs",
     "../rn-host-spike/sample/oxyos/platform/src",
     "../rn-host-spike/sample/oxyos/platform/tests"
   ]

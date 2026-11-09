@@ -1,13 +1,25 @@
 // The one connection to the session's vocabulary (the Bloom host's `OxyOSSystem`): requests by
 // serial and their answers, and the state the session tells unasked as it changes. The frameworks
-// are written over it; it is the runtime's own, never a contract (ADR 0058, decision 2), and its
-// raw `request` is used outside the package only by `oxyos/system.js` until its last caller moves
-// (ADR 0058, step 9).
+// are written over it; it is the runtime's own, never a contract (ADR 0058, decision 2).
 import { followed, type Told } from './followed.ts';
 
-/** The host's module: a request, as the session's JSON, sent with a serial (0: not sent). */
+/** The host's module: a request, as the session's JSON, sent with a serial (0: not sent); a
+    capability asked at first use, its serial (0: not sent), answered by `OxyOSCapabilityResult`. */
 export interface SystemModule {
   request(json: string): number;
+  requestCapability?(capability: string): number;
+  getLaunch?(): Launch | null;
+  answerSheet?(sheet: number, accepted: boolean): void;
+}
+
+/** What this launch may use (docs/adr/0030-installing-applications.mdx, decision 8), as the host
+    holds it: an installed version (`narrowed`) only the capabilities its account granted, and
+    those granted at first use since; the system grants the image's policy gave it. */
+export interface Launch {
+  origin: string;
+  narrowed: boolean;
+  capabilities: string[];
+  grants: string[];
 }
 export interface Subscription {
   remove(): void;
@@ -60,6 +72,19 @@ export interface Session {
   available: boolean;
   /** One request; its final answer, `{refused}` and `{failed}` among them (never a rejection). */
   request(body: Json, options?: RequestOptions): Promise<unknown>;
+  /** One request whose answer nobody waits for (a sheet's answer, which the session answers only
+      when it refuses it): whether it was sent. */
+  tell(body: Json): boolean;
+  /**
+   * Asks for a capability asked at first use (`notifications`, `files`, `camera`, `microphone`,
+   * `location`; docs/adr/0030-installing-applications.mdx, decision 8): whether it is granted. The
+   * session answers from the account's decision, or asks the person in the system's sheet when
+   * the request follows an input of theirs in the application. One question at a time per
+   * capability: those asked meanwhile share its answer.
+   */
+  requestCapability(capability: string): Promise<boolean>;
+  /** What this launch may use, as the host holds it now; null without the module. */
+  launch(): Launch | null;
   state: SessionState;
   /** The view Activity Monitor's samples are of (`cpu`, `memory`, `energy`, `disk`, `network`):
       kept until following begins, and told the session at once while it is followed. */
@@ -70,7 +95,7 @@ export interface Session {
  * Each followed state asked for as it is first followed, by its key, and the request that asks
  * for it. The account's updates are not: asking for them asks the install service, which the
  * store's installer follows as it starts, and an install would wait behind it; they are asked by
- * the page that shows them (`settings.checkUpdates`, or `{state}` through system.js).
+ * the page that shows them (`settings.refreshUpdates`, `settings.checkUpdates`).
  */
 const ASKED_BY = {
   network: { networks: {} },
@@ -190,9 +215,44 @@ export function createSession(native: SystemModule | null | undefined, events: E
     });
   };
 
+  const asking = new Map<string, Promise<boolean>>();
+  const capabilityAnswers = new Map<number, (granted: boolean) => void>();
+  if (native?.requestCapability) {
+    events.addListener('OxyOSCapabilityResult', ({ serial, granted }: { serial: number; granted: boolean }) => {
+      capabilityAnswers.get(serial)?.(Boolean(granted));
+      capabilityAnswers.delete(serial);
+    });
+  }
+  const requestCapability = (capability: string): Promise<boolean> => {
+    const known = asking.get(capability);
+    if (known) return known;
+    const asked = new Promise<boolean>((resolve) => {
+      let serial = 0;
+      try {
+        serial = native?.requestCapability?.(capability) ?? 0;
+      } catch {
+        // No connection to the session: nothing is granted.
+      }
+      if (!serial) resolve(false);
+      else capabilityAnswers.set(serial, resolve);
+    }).finally(() => asking.delete(capability));
+    asking.set(capability, asked);
+    return asked;
+  };
+
   return {
     available: Boolean(native),
     request,
+    tell: (body: Json) => {
+      if (!native) return false;
+      try {
+        return native.request(JSON.stringify(body)) !== 0;
+      } catch {
+        return false;
+      }
+    },
+    requestCapability,
+    launch: () => native?.getLaunch?.() ?? null,
     state,
     activityView(view) {
       if (view === activity.view) return;

@@ -31,20 +31,22 @@
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
-import { answerChooser, chooserRequest } from './file-chooser';
-import {
-  backupsAvailable,
-  cancelTransfer,
-  FilesError,
-  filesAvailable,
-  offTransfer,
-  onTransfer,
-  onWatch,
-  requestFiles,
-  unwatchFiles,
-} from './files';
-import { createSearch, searchAvailable } from './search';
 import { homeName } from './home-name';
+import {
+  appearance as platformAppearance,
+  chooser as platformChooser,
+  drag as platformDrag,
+  files as platformFiles,
+  isPlatformError,
+  search as platformSearch,
+  sounds as platformSounds,
+  windows as platformWindows,
+} from '@oxyos/platform';
+
+// The file manager the session started as a file chooser: what it was asked to show (the platform's
+// `chooser.request`), null in any other application.
+const chooserRequest = platformChooser.request;
+const answerLost = () => console.error('OxyOS: the file chooser could not give its answer to the session');
 
 const OxyOSPopupView = NativeComponentRegistry.get('OxyOSPopupView', () => ({
   uiViewClassName: 'OxyOSPopupView',
@@ -125,42 +127,29 @@ function PopupSurface({
   );
 }
 
-// The application's own window; not the shell's (it has none), nor a host drawing offscreen.
-const nativeWindow = TurboModuleRegistry.get('OxyOSWindow');
-const windowConstants = nativeWindow?.getConstants();
-
+// The application's own window, the platform's `windows`; not the shell's (it has none), nor a host
+// drawing offscreen. Bloom's `PlatformWindow`: its state as a store (`getState`, `subscribe`).
 function createWindow() {
-  // One state object per change, so a store snapshot changes only when the window does.
-  let state = nativeWindow.getState();
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSWindowChanged', (next) => {
-    state = next;
-    for (const listener of listeners) listener();
-  });
+  const { state } = platformWindows;
   return {
     controls: 'bloom',
-    metrics: windowConstants.metrics,
-    getState: () => state,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    close: () => nativeWindow.close(),
-    minimize: () => nativeWindow.minimize(),
-    zoom: () => nativeWindow.zoom(),
+    metrics: platformWindows.metrics,
+    getState: () => state.current(),
+    subscribe: (listener) => state.subscribe(() => listener()),
+    close: () => platformWindows.close(),
+    minimize: () => platformWindows.minimize(),
+    zoom: () => platformWindows.zoom(),
     // While a press is being handled: the compositor moves the window until its buttons are up.
     startMove: () => {
-      nativeWindow.startMove();
+      platformWindows.startMove();
     },
     // The sizes the application's layout holds together at (`SetSizeLimits`): the compositor never
     // configures the window outside them, by its edges or by zoom.
-    setSizeLimits: ({ minWidth, minHeight, maxWidth, maxHeight }) => {
-      nativeWindow.setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
-    },
+    setSizeLimits: (limits) => platformWindows.setSizeLimits(limits),
   };
 }
 
-const window = windowConstants?.available && !chooserRequest ? createWindow() : undefined;
+const window = platformWindows.available && !chooserRequest ? createWindow() : undefined;
 
 // The protocol's kinds and flags, and its limits: menus past them are not sent (the compositor
 // would refuse the window's menus whole).
@@ -211,19 +200,11 @@ function flatten(menus) {
   return { entries, ids };
 }
 
-const nativeMenuBar = TurboModuleRegistry.get('OxyOSMenuBar');
-
+// Bloom's menus in the shell's bar, over the platform's `windows.menus`: the protocol's entries, and
+// each commit's ids by index (the compositor and the shell see indices alone), newest last.
 function createMenuBar() {
-  // Each commit's ids by index (the compositor and the shell see indices alone), newest last.
   const commits = [];
   let last = null;
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSMenuActivated', ({ serial, index }) => {
-    const commit = commits.find((kept) => kept.serial === serial);
-    const id = commit?.ids[index];
-    if (id == null) return;
-    for (const listener of [...listeners]) listener(id);
-  });
   return {
     setMenus(menus) {
       const { entries, ids } = flatten(menus ?? []);
@@ -231,195 +212,122 @@ function createMenuBar() {
       const described = JSON.stringify([entries, ids]);
       if (described === last) return;
       last = described;
-      const serial = nativeMenuBar.setMenus(entries);
+      const serial = platformWindows.menus.set(entries);
       if (!serial) return;
       commits.push({ serial, ids });
       if (commits.length > COMMITS_KEPT) commits.shift();
     },
     onActivate(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+      return platformWindows.menus.onChoose(({ serial, index }) => {
+        const id = commits.find((kept) => kept.serial === serial)?.ids[index];
+        if (id != null) listener(id);
+      });
     },
   };
 }
 
-const menuBar = nativeMenuBar?.getConstants()?.available && !chooserRequest ? createMenuBar() : undefined;
+const menuBar = platformWindows.menus.available && !chooserRequest ? createMenuBar() : undefined;
 
-const nativeKeyboard = TurboModuleRegistry.get('OxyOSKeyboard');
-
-function createKeyboard() {
-  const listeners = new Set();
-  // The host calls this with each key press before the focused view, and waits for the answer.
-  nativeKeyboard.setListener((event) => [...listeners].some((listener) => listener(event) === true));
-  // The modifiers held, as the compositor tells them when they change (protocol version 38, a Mac's
-  // flagsChanged:, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `{altKey, ctrlKey,
-  // metaKey, shiftKey}`, Option going down or up told at once, with no key or move after it.
-  const flagListeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSModifiersChanged', (flags) => {
-    for (const listener of [...flagListeners]) listener(flags);
-  });
-  return {
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    subscribeModifiers(listener) {
-      flagListeners.add(listener);
-      return () => flagListeners.delete(listener);
-    },
-  };
-}
-
-const keyboard = nativeKeyboard?.getConstants()?.available ? createKeyboard() : undefined;
+// The window's keys before the focused view (the platform's `windows.keys`): a listener answering
+// true takes the key; and the modifiers held as they change (protocol version 38, a Mac's
+// flagsChanged:, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `{altKey, ctrlKey,
+// metaKey, shiftKey}`.
+const keyboard = platformWindows.keys.available
+  ? {
+      subscribe: (listener) => platformWindows.keys.onKey(listener),
+      subscribeModifiers: (listener) => platformWindows.keys.onModifiers(listener),
+    }
+  : undefined;
 
 // The window's first responder for the Edit menu's standard actions (docs/adr/0021-menu-bar.mdx,
 // decision 3): the focused text input, whatever component draws it, as the host knows it. Bloom's
 // `MenubarItem action="copy"` is enabled exactly when it can copy and copies there, as a Mac's
-// Edit menu sends copy: to the first responder. One state object per change, so a store snapshot
-// changes only when the state does.
-const nativeEditing = TurboModuleRegistry.get('OxyOSEditing');
-
+// Edit menu sends copy: to the first responder. The platform's `windows.editing`.
 function createEditing() {
-  let state = nativeEditing.getState() ?? null;
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSEditingChanged', (next) => {
-    state = next ?? null;
-    for (const listener of [...listeners]) listener();
-  });
+  const { state } = platformWindows.editing;
   return {
-    getState: () => state,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    perform: (action) => nativeEditing.perform(action) === true,
+    getState: () => state.current() ?? null,
+    subscribe: (listener) => state.subscribe(() => listener()),
+    perform: (action) => platformWindows.editing.perform(action),
   };
 }
 
 // The file chooser's sheet has no menus of its own (the asking window's stand), so no Edit menu.
-const editing = nativeEditing?.getConstants()?.available && !chooserRequest ? createEditing() : undefined;
+const editing = platformWindows.editing.available && !chooserRequest ? createEditing() : undefined;
 
 // The session's appearance (docs/adr/0019-settings.mdx) beyond light and dark, which React Native's
-// own Appearance carries: the accent colour, which seeds Bloom's palette, and reduce transparency.
-// Only with a connection to the compositor, whose first events say them.
-const nativePreferences = TurboModuleRegistry.get('OxyOSPreferences');
-
-function appearanceOf(drawing) {
-  return { accent: drawing.accent || null, reduceTransparency: !!drawing.reduceTransparency };
-}
-
-function createAppearance() {
-  const drawing = nativePreferences?.getState();
-  if (!drawing) return undefined;
-  // One state object per change, so a store snapshot changes only when the appearance does.
-  let state = appearanceOf(drawing);
-  const listeners = new Set();
-  DeviceEventEmitter.addListener('OxyOSPreferencesChanged', (next) => {
-    state = appearanceOf(next);
-    for (const listener of listeners) listener();
-  });
-  return {
-    getState: () => state,
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-}
-
-const appearance = createAppearance();
+// own Appearance carries: the accent colour, which seeds Bloom's palette, and reduce transparency,
+// the platform's `appearance.drawing`. Only with a connection to the compositor, which says them.
+const appearance = platformAppearance.drawing.current()
+  ? {
+      getState: () => platformAppearance.drawing.current(),
+      subscribe: (listener) => platformAppearance.drawing.subscribe(() => listener()),
+    }
+  : undefined;
 
 // The person's places and the Trash (Bloom's `PlatformFiles`, docs/adr/0028-file-access.mdx),
 // through the host's file service: the home, its standard folders that exist and the volumes
 // mounted for the user, and the freedesktop.org Trash every file manager on the machine shares.
 // Every URI is file://, as expo-file-system takes them. Only an application's window has it.
-const PLATFORM_ERRORS = new Set(['not-found', 'exists', 'refused', 'denied']);
+// The platform's words for why an item was not done, as Bloom's `PlatformFileError` says them: the
+// person's files not granted to the application is a denial.
+const BLOOM_FILE_ERRORS = { notFound: 'not-found', exists: 'exists', refused: 'refused', denied: 'denied', notGranted: 'denied' };
 
 /** What came of one item, as Bloom's `PlatformFileOutcome` says it. */
 const outcome = (item) =>
   item.ok
     ? { uri: item.uri, ok: true, result: item.result }
-    : { uri: item.uri, ok: false, error: PLATFORM_ERRORS.has(item.error) ? item.error : 'io' };
+    : { uri: item.uri, ok: false, error: BLOOM_FILE_ERRORS[item.reason] ?? 'io' };
 
 /** A folder's own name, from its URI. */
 const named = (uri) => decodeURIComponent(uri.replace(/\/+$/, '').split('/').pop());
 
+// Bloom's `PlatformFiles`, over the platform's `files` (`@oxyos/platform`).
 function createFiles() {
-  // A listener's own watch, ended when it unsubscribes.
-  const watching = (op) => (listener) => {
-    let watch = null;
-    let ended = false;
-    requestFiles(op).then(
-      ({ value }) => {
-        if (ended) return unwatchFiles(value);
-        watch = value;
-        onWatch(value, () => listener());
-      },
-      (error) => console.error(`OxyOS could not watch (${op}): ${error.message}`),
-    );
-    return () => {
-      ended = true;
-      if (watch != null) unwatchFiles(watch);
-    };
-  };
-  const each = async (op, uris) => (await requestFiles(op, { uris: [...uris] })).value.map(outcome);
+  const outcomes = async (done) => (await done).map(outcome);
   return {
     async places() {
-      const { home, favourites, volumes } = (await requestFiles('places')).value;
+      const { home, favourites, volumes } = await platformFiles.places();
       return [
         { kind: 'home', name: homeName(home), uri: home },
         ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
         ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
       ];
     },
-    watchPlaces: watching('watchPlaces'),
-    trash: (uris) => each('trash', uris),
-    async trashed() {
-      return (await requestFiles('trashed')).value;
-    },
-    watchTrash: watching('watchTrash'),
-    restore: (uris) => each('restore', uris),
-    erase: (uris) => each('erase', uris),
+    watchPlaces: (listener) => platformFiles.onPlacesChange(listener),
+    trash: (uris) => outcomes(platformFiles.trash(uris)),
+    trashed: () => platformFiles.trashed(),
+    watchTrash: (listener) => platformFiles.onTrashChange(listener),
+    restore: (uris) => outcomes(platformFiles.restore(uris)),
+    erase: (uris) => outcomes(platformFiles.erase(uris)),
     async emptyTrash() {
-      await requestFiles('emptyTrash');
+      await platformFiles.emptyTrash();
     },
     // Bloom's `PlatformFileTags` (docs/adr/0049-file-tags.mdx): the items' own tags, in their
     // extended attributes as freedesktop.org and a Mac keep them, and the index of every tagged
     // item in the person's places.
     tags: Object.freeze({
-      async inFolder(folderUri) {
-        return (await requestFiles('tagsIn', { uri: folderUri })).value;
-      },
-      async ofItems(uris) {
-        return (await requestFiles('tagsOf', { uris: [...uris] })).value;
-      },
-      async change(uris, { add = [], remove = [] }) {
-        const tags = add.map(({ name, color }) => ({ name, color: color ?? null }));
-        const args = { uris: [...uris], add: tags, remove: [...remove] };
-        return (await requestFiles('changeTags', args)).value.map(outcome);
-      },
-      async tagged(name) {
-        return (await requestFiles('tagged', { name })).value;
-      },
-      async names() {
-        return (await requestFiles('tagNames')).value;
-      },
-      watch: watching('watchTags'),
+      inFolder: (folderUri) => platformFiles.tags.in(folderUri),
+      ofItems: (uris) => platformFiles.tags.of(uris),
+      change: (uris, change) => outcomes(platformFiles.tags.change(uris, change)),
+      tagged: (name) => platformFiles.tags.tagged(name),
+      names: () => platformFiles.tags.names(),
+      watch: (listener) => platformFiles.tags.onChange(listener),
     }),
     // Bloom's `PlatformFileBackups` (docs/adr/0059-backups.mdx): the person's backups, asked of
     // the backup service from this process as the person; only for an application granted
     // `files`.
-    backups: backupsAvailable ? createBackups(watching) : undefined,
+    backups: platformFiles.backups.available ? createBackups() : undefined,
     // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
     // session ends this process once it has the answer.
     chooser: chooserRequest
       ? Object.freeze({
           request: chooserRequest,
           choose(uris) {
-            answerChooser({ chosen: [...uris] });
+            platformChooser.choose(uris).catch(answerLost);
           },
           cancel() {
-            answerChooser({ cancelled: {} });
+            platformChooser.cancel().catch(answerLost);
           },
         })
       : undefined,
@@ -427,73 +335,73 @@ function createFiles() {
 }
 
 // The codes Bloom's `PlatformBackupError` names; another of the service's is `io`.
-const BACKUP_ERRORS = new Set([...PLATFORM_ERRORS, 'io', 'unavailable', 'not-permitted', 'cancelled']);
+const BACKUP_ERRORS = new Set(['not-found', 'exists', 'refused', 'denied', 'io', 'unavailable', 'not-permitted', 'cancelled']);
 
-/** The service's error as Bloom's: an Error with a `PlatformBackupError` code. */
+/** The service's word (`notPermitted`, the PlatformError's reason) as it says it (`not-permitted`). */
+const serviceCode = (reason) => reason.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+
+/** The platform's error as Bloom's: an Error with a `PlatformBackupError` code. */
 function backupError(error) {
-  if (!(error instanceof FilesError)) return error;
-  return new FilesError(BACKUP_ERRORS.has(error.code) ? error.code : 'io', error.message);
+  if (!isPlatformError(error)) return error;
+  const code = error.code === 'cancelled' ? 'cancelled' : serviceCode(error.reason ?? error.code);
+  const said = new Error(error.details?.message ?? error.message);
+  said.code = BACKUP_ERRORS.has(code) ? code : 'io';
+  return said;
 }
 
-const cancelled = () => new FilesError('cancelled', 'the restore was cancelled');
-
-/** A backup as the service takes it back. */
-const backupOf = ({ destination, id }) => ({ destination, id });
-
-function createBackups(watching) {
-  const asked = async (op, args) => {
+// Bloom's `PlatformFileBackups` (docs/adr/0059-backups.mdx), over the platform's `files.backups`.
+function createBackups() {
+  const backups = platformFiles.backups;
+  const asked = async (done) => {
     try {
-      return (await requestFiles(op, args)).value;
+      return await done;
     } catch (error) {
       throw backupError(error);
     }
   };
   return Object.freeze({
-    state: () => asked('backups'),
-    watch: watching('watchBackups'),
-    versions: (uri) => asked('versions', { uri }),
-    contents: (backup, folderUri) => asked('versionContents', { backup: backupOf(backup), uri: folderUri }),
+    state: () => asked(backups.state()),
+    watch: (listener) => backups.onChange(listener),
+    versions: (uri) => asked(backups.versions(uri)),
+    contents: (backup, folderUri) => asked(backups.contents(backup, folderUri)),
     // Written by this process as the person, beside what is there unless `replace`; its progress
     // as a transfer's, and cancelled as one when `signal` aborts.
-    async restore(backup, uri, { to, replace = false, onProgress, signal } = {}) {
-      if (signal?.aborted) throw cancelled();
-      let running = null;
-      let aborted = false;
-      const abort = () => {
-        aborted = true;
-        if (running != null) cancelTransfer(running);
-      };
-      signal?.addEventListener('abort', abort);
-      try {
-        const args = { backup: backupOf(backup), uri, to: to ?? null, replace };
-        const started = (id) => {
-          running = id;
-          if (onProgress) onTransfer(id, onProgress);
-        };
-        const { value } = await requestFiles('restoreVersion', args, undefined, undefined, started);
-        return value;
-      } catch (error) {
-        throw aborted ? cancelled() : backupError(error);
-      } finally {
-        signal?.removeEventListener('abort', abort);
-        if (running != null) offTransfer(running);
-      }
-    },
+    restore: (backup, uri, { to, replace = false, onProgress, signal } = {}) =>
+      asked(backups.restore(backup, uri, { to, replace, onProgress, signal })),
   });
 }
 
-const files = filesAvailable ? createFiles() : undefined;
+const files = platformFiles.available ? createFiles() : undefined;
 
 // Bloom's `PlatformSearch` (docs/adr/0051-search.mdx): the session's search index, which every
 // window reaches (protocol version 30), the shell's and Settings' included.
-const search = searchAvailable ? createSearch() : undefined;
+// The platform's `search` (`@oxyos/platform`), in Bloom's words.
+const search = platformSearch.available
+  ? Object.freeze({
+      query: (query) => platformSearch.query(query),
+      watch: (listener) => platformSearch.onChange(listener),
+      used: (id) => platformSearch.used(id),
+      index: Object.freeze({
+        donate: (items) => platformSearch.donate(items),
+        remove: (ids) => platformSearch.remove(ids),
+        removeAll: () => platformSearch.removeAll(),
+      }),
+      preferences: () => platformSearch.preferences(),
+      setPreferences: (preferences) => platformSearch.setPreferences(preferences),
+      status: () => platformSearch.status(),
+      state: platformSearch.state,
+      rebuild: () => platformSearch.rebuild(),
+      // Settings › Storage (docs/adr/0062-storage.mdx; Settings alone).
+      storage: () => platformSearch.storage(),
+      largest: (options) => platformSearch.largest(options),
+    })
+  : undefined;
 
 // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): the drop target the host
-// answers the compositor for from its props (drag.h), and the application's own drags from the
-// press it holds. The protocol's version 10 has it; an older compositor none, and Bloom's DropZone
-// is then a view that takes nothing.
-const nativeDrag = TurboModuleRegistry.get('OxyOSDrag');
-const dragAvailable = Boolean(nativeDrag?.getConstants()?.available);
+// answers the compositor for from its props (drag.h), and the application's own drags, the
+// platform's `drag` (`@oxyos/platform`). The protocol's version 10 has it; an older compositor
+// none, and Bloom's DropZone is then a view that takes nothing.
+const dragAvailable = platformDrag.available;
 
 const OxyOSDropTargetView = NativeComponentRegistry.get('OxyOSDropTargetView', () => ({
   uiViewClassName: 'OxyOSDropTargetView',
@@ -611,53 +519,40 @@ function DropTarget({
   );
 }
 
-// The window's drag (Bloom's useWindowDrag): the host tells a drag coming over any of this
-// application's surfaces, and its leaving them all or ending, `dropped` when it was dropped on one
-// of them, once that drop's onDrop ran.
-const windowDragListeners = new Set();
-if (dragAvailable) {
-  DeviceEventEmitter.addListener('OxyOSWindowDrag', (event) => {
-    const told = event.type === 'exit' ? { type: 'exit', dropped: Boolean(event.dropped) } : { type: 'enter' };
-    for (const listener of [...windowDragListeners]) listener(told);
-  });
-}
-
+// Bloom's drag over the platform's: a drag that ended without a drop tells `onCancel` why, Bloom's
+// way (`not-accepted`; `refused` for one with no press to start from), before it resolves with
+// null. The window's drags (Bloom's useWindowDrag) are the platform's `onWindowDrag`.
+const BLOOM_END_REASONS = { escape: 'escape', notAccepted: 'not-accepted', cancelled: 'cancelled' };
 const drag = dragAvailable
   ? {
       // The dragged view itself is the image, as it looks (stacked and badged for several items).
       // `data.other` is offered by its media types after the kinds; `vanish` (protocol version 26)
       // has the image vanish in a poof where it is dropped on nothing, an item dragged out of the
       // dock.
-      // `onCancel` is told why a drag ended without a drop ('escape', 'not-accepted', 'refused',
-      // 'cancelled') before the promise settles with null.
-      start({ data, actions, previewRef, count, vanish, onCancel }) {
+      async start({ data, actions, previewRef, count, vanish, onCancel }) {
         const preview = previewRef?.current ? findNodeHandle(previewRef.current) : null;
-        return nativeDrag.start(
-          data,
-          [...actions],
-          preview ?? -1,
-          count ?? 1,
-          { vanish: Boolean(vanish) },
-          onCancel ? (reason) => onCancel(reason) : undefined,
-        );
+        try {
+          const outcome = await platformDrag.start({ data, actions: [...actions], preview, count, vanish });
+          if (outcome.action === null) onCancel?.(BLOOM_END_REASONS[outcome.reason]);
+          return outcome.action;
+        } catch {
+          // Refused (no press held), offering nothing, or no window: Bloom's `refused`.
+          onCancel?.('refused');
+          return null;
+        }
       },
-      watchWindow(listener) {
-        windowDragListeners.add(listener);
-        return () => {
-          windowDragListeners.delete(listener);
-        };
-      },
+      watchWindow: (listener) => platformDrag.onWindowDrag(listener),
     }
   : undefined;
 
 // The system's own sounds (docs/adr/0044-system-sounds.mdx, Bloom's usePlatformSounds): an
 // application asks by meaning and the session plays its sound theme's, as the person's settings
 // and the output allow, citing the latest input it received. The protocol's version 23 has them.
-const nativeSounds = TurboModuleRegistry.get('OxyOSSounds');
-const sounds = nativeSounds?.getConstants()?.available
+// The platform's `sounds` (`@oxyos/platform`); a sound not played (no input to cite) is silence.
+const sounds = platformSounds.available
   ? {
       play(sound) {
-        nativeSounds.play(String(sound));
+        platformSounds.play(String(sound)).catch(() => {});
       },
     }
   : undefined;

@@ -24,7 +24,8 @@ import 'expo';
 import './store-registration';
 import { App } from 'expo-router/build/qualified-entry';
 import { PlatformSurfaceProvider } from '@oxy.so/bloom/platform-surface';
-import { AppRegistry, TurboModuleRegistry } from 'react-native';
+import { AppRegistry } from 'react-native';
+import { application } from '@oxyos/platform';
 import { oxyosSurfaces } from './platform-surface';
 
 function Application() {
@@ -35,7 +36,4 @@ function Application() {
   );
 }
 
-AppRegistry.registerComponent(
-  TurboModuleRegistry.getEnforcing('OxyOSApplication').getConstants().module,
-  () => Application,
-);
+AppRegistry.registerComponent(application.module, () => Application);

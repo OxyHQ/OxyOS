@@ -435,6 +435,24 @@ fn register_active(model: &Shared, number: u32) {
 /// Joins the access point `point` with the connection numbered `number`, through the device's
 /// states as NetworkManager's: a protected network whose password is not the access point's fails
 /// for want of secrets.
+/// The saved Wi-Fi connection NetworkManager's autoconnect would join now, and its access point:
+/// the strongest network nearby with a saved connection that joins by itself.
+fn autoconnect(model: &Shared) -> Option<(u32, usize)> {
+    let m = model.lock().unwrap();
+    if !m.wifi_enabled || !m.hardware_enabled {
+        return None;
+    }
+    m.connections
+        .iter()
+        .filter(|c| c.kind == "802-11-wireless" && c.autoconnect)
+        .filter_map(|c| {
+            let point = m.points.iter().position(|p| p.spec.ssid == c.ssid)?;
+            Some((c.number, point, m.points[point].spec.strength))
+        })
+        .max_by_key(|(_, _, strength)| *strength)
+        .map(|(number, point, _)| (number, point))
+}
+
 fn activate(model: Shared, number: u32, point: usize) {
     use std::thread::sleep;
     let (activation, was_up, accepted, admitted) = {
@@ -563,6 +581,13 @@ impl Manager {
                 device_state(&model, WIFI_DEVICE, 20, 0);
             }
             changed(NM_PATH, "org.freedesktop.NetworkManager");
+            // On again, it joins the strongest network nearby it has a saved connection for that
+            // joins by itself, as NetworkManager's autoconnect does.
+            if enabled {
+                if let Some((number, point)) = autoconnect(&model) {
+                    activate(model, number, point);
+                }
+            }
         });
     }
 

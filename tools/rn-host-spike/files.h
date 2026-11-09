@@ -58,6 +58,13 @@ class Files {
   // Opens a file the scope allows for reading (a multipart form's file part): its descriptor, the
   // caller's, and its size; -1 with the reason in `error`.
   int openRead(const std::string& uri, uint64_t& size, std::string& error);
+  // The person's files, granted at first use (the account granted `files`,
+  // docs/adr/0030-installing-applications.mdx, decision 8): every request after reaches them.
+  void grantThePersonsFiles();
+  // The item `uri` (a file:// URI) of the person's files, given to the application by the person:
+  // chosen for it in the system's panel, dropped on it, opened with it. Reached without `files`, as
+  // a Mac's sandbox reaches what the person chose; a folder with what it holds.
+  void give(const std::string& uri);
   // Each turn: hands out what the service answered and emits what it saw. True if it did.
   bool deliver();
   // Readable while replies wait; -1 before the first request (poll ignores it).

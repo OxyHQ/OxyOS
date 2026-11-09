@@ -1,14 +1,32 @@
-// The `application` framework's login item and background activity (docs/adr/0058-the-platform-api.mdx,
-// decision 1; docs/adr/0060-login-items-and-background-activity.mdx), as a Mac's `SMAppService` gives
-// an application its own: `loginItem`, the application opened at login (the person's Open at Login
-// list, the dock's and Settings'), and `backgroundActivity`, its process running on in the
-// background once its window closes. The session decides by the process's launch record and its
-// account's decisions; nothing here grants anything. Registering a new item tells the person, who
-// manages it in Settings › General › Login Items & Extensions.
-import { PlatformError } from './errors.ts';
+// `application` (docs/adr/0058-the-platform-api.mdx, decision 1): this application, as the session
+// started it: its id, what it was started to open, opening a URL elsewhere (a Mac's
+// `NSWorkspace.open`), and its permissions (`requestPermission`, ADR 0030, decision 8). Every
+// application may use it.
+//
+// Its login item and background activity (docs/adr/0060-login-items-and-background-activity.mdx),
+// as a Mac's `SMAppService` gives an application its own: `loginItem`, the application opened at
+// login (the person's Open at Login list, the dock's and Settings'), and `backgroundActivity`, its
+// process running on in the background once its window closes. The session decides by the
+// process's launch record and its account's decisions; nothing here grants anything. Registering a
+// new item tells the person, who manages it in Settings › General › Login Items & Extensions. And
+// its answer when the session asks it to quit before it ends
+// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+import type { ApplicationConstants, Spec } from '../specs/NativeOxyOSApplication.ts';
+import { errorOf, PlatformError } from './errors.ts';
 import { followed, type Followed } from './followed.ts';
 import type { CallOptions } from './frameworks.ts';
-import type { Events } from './session.ts';
+import { hostCall } from './host.ts';
+import type { Events, Session } from './session.ts';
+
+/** The host's module (OxyOSApplication), as its spec says it. Its background items and quitting
+    are asked only where its constants say the host has them. */
+export type ApplicationModule = Pick<Spec, 'getConstants' | 'open'> &
+  Partial<Pick<Spec, 'backgroundItem' | 'handlesQuit' | 'replyToQuit'>>;
+
+/** A capability an application asks the person for at first use. */
+export type Capability = 'notifications' | 'files' | 'camera' | 'microphone' | 'location';
+/** Whether this application has a capability now. */
+export type Permission = 'granted' | 'denied';
 
 /** How an item stands, as `SMAppService.Status` says. */
 export type BackgroundItemStatus =
@@ -46,16 +64,6 @@ export type QuitAnswer = 'quit' | 'cancel';
     cancelled. */
 export type QuitHandler = (reason: QuitReason) => QuitAnswer | Promise<QuitAnswer>;
 
-/** The host's module (`OxyOSApplication`): an ask about one of the application's items, its serial
-    (0: not sent), answered by `OxyOSBackgroundItemState`; and the session's requests to quit
-    (`OxyOSQuitRequested`, told only while `handlesQuit(true)`), answered by `replyToQuit`. */
-export interface ApplicationModule {
-  getConstants(): { backgroundItems?: boolean; quitRequests?: boolean };
-  backgroundItem(kind: 'loginItem' | 'background', action: 'status' | 'register' | 'unregister'): number;
-  handlesQuit?(handles: boolean): void;
-  replyToQuit?(serial: number, quit: boolean): boolean;
-}
-
 const REASONS = new Set<string>(['logOut', 'restart', 'shutDown']);
 
 /** The handlers' answer, asked in order: any cancel cancels, and so does a handler that throws or
@@ -75,10 +83,24 @@ export async function answerQuit(handlers: readonly QuitHandler[], reason: QuitR
 
 const STATUSES = new Set<string>(['notRegistered', 'enabled', 'requiresApproval', 'notPermitted']);
 
-export function createApplication(native: ApplicationModule | null | undefined, events: Events) {
-  const constants = native?.getConstants();
-  const available = Boolean(constants?.backgroundItems);
-  const quitRequests = Boolean(constants?.quitRequests && native?.handlesQuit && native?.replyToQuit);
+const NONE: ApplicationConstants = {
+  id: null,
+  recorded: false,
+  module: '',
+  manifest: null,
+  dataDirectory: null,
+  cacheDirectory: null,
+  deviceName: '',
+  systemVersion: '',
+  launchURL: null,
+  backgroundItems: false,
+  quitRequests: false,
+};
+
+export function createApplication(native: ApplicationModule | null | undefined, session: Session, events: Events) {
+  const constants: ApplicationConstants = native?.getConstants() ?? NONE;
+  const available = Boolean(constants.backgroundItems && native?.backgroundItem);
+  const quitRequests = Boolean(constants.quitRequests && native?.handlesQuit && native?.replyToQuit);
   const quitHandlers: QuitHandler[] = [];
   const waiting = new Map<number, (status: BackgroundItemStatus) => void>();
   const items = new Map<string, (status: BackgroundItemStatus) => void>();
@@ -103,7 +125,7 @@ export function createApplication(native: ApplicationModule | null | undefined, 
     const ask = (action: 'status' | 'register' | 'unregister', options: CallOptions = {}) =>
       new Promise<BackgroundItemStatus>((resolve, reject) => {
         const { signal } = options;
-        if (!available || !native) {
+        if (!available || !native?.backgroundItem) {
           reject(new PlatformError('application', 'unavailable'));
           return;
         }
@@ -176,9 +198,56 @@ export function createApplication(native: ApplicationModule | null | undefined, 
     };
   }
 
+  const permission = (capability: Capability): Permission => {
+    const launch = session.launch();
+    // A system or development application is not narrowed: it has every capability.
+    return !launch || !launch.narrowed || launch.capabilities.includes(capability) ? 'granted' : 'denied';
+  };
   return {
+    available: Boolean(native),
+    /** The id the session gave it (its registry entry's), null where it did not start it. */
+    id: constants.id,
+    /** The module it registers with AppRegistry. */
+    module: constants.module,
+    /** What the session started it to open (a file, or a URL of its own scheme), null for none. */
+    launchURL: constants.launchURL,
+    /** Its own folders: its documents and its cache, null where the session did not start it. */
+    directories: { document: constants.dataDirectory, cache: constants.cacheDirectory },
+    /** Its embedded app config (expo-constants' manifest), null for none. */
+    manifest: constants.manifest as Readonly<Record<string, unknown>> | null,
+    /** The computer's name and the system's version. */
+    device: { name: constants.deviceName, systemVersion: constants.systemVersion },
+    /** The system grants the image's policy gave it (`store`, `settings`...): the platform's own
+        frameworks open only with theirs. */
+    get grants(): readonly string[] {
+      return session.launch()?.grants ?? [];
+    },
+    /**
+     * Opens `url` with the application whose entry declares its scheme (the platform's Settings at
+     * a page for `oxyos-settings:`), citing the person's latest press or key. Rejects with
+     * `needsInput` without one, `invalid` for a file (opened by its type) or text that names no
+     * scheme, `failed` (reason `notOpened`) where the session opened nothing, `unavailable` where
+     * this window cannot ask.
+     */
+    async open(url: string, options?: CallOptions): Promise<void> {
+      if (!native) throw new PlatformError('application', 'unavailable');
+      const answer = await hostCall('application', () => native.open(String(url)), options);
+      const error = errorOf('application', answer);
+      if (error) throw error;
+    },
+    /** Whether it has `capability` now, without asking. */
+    permission,
+    /** Asks the person for `capability` at first use, in the system's sheet (only after an input
+        of theirs in the application); answers from the account's decision once it was made. */
+    async requestPermission(capability: Capability, options?: CallOptions): Promise<Permission> {
+      if (permission(capability) === 'granted') return 'granted';
+      const granted = await hostCall('application', () => session.requestCapability(capability), options);
+      return granted ? 'granted' : 'denied';
+    },
     /** Whether the session asks this application before it ends (protocol version 38). */
     quitRequests,
+    /** Asked before the session logs out, restarts or shuts down: `'quit'`, and the application
+        ends; `'cancel'`, and nothing ends. Returns what unregisters it. */
     onQuitRequest,
     /** The application itself, opened at login. */
     loginItem: item('loginItem'),
