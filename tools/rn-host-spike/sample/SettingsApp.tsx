@@ -36,19 +36,19 @@ import {
   available,
   backup as systemBackup,
   session as systemSession,
-  power as systemPower,
   privacy,
-  sound as systemSound,
   storage as systemStorage,
   updates as systemUpdates,
-  followInputLevel,
   useInputSourcesState,
   useBackupState,
-  useSoundState,
-  usePowerState,
   useUpdateState,
 } from './oxyos/system';
-import { bluetooth as platformBluetooth, network as platformNetwork } from '@oxyos/platform';
+import {
+  audio as platformAudio,
+  bluetooth as platformBluetooth,
+  network as platformNetwork,
+  power as platformPower,
+} from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import type { PrivacyApplication, UpdateOutcome, UpdatesActions } from '../../../apps/settings/src/updates';
 import {
@@ -718,23 +718,25 @@ const SOUND_FIXTURE: SoundState = {
  * changed where it is (its level stays at nothing).
  */
 function useSoundModel(): { sound: SoundState | null; actions: SoundActions | undefined } {
-  const told: SoundState | null = useSoundState();
+  const told = useFollowed(platformAudio.state) as SoundState | null;
   const [fixture, setFixture] = React.useState(SOUND_FIXTURE);
   const session = React.useMemo<SoundActions>(
     () => ({
+      // A change the session refuses is said by the state it tells, which stays as it was.
       select: (direction, id) => {
-        systemSound.select(direction, id);
+        platformAudio.selectDevice(direction, id).catch(() => {});
       },
       setVolume: (direction, volume) => {
-        systemSound.setVolume(direction, volume);
+        platformAudio.setVolume(direction, volume).catch(() => {});
       },
       setMuted: (direction, muted) => {
-        systemSound.setMuted(direction, muted);
+        platformAudio.setMuted(direction, muted).catch(() => {});
       },
       setBalance: (balance) => {
-        systemSound.setBalance(balance);
+        platformAudio.setBalance(balance).catch(() => {});
       },
-      followLevel: followInputLevel,
+      // Metered exactly while the Input tab's meter follows it.
+      followLevel: (listener) => platformAudio.inputLevel.subscribe(listener),
     }),
     [],
   );
@@ -799,13 +801,14 @@ const ENERGY_FIXTURE: AppEnergy[] = [
  * a session, the reference ThinkPad's.
  */
 function usePowerModel(): { power: PowerState | null; actions: PowerActions } {
-  const told: PowerState | null = usePowerState();
+  const told = useFollowed(platformPower.state) as PowerState | null;
   const [fixture, setFixture] = React.useState(POWER_FIXTURE);
   const session = React.useMemo<PowerActions>(
     () => ({
-      history: async () => historyOf(await systemPower.history()),
-      energy: async () => energyOf(await systemPower.energy()),
-      setChargeLimit: async (enabled) => chargeLimitFailureOf(await systemPower.setChargeLimit(enabled)),
+      // Nothing to show where the session refuses or fails them.
+      history: () => platformPower.history().then(historyOf, () => null),
+      energy: () => platformPower.energy().then(energyOf, () => null),
+      setChargeLimit: (enabled) => platformPower.setChargeLimit(enabled).then(() => null, chargeLimitFailureOf),
     }),
     [],
   );

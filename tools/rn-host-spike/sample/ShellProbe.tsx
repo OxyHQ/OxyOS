@@ -14,17 +14,13 @@ import {
   backup as backupApi,
   autofill as autofillApi,
   inputSources,
-  power,
   session as sessionApi,
-  sound as soundApi,
   useBackupState,
   useAutofillState,
   useInputSourcesState,
-  usePowerState,
-  useSoundState,
   useSystemSheets,
 } from './oxyos/system';
-import { bluetooth, network } from '@oxyos/platform';
+import { audio, bluetooth, network, power } from '@oxyos/platform';
 import { useFollowed } from '@oxyos/platform/react';
 import { readSheet } from '../../../apps/shell/src/sheet';
 import { readAutofill } from '../../../apps/shell/src/autofill';
@@ -485,13 +481,13 @@ function SessionShell() {
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
   const networks = useFollowed(network.wifi);
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
-  const sound = useSoundState();
+  const sound = useFollowed(audio.state);
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
   const bluetoothDevices = useFollowed(bluetooth.state);
   // The input sources as the session tells them (ADR 0041): the top bar's item.
   const sources = useInputSourcesState();
   // The battery and energy as the session tells them (ADR 0057): the battery's menu, once it did.
-  const powerState = usePowerState() as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
+  const powerState = useFollowed(power.state) as { showPercentage?: boolean; lowPower?: { on?: boolean } } | null;
   // The backup service's state as the session tells it (ADR 0059): the menu bar's backup item.
   const backupTold = useBackupState();
   // One the shell cannot read is refused: it never confirms what it did not show.
@@ -758,7 +754,7 @@ function SessionShell() {
       // Settings as Wi-Fi Settings does.
       sound,
       selectOutput: (id) => {
-        soundApi.select('output', id);
+        audio.selectDevice('output', id).catch(() => {});
       },
       openSoundSettings: () => act.menuCommand('system.settings'),
       // Bluetooth (ADR 0055): the session turns it on and off, connects and disconnects, asking
@@ -852,7 +848,7 @@ function SessionShell() {
             showPercentage,
             lowPower,
             energy: async () => {
-              const answer = (await power.energy()) as { energy?: { apps?: ShellEnergyApp[] } };
+              const answer = (await power.energy().catch(() => null)) as { energy?: { apps?: ShellEnergyApp[] } } | null;
               return answer?.energy?.apps ?? [];
             },
             openSettings: () => {

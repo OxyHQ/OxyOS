@@ -89,29 +89,6 @@ export const privacy = {
 };
 
 /**
- * Battery and energy (docs/adr/0057-battery-and-energy.mdx): the shell (its `shell` grant: the
- * battery's menu) and Settings (`settings`: its Battery page) are told the state as it changes
- * (`{battery, health, chargeLimit, lowPower, showPercentage, criticalAction}`), and ask for the
- * charge history (`{powerHistory: {day, days}}`) and each application's energy, sampled as asked
- * (`{energy: {apps}}`). Settings alone limits the battery's charge, citing the press that asked
- * (`{chargeLimit: {}}` or `{failed: {reason}}`). Low Power Mode, the timers and the menu bar's
- * percentage are preferences, which Settings changes as it changes any.
- */
-export const power = {
-  state: () => ask({ power: {} }),
-  history: () => ask({ powerHistory: {} }),
-  energy: () => ask({ energy: {} }),
-  setChargeLimit: (enabled) => ask({ chargeLimit: { enabled } }),
-  current: state.power.current,
-  subscribe: state.power.subscribe,
-};
-
-/** The battery and Low Power Mode as they change, for a view: asked once, then followed. */
-export function usePowerState() {
-  return useFollowed(power);
-}
-
-/**
  * Backups (docs/adr/0059-backups.mdx): the shell (its `shell` grant: the menu bar's backup item)
  * and Settings (`settings`: its Backups page) are told the backup service's state as it changes:
  * followed as `{backup: State}`, `{backup: null}` while the service is not there, and null before
@@ -179,39 +156,6 @@ export const autofill = {
 /** AutoFill's list as the session tells it, for a view (told unasked, never asked for). */
 export function useAutofillState() {
   return React.useSyncExternalStore(autofill.subscribe, autofill.current);
-}
-
-/**
- * The sound's outputs and inputs (docs/adr/0056-sound-devices.mdx): the shell (its `shell` grant)
- * and Settings (its `settings` grant) ask the session, which alone speaks to PipeWire. Asked once,
- * the state is told again as it changes (`{sound: {available, output, input}}`, each side its
- * `devices` with `id`, `name`, `kind`, `transport` and `selected`, and the chosen one's `volume`,
- * `muted` and `balance`). What changes the machine cites the press or key that asked; while locked
- * it is refused. The input's level is told only while a view meters it (`meter(true)`), and
- * nothing listens to the input once none does.
- */
-export const sound = {
-  state: () => ask({ sound: {} }),
-  select: (direction, id) => ask({ soundDevice: { direction, id } }),
-  setVolume: (direction, volume) => ask({ soundVolume: { direction, volume } }),
-  setMuted: (direction, muted) => ask({ soundMuted: { direction, muted } }),
-  setBalance: (balance) => ask({ soundBalance: { balance } }),
-  meter: (on) => ask({ soundMeter: { on } }),
-  current: state.sound.current,
-  subscribe: state.sound.subscribe,
-};
-
-/** The sound as the session tells it, for a view: asked once, then followed. */
-export function useSoundState() {
-  return useFollowed(sound);
-}
-
-/** Follows the chosen input's level (0 to 1): metered from the first follower until the last
-    stops, so nothing listens to the input while no view shows its level (ADR 0056, decision 7).
-    Returns the stop. */
-export function followInputLevel(listener) {
-  if (!native) return () => {};
-  return state.inputLevel.subscribe(listener);
 }
 
 /** The update state as it changes, for a page: asked once, then followed. */
