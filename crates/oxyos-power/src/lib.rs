@@ -7,6 +7,8 @@
 //! - [`profiles`]: Low Power Mode, a hold of power-profiles-daemon's `power-saver` profile, released
 //!   when the session no longer holds it (or goes);
 //! - [`sleep`]: the machine put to sleep through logind, which applies its inhibitors;
+//! - [`ending`]: the machine restarted and shut down through logind, and its power key
+//!   (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx);
 //! - [`history`]: the charge and the display's use over the last ten days, recorded as UPower and
 //!   the session say they change, never on a clock;
 //! - [`energy`]: the processor's and the GPU's time each application used, from `/proc`;
@@ -25,6 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use zbus::blocking::Connection;
 
+pub mod ending;
 pub mod energy;
 pub mod follow;
 pub mod history;

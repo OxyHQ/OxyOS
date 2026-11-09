@@ -86,18 +86,20 @@ impl Channel {
         } else {
             RecvFlags::DONTWAIT
         };
-        let (length, _) = match rustix::net::recv(&self.fd, &mut packet[..], flags) {
-            Ok(received) => received,
-            Err(rustix::io::Errno::AGAIN) => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        if length == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "the other side closed",
-            ));
-        }
-        if length > MAX_PACKET {
+        let received =
+            match oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], false, flags) {
+                Ok(Some(received)) => received,
+                Ok(None) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "the other side closed",
+                    ))
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(error) => return Err(error),
+            };
+        let length = received.length;
+        if length > MAX_PACKET || received.truncated {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "too long"));
         }
         packet.truncate(length);
@@ -170,5 +172,53 @@ mod tests {
             worker.next().unwrap_err().kind(),
             io::ErrorKind::UnexpectedEof
         );
+    }
+
+    /// The last message before an end is read before it, each way: what a worker says as it
+    /// exits (its session started, say), what the login program sends as it lets the worker go.
+    /// The kernel can report the end with that message still queued (`oxyos-seqpacket`). Many
+    /// rounds, since each one is a race, mostly the login program's polling (busily), where the
+    /// race is widest.
+    #[test]
+    fn the_last_message_before_the_end_is_read_before_the_end() {
+        // Shut down, not only closed: a process another test forks meanwhile may hold a copy of
+        // the descriptor until it executes.
+        let gone = |channel: &Channel| {
+            rustix::net::shutdown(channel.as_fd(), rustix::net::Shutdown::Both).unwrap()
+        };
+        for round in 0..10_000u32 {
+            let (manager, worker) = pair().unwrap();
+            let worker = Channel::from_fd(worker);
+            if round % 4 != 3 {
+                let exiting = std::thread::spawn(move || {
+                    worker.tell(FromWorker::Started(round)).unwrap();
+                    gone(&worker);
+                });
+                let heard = loop {
+                    match manager.heard() {
+                        Ok(Some(message)) => break message,
+                        Ok(None) => std::hint::spin_loop(),
+                        Err(error) => panic!("round {round}: {error} before the message"),
+                    }
+                };
+                assert_eq!(heard, FromWorker::Started(round));
+                exiting.join().unwrap();
+                assert_eq!(
+                    manager.heard().unwrap_err().kind(),
+                    io::ErrorKind::UnexpectedEof
+                );
+            } else {
+                let letting_go = std::thread::spawn(move || {
+                    manager.send_open().unwrap();
+                    gone(&manager);
+                });
+                assert!(matches!(worker.next(), Ok(ToWorker::Open)), "round {round}");
+                letting_go.join().unwrap();
+                assert_eq!(
+                    worker.next().unwrap_err().kind(),
+                    io::ErrorKind::UnexpectedEof
+                );
+            }
+        }
     }
 }

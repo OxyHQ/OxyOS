@@ -1,5 +1,7 @@
 #include "platform-modules.h"
 
+#include "account-session.h"
+
 #include <OxyOSPlatformSpecJSI.h>
 
 #include <utility>
@@ -51,6 +53,20 @@ class ClipboardModule : public NativeOxyOSClipboardCxxSpec<ClipboardModule> {
   jsi::Value setString(jsi::Runtime& rt, std::string text) {
     ready(rt);
     return resolved(rt, jsi::Value(services_.clipboard.copy(text)));
+  }
+
+  // A password or a code (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8): marked
+  // sensitive, so no clipboard manager keeps it, and cleared after 90 seconds if still there
+  // (docs/adr/0007-clipboard.mdx, decision 6). The text is forgotten here once copied.
+  jsi::Value setSensitiveString(jsi::Runtime& rt, std::string text) {
+    ready(rt);
+    if (!services_.clipboard.copySensitive) {
+      forget(text);
+      return resolved(rt, jsi::Value(false));
+    }
+    bool sent = !text.empty() && services_.clipboard.copySensitive(text);
+    forget(text);
+    return resolved(rt, jsi::Value(sent));
   }
 
   // The text arrives later, from the clipboard's owner: the promise settles on the JavaScript
@@ -139,8 +155,16 @@ class ApplicationModule : public NativeOxyOSApplicationCxxSpec<ApplicationModule
   ApplicationModule(std::shared_ptr<CallInvoker> invoker, HostServices& services)
       : NativeOxyOSApplicationCxxSpec(std::move(invoker)), services_(services) {}
 
+  // Read when JavaScript first asks, once the host has connected (whether it can ask about its
+  // background items is the connection's).
   jsi::Object getConstants(jsi::Runtime& rt) {
-    return jsi::valueFromDynamic(rt, applicationConstants(services_.application)).asObject(rt);
+    folly::dynamic constants = applicationConstants(services_.application);
+    // Its login item and background activity can be asked about (protocol version 33).
+    constants["backgroundItems"] = static_cast<bool>(services_.backgroundItems.ask);
+    // The session asks it to quit before an end of the session (protocol version 38,
+    // docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5).
+    constants["quitRequests"] = services_.quit.available;
+    return jsi::valueFromDynamic(rt, constants).asObject(rt);
   }
 
   jsi::Value open(jsi::Runtime& rt, std::string url) {
@@ -167,6 +191,44 @@ class ApplicationModule : public NativeOxyOSApplicationCxxSpec<ApplicationModule
         });
     return rt.global().getPropertyAsFunction(rt, "Promise").callAsConstructor(rt, start);
   }
+
+  // Login items and background activity (`application.loginItem`, `application.backgroundActivity`,
+  // docs/adr/0060-login-items-and-background-activity.mdx): how one of its items stands, or
+  // registering or unregistering it, by name (`loginItem`, `background`; `status`, `register`,
+  // `unregister`): its serial, 0 if it was not sent; `OxyOSBackgroundItemState` answers.
+  double backgroundItem(jsi::Runtime& rt, std::string kind, std::string action) {
+    uint8_t kindCode = kind == "loginItem"    ? OXYOS_BACKGROUND_ITEM_LOGIN_ITEM
+                       : kind == "background" ? OXYOS_BACKGROUND_ITEM_BACKGROUND
+                                              : 0;
+    uint8_t actionCode = action == "status"       ? OXYOS_BACKGROUND_ITEM_STATUS
+                         : action == "register"   ? OXYOS_BACKGROUND_ITEM_REGISTER
+                         : action == "unregister" ? OXYOS_BACKGROUND_ITEM_UNREGISTER
+                                                  : 0;
+    if (kindCode == 0 || actionCode == 0) {
+      throw jsi::JSError(rt, "OxyOSApplication.backgroundItem: an item ('loginItem' or 'background') and an "
+                             "action ('status', 'register' or 'unregister')");
+    }
+    if (!services_.backgroundItems.ask) return 0;
+    return static_cast<double>(services_.backgroundItems.ask(kindCode, actionCode));
+  }
+
+  // Whether JavaScript answers the session's requests to quit (`application.onQuitRequest`,
+  // docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): while it does, `OxyOSQuitRequested`
+  // ({serial, reason}) tells it; while it does not, the host answers quit at once.
+  void handlesQuit(jsi::Runtime&, bool handles) {
+    if (services_.quit.handles) services_.quit.handles(handles);
+  }
+
+  // The application's answer to the request `serial`; whether it was sent. Answering quit ends the
+  // host, as a close request does, background activity or not.
+  bool replyToQuit(jsi::Runtime&, double serial, bool quit) {
+    if (!services_.quit.reply || serial < 1 || serial > 4294967295.0) return false;
+    return services_.quit.reply(static_cast<uint32_t>(serial), quit);
+  }
+
+  // The host emits its events whether or not anything listens: nothing to count.
+  void addListener(jsi::Runtime&, std::string) {}
+  void removeListeners(jsi::Runtime&, double) {}
 
  private:
   HostServices& services_;

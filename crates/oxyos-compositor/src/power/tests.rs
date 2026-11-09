@@ -19,6 +19,12 @@ const SETTINGS: ClientId = 2;
 const APP: ClientId = 3;
 const MINUTE: Duration = Duration::from_secs(60);
 
+/// The history's clock: noon of 6 November 2026, UTC, on a quarter of an hour's edge, where the
+/// charts' last bin ends.
+fn noon() -> u64 {
+    1_793_966_400
+}
+
 struct Bus(Child);
 
 impl Drop for Bus {
@@ -117,7 +123,8 @@ impl Session {
         compositor.controls = Some(crate::controls::Controls::new(ControlsWorker::inline(
             Box::new(fake),
         )));
-        let power = Power::new(Some(address), Some(directory.join("battery-history"))).unwrap();
+        let power = Power::with_clock(Some(address), Some(directory.join("battery-history")), noon)
+            .unwrap();
         let mut session = Self {
             compositor,
             power,
@@ -324,6 +331,85 @@ fn a_charge_limit_polkit_refuses_says_so() {
     );
 }
 
+/// The ThinkPad's machine with UPower's state kept in `upower` beside its battery's directory,
+/// saying the limit is on, and the battery as UPower 1.90.9 leaves it once it started (the
+/// thresholds written again from that state).
+fn limited_thinkpad(sysfs: &Path) -> Machine {
+    let state = sysfs.parent().unwrap().join("upower");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("charging-threshold-status"), "1").unwrap();
+    forget(sysfs);
+    let mut machine = thinkpad(sysfs);
+    machine.state_dir = Some(state);
+    machine
+}
+
+/// The battery's thresholds as firmware that forgot them leaves them: charging full.
+fn forget(sysfs: &Path) {
+    std::fs::write(sysfs.join("charge_control_start_threshold"), "0").unwrap();
+    std::fs::write(sysfs.join("charge_control_end_threshold"), "100").unwrap();
+}
+
+fn limit_told(session: &Session) -> Option<Value> {
+    session
+        .state(SETTINGS)
+        .map(|state| state["chargeLimit"]["enabled"].clone())
+}
+
+#[test]
+fn a_charge_limit_the_battery_forgot_while_asleep_is_written_again_by_upower_on_waking() {
+    let mut session = Session::new("limit-wake", limited_thinkpad);
+    let sysfs = session.directory.join("BAT0");
+    let read = |name: &str| std::fs::read_to_string(sysfs.join(name)).unwrap();
+    // UPower started and wrote them: the session, starting, has nothing to ask.
+    session.until("told the limit", |s| limit_told(s) == Some(json!(true)));
+    assert_eq!(read("charge_control_end_threshold"), "80");
+    assert_eq!(session.played.describe()["calls"], json!([]));
+    // Asleep, the firmware forgets; UPower writes nothing as the machine wakes.
+    session.compositor.sleeping = true;
+    session.turn();
+    forget(&sysfs);
+    session.compositor.sleeping = false;
+    session.until("written again", |s| {
+        s.played.describe()["calls"] == json!(["EnableChargeThreshold true"])
+    });
+    session.until("in effect", |_| {
+        read("charge_control_start_threshold") == "75"
+            && read("charge_control_end_threshold") == "80"
+    });
+    session.until("told", |s| limit_told(s) == Some(json!(true)));
+    // Once: nothing more asked while nothing changes.
+    for _ in 0..20 {
+        session.turn();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        session.played.describe()["calls"],
+        json!(["EnableChargeThreshold true"])
+    );
+}
+
+#[test]
+fn a_charge_limit_the_battery_forgot_and_polkit_will_not_have_written_again_is_not_claimed() {
+    let mut session = Session::new("limit-wake-refused", |sysfs| {
+        let mut machine = limited_thinkpad(sysfs);
+        machine.deny = vec!["charge_limit".into()];
+        machine
+    });
+    let sysfs = session.directory.join("BAT0");
+    session.until("told the limit", |s| limit_told(s) == Some(json!(true)));
+    session.compositor.sleeping = true;
+    session.turn();
+    forget(&sysfs);
+    session.compositor.sleeping = false;
+    // UPower still says on; Settings is told what the battery holds: off.
+    session.until("told it is off", |s| limit_told(s) == Some(json!(false)));
+    assert_eq!(
+        std::fs::read_to_string(sysfs.join("charge_control_end_threshold")).unwrap(),
+        "100"
+    );
+}
+
 #[test]
 fn low_power_mode_on_battery_holds_power_saver_until_plugged_in() {
     let mut session = Session::new("low-power", thinkpad);
@@ -499,7 +585,8 @@ fn each_applications_energy_is_sampled_when_asked_and_the_history_charted() {
     assert_eq!(apps[0]["name"], "Allo");
     assert_eq!(apps[0]["running"], true);
     assert!(apps[0]["cpu"].as_f64().unwrap() > 0.0);
-    // The history: this session's start, its display and its battery.
+    // The history: this session's start, its display and its battery, all at noon and charted at
+    // noon, in the day's last quarter.
     let asked = session.ask(SHELL, r#"{"powerHistory":{}}"#, false);
     session.turn();
     let charts = session.answer(SHELL, asked).unwrap()["powerHistory"].clone();

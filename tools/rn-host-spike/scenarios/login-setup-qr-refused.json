@@ -1,5 +1,5 @@
 {
-  "about": "A QR sign-in whose token Oxy's API refuses, as production did on 2026-11-08 (docs/adr/0020-oxy-account-login.mdx, decision 4; OxyHQ/oxy#2224): at the first boot a phone approves, the session is claimed and the account put on the device, and then the token is refused at the account's first read (`qr.token_refused_at`: the API task that approved the request held the session as it was before the claim bound it). The setup keeps no credential, so the SDK cannot mint another: it signs out and drops the device with the session (@oxy.so/services 14.15.1), and the sign-in starts again on its QR, its field focused, never on a \"Choose an account\" picker listing the account it just lost, and never asking for a password. A second approval then signs in once, and the account is set up and signs in. Nothing reaches any application at any step.",
+  "about": "A QR sign-in whose token Oxy's API refuses, as production did on 2026-11-08 (docs/adr/0020-oxy-account-login.mdx, decision 4 and the setup assistant's amendment; OxyHQ/oxy#2224): at the first boot a phone approves, the session is claimed and the account put on the device, and then the token is refused at the SDK's first read of the account (`qr.token_refused_at`: the API task that approved the request held the session as it was before the claim bound it). The setup no longer waits on anything the SDK reads after the claim: the credential the claim issued is handed over at once and the PIN page comes, never a device picker, never a second approval; the account is set up with that credential and signs in.",
   "shell": "OxyOSLogin",
   "outputs": "1280x800",
   "login": {
@@ -22,7 +22,7 @@
       "qr": {
         "approve": "socket",
         "approve_after_ms": 10000,
-        "token_refused_at": "GET /users/me/sign-in-methods"
+        "token_refused_at": "GET /users/me"
       }
     },
     "enroll": {
@@ -41,7 +41,7 @@
   },
   "steps": [
     {
-      "name": "first boot: setup, online, straight to the SDK's sign-in, never a device picker",
+      "name": "first boot: the setup assistant's welcome, nothing asked of Oxy yet",
       "do": [
         "wait",
         500
@@ -51,8 +51,37 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Add an Oxy Account"
+            "Welcome to OxyOS",
+            "Sign in with your Oxy account to make this computer yours. It takes a minute.",
+            "Get Started"
           ],
+          "absent": [
+            "Back",
+            "Scan with Commons to sign in"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Started pressed",
+      "do": [
+        "press_named",
+        "Get Started"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Get Started: online, the SDK's sign-in, step 2 of 5, never a device picker",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "in_shell": {
+          "texts": [],
           "absent": [
             "Choose an account",
             "Use another account"
@@ -71,7 +100,6 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Add an Oxy Account",
             "Sign in",
             "Email or username",
             "Scan with Commons to sign in",
@@ -88,7 +116,7 @@
       }
     },
     {
-      "name": "a phone approves: the session claimed, its token refused, the sign-in on its QR again, never a device picker",
+      "name": "a phone approves: the session claimed, the SDK's own read refused, and the PIN page at once, its field focused; no second approval",
       "do": [
         "wait",
         11000
@@ -99,66 +127,63 @@
         "delivered": {},
         "oxy_requests": [
           "POST /auth/session/claim 200",
-          "POST /session/device/add 200",
-          "GET /users/me/sign-in-methods 401",
-          "POST /auth/session/create 200"
+          "GET /users/me 401"
         ],
         "oxy_requests_times": {
-          "POST /auth/session/claim 200": 1
+          "POST /auth/session/claim 200": 1,
+          "POST /auth/session/create 200": 0
         },
         "in_shell": {
           "texts": [
-            "Add an Oxy Account",
-            "Email or username",
-            "Scan with Commons to sign in"
+            "Create a PIN",
+            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "Step 3 of 5"
           ],
           "absent": [
             "Choose an account",
-            "Use another account",
-            "Enter Ada Lovelace's password"
-          ],
-          "focus_input": "signin-identifier"
-        }
-      }
-    },
-    {
-      "name": "a second approval: claimed once, a PIN for this computer asked, its field focused",
-      "do": [
-        "wait",
-        11500
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "accounts_asked": [],
-        "oxy_requests": [
-          "POST /auth/session/claim 200",
-          "GET /users/me/sign-in-methods 200"
-        ],
-        "delivered": {},
-        "in_shell": {
-          "texts": [
-            "Choose a PIN for this computer",
-            "Not Now"
-          ],
-          "absent": [
+            "Email or username",
             "Scan with Commons to sign in",
-            "Email or username",
-            "Choose an account",
-            "Use another account",
-            "Enter Ada Lovelace's password"
+            "Use another account"
           ],
           "focus_input": "login-setup-pin-password"
-        },
-        "oxy_requests_times": {
-          "POST /auth/session/claim 200": 1
         }
       }
     },
     {
-      "name": "Not Now: the PIN left for later, the account's password asked once more, its field focused",
+      "name": "the PIN chosen: typed again, its field focused",
       "do": [
-        "press_named",
-        "Not Now"
+        "keyboard",
+        "482916\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "delivered": {},
+        "never": [
+          "482916"
+        ],
+        "in_shell": {
+          "texts": [
+            "Enter Your PIN Again"
+          ],
+          "absent": [
+            "Enter Ada Lovelace's password",
+            "Not Now",
+            "Set a password",
+            "Send code"
+          ],
+          "focus_input": "login-setup-pin-again-password",
+          "never": [
+            "482916"
+          ]
+        }
+      }
+    },
+    {
+      "name": "typed again: the look's page",
+      "do": [
+        "keyboard",
+        "482916\n"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -166,57 +191,51 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's password",
-            "OxyOS signs in with your Oxy account's password, even offline. Enter it once more."
-          ],
-          "absent": [
-            "Choose a PIN for this computer"
-          ],
-          "focus_input": "login-setup-password"
+            "Choose Your Look",
+            "Continue"
+          ]
+        },
+        "never": [
+          "482916"
+        ]
+      }
+    },
+    {
+      "name": "Auto chosen",
+      "do": [
+        "press_named",
+        "Auto"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "accounts_asked": [],
+        "in_shell": {
+          "texts": [
+            "Choose Your Look"
+          ]
         }
       }
     },
     {
-      "name": "the password: the account set up with the credential the QR's sign-in handed over",
+      "name": "Continue pressed",
       "do": [
-        "keyboard",
-        "played password 1\n"
+        "press_named",
+        "Continue"
       ],
       "allow_unchanged": true,
       "expect": {
         "accounts_asked": [
-          "enroll: enrolled"
-        ],
-        "delivered": {},
-        "never": [
-          "played password 1"
-        ],
-        "in_shell": {
-          "texts": [
-            "Ada Lovelace"
-          ],
-          "absent": [
-            "Add an Oxy Account",
-            "Enter Ada Lovelace's password",
-            "Bea Ramos",
-            "Choose an account",
-            "Use another account"
-          ],
-          "never": [
-            "played password 1"
-          ]
-        },
-        "oxy_requests_times": {
-          "POST /auth/session/claim 200": 0,
-          "POST /auth/session/create 200": 0
-        }
+          "appearance: auto",
+          "enroll: enrolled",
+          "verifyPin: accepted"
+        ]
       }
     },
     {
-      "name": "its password signs it in",
+      "name": "Continue: the account set up with what was chosen, its stages shown, and signed in with it at once, never asked again",
       "do": [
-        "keyboard",
-        "oxyos.correcta\n"
+        "wait",
+        2500
       ],
       "allow_unchanged": true,
       "expect": {
@@ -224,15 +243,9 @@
           "locked": true,
           "signed_in": true
         },
-        "never": [
-          "oxyos.correcta",
-          "played password 1"
-        ],
-        "in_shell": {
-          "never": [
-            "oxyos.correcta",
-            "played password 1"
-          ]
+        "in_shell": {},
+        "oxy_requests_times": {
+          "POST /auth/session/create 200": 0
         }
       }
     }

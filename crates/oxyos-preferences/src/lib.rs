@@ -71,6 +71,89 @@ impl Previews {
     }
 }
 
+/// How many fingers swipe one of a trackpad's gestures (Settings › Trackpad › More Gestures,
+/// docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026): three, as a Mac's trackpad
+/// ships them, which four fingers swipe too, as on a Mac; or four, three then doing nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SwipeFingers {
+    #[default]
+    Three,
+    Four,
+}
+
+impl SwipeFingers {
+    fn name(self) -> &'static str {
+        match self {
+            SwipeFingers::Three => "three",
+            SwipeFingers::Four => "four",
+        }
+    }
+
+    /// The fewest fingers that swipe it.
+    pub fn fewest(self) -> u8 {
+        match self {
+            SwipeFingers::Three => 3,
+            SwipeFingers::Four => 4,
+        }
+    }
+}
+
+/// The trackpad's gestures the person chooses, as a Mac's System Settings › Trackpad › More
+/// Gestures offers them (docs/adr/0046-interactive-gestures.mdx, amended 8 November 2026). Each
+/// swipe is three fingers, four, or off; Mission Control (up) and App Exposé (down) share their
+/// fingers, as a Mac's do: choosing four for one chooses four for the other, unless it is off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrackpadGestures {
+    /// The fingers that swipe up and down.
+    pub vertical: SwipeFingers,
+    /// Mission Control, swiped up.
+    pub mission_control: bool,
+    /// App Exposé, swiped down.
+    pub app_expose: bool,
+    /// The desktops, swiped across; none, off.
+    pub desktops: Option<SwipeFingers>,
+    /// Launchpad, pinched with the thumb and three fingers.
+    pub launchpad: bool,
+}
+
+impl Default for TrackpadGestures {
+    fn default() -> Self {
+        Self {
+            vertical: SwipeFingers::Three,
+            mission_control: true,
+            app_expose: true,
+            desktops: Some(SwipeFingers::Three),
+            launchpad: true,
+        }
+    }
+}
+
+/// A swipe's fingers as the file and Settings give them: `three`, `four`, or `off` (none).
+fn swipe_fingers(value: &str) -> Result<Option<SwipeFingers>, Refused> {
+    match value {
+        "three" => Ok(Some(SwipeFingers::Three)),
+        "four" => Ok(Some(SwipeFingers::Four)),
+        "off" => Ok(None),
+        _ => Err(Refused::BadValue),
+    }
+}
+
+fn swipe_fingers_name(fingers: Option<SwipeFingers>) -> &'static str {
+    fingers.map_or("off", SwipeFingers::name)
+}
+
+impl TrackpadGestures {
+    /// Mission Control's fingers, none when it is off.
+    pub fn mission_control_fingers(&self) -> Option<SwipeFingers> {
+        self.mission_control.then_some(self.vertical)
+    }
+
+    /// App Exposé's fingers, none when it is off.
+    pub fn app_expose_fingers(&self) -> Option<SwipeFingers> {
+        self.app_expose.then_some(self.vertical)
+    }
+}
+
 /// When Low Power Mode is on (docs/adr/0057-battery-and-energy.mdx), as a Mac's Battery settings
 /// offer it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -184,6 +267,9 @@ pub struct Preferences {
     /// *Natural scrolling* on every other pointing device (a mouse's wheel, a trackpoint): off, a
     /// wheel's notch turned toward the person scrolls down, as every mouse has.
     pub mouse_natural_scrolling: bool,
+    /// Settings › Trackpad › More Gestures: which fingers swipe to Mission Control, App Exposé and
+    /// the desktops, and whether a pinch opens Launchpad (docs/adr/0046-interactive-gestures.mdx).
+    pub trackpad_gestures: TrackpadGestures,
     /// The wallpapers (docs/adr/0048-wallpapers.mdx): the default (`wallpaper`), whether a
     /// display's shows on all its desktops (`wallpaper_all_desktops`), and each display's and
     /// desktop's own (`wallpaper.DISPLAY`, `wallpaper.DISPLAY.N`), which only the session changes.
@@ -196,6 +282,9 @@ pub struct Preferences {
     pub battery_percentage: bool,
     /// The display's and the machine's sleep, Low Power Mode and the battery's options (ADR 0057).
     pub energy: Energy,
+    /// The menu bar's backup item, shown once a backup destination exists (ADR 0059, decision
+    /// 10: *Show Backups in menu bar*).
+    pub backup_in_menu_bar: bool,
     /// The language the person chose, one of [`LANGUAGES`]; none is the system's (ADR 0040).
     pub language: Option<String>,
     /// The region the person chose, as CLDR names one (two ASCII capitals); none is the
@@ -208,6 +297,13 @@ pub struct Preferences {
     pub do_not_disturb: bool,
     /// What the lock screen shows of notifications.
     pub notification_previews: Previews,
+    /// *Empty Trash Automatically* (docs/adr/0062-storage.mdx): the session erases what has been
+    /// in the Trash for more than 30 days. Off, as a Mac ships.
+    pub empty_trash_automatically: bool,
+    /// *Reopen windows when logging back in* (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+    /// the applications running as the person logs out, restarts or shuts down are opened again
+    /// at the next login. The checkbox keeps its state, as a Mac's; on, as a Mac ships.
+    pub reopen_windows: bool,
     /// Each display's mode and scale, by its identity, the one changed last at the end.
     pub displays: Vec<(String, DisplaySettings)>,
     /// Each set of displays' arrangement, by the set's key, the one changed last at the end.
@@ -238,16 +334,20 @@ impl Default for Preferences {
             ui_sounds: true,
             trackpad_natural_scrolling: true,
             mouse_natural_scrolling: false,
+            trackpad_gestures: TrackpadGestures::default(),
             wallpapers: wallpaper::Wallpapers::default(),
             lock_after: 5,
             screen_reader: false,
             battery_percentage: false,
             energy: Energy::default(),
+            backup_in_menu_bar: true,
             language: None,
             region: None,
             hour_cycle: HourCycle::default(),
             do_not_disturb: false,
             notification_previews: Previews::default(),
+            empty_trash_automatically: false,
+            reopen_windows: true,
             displays: Vec::new(),
             arrangements: Vec::new(),
             dock: None,
@@ -342,6 +442,10 @@ pub const KEYS: &[&str] = &[
     "ui_sounds",
     "trackpad_natural_scrolling",
     "mouse_natural_scrolling",
+    "mission_control_swipe",
+    "app_expose_swipe",
+    "desktops_swipe",
+    "launchpad_pinch",
     "wallpaper",
     "wallpaper_all_desktops",
     "lock_after",
@@ -353,11 +457,14 @@ pub const KEYS: &[&str] = &[
     "sleep_battery",
     "sleep_adapter",
     "dim_on_battery",
+    "backup_in_menu_bar",
     "language",
     "region",
     "hour_cycle",
     "do_not_disturb",
     "notification_previews",
+    "empty_trash_automatically",
+    "reopen_windows",
     "input_sources",
     "input_source",
 ];
@@ -403,6 +510,22 @@ impl Preferences {
             "ui_sounds" => self.ui_sounds = boolean(value)?,
             "trackpad_natural_scrolling" => self.trackpad_natural_scrolling = boolean(value)?,
             "mouse_natural_scrolling" => self.mouse_natural_scrolling = boolean(value)?,
+            // Mission Control and App Exposé share their fingers, as a Mac's: three or four chosen
+            // for one is the other's too.
+            "mission_control_swipe" | "app_expose_swipe" => {
+                let fingers = swipe_fingers(value)?;
+                let gestures = &mut self.trackpad_gestures;
+                if let Some(fingers) = fingers {
+                    gestures.vertical = fingers;
+                }
+                if key == "mission_control_swipe" {
+                    gestures.mission_control = fingers.is_some();
+                } else {
+                    gestures.app_expose = fingers.is_some();
+                }
+            }
+            "desktops_swipe" => self.trackpad_gestures.desktops = swipe_fingers(value)?,
+            "launchpad_pinch" => self.trackpad_gestures.launchpad = boolean(value)?,
             // The default; a choice where Settings is goes through the session
             // (`wallpaper::Wallpapers::choose`).
             "wallpaper" => self.wallpapers.default = wallpaper::Choice::parse(value)?,
@@ -417,6 +540,7 @@ impl Preferences {
             }
             "screen_reader" => self.screen_reader = boolean(value)?,
             "battery_percentage" => self.battery_percentage = boolean(value)?,
+            "backup_in_menu_bar" => self.backup_in_menu_bar = boolean(value)?,
             "low_power_mode" => {
                 self.energy.low_power_mode = match value {
                     "never" => LowPowerMode::Never,
@@ -442,6 +566,8 @@ impl Preferences {
                     _ => return Err(Refused::BadValue),
                 }
             }
+            "empty_trash_automatically" => self.empty_trash_automatically = boolean(value)?,
+            "reopen_windows" => self.reopen_windows = boolean(value)?,
             "input_sources" => {
                 let mut sources: Vec<String> = Vec::new();
                 for id in value.split(',').filter(|id| !id.is_empty()) {
@@ -483,6 +609,14 @@ impl Preferences {
             "ui_sounds" => self.ui_sounds.to_string(),
             "trackpad_natural_scrolling" => self.trackpad_natural_scrolling.to_string(),
             "mouse_natural_scrolling" => self.mouse_natural_scrolling.to_string(),
+            "mission_control_swipe" => {
+                swipe_fingers_name(self.trackpad_gestures.mission_control_fingers()).to_owned()
+            }
+            "app_expose_swipe" => {
+                swipe_fingers_name(self.trackpad_gestures.app_expose_fingers()).to_owned()
+            }
+            "desktops_swipe" => swipe_fingers_name(self.trackpad_gestures.desktops).to_owned(),
+            "launchpad_pinch" => self.trackpad_gestures.launchpad.to_string(),
             "wallpaper" => self.wallpapers.default.text(),
             "wallpaper_all_desktops" => self.wallpapers.all_desktops.to_string(),
             "lock_after" => self.lock_after.to_string(),
@@ -494,11 +628,14 @@ impl Preferences {
             "sleep_battery" => self.energy.sleep_battery.to_string(),
             "sleep_adapter" => self.energy.sleep_adapter.to_string(),
             "dim_on_battery" => self.energy.dim_on_battery.to_string(),
+            "backup_in_menu_bar" => self.backup_in_menu_bar.to_string(),
             "language" => self.language.clone().unwrap_or_default(),
             "region" => self.region.clone().unwrap_or_default(),
             "hour_cycle" => self.hour_cycle.name().to_owned(),
             "do_not_disturb" => self.do_not_disturb.to_string(),
             "notification_previews" => self.notification_previews.name().to_owned(),
+            "empty_trash_automatically" => self.empty_trash_automatically.to_string(),
+            "reopen_windows" => self.reopen_windows.to_string(),
             "input_sources" => self.input_sources.join(","),
             "input_source" => self
                 .input_source

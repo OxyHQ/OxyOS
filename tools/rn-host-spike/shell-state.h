@@ -38,7 +38,7 @@ class ShellState {
   //   menuBar: { window, serial, items: [{ parent, kind, enabled, checkable, checked, label, shortcut }] }
   //   (the active window's menus, docs/adr/0021-menu-bar.mdx: window 0 when none is active, no items
   //   when it declared none; kind "menu" | "item" | "submenu" | "separator", parent an index or -1),
-  //   user: { name, fullName }, capsLock,
+  //   user: { fullName } (passwd's GECOS full name; never the user's name), capsLock,
 //   wallpaper: { key, uri: "file://..." or null, fit, color: "#rrggbb", slow } or null (none told:
 //   the shell's own; `slow`, the clock brought it: a variant of the sun's or a shuffle's next),
   //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null }],
@@ -56,6 +56,8 @@ class ShellState {
   //   locked shell), notificationPolicy: { doNotDisturb, previews },
   //   applicationLists: { dock: { chosen, ids } | null, openAtLogin: [ids] | null } (the person's
   //   lists of applications, docs/adr/0034-the-dock.mdx: null until told),
+  //   safeMode: the session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx,
+  //   decision 10: false unless told),
   //   trashItems: what the user's Trashes hold, null until told }
   // A window also has `responding`: its process answers the compositor's pings.
   // The applications are the session's registry (docs/adr/0013-launching-applications.mdx); the
@@ -107,6 +109,8 @@ class ShellState {
   folly::dynamic applicationLists() const;
   // How many items the user's Trashes hold, as the session told it; -1 until told.
   int64_t trashItems_ = -1;
+  // The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+  bool safeMode_ = false;
   std::map<uint32_t, Window> windows_;
   // A title or application id being received, by window.
   std::map<uint32_t, std::string> title_, appId_;
@@ -174,7 +178,7 @@ class ShellState {
   static std::string oxyApi();
   // The session's user, from the account database: the login name, and the full name of its
   // GECOS field (empty if it has none).
-  std::string user_, fullName_;
+  std::string fullName_;
 };
 
 }  // namespace oxyos

@@ -5,16 +5,9 @@
  */
 import * as React from "react";
 import { AccessibilityInfo, PanResponder, View } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
 import { AlertDialog } from "@oxy.so/bloom/alert-dialog";
 import { ChoiceList } from "@oxy.so/bloom/choice-list";
 import { Dialog } from "@oxy.so/bloom/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@oxy.so/bloom/dropdown-menu";
 import {
   RiAccessibilityLine,
   RiAddLine,
@@ -24,16 +17,19 @@ import {
   RiCheckLine,
   RiComputerLine,
   RiGlobalLine,
+  RiHistoryLine,
   RiImageLine,
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiKey2Line,
+  RiLoginBoxLine,
   RiLockLine,
-  RiMoreLine,
   RiMouseLine,
   RiNotification3Line,
   RiPaletteLine,
   RiFolder3Line,
+  RiHardDrive2Line,
   RiRefreshLine,
   RiResetLeftLine,
   RiSearchLine,
@@ -76,6 +72,7 @@ import {
   refreshRates,
   resolutions,
   sideOfKey,
+  swipeItems,
   type Appearance,
   type Display,
   type HourCycle,
@@ -87,24 +84,10 @@ import {
   type SettingsActions,
   type SettingsSnapshot,
   type Side,
+  type SwipeFingers,
 } from "./model";
-import {
-  currentNetwork,
-  detailRows,
-  ethernetStatus,
-  failureLabel,
-  failureOf,
-  formatSpeed,
-  isLocked,
-  joinFailureNeedsNote,
-  otherNetworks,
-  SCAN_INTERVAL_MS,
-  type KnownNetwork,
-  type NearbyNetwork,
-  type NetworkDetails,
-} from "./network";
-// The platform's one rule for a signal's arcs, the shell's (and the session's).
-import { signalArcs } from "../../shell/src/network";
+import { fingerCount, type Gesture } from "./gestures";
+import { GestureIllustration } from "./GestureIllustration";
 import {
   hourCycleOf,
   languageItems,
@@ -153,15 +136,21 @@ import {
   withoutExcluded,
 } from "./spotlight";
 import { BluetoothPage } from "./BluetoothPage";
+import { NetworkPage, WifiPage } from "./NetworkPages";
 import { BatteryPage } from "./BatteryPage";
+import { BackupsPage } from "./BackupsPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { PasswordsPage } from "./PasswordsPage";
+import { StoragePage } from "./StoragePage";
+import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
 import {
   formatSize as formatBytes,
   privacyRows,
   progressOf,
+  spaceNeeded,
   updatable,
   updateRows,
   type UpdateOutcome,
@@ -176,12 +165,14 @@ type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings
 function ToggleItem({
   title,
   description,
+  icon,
   value,
   onChange,
   testID,
 }: {
   title: string;
   description?: string;
+  icon?: React.ReactNode;
   value: boolean;
   onChange: (on: boolean) => void;
   testID: string;
@@ -190,6 +181,7 @@ function ToggleItem({
     <GroupedSectionItem
       title={title}
       description={description}
+      icon={icon}
       testID={testID}
       rightElement={<Switch checked={value} onCheckedChange={onChange} accessibilityLabel={title} testID={`${testID}-switch`} />}
     />
@@ -1471,42 +1463,48 @@ function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
+/** Accessibility, as a Mac's: Vision (the screen reader) and Display (reduce motion, reduce
+    transparency and the steady caret, as a Mac's Display pane holds them). */
 function AccessibilityPage({ snapshot, actions, strings }: PageProps) {
   const words = strings.accessibility;
   const { preferences } = snapshot;
   const toggle = (key: "screenReader" | "reduceMotion" | "reduceTransparency") => (on: boolean) =>
     actions.setPreference(key, on);
   return (
-    <GroupedSection>
-      <ToggleItem
-        title={words.screenReader}
-        description={words.screenReaderDescription}
-        value={preferences.screenReader}
-        onChange={toggle("screenReader")}
-        testID="screen-reader"
-      />
-      <ToggleItem
-        title={words.reduceMotion}
-        description={words.reduceMotionDescription}
-        value={preferences.reduceMotion}
-        onChange={toggle("reduceMotion")}
-        testID="reduce-motion"
-      />
-      <ToggleItem
-        title={words.reduceTransparency}
-        description={words.reduceTransparencyDescription}
-        value={preferences.reduceTransparency}
-        onChange={toggle("reduceTransparency")}
-        testID="reduce-transparency"
-      />
-      <ToggleItem
-        title={words.steadyCaret}
-        description={words.steadyCaretDescription}
-        value={prefersSteadyCaret(preferences)}
-        onChange={(on) => actions.setPreference("caretBlink", !on)}
-        testID="steady-caret"
-      />
-    </GroupedSection>
+    <View style={PAGE}>
+      <GroupedSection title={words.vision}>
+        <ToggleItem
+          title={words.screenReader}
+          description={words.screenReaderDescription}
+          value={preferences.screenReader}
+          onChange={toggle("screenReader")}
+          testID="screen-reader"
+        />
+      </GroupedSection>
+      <GroupedSection title={words.display}>
+        <ToggleItem
+          title={words.reduceMotion}
+          description={words.reduceMotionDescription}
+          value={preferences.reduceMotion}
+          onChange={toggle("reduceMotion")}
+          testID="reduce-motion"
+        />
+        <ToggleItem
+          title={words.reduceTransparency}
+          description={words.reduceTransparencyDescription}
+          value={preferences.reduceTransparency}
+          onChange={toggle("reduceTransparency")}
+          testID="reduce-transparency"
+        />
+        <ToggleItem
+          title={words.steadyCaret}
+          description={words.steadyCaretDescription}
+          value={prefersSteadyCaret(preferences)}
+          onChange={(on) => actions.setPreference("caretBlink", !on)}
+          testID="steady-caret"
+        />
+      </GroupedSection>
+    </View>
   );
 }
 
@@ -1554,6 +1552,9 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
   const language = messagesLanguage(locale);
   const updates = snapshot.updates;
   const [progress, setProgress] = React.useState<Record<string, { state: UpdateProgress; row: UpdateRow }>>({});
+  // The updates the disk had no room for, by id: the bytes more each needs (the install service
+  // checks before it downloads anything, docs/adr/0062-storage.mdx).
+  const [noRoom, setNoRoom] = React.useState<Record<string, number>>({});
   // The rows as last shown, in order: a row the service's list dropped keeps its place.
   const shownOrder = React.useRef<string[]>([]);
   // Under way, as the requests are: a second press never asks again.
@@ -1593,11 +1594,16 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
     void ask().then((outcomes) => {
       const said: string[] = [];
       const ended: Record<string, { state: UpdateProgress; row: UpdateRow } | null> = {};
+      const short: Record<string, number | null> = {};
       for (const row of starting) {
         underWay.current.delete(row.id);
-        const how = progressOf(outcomes.find((outcome) => outcome.id === row.id)?.outcome);
+        const outcome = outcomes.find((one) => one.id === row.id);
+        const how = progressOf(outcome?.outcome);
+        const needed = spaceNeeded(outcome);
+        short[row.id] = needed;
         if (how === "updated") said.push(words.updatedLabel(row.name));
         else if (how === "atNextLaunch") said.push(words.atNextLaunchLabel(row.name));
+        else if (needed !== null) said.push(words.noSpaceLabel(row.name, formatBytes(needed, language)));
         else if (how === "failed") said.push(words.failedLabel(row.name));
         // Declined in the consent sheet (it was answered) or failed: the row is the service's again.
         ended[row.id] = how === "updated" || how === "atNextLaunch" ? { state: how, row } : null;
@@ -1606,6 +1612,14 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
         const next = { ...current };
         for (const [id, how] of Object.entries(ended)) {
           if (how) next[id] = how;
+          else delete next[id];
+        }
+        return next;
+      });
+      setNoRoom((current) => {
+        const next = { ...current };
+        for (const [id, needed] of Object.entries(short)) {
+          if (needed !== null) next[id] = needed;
           else delete next[id];
         }
         return next;
@@ -1654,6 +1668,9 @@ function SoftwareUpdatePage({ snapshot, actions, strings, locale }: PageProps) {
               description={[
                 words.version(row.version, formatBytes(row.size, language)),
                 how ? "" : row.needsConsent ? words.needsConsent : row.atNextLaunch ? words.atNextLaunch : "",
+                how === undefined && noRoom[row.id] !== undefined
+                  ? words.noSpace(formatBytes(noRoom[row.id], language))
+                  : "",
                 row.notes,
               ]
                 .filter(Boolean)
@@ -1986,342 +2003,12 @@ function PrivacyPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
-/** A network's signal in three arcs, as the shell's top bar draws it; the arcs it does not reach
-    faint. Its words are its row's. */
-function SignalGlyph({ signal }: { signal: number }) {
-  const theme = useTheme();
-  const bars = signalArcs(signal);
-  const arc = (on: boolean) => (on ? theme.colors.text : theme.colors.textTertiary);
-  return (
-    <Svg width={18} height={14} viewBox="0 0 20 16">
-      <Path d="M1 5.6a13 13 0 0 1 18 0" stroke={arc(bars >= 3)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M4.2 8.9a8.4 8.4 0 0 1 11.6 0" stroke={arc(bars >= 2)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Path d="M7.4 12.1a3.9 3.9 0 0 1 5.2 0" stroke={arc(bars >= 1)} strokeWidth="2" strokeLinecap="round" fill="none" />
-      <Circle cx="10" cy="14.6" r="1.3" fill={arc(bars >= 1)} />
-    </Svg>
-  );
-}
-
-/** At a network's row's end, as a Mac lists networks: a lock when joining asks for a password,
-    then its signal; neither for a known network not nearby. */
-function NetworkGlyphs({ network }: { network: NearbyNetwork | undefined }) {
-  const theme = useTheme();
-  if (!network) return null;
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      {isLocked(network.security) ? <RiLockLine size="sm" fill={theme.colors.textSecondary} /> : null}
-      <SignalGlyph signal={network.signal} />
-    </View>
-  );
-}
-
-/** What a network's row says to the screen reader: its name, its state, its lock and signal. */
-function networkLabel(
-  ssid: string,
-  network: NearbyNetwork | undefined,
-  words: Messages["wifi"],
-  ...states: (string | null | undefined)[]
-): string {
-  const glyphs = network
-    ? [isLocked(network.security) ? words.secured : words.open, words.signal(signalArcs(network.signal))]
-    : [];
-  return [ssid, ...states, ...glyphs].filter(Boolean).join(", ");
-}
-
-/** A connection's details (ADR 0038, decision 7), one row each, only those it has. */
-function detailItems(
-  details: NetworkDetails | null,
-  strings: Messages,
-  hardwareLabel: string,
-  prefix: string,
-): React.ReactNode[] {
-  const labels = { ...strings.details, hardwareAddress: hardwareLabel };
-  return detailRows(details).map((row) => (
-    <GroupedSectionItem key={row.key} title={labels[row.key]} value={row.value} testID={`${prefix}-${row.key}`} />
-  ));
-}
-
-/** A dialog's content kept while it closes, so its words do not vanish under its animation. */
-function useHeld<T>(): [T | null, boolean, (value: T) => void, () => void] {
-  const [held, setHeld] = React.useState<{ value: T | null; open: boolean }>({ value: null, open: false });
-  const show = React.useCallback((value: T) => setHeld({ value, open: true }), []);
-  const hide = React.useCallback(() => setHeld((current) => ({ ...current, open: false })), []);
-  return [held.value, held.open, show, hide];
-}
-
 /** A row that only says something: a page with nothing else to show. */
 function Notice({ title, testID }: { title: string; testID: string }) {
   return (
     <GroupedSection>
       <GroupedSectionItem title={title} titleNumberOfLines={0} testID={testID} />
     </GroupedSection>
-  );
-}
-
-/**
- * Wi-Fi (docs/adr/0038-networks.mdx, decision 7), as a Mac's: the switch; the network joined, its
- * signal and lock, and its details; the known networks, each forgotten from its menu once
- * confirmed; the other networks nearby, each joined when chosen. Settings never asks a password:
- * the session asks it in its own sheet, and says there why a join failed. The page asks for a
- * scan when it opens and every ten seconds while it is shown, as Control Center's view does.
- */
-function WifiPage({ snapshot, actions, strings }: PageProps) {
-  const words = strings.wifi;
-  const state = snapshot.network;
-  const act = actions.network;
-  const scanning = Boolean(act && state?.available && state.wifi.device && state.wifi.enabled);
-  const [details, detailsOpen, showDetails, hideDetails] = useHeld<string>();
-  const [forgetting, forgetOpen, askForget, hideForget] = useHeld<KnownNetwork>();
-  const [note, noteOpen, showNote, hideNote] = useHeld<{ title: string; description: string }>();
-  React.useEffect(() => {
-    if (!scanning || !act) return;
-    act.scan();
-    const timer = setInterval(act.scan, SCAN_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [scanning, act]);
-  // A network joined is said once, as it connects, as VoiceOver hears a Mac's Wi-Fi join: the
-  // row it was joined from goes, so nothing focused would say it.
-  const joinedName =
-    state?.available && state.wifi.device && state.wifi.state === "connected" ? currentNetwork(state.wifi)?.ssid ?? "" : "";
-  const saidJoined = React.useRef(joinedName);
-  React.useEffect(() => {
-    if (joinedName === saidJoined.current) return;
-    saidJoined.current = joinedName;
-    if (joinedName) AccessibilityInfo.announceForAccessibility(words.joined(joinedName));
-  }, [joinedName]);
-  if (!state || !act || !state.available) return <Notice title={words.unavailable} testID="wifi-unavailable" />;
-  const wifi = state.wifi;
-  if (!wifi.device) return <Notice title={words.noDevice} testID="wifi-no-device" />;
-  const current = currentNetwork(wifi);
-  const currentName = current?.ssid ?? null;
-  const currentState = wifi.state === "connecting" ? words.connecting : words.connected;
-  const nearby = (ssid: string) => wifi.networks.find((network) => network.ssid === ssid);
-  const others = otherNetworks(wifi.networks);
-  const join = async (ssid: string) => {
-    const reason = await act.join(ssid).then(() => null, failureOf);
-    if (joinFailureNeedsNote(reason)) {
-      const note = { title: words.couldNotJoin(ssid), description: failureLabel(reason, words.failures, "join") };
-      showNote(note);
-      // Said as it shows: the note's dialog does not take the screen reader's focus.
-      AccessibilityInfo.announceForAccessibility(`${note.title}. ${note.description}`);
-    }
-  };
-  const forget = async (known: KnownNetwork) => {
-    const reason = await act.forget(known.id).then(() => null, failureOf);
-    if (reason) showNote({ title: words.couldNotForget, description: failureLabel(reason, words.failures, "forget") });
-  };
-  return (
-    <View style={PAGE}>
-      <GroupedSection footer={wifi.enabled ? undefined : wifi.hardwareBlocked ? words.hardwareBlocked : words.off}>
-        <GroupedSectionItem
-          title={words.wifi}
-          icon={<RiWifiLine />}
-          testID="wifi"
-          rightElement={
-            <Switch
-              checked={wifi.enabled}
-              onCheckedChange={act.setWifi}
-              accessibilityLabel={words.wifi}
-              testID="wifi-switch"
-            />
-          }
-        />
-        {wifi.enabled && currentName ? (
-          <GroupedSectionItem
-            title={currentName}
-            description={currentState}
-            leftInset={56}
-            testID="wifi-current"
-            accessibilityLabel={networkLabel(currentName, current ?? undefined, words, currentState)}
-            rightElement={
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <NetworkGlyphs network={current ?? undefined} />
-                <Button
-                  size="sm"
-                  appearance="outline"
-                  tone="neutral"
-                  accessibilityLabel={words.detailsLabel(currentName)}
-                  testID="wifi-details"
-                  onPress={() => showDetails(currentName)}
-                >
-                  {words.details}
-                </Button>
-              </View>
-            }
-          />
-        ) : null}
-      </GroupedSection>
-      {wifi.enabled && wifi.known.length > 0 ? (
-        <GroupedSection title={words.known}>
-          {wifi.known.map((known) => {
-            // One nearby and not joined is joined by choosing it, as a Mac's list joins it; the
-            // session has its password.
-            const there = nearby(known.ssid);
-            const joinable = !!there && !there.current;
-            const joining = state.joining === known.ssid;
-            return (
-              <GroupedSectionItem
-                key={known.id}
-                title={known.ssid}
-                testID={`wifi-known-${known.ssid}`}
-                accessibilityLabel={networkLabel(known.ssid, there, words, joining ? words.connecting : null)}
-                accessibilityState={{ busy: joining }}
-                showChevron={false}
-                onPress={
-                  joinable
-                    ? () => {
-                        void join(known.ssid);
-                      }
-                    : undefined
-                }
-                rightElement={
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <NetworkGlyphs network={nearby(known.ssid)} />
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          size="sm"
-                          appearance="plain"
-                          tone="neutral"
-                          iconOnly
-                          icon={RiMoreLine}
-                          accessibilityLabel={words.more(known.ssid)}
-                          testID={`wifi-known-${known.ssid}-more`}
-                        />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent label={words.more(known.ssid)} align="end" size="sm">
-                        <DropdownMenuItem testID={`wifi-forget-${known.ssid}`} onPress={() => askForget(known)}>
-                          {words.forgetItem}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </View>
-                }
-              />
-            );
-          })}
-        </GroupedSection>
-      ) : null}
-      {wifi.enabled ? (
-        <GroupedSection title={words.other}>
-          {others.length === 0 ? (
-            <GroupedSectionItem title={words.none} testID="wifi-none" />
-          ) : (
-            others.map((network) => {
-              const joining = state.joining === network.ssid;
-              const unsupported = network.supported ? undefined : words.notSupported;
-              return (
-                <GroupedSectionItem
-                  key={network.ssid}
-                  title={network.ssid}
-                  description={unsupported}
-                  showChevron={false}
-                  testID={`wifi-network-${network.ssid}`}
-                  accessibilityLabel={networkLabel(
-                    network.ssid,
-                    network,
-                    words,
-                    joining ? words.connecting : null,
-                    unsupported,
-                  )}
-                  accessibilityState={{ busy: joining }}
-                  onPress={() => {
-                    void join(network.ssid);
-                  }}
-                  rightElement={
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                      {joining ? (
-                        <Loading
-                          size="sm"
-                          accessibilityLabel={words.joining(network.ssid)}
-                          testID={`wifi-joining-${network.ssid}`}
-                        />
-                      ) : null}
-                      <NetworkGlyphs network={network} />
-                    </View>
-                  }
-                />
-              );
-            })
-          )}
-        </GroupedSection>
-      ) : null}
-      <Dialog
-        open={detailsOpen}
-        onClose={hideDetails}
-        title={details ?? ""}
-        label={words.detailsLabel(details ?? "")}
-        actions={[{ label: words.ok, color: "default", onPress: hideDetails, testID: "wifi-details-ok" }]}
-        testID="wifi-details-sheet"
-      >
-        <GroupedSection>{detailItems(wifi.details, strings, strings.details.wifiAddress, "wifi-details")}</GroupedSection>
-      </Dialog>
-      <AlertDialog
-        open={forgetOpen}
-        onOpenChange={(open) => {
-          if (!open) hideForget();
-        }}
-        title={words.forgetTitle(forgetting?.ssid ?? "")}
-        description={words.forgetDescription}
-        confirmLabel={words.forget}
-        cancelLabel={words.cancel}
-        destructive
-        onConfirm={() => {
-          if (forgetting) void forget(forgetting);
-        }}
-        testID="wifi-forget-confirm"
-      />
-      <AlertDialog
-        open={noteOpen}
-        onOpenChange={(open) => {
-          if (!open) hideNote();
-        }}
-        title={note?.title ?? ""}
-        description={note?.description}
-        confirmLabel={words.ok}
-        hideCancel
-        testID="wifi-failure"
-      />
-    </View>
-  );
-}
-
-/** Network (decision 7): Ethernet's state, speed and details; VPN only says it is not there yet,
-    since nothing in OxyOS configures one. */
-function NetworkPage({ snapshot, strings, locale }: PageProps) {
-  const words = strings.network;
-  const language = messagesLanguage(locale);
-  const state = snapshot.network;
-  if (!state || !state.available) return <Notice title={words.unavailable} testID="network-unavailable" />;
-  const ethernet = state.ethernet;
-  const status = ethernetStatus(ethernet);
-  const said = {
-    none: words.noPort,
-    connected: words.connected,
-    unplugged: words.unplugged,
-    connecting: words.connecting,
-    notConnected: words.notConnected,
-  }[status];
-  const speed = status === "connected" ? formatSpeed(ethernet.speed, language) : "";
-  return (
-    <View style={PAGE}>
-      <GroupedSection title={words.ethernet}>
-        <GroupedSectionItem
-          title={words.ethernet}
-          value={said}
-          icon={<RiGlobalLine />}
-          testID="ethernet-status"
-          accessibilityLabel={`${words.ethernet}, ${said}`}
-        />
-        {speed ? <GroupedSectionItem title={words.speed} value={speed} testID="ethernet-speed" /> : null}
-        {status === "connected"
-          ? detailItems(ethernet.details, strings, strings.details.hardwareAddress, "ethernet")
-          : null}
-      </GroupedSection>
-      <GroupedSection title={words.vpn}>
-        <GroupedSectionItem title={words.vpnPlaceholder} titleNumberOfLines={0} testID="vpn-placeholder" />
-      </GroupedSection>
-    </View>
   );
 }
 
@@ -2450,8 +2137,103 @@ function CurrentOxyAccountPage(props: PageProps) {
 function MousePage(props: PageProps) {
   return <ScrollingPage {...props} preference="mouseNaturalScrolling" />;
 }
+/** Trackpad's page: its natural scrolling, then More Gestures below it, as a Mac's Trackpad settings
+    has its More Gestures tab. Natural scrolling stays where it was. */
 function TrackpadPage(props: PageProps) {
-  return <ScrollingPage {...props} preference="trackpadNaturalScrolling" />;
+  return (
+    <View style={PAGE}>
+      <ScrollingPage {...props} preference="trackpadNaturalScrolling" />
+      <MoreGestures {...props} />
+    </View>
+  );
+}
+
+/** The swipes of More Gestures, each its preference and its control's id, in a Mac's order. */
+const SWIPES = [
+  { gesture: "desktops", preference: "desktopsSwipe", testID: "gesture-desktops" },
+  { gesture: "missionControl", preference: "missionControlSwipe", testID: "gesture-mission-control" },
+  { gesture: "appExpose", preference: "appExposeSwipe", testID: "gesture-app-expose" },
+] as const satisfies readonly {
+  gesture: Exclude<Gesture, "launchpad">;
+  preference: "desktopsSwipe" | "missionControlSwipe" | "appExposeSwipe";
+  testID: string;
+}[];
+
+/**
+ * Trackpad's More Gestures (docs/adr/0046-interactive-gestures.mdx), as a Mac's: swiping between
+ * desktops, Mission Control and App Exposé, each three fingers, four or off, and Launchpad's pinch.
+ * Each row's picture plays its gesture as its choice changes and as the pointer comes over it. A
+ * change sends its own key alone: the session links Mission Control's and App Exposé's fingers as a
+ * Mac does, and the next snapshot says both. What OxyOS cannot do is not offered: swiping between
+ * pages (no application honours a page back and forward), Notification Center's swipe from the edge
+ * (libinput tells no finger's place) and Show Desktop (OxyOS has none).
+ */
+function MoreGestures({ snapshot, actions, strings }: PageProps) {
+  const words = strings.gestures;
+  const { preferences } = snapshot;
+  return (
+    <GroupedSection title={words.title}>
+      {SWIPES.map(({ gesture, preference, testID }) => (
+        <GestureRow key={gesture}>
+          {(hovers) => (
+            <GroupedSectionItem
+              title={words[gesture]}
+              // Its menu says the whole gesture, as a Mac's popup does: a long title wraps rather
+              // than being cut short ("Pasar de un escritorio a otro").
+              titleNumberOfLines={2}
+              testID={`${testID}-row`}
+              icon={
+                <GestureIllustration
+                  gesture={gesture}
+                  fingers={fingerCount(preferences[preference])}
+                  off={preferences[preference] === "off"}
+                  choice={preferences[preference]}
+                  hovers={hovers}
+                  reduceMotion={preferences.reduceMotion}
+                />
+              }
+              rightElement={
+                <SettingsSelect<SwipeFingers>
+                  label={words[gesture]}
+                  value={preferences[preference]}
+                  items={swipeItems(words.choices[gesture])}
+                  onChange={(value) => actions.setPreference(preference, value)}
+                  testID={testID}
+                />
+              }
+            />
+          )}
+        </GestureRow>
+      ))}
+      <GestureRow>
+        {(hovers) => (
+          <ToggleItem
+            title={words.launchpad}
+            description={words.launchpadDescription}
+            icon={
+              <GestureIllustration
+                gesture="launchpad"
+                fingers={4}
+                off={!preferences.launchpadPinch}
+                choice={String(preferences.launchpadPinch)}
+                hovers={hovers}
+                reduceMotion={preferences.reduceMotion}
+              />
+            }
+            value={preferences.launchpadPinch}
+            onChange={(on) => actions.setPreference("launchpadPinch", on)}
+            testID="trackpad-launchpad"
+          />
+        )}
+      </GestureRow>
+    </GroupedSection>
+  );
+}
+
+/** A row of More Gestures that counts the pointer coming over it, for its picture to play. */
+function GestureRow({ children }: { children: (hovers: number) => React.ReactNode }) {
+  const [hovers, setHovers] = React.useState(0);
+  return <View onPointerEnter={() => setHovers((count) => count + 1)}>{children(hovers)}</View>;
 }
 
 /**
@@ -2489,10 +2271,18 @@ export function Settings({
   // before (opened by its URL, `oxyos-settings://battery`, the battery's menu's Battery Settings…).
   const powerItem = power ? (power.battery ? words.battery : words.energy) : null;
   const powerPage = power === undefined ? null : power?.battery || power === null ? "battery" : "energy";
+  // Backups (docs/adr/0059-backups.mdx): the sidebar's item once the session told the backup
+  // service is there; the page, also before (opened by its URL, `oxyos-settings://backups`, the
+  // menu bar's Open Backups Settings…), says when it is not.
+  const backupItem = !!snapshot.backup;
+  const backupPage = snapshot.backup !== undefined;
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
   const accountKind = account?.kind;
+  // Passwords where the platform keeps an account's keychain: with an account session, once it told
+  // the account (docs/adr/0050-keychain-autofill-and-passkeys.mdx: the keychain is the account's).
+  const keychain = actions.keychain !== undefined && accountKind !== undefined;
   const accountName = account?.kind === "signed_in" ? account.name : null;
   const accountPicture = account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : "";
   const AccountIcon = React.useMemo(() => {
@@ -2548,6 +2338,9 @@ export function Settings({
           { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
           { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
           { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
+          // After Lock Screen, as a Mac lists Passwords after Touch ID & Password: where the
+          // platform has an account session to keep them (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+          ...(keychain ? [{ key: "passwords", label: words.passwords, icon: RiKey2Line, page: "passwords" }] : []),
           { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
           { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
         ],
@@ -2562,8 +2355,15 @@ export function Settings({
           { key: "mouse", label: words.mouse, icon: RiMouseLine, page: "mouse" },
           { key: "trackpad", label: words.trackpad, icon: RiHand, page: "trackpad" },
           { key: "date-time", label: words.dateTime, icon: RiCalendarLine, page: "date-time" },
+          // After Date & Time, as a Mac's General lists Login Items & Extensions after its language
+          // and its time (docs/adr/0060-login-items-and-background-activity.mdx).
+          { key: "login-items", label: words.loginItems, icon: RiLoginBoxLine, page: "login-items" },
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
-          // After Software Update, as a Mac's General lists Transfer or Reset.
+          // After Software Update, as a Mac's General lists Storage (docs/adr/0062-storage.mdx).
+          { key: "storage", label: words.storage, icon: RiHardDrive2Line, page: "storage" },
+          // Just before Transfer or Reset, as a Mac's General lists Time Machine.
+          ...(backupItem ? [{ key: "backups", label: words.backups, icon: RiHistoryLine, page: "backups" }] : []),
+          // After Storage, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
           // Just above Privacy, as a Mac's System Settings lists Spotlight.
           { key: "spotlight", label: words.spotlight, icon: RiSearchLine, page: "spotlight" },
@@ -2572,7 +2372,7 @@ export function Settings({
         ],
       },
     ];
-  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon]);
+  }, [strings, words, networked, bluetooth, powerItem, backupItem, accountKind, accountName, AccountIcon, keychain]);
   const pages = React.useMemo<Record<string, SettingsModalPage>>(
     () => ({
       ...(accountKind
@@ -2583,6 +2383,7 @@ export function Settings({
       notifications: { title: words.notifications, content: <WithPageProps render={NotificationsPage} /> },
       sound: { title: words.sound, content: <WithPageProps render={SoundPage} /> },
       "lock-screen": { title: words.lockScreen, content: <WithPageProps render={LockScreenPage} /> },
+      ...(keychain ? { passwords: { title: words.passwords, content: <WithPageProps render={PasswordsPage} /> } } : {}),
       displays: { title: words.displays, content: <WithPageProps render={DisplaysPage} /> },
       accessibility: { title: words.accessibility, content: <WithPageProps render={AccessibilityPage} /> },
       keyboard: { title: words.keyboard, content: <WithPageProps render={KeyboardPage} /> },
@@ -2592,7 +2393,9 @@ export function Settings({
       "date-time": { title: words.dateTime, content: <WithPageProps render={DateTimePage} /> },
       about: { title: words.about, content: <WithPageProps render={AboutPage} /> },
       "software-update": { title: words.softwareUpdate, content: <WithPageProps render={SoftwareUpdatePage} /> },
+      storage: { title: words.storage, content: <WithPageProps render={StoragePage} /> },
       "transfer-reset": { title: words.transferReset, content: <WithPageProps render={TransferResetPage} /> },
+      "login-items": { title: words.loginItems, content: <WithPageProps render={LoginItemsPage} /> },
       spotlight: { title: words.spotlight, content: <WithPageProps render={SpotlightPage} /> },
       privacy: { title: words.privacy, content: <WithPageProps render={PrivacyPage} /> },
       ...(networked
@@ -2610,8 +2413,9 @@ export function Settings({
             },
           }
         : {}),
+      ...(backupPage ? { backups: { title: words.backups, content: <WithPageProps render={BackupsPage} /> } } : {}),
     }),
-    [strings, words, networked, bluetooth, powerPage, accountKind],
+    [strings, words, networked, bluetooth, powerPage, backupPage, accountKind, keychain],
   );
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

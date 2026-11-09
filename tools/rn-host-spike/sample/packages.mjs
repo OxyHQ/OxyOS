@@ -38,11 +38,14 @@ const icons = {
   'so.oxy.shell': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.login': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.settings': 'tools/shell-preview/assets/apps/settings.png',
+  'so.oxy.activitymonitor': 'tools/shell-preview/assets/apps/activity-monitor.png',
   'so.oxy.inbox': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.allo': 'tools/shell-preview/assets/apps/allo.png',
   'so.oxy.dropsea': 'tools/shell-preview/assets/apps/dropsea.png',
   'so.oxy.atlas': 'tools/shell-preview/assets/apps/atlas.png',
   'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
+  'so.oxy.backgroundprobe': 'tools/shell-preview/assets/apps/allo.png',
+  'so.oxy.crashprobe': 'tools/shell-preview/assets/apps/inbox.png',
 };
 // Each application's declared searchable items (docs/adr/0051-search.mdx): `searchable.json` at its
 // package's root, beside `manifest.json` and `index.hbc`, listed in the manifest as every file is.
@@ -56,10 +59,17 @@ const entries = {
   'so.oxy.shell': 'entries/shell.js',
   'so.oxy.login': 'entries/login.js',
   'so.oxy.settings': 'entries/settings.js',
+  'so.oxy.activitymonitor': 'entries/activity-monitor.js',
   'so.oxy.inbox': 'entries/inbox.js',
   'so.oxy.allo': 'entries/allo.js',
   // A probe installed as an application of its own (the scenarios' install service publishes it).
   'so.oxy.permissionprobe': 'entries/permission.js',
+  // A probe with a login item and background activity
+  // (docs/adr/0060-login-items-and-background-activity.mdx).
+  'so.oxy.backgroundprobe': 'entries/background.js',
+  // An application that quits unexpectedly while its data is corrupt (docs/adr/0061), installed by
+  // the crash scenarios.
+  'so.oxy.crashprobe': 'entries/crash.js',
 };
 // The applications built from their own checkouts (docs/react-native-android-adaptation.mdx), each
 // named by its variable and built when it is given: the runtime's entry (oxyos/application.js)

@@ -1,0 +1,155 @@
+{
+  "about": "The login screen's Sleep, Restart and Shut Down (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 8), as a Mac's login window, over logind played on the run's own bus (never the machine's): three buttons at its foot, each named for the assistive technology. The power key asks there too, in the login screen's own dialog (Restart, Sleep, Cancel, Shut Down), never turning the machine off; Cancel asks logind nothing. The foot's Sleep is logind's Suspend, its Shut Down logind's PowerOff, each at once (nobody is signed in: nothing to confirm, no application to ask), not interactive, once. Nobody is ever signed in.",
+  "shell": "OxyOSLogin",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [
+      {
+        "accountId": "0123456789abcdef01234567",
+        "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+        "uid": 1001,
+        "name": "Ada Lovelace"
+      }
+    ]
+  },
+  "power": {
+    "on_ac": true
+  },
+  "steps": [
+    {
+      "name": "the login screen: Sleep, Restart and Shut Down at its foot, buttons for the assistive technology; the power key's inhibitor held",
+      "do": [
+        "wait",
+        500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Ada Lovelace",
+            "Sleep",
+            "Restart",
+            "Shut Down"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Sleep"
+            },
+            {
+              "role": "Button",
+              "name": "Restart"
+            },
+            {
+              "role": "Button",
+              "name": "Shut Down"
+            }
+          ]
+        },
+        "power": {
+          "calls": [],
+          "inhibitors": [
+            "handle-power-key"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the power key: the login screen's choice, never a power-off",
+      "do": [
+        "key",
+        [
+          116
+        ]
+      ],
+      "until_named": [
+        "Are you sure you want to shut down your computer now?",
+        15000
+      ],
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Are you sure you want to shut down your computer now?",
+            "Cancel"
+          ]
+        },
+        "power": {
+          "calls": [],
+          "power_offs": 0
+        }
+      }
+    },
+    {
+      "name": "Cancel: the choice goes, logind asked nothing",
+      "do": [
+        "press_named",
+        "Cancel"
+      ],
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Are you sure you want to shut down your computer now?"
+          ]
+        },
+        "power": {
+          "calls": [],
+          "power_offs": 0,
+          "suspends": 0
+        }
+      }
+    },
+    {
+      "name": "Sleep at the foot: logind's Suspend at once, not interactive, once",
+      "do": [
+        "press_named",
+        "Sleep"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "power": {
+          "calls": [
+            "Suspend false"
+          ],
+          "suspends": 1,
+          "power_offs": 0
+        }
+      }
+    },
+    {
+      "name": "Shut Down at the foot: logind's PowerOff at once, not interactive, once",
+      "do": [
+        "press_named",
+        "Shut Down"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "power": {
+          "calls": [
+            "Suspend false",
+            "PowerOff false"
+          ],
+          "power_offs": 1,
+          "reboots": 0
+        }
+      }
+    }
+  ]
+}
