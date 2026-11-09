@@ -25,6 +25,12 @@ const native = TurboModuleRegistry.get('OxyOSFiles');
 /** Whether this window reaches files. */
 export const filesAvailable = native != null;
 
+/**
+ * Whether it may ask the person's backups: only an application granted `files`
+ * (docs/adr/0059-backups.mdx); the service refuses the rest.
+ */
+export const backupsAvailable = native?.getConstants?.().backups === true;
+
 /** Why the service did not do something: its code (`refused`, `not-found`, `exists`...) and reason. */
 export class FilesError extends Error {
   constructor(code, message) {
@@ -110,6 +116,11 @@ export function onWatch(id, handler) {
 export function unwatchFiles(id) {
   watches.delete(id);
   if (native) callFiles('unwatch', { watch: id });
+}
+
+/** Asks the service to stop the transfer or restore running as request `id`. */
+export function cancelTransfer(id) {
+  if (native) callFiles('cancelTransfer', { transfer: id });
 }
 
 /** Calls `handler` with transfer `id`'s progress until `offTransfer(id)`. */

@@ -10,11 +10,13 @@
 //! capability asked at first use (`RequestCapability`); the program decides and answers. The scene
 //! knows no vocabulary, no application and no capability.
 
-use super::{ClientId, Scene};
-use oxyos_protocol::{ErrorCode, Event, PreeditText, TextChunk, MAX_SYSTEM_TEXT_BYTES};
+use super::{ClientId, Role, Scene};
+use oxyos_protocol::{ErrorCode, Event, PreeditText, ShellKind, TextChunk, MAX_SYSTEM_TEXT_BYTES};
 use std::collections::BTreeMap;
 
-/// Requests asked for and not yet taken.
+/// Requests a client asked for and the session has not taken yet: each client's own, so the
+/// clients asking together as they start (a shell on every display, each following the state it
+/// shows) never use up another's.
 const MAX_PENDING: usize = 32;
 /// Sheets shown and not yet answered.
 const MAX_SHEETS: usize = 8;
@@ -115,7 +117,13 @@ impl Scene {
             return Ok(());
         }
         let (text, _) = receiving.remove(&(client, serial)).expect("received");
-        if self.system.asked.len() >= MAX_PENDING {
+        let pending = self
+            .system
+            .asked
+            .iter()
+            .filter(|asked| asked.client == client)
+            .count();
+        if pending >= MAX_PENDING {
             return Err(ErrorCode::QuotaExceeded);
         }
         let with_input = input != 0 && self.recent_input(client, input);
@@ -207,6 +215,16 @@ impl Scene {
             .collect()
     }
 
+    /// The clients told the backups' state as it changes (docs/adr/0059-backups.mdx): the shell
+    /// (the menu bar's backup item) and Settings (its Backups page).
+    pub fn backup_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.settings || grants.shell)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
     /// Tells `client` the answer to its request `serial` (0: the update state, unasked), if it
     /// still holds a grant that asks.
     pub fn system_text(&mut self, client: ClientId, serial: u32, text: &str) {
@@ -231,11 +249,36 @@ impl Scene {
         }
     }
 
+    /// Tells `client` the answer to its request `serial` (0: unasked) whole, `size` bytes the
+    /// program running the compositor sends in a sealed file with the event (SystemData,
+    /// docs/adr/0063-activity-monitor.mdx), if it still holds a grant that asks. Whether it was.
+    pub fn system_data(&mut self, client: ClientId, serial: u32, size: u32) -> bool {
+        let Some(grants) = self.clients.get(&client) else {
+            return false;
+        };
+        if !grants.asks_system() || size as usize > oxyos_protocol::MAX_SYSTEM_DATA_BYTES {
+            return false;
+        }
+        self.emit(client, Event::SystemData { serial, size });
+        true
+    }
+
     /// The clients holding `store` or `updates`: those the update state is told to.
     pub fn update_watchers(&self) -> Vec<ClientId> {
         self.clients
             .iter()
             .filter(|(_, grants)| grants.store || grants.updates)
+            .map(|(client, _)| *client)
+            .collect()
+    }
+
+    /// The clients told the account's applications' capabilities unasked as they change (serial
+    /// 0): those with the `privacy` grant, Settings (its Privacy page and Login Items &
+    /// Extensions, docs/adr/0060-login-items-and-background-activity.mdx).
+    pub fn privacy_watchers(&self) -> Vec<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(_, grants)| grants.privacy)
             .map(|(client, _)| *client)
             .collect()
     }
@@ -293,6 +336,25 @@ impl Scene {
     /// How many sheets are asked for and not yet answered nor withdrawn.
     pub fn sheets_waiting(&self) -> usize {
         self.system.sheets.len()
+    }
+
+    /// Whether a system sheet has the keyboard: a sheet is asked and the shell's overlay showing it
+    /// is focused. What the person types there is the session's question's (an Oxy account's
+    /// password, a Wi-Fi password), so only the person moves the keyboard from it: no window
+    /// mapping, however recently its application was launched, takes it.
+    pub fn system_sheet_has_keyboard(&self) -> bool {
+        self.sheets_waiting() > 0
+            && self.focus.is_some_and(|focus| {
+                self.nodes.get(&self.root_of(focus)).is_some_and(|node| {
+                    matches!(
+                        node.role,
+                        Role::Shell {
+                            kind: ShellKind::Overlay,
+                            ..
+                        }
+                    )
+                })
+            })
     }
 
     /// Withdraws a sheet not answered: the shells are told.

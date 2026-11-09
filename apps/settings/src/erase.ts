@@ -64,8 +64,8 @@ const hasOnly = (value: Record<string, unknown>, keys: readonly string[]) =>
   Object.keys(value).every((key) => keys.includes(key));
 
 /** What the platform told of erasing, read strictly: anything that is not one is none, and the
-    page then offers no erase. Every account is named, the asking one first, and none is signed out
-    online while the computer is offline. */
+    page then offers no erase. The asking account comes first, and none is signed out online while
+    the computer is offline. */
 export function erasePreviewFrom(told: unknown): ErasePreview | null {
   if (!isRecord(told) || !hasOnly(told, ["available", "administrator", "online", "accounts"])) return null;
   const { available, administrator, online, accounts } = told;
@@ -77,7 +77,8 @@ export function erasePreviewFrom(told: unknown): ErasePreview | null {
   for (const account of accounts) {
     if (!isRecord(account) || !hasOnly(account, ["name", "handle", "signsOutOnline"])) return null;
     const { name, handle, signsOutOnline } = account;
-    if (typeof name !== "string" || name.trim() === "") return null;
+    // Named as the person is (an account Oxy names nothing is said as one: never its user's).
+    if (typeof name !== "string") return null;
     if (handle !== null && (typeof handle !== "string" || handle === "")) return null;
     if (typeof signsOutOnline !== "boolean" || (signsOutOnline && !online)) return null;
     kept.push({ name, handle, signsOutOnline });

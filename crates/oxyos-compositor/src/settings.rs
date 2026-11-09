@@ -1,7 +1,7 @@
 //! The user's preferences while a session runs (docs/adr/0019-settings.mdx), for the program
 //! running the compositor: the session authority, and the preferences file's one writer. It
 //! applies them (reduce motion to the transitions, `lock_after` to the idle lock, natural
-//! scrolling to the devices), tells the scene what they are (every client the ones it draws with,
+//! scrolling to the devices, the trackpad's gestures to the scene), tells the scene what they are (every client the ones it draws with,
 //! Settings every one) and takes the changes Settings asks for: each is validated, written to the
 //! file whole, applied and told, or refused with nothing changed.
 //!
@@ -153,6 +153,18 @@ impl Settings {
             trackpad: preferences.trackpad_natural_scrolling,
             mouse: preferences.mouse_natural_scrolling,
         });
+        // Settings › Trackpad › More Gestures (docs/adr/0046-interactive-gestures.mdx, amended 8
+        // November 2026): the swipes' fingers and the pinch, from the next one on.
+        let gestures = preferences.trackpad_gestures;
+        let fewest = |fingers: Option<oxyos_preferences::SwipeFingers>| fingers.map(|f| f.fewest());
+        compositor
+            .scene
+            .set_trackpad_gestures(oxyos_compositor_core::scene::TrackpadGestures {
+                mission_control: fewest(gestures.mission_control_fingers()),
+                app_expose: fewest(gestures.app_expose_fingers()),
+                desktops: fewest(gestures.desktops),
+                launchpad: gestures.launchpad,
+            });
         // Play user interface sound effects (docs/adr/0044-system-sounds.mdx).
         if let Some(sounds) = compositor.sounds.as_mut() {
             sounds.interface = preferences.ui_sounds;
@@ -232,6 +244,23 @@ impl Settings {
         now: i64,
     ) -> Result<bool, String> {
         let changed = self.change(key, value)?;
+        if changed {
+            self.apply(compositor, now);
+        }
+        Ok(changed)
+    }
+
+    /// Keeps the person's Open at Login as `ids` for an application that registered or
+    /// unregistered its login item (docs/adr/0060-login-items-and-background-activity.mdx), as the
+    /// shell's or Settings' change is kept, and tells the shells and Settings: whether it changed.
+    /// Refused, nothing changed, as theirs would be.
+    pub fn set_open_at_login(
+        &mut self,
+        compositor: &mut Compositor,
+        ids: &[String],
+        now: i64,
+    ) -> Result<bool, String> {
+        let changed = self.keep_list(oxyos_preferences::ApplicationList::OpenAtLogin, ids)?;
         if changed {
             self.apply(compositor, now);
         }
@@ -739,6 +768,60 @@ mod tests {
     }
 
     #[test]
+    fn the_trackpads_gestures_are_given_to_the_scene_and_follow_a_change_at_once() {
+        use oxyos_compositor_core::scene::TrackpadGestures;
+        let mut compositor = compositor();
+        let mut settings = Settings::new(Preferences::default(), None, None);
+        settings.apply(&mut compositor, DAY);
+        // As a Mac ships them: three fingers (and four) up, down and across, and the pinch.
+        assert_eq!(
+            compositor.scene.trackpad_gestures(),
+            TrackpadGestures {
+                mission_control: Some(3),
+                app_expose: Some(3),
+                desktops: Some(3),
+                launchpad: true,
+            }
+        );
+        told(&mut compositor, SETTINGS);
+        // Mission Control on four is App Exposé's four too, as a Mac's; the desktops off and the
+        // pinch off; each from the next gesture on, and Settings told both of the two it shares.
+        ask(&mut compositor, 1, "mission_control_swipe=four");
+        ask(&mut compositor, 2, "desktops_swipe=off");
+        ask(&mut compositor, 3, "launchpad_pinch=false");
+        ask(&mut compositor, 4, "app_expose_swipe=two");
+        assert_eq!(
+            settings.serve(&mut compositor, DAY),
+            ["mission_control_swipe", "desktops_swipe", "launchpad_pinch"]
+        );
+        assert_eq!(
+            compositor.scene.trackpad_gestures(),
+            TrackpadGestures {
+                mission_control: Some(4),
+                app_expose: Some(4),
+                desktops: None,
+                launchpad: false,
+            }
+        );
+        assert_eq!(
+            settings.preferences().get("app_expose_swipe").as_deref(),
+            Some("four")
+        );
+        assert_eq!(
+            told(&mut compositor, SETTINGS).1,
+            [(1, true), (2, true), (3, true), (4, false)]
+        );
+        // App Exposé off leaves Mission Control on four.
+        ask(&mut compositor, 5, "app_expose_swipe=off");
+        settings.serve(&mut compositor, DAY);
+        assert_eq!(
+            compositor.scene.trackpad_gestures().mission_control,
+            Some(4)
+        );
+        assert_eq!(compositor.scene.trackpad_gestures().app_expose, None);
+    }
+
+    #[test]
     fn lock_after_is_the_idle_locks_and_a_change_arms_it_again() {
         let minute = std::time::Duration::from_secs(60);
         let mut compositor = compositor();
@@ -847,11 +930,11 @@ mod tests {
         );
         // Settings shows no window: its choice is the primary's, the default; the other display
         // keeps the old default as its own.
-        ask(&mut compositor, 1, "wallpaper=horizon");
+        ask(&mut compositor, 1, "wallpaper=ocean");
         assert_eq!(settings.serve(&mut compositor, DAY), ["wallpaper"]);
         assert_eq!(
             wallpapers_told(&mut compositor, SHELL),
-            (vec![(1, "horizon".to_owned())], vec!["horizon".to_owned()])
+            (vec![(1, "ocean".to_owned())], vec!["ocean".to_owned()])
         );
         // A long path, in chunks; a bad choice refused.
         let photo = format!("photo:fit:000000:/home/ana/{}.jpg", "f".repeat(300));

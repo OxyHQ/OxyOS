@@ -28,7 +28,10 @@ use std::time::{Duration, Instant};
 
 pub mod arrangement;
 pub mod autofill;
+pub mod background;
+pub mod backups;
 pub mod controls;
+pub mod crashes;
 pub mod drag_badge;
 mod gpu_buffers;
 pub mod open_files;
@@ -37,6 +40,7 @@ pub mod scanout;
 /// Screenshots as files (docs/adr/0024-system-shortcuts.mdx, decision 10).
 pub mod screenshots;
 pub use gpu_buffers::GpuFrame;
+pub mod activity;
 pub mod bluetooth;
 pub mod choosers;
 pub mod displays;
@@ -47,14 +51,18 @@ pub mod installs;
 pub mod login;
 pub mod motion;
 pub mod networks;
+pub mod passkeys;
 pub mod power;
+pub mod safe_mode;
 pub mod search;
+pub mod session_end;
 pub mod settings;
 pub mod sign_out;
 pub mod sound_devices;
 pub mod sounds;
 pub mod splash;
 pub mod stop;
+pub mod storage;
 pub mod swipes;
 pub mod transitions;
 pub mod trash;
@@ -1592,6 +1600,37 @@ impl Compositor {
             );
         }
         self.retire();
+    }
+
+    /// Tells `client` the answer to its request `serial` (0: unasked) as one sealed memory file
+    /// (SystemData, protocol version 37, docs/adr/0063-activity-monitor.mdx), where SystemText
+    /// would take a chunk of 32 bytes each: a client that does not read thousands of them at once
+    /// would be dropped as unresponsive. False when it cannot be (a client of an older version, a
+    /// local one, no file): the caller says it in chunks, or not at all.
+    pub fn system_data(&mut self, client: ClientId, serial: u32, text: &str) -> bool {
+        let Some(peer) = self.peers.get(&client) else {
+            return false;
+        };
+        if peer
+            .protocol
+            .version()
+            .is_none_or(|version| version < oxyos_protocol::SYSTEM_DATA_VERSION)
+        {
+            return false;
+        }
+        let Ok(size) = u32::try_from(text.len()) else {
+            return false;
+        };
+        let Some(file) = sealed(text.as_bytes()) else {
+            return false;
+        };
+        if !self.scene.system_data(client, serial, size) {
+            return false;
+        }
+        if let Some(peer) = self.peers.get_mut(&client) {
+            peer.pipes.push_back(file);
+        }
+        true
     }
 
     /// A paste's pipe, to the clipboard's owner that answers it: a peer's goes with its
@@ -3880,6 +3919,7 @@ impl Compositor {
             // The protocol's spread is in 1/65536 and its turn in 1/256 degrees.
             oxyos_input::Action::Pinch {
                 phase,
+                fingers,
                 scale,
                 rotation,
             } => self.scene.pointer_pinch(
@@ -3889,6 +3929,7 @@ impl Compositor {
                     oxyos_input::GesturePhase::End => GesturePhase::End,
                     oxyos_input::GesturePhase::Cancel => GesturePhase::Cancel,
                 },
+                u8::try_from(fingers).unwrap_or(u8::MAX),
                 (scale.max(0.0) * 65536.0).round() as u32,
                 (rotation * 256.0).round() as i32,
             ),
@@ -5312,6 +5353,9 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
         Event::MenuItemActivated { surface, .. } => (surface, "menu.activated"),
         // Asked to close a window: the shell's, the close bubble's or Super+W's (ADR 0024).
         Event::CloseRequested { surface } => (surface, "close.requested"),
+        // Asked to quit as the person logs out, restarts or shuts down (docs/adr/0064-sleep-
+        // restart-shut-down-and-log-out.mdx): of no surface.
+        Event::QuitRequested { .. } => (0, "quit.requested"),
         // The person pressed one of its notifications, or an action of one (ADR 0026): of no
         // surface.
         Event::NotificationResponse { .. } => (0, "notification.response"),
@@ -5329,6 +5373,27 @@ pub fn input_kind(event: &Event) -> Option<(u32, &'static str)> {
 }
 
 /// Removes the private socket directory on every exit, including errors and deadlines.
+/// A memory file holding `bytes`, sealed so that neither side can change or resize it: what a
+/// SystemData carries.
+fn sealed(bytes: &[u8]) -> Option<OwnedFd> {
+    use rustix::fs::{fcntl_add_seals, memfd_create, MemfdFlags, SealFlags};
+    use std::io::Write;
+    let file = memfd_create(
+        "oxyos-system-data",
+        MemfdFlags::CLOEXEC | MemfdFlags::ALLOW_SEALING,
+    )
+    .ok()?;
+    let mut written = std::fs::File::from(file);
+    written.write_all(bytes).ok()?;
+    let file = OwnedFd::from(written);
+    fcntl_add_seals(
+        &file,
+        SealFlags::SHRINK | SealFlags::GROW | SealFlags::WRITE | SealFlags::SEAL,
+    )
+    .ok()?;
+    Some(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

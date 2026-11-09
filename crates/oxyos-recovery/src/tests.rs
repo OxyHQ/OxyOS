@@ -940,7 +940,11 @@ fn an_install_refuses_a_machine_that_did_not_start_through_uefi() {
 #[test]
 fn an_erase_condemns_the_system_destroys_the_root_and_makes_it_again_from_the_recovery() {
     let machine = Machine::new();
-    let esp = esp_with(&[&format!("oxyos-{VERSION}+3.conf"), "oxyos-recovery.conf"]);
+    let esp = esp_with(&[
+        &format!("oxyos-{VERSION}+3.conf"),
+        &format!("oxyos-safe-mode-{VERSION}.conf"),
+        "oxyos-recovery.conf",
+    ]);
     fs::create_dir_all(esp.path().join(format!("oxyos/{VERSION}"))).unwrap();
     let layout = x86_layout(true);
     let mut request = EraseRequest::arm(&layout, 1).unwrap();
@@ -1004,6 +1008,8 @@ fn an_erase_condemns_the_system_destroys_the_root_and_makes_it_again_from_the_re
         !esp.path().join(format!("oxyos/{VERSION}")).exists(),
         "the old kernels are gone"
     );
+    // Their Safe Mode entries with them: the image's kernels bring their own.
+    assert!(Entries::new(esp.path()).safe_mode().unwrap().is_empty());
     assert!(matches!(request::read(esp.path()).unwrap(), Found::None));
     // A new install key; the recovery's entry is untouched.
     assert!(machine
@@ -1014,6 +1020,91 @@ fn an_erase_condemns_the_system_destroys_the_root_and_makes_it_again_from_the_re
         .target()
         .join(format!("efi/loader/entries/{}", layout::RECOVERY_ENTRY))
         .exists());
+}
+
+#[test]
+fn a_restore_from_a_backup_fills_the_new_root_before_its_request_is_removed() {
+    let machine = Machine::new();
+    let esp = esp_with(&[&format!("oxyos-{VERSION}+3.conf"), "oxyos-recovery.conf"]);
+    let layout = x86_layout(true);
+    let mut request = EraseRequest::arm(&layout, 1).unwrap();
+    request.restore = Some(request::Restore {
+        source: serde_json::json!({"disk": {"uuid": "1234-ABCD"}}),
+        repository: "0123456789abcdef".into(),
+        snapshot: "0123abcd".into(),
+        computer: "ada-laptop".into(),
+        time: 1_794_000_000,
+    });
+    request::write(esp.path(), &request).unwrap();
+    // Named, never a password, on the EFI system partition.
+    let written = fs::read_to_string(esp.path().join(request::PATH)).unwrap();
+    assert!(written.contains("\"restore\"") && !written.contains("password"));
+    let Found::Request(read) = request::read(esp.path()).unwrap() else {
+        panic!("not read back")
+    };
+    assert_eq!(read, request);
+
+    // A restore that fails leaves the erase to be done again, its backup named.
+    let esp_path = esp.path().to_path_buf();
+    let mut host = machine.host(true);
+    let mut failing = |root: &Path| -> Result<(), crate::host::Failed> {
+        assert!(
+            root.join("etc/kernel/cmdline").is_file(),
+            "the new root is set up"
+        );
+        Err(crate::host::failed("the backup", "not connected"))
+    };
+    assert!(install::erase_and_fill(
+        &mut host,
+        &machine.paths,
+        &machine.image,
+        esp.path(),
+        &layout,
+        &mut request,
+        Some(&mut failing),
+        &mut |_| {}
+    )
+    .is_err());
+    let Found::Request(left) = request::read(&esp_path).unwrap() else {
+        panic!("the request is gone")
+    };
+    assert_eq!(left.state, State::Erasing);
+    assert!(left.restore.is_some());
+    assert!(!Entries::new(&esp_path).system_may_start().unwrap());
+
+    // Again, and it fills the root, mounted, after its initramfs and before the request goes.
+    let machine = Machine::new();
+    let mut host = machine.host(true);
+    let mut filled = None;
+    let mut fill = |root: &Path| -> Result<(), crate::host::Failed> {
+        assert!(matches!(
+            request::read(&esp_path).unwrap(),
+            Found::Request(_)
+        ));
+        fs::create_dir_all(root.join("home/oxy-a")).unwrap();
+        filled = Some(root.to_path_buf());
+        Ok(())
+    };
+    let mut request = left;
+    install::erase_and_fill(
+        &mut host,
+        &machine.paths,
+        &machine.image,
+        esp.path(),
+        &layout,
+        &mut request,
+        Some(&mut fill),
+        &mut |_| {},
+    )
+    .unwrap();
+    assert_eq!(filled.as_deref(), Some(machine.target().as_path()));
+    assert!(machine.target().join("home/oxy-a").is_dir());
+    assert!(matches!(request::read(esp.path()).unwrap(), Found::None));
+    let initramfs = host.position(&format!(
+        "chroot {} update-initramfs -u -k all",
+        machine.target().display()
+    ));
+    assert!(initramfs < host.position("sync"));
 }
 
 #[test]
@@ -1206,6 +1297,7 @@ fn a_converted_machine_is_never_erased_whatever_asks() {
         root: "129a8dff-ec84-4f37-af8a-2a048f2563a4".into(),
         encrypted: false,
         requested_at: 1,
+        restore: None,
     };
     let mut host = Recorder::new();
     let error = install::erase(
@@ -1285,5 +1377,164 @@ fn a_converted_machines_recovery_entry_names_its_root_and_is_written_from_its_ch
     assert_eq!(
         refusing.commands.last().unwrap(),
         &format!("umount {run}/recovery")
+    );
+}
+
+// ---- Safe Mode (decision 10) ---------------------------------------------------------------------
+
+/// A kernel's entry as kernel-install's 90-loaderentry.install writes it.
+const KERNEL_ENTRY: &str = "# Boot Loader Specification type#1 entry\n# File created by /usr/lib/kernel/install.d/90-loaderentry.install (systemd 257.9-1~deb13u1)\ntitle      OxyOS\nversion    6.12.48+deb13-amd64\nsort-key   debian\noptions    root=/dev/mapper/oxyos-root rw quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\nlinux      /oxyos/6.12.48+deb13-amd64/linux\ninitrd     /oxyos/6.12.48+deb13-amd64/initrd.img-6.12.48+deb13-amd64\n";
+
+#[test]
+fn a_kernels_safe_mode_entry_is_its_own_with_safe_mode_on_its_command_line() {
+    let entry = layout::safe_mode_entry(KERNEL_ENTRY).unwrap();
+    assert_eq!(
+        entry,
+        "title      OxyOS Safe Mode\nsort-key   oxyos-safe-mode\n# Boot Loader Specification type#1 entry\n# File created by /usr/lib/kernel/install.d/90-loaderentry.install (systemd 257.9-1~deb13u1)\nversion    6.12.48+deb13-amd64\noptions    root=/dev/mapper/oxyos-root rw quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles oxyos.safe-mode=1\nlinux      /oxyos/6.12.48+deb13-amd64/linux\ninitrd     /oxyos/6.12.48+deb13-amd64/initrd.img-6.12.48+deb13-amd64\n"
+    );
+    // It sorts after the recovery: the recovery stays the first entry that may start once every
+    // kernel has failed.
+    assert!(layout::SAFE_MODE_SORT_KEY > "oxyos-recovery");
+    // An entry with no kernel, or no command line, is no kernel's.
+    assert_eq!(
+        layout::safe_mode_entry("title OxyOS\noptions quiet\n"),
+        None
+    );
+    assert_eq!(
+        layout::safe_mode_entry("title OxyOS\nlinux /oxyos/6/linux\n"),
+        None
+    );
+    // Its name: never a kernel's, never counted.
+    let name = Entry::parse(&layout::safe_mode_entry_name("6.12.48+deb13-amd64")).unwrap();
+    assert_eq!(name.file_name, "oxyos-safe-mode-6.12.48+deb13-amd64.conf");
+    assert!(name.is_safe_mode() && !name.is_system() && name.tries.is_none());
+    assert!(!Entry::parse("oxyos-6.12.48+3.conf").unwrap().is_safe_mode());
+    assert!(!Entry::parse(layout::RECOVERY_ENTRY).unwrap().is_safe_mode());
+}
+
+#[test]
+fn safe_mode_is_written_beside_each_kernel_never_counted_and_goes_with_it() {
+    let esp = esp_with(&["oxyos-recovery.conf"]);
+    let entries = Entries::new(esp.path());
+    fs::write(
+        esp.path()
+            .join("loader/entries/oxyos-6.12.48+deb13-amd64+3.conf"),
+        KERNEL_ENTRY,
+    )
+    .unwrap();
+    // Without the kernel's entry, nothing is written.
+    assert!(entries
+        .write_safe_mode("oxyos", "6.12.50+deb13-amd64")
+        .is_err());
+    assert_eq!(
+        entries
+            .write_safe_mode("oxyos", "6.12.48+deb13-amd64")
+            .unwrap(),
+        "oxyos-safe-mode-6.12.48+deb13-amd64.conf"
+    );
+    assert_eq!(
+        names(&esp),
+        [
+            "oxyos-6.12.48+deb13-amd64+3.conf",
+            "oxyos-recovery.conf",
+            "oxyos-safe-mode-6.12.48+deb13-amd64.conf"
+        ]
+    );
+    let written = fs::read_to_string(
+        esp.path()
+            .join("loader/entries/oxyos-safe-mode-6.12.48+deb13-amd64.conf"),
+    )
+    .unwrap();
+    assert!(
+        written.contains(" oxyos.safe-mode=1\n")
+            && written.starts_with("title      OxyOS Safe Mode\n")
+    );
+    // Counting leaves it as it is: booting it gives nothing back, an erase pending condemns only the
+    // kernel's, and the recovery's Restart gives tries to the kernel's alone.
+    assert_eq!(
+        entries
+            .rearm("oxyos-safe-mode-6.12.48+deb13-amd64.conf", 3)
+            .unwrap(),
+        None
+    );
+    entries.condemn_all().unwrap();
+    entries.rearm_all(3).unwrap();
+    assert_eq!(
+        names(&esp),
+        [
+            "oxyos-6.12.48+deb13-amd64+3.conf",
+            "oxyos-recovery.conf",
+            "oxyos-safe-mode-6.12.48+deb13-amd64.conf"
+        ]
+    );
+    // Removed with its kernel; removing it again is nothing.
+    assert!(entries.remove_safe_mode_of("6.12.48+deb13-amd64").unwrap());
+    assert!(!entries.remove_safe_mode_of("6.12.48+deb13-amd64").unwrap());
+    assert_eq!(
+        names(&esp),
+        ["oxyos-6.12.48+deb13-amd64+3.conf", "oxyos-recovery.conf"]
+    );
+}
+
+#[test]
+fn safe_mode_entries_follow_the_kernels_entries_and_a_second_sync_changes_nothing() {
+    // A machine converted before Safe Mode (ADR 0054, decisions 9 and 10): two kernels' entries,
+    // one counted and one not, the recovery's, and a Safe Mode entry left by a kernel since removed.
+    let esp = esp_with(&["oxyos-recovery.conf"]);
+    let entries = Entries::new(esp.path());
+    let dir = esp.path().join("loader/entries");
+    fs::write(dir.join("oxyos-6.12.101+deb13-amd64+3.conf"), KERNEL_ENTRY).unwrap();
+    fs::write(dir.join("oxyos-6.12.74+deb13+1-amd64.conf"), KERNEL_ENTRY).unwrap();
+    fs::write(
+        dir.join("oxyos-safe-mode-6.12.48+deb13-amd64.conf"),
+        "title old\n",
+    )
+    .unwrap();
+    let (written, removed) = entries.sync_safe_mode("oxyos").unwrap();
+    assert_eq!(
+        written,
+        [
+            "oxyos-safe-mode-6.12.101+deb13-amd64.conf",
+            "oxyos-safe-mode-6.12.74+deb13+1-amd64.conf"
+        ]
+    );
+    assert_eq!(removed, ["oxyos-safe-mode-6.12.48+deb13-amd64.conf"]);
+    assert_eq!(
+        names(&esp),
+        [
+            "oxyos-6.12.101+deb13-amd64+3.conf",
+            "oxyos-6.12.74+deb13+1-amd64.conf",
+            "oxyos-recovery.conf",
+            "oxyos-safe-mode-6.12.101+deb13-amd64.conf",
+            "oxyos-safe-mode-6.12.74+deb13+1-amd64.conf"
+        ]
+    );
+    // Each never counted, its version's own (a `+1-amd64` in a version is no counter).
+    for entry in entries.safe_mode().unwrap() {
+        assert!(entry.tries.is_none() && !entry.is_system(), "{entry:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(dir.join("oxyos-safe-mode-6.12.101+deb13-amd64.conf")).unwrap(),
+        layout::safe_mode_entry(KERNEL_ENTRY).unwrap()
+    );
+    // Again: nothing to do.
+    assert_eq!(
+        entries.sync_safe_mode("oxyos").unwrap(),
+        (Vec::<String>::new(), Vec::<String>::new())
+    );
+    // An entry that differs from its kernel's is written again; another token's kernels are not
+    // OxyOS's.
+    fs::write(
+        dir.join("oxyos-safe-mode-6.12.74+deb13+1-amd64.conf"),
+        "title edited\n",
+    )
+    .unwrap();
+    fs::write(dir.join("debian-6.12.99-amd64.conf"), KERNEL_ENTRY).unwrap();
+    assert_eq!(
+        entries.sync_safe_mode("oxyos").unwrap(),
+        (
+            vec!["oxyos-safe-mode-6.12.74+deb13+1-amd64.conf".to_string()],
+            Vec::new()
+        )
     );
 }

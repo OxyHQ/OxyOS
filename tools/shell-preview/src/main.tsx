@@ -9,6 +9,7 @@ import { previewBluetooth, previewNetworks, previewSearch, previewSnapshot, prev
 import type {
   ShellActions,
   ShellControls,
+  ShellPowerActions,
 } from "../../../apps/shell/src/model";
 import { isProtected, type NetworkState } from "../../../apps/shell/src/network";
 import type { SoundState } from "../../../apps/shell/src/sound";
@@ -16,6 +17,8 @@ import { bluetoothSummary, type BluetoothState } from "../../../apps/shell/src/b
 import type { SheetText } from "../../../apps/shell/src/sheet";
 import { shellMessages } from "../../../apps/shell/src/messages";
 import { inPlace, type ShellPlatform } from "../../../apps/shell/src/platform";
+import { ActivityMonitor } from "../../../apps/activity-monitor/src/ActivityMonitor";
+import { previewActivity } from "./activity-fixture";
 
 /**
  * The preview's locale (docs/adr/0040-language-and-region.mdx): the browser's, or the one `?lang=`
@@ -170,6 +173,15 @@ function Preview() {
     changeDevice(id, { busy: "disconnecting" });
     window.setTimeout(() => changeDevice(id, { busy: null, connected: false }), 600);
   };
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx),
+  // played: the session's question is shown as a session would show it, and nothing ever ends,
+  // sleeps or asks an application anything here.
+  const powerActions: ShellPowerActions = {
+    sleep: () => {},
+    endSession: (action, confirm) => {
+      if (confirm) ask({ kind: "end-session", action, seconds: 60, reopenWindows: true });
+    },
+  };
   const shownSheet = sheet && {
     id: sheet.id,
     text: sheet.text,
@@ -293,10 +305,26 @@ function Preview() {
             controls={controls}
             sheet={shownSheet ?? undefined}
             platform={platform}
+            powerActions={powerActions}
           />
         </BloomProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
-createRoot(document.getElementById("root")!).render(<Preview />);
+/** Activity Monitor alone (`?app=activity-monitor`), over a played machine (activity-fixture.ts). */
+function ActivityPreview() {
+  const source = React.useMemo(previewActivity, []);
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <BloomProvider mode={appearance} colorPreset="graphite" haptics={false} locale={locale}>
+          <ActivityMonitor source={source} locale={locale} />
+        </BloomProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+const app = new URLSearchParams(window.location.search).get("app");
+createRoot(document.getElementById("root")!).render(app === "activity-monitor" ? <ActivityPreview /> : <Preview />);

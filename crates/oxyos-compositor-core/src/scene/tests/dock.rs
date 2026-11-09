@@ -279,23 +279,24 @@ fn a_url_is_handed_to_the_program_with_whether_it_cited_an_input() {
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].url, "dropsea://trash");
     assert!(!asked[0].with_input);
-    assert_eq!(
-        h.request(
-            APP,
-            Request::OpenUrl {
-                serial: 2,
-                input: 0,
-                index: 0,
-                last: true,
-                text: PreeditText::new("dropsea://trash").unwrap(),
-            }
-        ),
-        Err(ErrorCode::Unauthorized)
-    );
+    // An application's too (protocol version 34): the program opens it, for the person's input.
+    h.request(
+        APP,
+        Request::OpenUrl {
+            serial: 3,
+            input: 0,
+            index: 0,
+            last: true,
+            text: PreeditText::new("dropsea://trash").unwrap(),
+        },
+    )
+    .unwrap();
+    let asked = h.scene.take_url_requests();
+    assert_eq!((asked.len(), asked[0].serial), (1, 3));
 }
 
 #[test]
-fn an_application_opens_the_platforms_settings_and_no_other_url() {
+fn an_application_opens_a_url_by_its_scheme_and_never_a_file() {
     let mut h = Harness::new();
     let chunk = |text: &str| PreeditText::new(text).unwrap();
     let open = |serial, input, index, last, text| Request::OpenUrl {
@@ -315,12 +316,19 @@ fn an_application_opens_the_platforms_settings_and_no_other_url() {
     assert_eq!(asked[0].url, "OxyOS-Settings://oxy-account");
     assert_eq!(asked[0].serial, 3);
     assert!(!asked[0].with_input);
-    // Any other scheme, or one that only begins as Settings' does, is the shell's alone.
+    // Any scheme an application's entry may declare (the program says whether one does).
+    for url in ["dropsea://trash", "https://oxy.so", "x-oxy+mail.v2:to=ada"] {
+        h.request(APP, open(4, 7, 0, true, chunk(url))).unwrap();
+        assert_eq!(h.scene.take_url_requests()[0].url, url);
+    }
+    // Never a file (opened by its type), nor text that names no scheme.
     for url in [
-        "dropsea://trash",
-        "oxyos-settingsx://about",
+        "file:///home/ada/notas.md",
+        "FILE:/etc/passwd",
         "oxyos-settings",
-        "https://oxy.so",
+        "/home/ada",
+        "2fa://code",
+        "://x",
     ] {
         assert_eq!(
             h.request(APP, open(4, 0, 0, true, chunk(url))),
@@ -328,7 +336,7 @@ fn an_application_opens_the_platforms_settings_and_no_other_url() {
             "{url}"
         );
     }
-    // A chunk that does not follow a first one naming Settings is out of order.
+    // A chunk that does not follow a first one naming a scheme is out of order.
     assert_eq!(
         h.request(APP, open(5, 0, 1, true, chunk("x://y"))),
         Err(ErrorCode::InvalidOrder)
@@ -345,12 +353,9 @@ fn an_application_opens_the_platforms_settings_and_no_other_url() {
     let asked = h.scene.take_url_requests();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].url, "oxyos-settings://about");
-    assert!(crate::scene::dock::opens_platform_settings(
-        "oxyos-settings:"
-    ));
-    assert!(!crate::scene::dock::opens_platform_settings(
-        "oxyos-settings"
-    ));
+    assert!(crate::scene::dock::opens_by_scheme("oxyos-settings:"));
+    assert!(!crate::scene::dock::opens_by_scheme("oxyos-settings"));
+    assert!(!crate::scene::dock::opens_by_scheme("File:x"));
 }
 
 #[test]
@@ -513,4 +518,63 @@ fn the_shell_is_told_each_output_a_zoomed_or_full_screen_window_covers() {
         )
         .unwrap();
     assert_eq!(covers_told(&mut h), [(1, true), (2, false)]);
+}
+
+#[test]
+fn a_client_is_shown_while_a_window_of_its_can_be_seen() {
+    // Activity Monitor samples only while it is (docs/adr/0063-activity-monitor.mdx).
+    let mut h = Harness::new();
+    assert!(!h.scene.client_shown(APP));
+    let window = h.toplevel(APP, 1, 400, 300);
+    assert!(h.scene.client_shown(APP));
+    assert!(!h.scene.client_shown(OTHER));
+    // Minimized: not shown, until it comes back.
+    h.scene.minimize(window);
+    h.pump();
+    assert!(!h.scene.client_shown(APP));
+    h.scene.restore(window);
+    h.frame();
+    assert!(h.scene.client_shown(APP));
+    // On another desktop: not shown.
+    let second = h.scene.add_workspace().unwrap();
+    assert!(h.scene.activate_workspace(second));
+    h.frame();
+    assert!(!h.scene.client_shown(APP));
+    assert!(h.scene.activate_workspace(0));
+    h.frame();
+    assert!(h.scene.client_shown(APP));
+    // Locked: nothing of the session is.
+    h.scene.lock();
+    h.pump();
+    assert!(!h.scene.client_shown(APP));
+}
+
+#[test]
+fn activity_monitor_quits_an_application_by_its_id_as_the_dock_does() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.toplevel(OTHER, 1, 400, 300);
+    // Not launched: nothing to quit by that id.
+    assert!(!h.scene.quit_application_by_id("so.oxy.inbox"));
+    assert_eq!(
+        h.scene.force_quit_application_by_id("so.oxy.inbox"),
+        Ok(false)
+    );
+    h.scene.set_application(APP, "so.oxy.inbox");
+    h.scene.set_application(OTHER, "so.oxy.allo");
+    h.pump();
+    // Quit: its window asked to close, and no other.
+    assert!(h.scene.quit_application_by_id("so.oxy.inbox"));
+    let events = h.pump();
+    assert!(events.iter().any(|(client, event)| *client == APP
+        && matches!(event, Event::CloseRequested { surface } if *surface == window.id)));
+    assert!(!events
+        .iter()
+        .any(|(client, event)| *client == OTHER && matches!(event, Event::CloseRequested { .. })));
+    // Force Quit: its clients the session started, for the program to end.
+    assert_eq!(
+        h.scene.force_quit_application_by_id("so.oxy.inbox"),
+        Ok(true)
+    );
+    assert_eq!(h.scene.take_force_quits(), [vec![APP]]);
 }

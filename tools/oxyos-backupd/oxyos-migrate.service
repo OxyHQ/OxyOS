@@ -1,0 +1,73 @@
+# oxyos-migrate: Migrate from a Backup, the login screen's (docs/adr/0059-backups.mdx, decision 7).
+# Started by oxyos-migrate.socket when the login screen connects, it restores another computer's
+# backup into this one while no account is enrolled: the accounts' users and groups made again in
+# /etc, their homes and pictures, the Wi-Fi networks, and their accounts written for the login
+# screen to list as signInAgain. It ends once nobody has connected for a minute, so the privileges
+# below exist only while a migration is asked for; the always-running backup service keeps its own
+# read-only sandbox (oxyos-backupd.service).
+#
+# Not installed by the image yet (ADR 0059, step 5 brings it with the session); a deploy to a test
+# machine installs and enables it (tools/deploy/system-files, docs/developing.mdx).
+
+[Unit]
+Description=OxyOS migration from a backup
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0059-backups.mdx
+Requires=oxyos-migrate.socket
+After=oxyos-migrate.socket local-fs.target systemd-udevd.service
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/oxyos-backupd --migrate
+# The listening socket systemd made, as standard input.
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+UMask=0077
+
+# restic's cache, and where a backup disk is mounted (in the service's own namespace).
+CacheDirectory=oxyos/backup
+CacheDirectoryMode=0700
+RuntimeDirectory=oxyos/migrate-volumes
+RuntimeDirectoryMode=0700
+PrivateMounts=yes
+
+# Read-only but for what a restore writes:
+# - /etc: groupadd, useradd and usermod replace passwd, shadow, group and gshadow by renaming over
+#   them (the directory, as the account service's unit says), and the Wi-Fi networks in
+#   /etc/NetworkManager/system-connections;
+# - /home: the accounts' homes, restored;
+# - /var/lib/oxyos: the account service's directory (the accounts, as signInAgain; made as that
+#   service makes it, root's, 0700, should it not have started yet) and the accounts' pictures,
+#   which the restore makes if the computer has none yet.
+StateDirectory=oxyos/accounts
+StateDirectoryMode=0700
+ProtectSystem=strict
+ReadWritePaths=/etc /home /var/lib/oxyos -/var/log/lastlog -/var/log/faillog
+ProtectHome=no
+
+# Root, with what a restore needs: mounting a backup disk (CAP_SYS_ADMIN, which restoring
+# extended attributes needs too), and the files' owners, modes and times as they were (CAP_CHOWN,
+# CAP_FOWNER, CAP_FSETID, CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH).
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN CAP_FOWNER CAP_FSETID CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+
+# A share is reached over the network (rclone's SMB client); NetworkManager is asked over D-Bus to
+# read its connections again.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+PrivateTmp=yes
+PrivateIPC=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+LockPersonality=yes
+KeyringMode=private
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @mount
+SystemCallErrorNumber=EPERM

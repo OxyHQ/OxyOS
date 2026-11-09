@@ -3,6 +3,7 @@
 
 #include "account-session.h"
 #include "application.h"
+#include "migration.h"
 #include "network.h"
 #include "renderer.h"
 
@@ -75,7 +76,8 @@ class HostModule : public TurboModule {
       std::string qualified = name_ + "." + method;
       this->method(method, [qualified](jsi::Runtime&, const jsi::Value*, size_t) {
         static std::set<std::string> reported;
-        if (reported.insert(qualified).second) std::cerr << "[host] unsupported on OxyOS: " << qualified << "\n";
+        // One write, so the line arrives whole among the session's other processes' lines.
+        if (reported.insert(qualified).second) std::cerr << ("[host] unsupported on OxyOS: " + qualified + "\n");
         return jsi::Value::undefined();
       });
     }
@@ -103,6 +105,8 @@ class HostModule : public TurboModule {
 // app received (ADR 0007): set by the host once its window exists; unset without one.
 struct ClipboardService {
   std::function<bool(const std::string& text)> copy;
+  // A copy marked sensitive, cleared after 90 seconds (clipboard.h).
+  std::function<bool(const std::string& text)> copySensitive;
   std::function<void(std::function<void(std::string)> done)> paste;
   std::function<bool()> hasText;
 };
@@ -267,6 +271,27 @@ struct SystemService {
   std::function<bool(const std::string& capability)> allows;
 };
 
+// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx), for
+// an application's window of a compositor of protocol version 33: how one of its background items
+// stands, or registering or unregistering it (`kind` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND,
+// `action` OXYOS_BACKGROUND_ITEM_STATUS, _REGISTER, _UNREGISTER): its serial, 0 if it was not sent,
+// answered by `OxyOSBackgroundItemState` naming it (serial 0: the person changed it, unasked).
+struct BackgroundItemsService {
+  std::function<uint32_t(uint8_t kind, uint8_t action)> ask;
+};
+
+// The session asking the application to quit before it logs out, restarts or shuts down
+// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5, protocol version 38), as a
+// Mac's `applicationShouldTerminate:`: whether the compositor asks at all (known once connected),
+// whether JavaScript handles the question (`handles`: while it does, `OxyOSQuitRequested` tells it;
+// otherwise the host answers quit at once), and its answer to the request `serial` (whether it was
+// sent). Answering quit ends the host. Unset without an application's window.
+struct QuitService {
+  bool available = false;
+  std::function<void(bool handles)> handles;
+  std::function<bool(uint32_t serial, bool quit)> reply;
+};
+
 // Search (docs/adr/0051-search.mdx): whether the compositor has the search index (protocol version
 // 30, known before JavaScript starts), and a request of the index's vocabulary (its serial, 0 if it
 // was not sent), answered by `OxyOSSearchText` events naming the serial. Any window has it, the
@@ -322,6 +347,11 @@ struct HostServices {
   NotificationsService notifications{};
   SystemService system{};
   SearchService search{};
+  BackgroundItemsService backgroundItems{};
+  QuitService quit{};
+  // React Native's AppState: `active` while it has its window, `background` once it runs on
+  // without it (docs/adr/0060-login-items-and-background-activity.mdx).
+  std::string appState = "active";
   FileChooserService fileChooser{};
   MenuBarService menuBar{};
   KeyboardService keyboard{};
@@ -350,19 +380,25 @@ struct HostServices {
   // The machine's Oxy session (account-session.h, docs/adr/0020-oxy-account-login.mdx), made when
   // `OxyOSAccountSession` is first asked: its answers and the snapshot followed wake the loop.
   std::unique_ptr<AccountSession> accountSession;
+  // Migrate from a Backup (migration.h, docs/adr/0059-backups.mdx), the login screen's, made when
+  // `OxyOSMigration` is first asked: its answers and a migration's progress wake the loop.
+  std::unique_ptr<Migration> migration;
   // Takes focus from the focused text input, if any (react-native-keyboard-controller's dismiss);
   // unset without a window.
   std::function<void()> blurFocusedInput;
-  // An application opens the platform's Settings at a page (`oxyos-settings://PAGE`,
-  // docs/adr/0019-settings.mdx), as a Mac's application opens `x-apple.systempreferences:`: the
-  // session is asked from its window, citing its latest press or key, and `done(opened, reason)`
-  // is called on the host's loop once it answers (`reason` empty when opened; said when the
-  // session refused, when there was no input to cite, or when its compositor is older than
-  // OXYOS_APPLICATION_OPENS_SETTINGS_VERSION and would close the connection). The caller checks
-  // the URL is Settings'; any other scheme closes the connection. Unset for the shell and the
-  // login screen.
+  // An application opens a URL (docs/adr/0058-the-platform-api.mdx, step 6): the platform's
+  // Settings at a page (`oxyos-settings://PAGE`, docs/adr/0019-settings.mdx), as a Mac's
+  // application opens `x-apple.systempreferences:`, or another application's (`dropsea://trash`),
+  // which the session opens with the application whose entry declares the scheme, as a Mac's
+  // `NSWorkspace.open`. The session is asked from its window, citing its latest press or key, and
+  // `done(opened, reason)` is called on the host's loop once it answers (`reason` empty when
+  // opened; said when the session opened nothing, when there was no input to cite, or when its
+  // compositor is older than the URL needs, OXYOS_APPLICATION_OPENS_SETTINGS_VERSION for Settings'
+  // and OXYOS_APPLICATION_OPENS_URLS_VERSION for any other, and would close the connection). The
+  // caller checks the URL names a scheme other than `file`, which would close it too. Unset for
+  // the shell and the login screen.
   std::function<void(const std::string& url, std::function<void(bool opened, const std::string& reason)> done)>
-      openSettingsUrl;
+      openUrl;
   // An application locks the session (docs/adr/0010-lock-screen.mdx), as the person locks it from
   // the Oxy menu: only while one of its windows is the active one; false when it could not be
   // asked (no window, a compositor older than OXYOS_APPLICATION_LOCKS_VERSION, or its window not

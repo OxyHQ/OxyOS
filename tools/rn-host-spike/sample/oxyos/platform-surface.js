@@ -19,7 +19,8 @@
  * further. Its `editing` is the window's first responder for the Edit menu's standard actions,
  * the focused text input (`OxyOSEditing`). Its `files` are the person's places and the Trash (docs/adr/0028-file-access.mdx), what a
  * file manager needs beyond expo-file-system, and `files.tags` the tags on the person's items
- * (docs/adr/0049-file-tags.mdx). Its `search` is the session's search index
+ * (docs/adr/0049-file-tags.mdx), and `files.backups` their backups' versions and restoring
+ * (docs/adr/0059-backups.mdx). Its `search` is the session's search index
  * (docs/adr/0051-search.mdx), Bloom's `PlatformSearch`, in every window, the shell's included.
  *
  * In the file manager the session started as a file chooser (docs/adr/0029-chromium-on-oxyos.mdx,
@@ -30,8 +31,19 @@
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
-import { filesAvailable, onWatch, requestFiles, unwatchFiles } from './files';
+import {
+  backupsAvailable,
+  cancelTransfer,
+  FilesError,
+  filesAvailable,
+  offTransfer,
+  onTransfer,
+  onWatch,
+  requestFiles,
+  unwatchFiles,
+} from './files';
 import { createSearch, searchAvailable } from './search';
+import { homeName } from './home-name';
 import { chooser as platformChooser, drag as platformDrag, sounds as platformSounds } from '@oxyos/platform';
 
 // The file manager the session started as a file chooser: what it was asked to show (the platform's
@@ -244,10 +256,21 @@ function createKeyboard() {
   const listeners = new Set();
   // The host calls this with each key press before the focused view, and waits for the answer.
   nativeKeyboard.setListener((event) => [...listeners].some((listener) => listener(event) === true));
+  // The modifiers held, as the compositor tells them when they change (protocol version 38, a Mac's
+  // flagsChanged:, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): `{altKey, ctrlKey,
+  // metaKey, shiftKey}`, Option going down or up told at once, with no key or move after it.
+  const flagListeners = new Set();
+  DeviceEventEmitter.addListener('OxyOSModifiersChanged', (flags) => {
+    for (const listener of [...flagListeners]) listener(flags);
+  });
   return {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    subscribeModifiers(listener) {
+      flagListeners.add(listener);
+      return () => flagListeners.delete(listener);
     },
   };
 }
@@ -354,7 +377,7 @@ function createFiles() {
     async places() {
       const { home, favourites, volumes } = (await requestFiles('places')).value;
       return [
-        { kind: 'home', name: named(home), uri: home },
+        { kind: 'home', name: homeName(home), uri: home },
         ...favourites.map(({ key, uri }) => ({ kind: key, name: named(uri), uri })),
         ...volumes.map(({ name, uri }) => ({ kind: 'volume', name, uri })),
       ];
@@ -393,6 +416,10 @@ function createFiles() {
       },
       watch: watching('watchTags'),
     }),
+    // Bloom's `PlatformFileBackups` (docs/adr/0059-backups.mdx): the person's backups, asked of
+    // the backup service from this process as the person; only for an application granted
+    // `files`.
+    backups: backupsAvailable ? createBackups(watching) : undefined,
     // Bloom's `PlatformFileChooser`: present only in a file chooser the session started. The
     // session ends this process once it has the answer.
     chooser: chooserRequest
@@ -407,6 +434,62 @@ function createFiles() {
         })
       : undefined,
   };
+}
+
+// The codes Bloom's `PlatformBackupError` names; another of the service's is `io`.
+const BACKUP_ERRORS = new Set([...PLATFORM_ERRORS, 'io', 'unavailable', 'not-permitted', 'cancelled']);
+
+/** The service's error as Bloom's: an Error with a `PlatformBackupError` code. */
+function backupError(error) {
+  if (!(error instanceof FilesError)) return error;
+  return new FilesError(BACKUP_ERRORS.has(error.code) ? error.code : 'io', error.message);
+}
+
+const cancelled = () => new FilesError('cancelled', 'the restore was cancelled');
+
+/** A backup as the service takes it back. */
+const backupOf = ({ destination, id }) => ({ destination, id });
+
+function createBackups(watching) {
+  const asked = async (op, args) => {
+    try {
+      return (await requestFiles(op, args)).value;
+    } catch (error) {
+      throw backupError(error);
+    }
+  };
+  return Object.freeze({
+    state: () => asked('backups'),
+    watch: watching('watchBackups'),
+    versions: (uri) => asked('versions', { uri }),
+    contents: (backup, folderUri) => asked('versionContents', { backup: backupOf(backup), uri: folderUri }),
+    // Written by this process as the person, beside what is there unless `replace`; its progress
+    // as a transfer's, and cancelled as one when `signal` aborts.
+    async restore(backup, uri, { to, replace = false, onProgress, signal } = {}) {
+      if (signal?.aborted) throw cancelled();
+      let running = null;
+      let aborted = false;
+      const abort = () => {
+        aborted = true;
+        if (running != null) cancelTransfer(running);
+      };
+      signal?.addEventListener('abort', abort);
+      try {
+        const args = { backup: backupOf(backup), uri, to: to ?? null, replace };
+        const started = (id) => {
+          running = id;
+          if (onProgress) onTransfer(id, onProgress);
+        };
+        const { value } = await requestFiles('restoreVersion', args, undefined, undefined, started);
+        return value;
+      } catch (error) {
+        throw aborted ? cancelled() : backupError(error);
+      } finally {
+        signal?.removeEventListener('abort', abort);
+        if (running != null) offTransfer(running);
+      }
+    },
+  });
 }
 
 const files = filesAvailable ? createFiles() : undefined;

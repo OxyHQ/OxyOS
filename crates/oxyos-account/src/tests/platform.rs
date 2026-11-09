@@ -69,11 +69,14 @@ pub(crate) fn machine_as(api: FakeApi, password: &str, uid: Option<u32>) -> Mach
         account: ACCOUNT.into(),
         password: Some(Secret::new(password)),
         pin: None,
+        appearance: None,
     };
     match setup.enroll(request).unwrap() {
         Progress::Enrolled(_) => {}
-        Progress::SecondFactor(pending) => {
-            setup.second_factor(&pending, &Secret::new(CODE)).unwrap();
+        Progress::SecondFactor(mut pending) => {
+            setup
+                .second_factor(&mut pending, &Secret::new(CODE))
+                .unwrap();
         }
     }
     if let Some(uid) = uid {
@@ -189,6 +192,10 @@ fn offline_there_is_no_token_and_the_snapshot_still_says_signed_in() {
     assert_eq!(account.id, ACCOUNT);
     assert_eq!(account.handle, USERNAME);
     assert_eq!(account.display_name.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(
+        account.languages,
+        Some(vec!["en-GB".to_owned(), "es-ES".to_owned()])
+    );
 }
 
 #[test]
@@ -213,6 +220,7 @@ fn the_snapshot_is_the_sdks_and_its_revision_changes_only_with_its_account() {
                 "handle": USERNAME,
                 "displayName": "Ada Lovelace",
                 "avatar": "avatar-file-1",
+                "languages": ["en-GB", "es-ES"],
             },
             "online": true,
         })
@@ -283,6 +291,7 @@ fn oxy_ending_the_device_session_signs_the_account_out_on_the_machine() {
         account: ACCOUNT.into(),
         password: Some(Secret::new(PASSWORD)),
         pin: None,
+        appearance: None,
     };
     request.credential.device_secret = Secret::new(OTHER_DEVICE_SECRET);
     let Progress::Enrolled(enrolled) = machine.platform.setup().enroll(request).unwrap() else {
@@ -320,10 +329,10 @@ fn a_password_pam_rejects_that_oxy_accepts_becomes_the_verifier() {
         Checked::ACCEPTED
     );
     assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
-    // The platform's own sign-in, which rotated the credential.
+    // The platform's own sign-in, which rotated the credential, confirmed (R8).
     assert_eq!(
         machine.api().calls(),
-        [Call::Mint, Call::Profile, Call::Password]
+        [Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     assert_eq!(
         machine.stored().credential.unwrap().device_secret.expose(),
@@ -628,4 +637,212 @@ fn mints_are_rationed_per_application() {
         .platform
         .token(uid, &Attestation::OwnPlatform, TokenReason::Boot)
         .is_some());
+}
+
+#[test]
+fn a_rotation_oxy_could_not_confirm_keeps_the_credential_the_machine_had() {
+    const NEW: &str = "a new password set elsewhere";
+    let machine = machine_as(
+        FakeApi {
+            password: NEW,
+            ..FakeApi::default()
+        },
+        NEW,
+        None,
+    );
+    let before = machine.stored().credential.unwrap().device_secret;
+    machine
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    // The password was changed elsewhere: Oxy accepts the new one, which becomes the verifier,
+    // and the rotation waits for another check.
+    let name = account().user_name();
+    machine
+        .users()
+        .users
+        .lock()
+        .unwrap()
+        .get_mut(name.as_str())
+        .unwrap()
+        .1 = Some(PASSWORD.into());
+    assert_eq!(
+        machine
+            .platform
+            .check(&user(), Secret::new(NEW), Local::Rejected),
+        Checked::ACCEPTED
+    );
+    assert_eq!(machine.users().verifier(&name).as_deref(), Some(NEW));
+    assert_eq!(machine.stored().credential.unwrap().device_secret, before);
+    // The credential the machine has still works: the rotated one was never confirmed (R8).
+    assert!(machine.api().live().contains(&before.expose().to_owned()));
+    assert!(machine.api().is_pending(&platform_secret(2)));
+}
+
+#[test]
+fn a_name_changed_on_oxy_is_the_users_full_name_and_a_new_snapshot_after_the_next_online_check() {
+    let machine = machine(FakeApi::default());
+    let name = account().user_name();
+    // Set up, the user is named as the account is: never its user's name.
+    assert_eq!(
+        machine.users().full_name(name.as_str()).as_deref(),
+        Some("Ada Lovelace")
+    );
+    let uid = machine.uid();
+    let before = machine.platform.snapshot(uid);
+    let waker = Arc::new(rustix::event::eventfd(0, rustix::event::EventfdFlags::NONBLOCK).unwrap());
+    machine.platform.watch(uid, &waker);
+    // Renamed on Oxy; the next online check reads the profile anew.
+    *machine.api().display_name.lock().unwrap() = Some("Ada King".into());
+    assert_eq!(
+        machine
+            .platform
+            .check(&user(), Secret::new(PASSWORD), Local::Rejected),
+        Checked::ACCEPTED
+    );
+    assert_eq!(
+        machine.users().full_name(name.as_str()).as_deref(),
+        Some("Ada King")
+    );
+    let after = machine.platform.snapshot(uid);
+    let account = after.account.as_ref().unwrap();
+    assert_eq!(account.display_name.as_deref(), Some("Ada King"));
+    assert_eq!(account.handle, USERNAME);
+    // The same account: the SDK's revision stays, and its subscribers are told.
+    assert_eq!(after.revision, before.revision);
+    let mut told = [0u8; 8];
+    assert_eq!(rustix::io::read(&*waker, &mut told), Ok(8));
+    // Without a display name, the username; the same name is not written again.
+    *machine.api().display_name.lock().unwrap() = None;
+    machine
+        .platform
+        .check(&user(), Secret::new(PASSWORD), Local::Rejected);
+    assert_eq!(
+        machine.users().full_name(name.as_str()).as_deref(),
+        Some(USERNAME)
+    );
+    let writes = *machine.users().full_name_writes.lock().unwrap();
+    machine
+        .platform
+        .check(&user(), Secret::new(PASSWORD), Local::Rejected);
+    assert_eq!(*machine.users().full_name_writes.lock().unwrap(), writes);
+}
+
+/// A machine as [`machine`] makes it, whose accounts have pictures (in the test's directory).
+fn machine_with_pictures(api: FakeApi) -> Machine {
+    let dir = TempDir::new("platform-pictures");
+    let pictures = dir.path().join("pictures");
+    std::fs::create_dir(&pictures).unwrap();
+    let store = Store::open(&dir.path().join("accounts"))
+        .unwrap()
+        .with_pictures(&pictures);
+    let setup = Setup::new(api, FakeUsers::default(), store).with_platform(platform_client());
+    let request = Request {
+        credential: credential(),
+        account: ACCOUNT.into(),
+        password: Some(Secret::new(PASSWORD)),
+        pin: None,
+        appearance: None,
+    };
+    assert!(matches!(setup.enroll(request), Ok(Progress::Enrolled(_))));
+    Machine {
+        platform: Arc::new(Platform::new(setup)),
+        dir: Arc::new(dir),
+    }
+}
+
+#[test]
+fn the_accounts_picture_is_its_avatar_read_at_setup_and_again_when_it_changes() {
+    let machine = machine_with_pictures(FakeApi::default());
+    let uid = machine.uid();
+    let user = account().user_name();
+    let store = machine.platform.setup().store();
+    // Set up: its avatar's picture read once, and the snapshot names the file.
+    assert_eq!(
+        *machine.api().pictures_asked.lock().unwrap(),
+        ["avatar-file-1"]
+    );
+    let first = store.picture(&user, Some("avatar-file-1")).unwrap();
+    assert_eq!(
+        std::fs::read(&first).unwrap(),
+        fake_picture("avatar-file-1")
+    );
+    let snapshot = machine.platform.snapshot(uid);
+    let picture = snapshot.account.unwrap().picture;
+    assert_eq!(picture.as_deref(), Some(first.to_str().unwrap()));
+    // The same avatar at the next online check: not read again.
+    machine
+        .platform
+        .check(&user.to_string(), Secret::new(PASSWORD), Local::Rejected);
+    assert_eq!(machine.api().pictures_asked.lock().unwrap().len(), 1);
+    // Changed on Oxy while its cloud cannot be reached: the last picture read is still shown.
+    *machine.api().avatar.lock().unwrap() = Some("avatar-file-2".into());
+    machine.api().pictures_offline.store(true, Ordering::SeqCst);
+    machine
+        .platform
+        .check(&user.to_string(), Secret::new(PASSWORD), Local::Rejected);
+    let shown = machine.platform.snapshot(uid).account.unwrap().picture;
+    assert_eq!(shown.as_deref(), Some(first.to_str().unwrap()));
+    // Reached at the next check: the new one, a new file, and subscribers told.
+    machine
+        .api()
+        .pictures_offline
+        .store(false, Ordering::SeqCst);
+    let waker = Arc::new(rustix::event::eventfd(0, rustix::event::EventfdFlags::NONBLOCK).unwrap());
+    machine.platform.watch(uid, &waker);
+    machine
+        .platform
+        .check(&user.to_string(), Secret::new(PASSWORD), Local::Rejected);
+    let second = store.picture(&user, Some("avatar-file-2")).unwrap();
+    assert_ne!(second, first);
+    assert!(!first.exists());
+    assert_eq!(
+        std::fs::read(&second).unwrap(),
+        fake_picture("avatar-file-2")
+    );
+    let mut told = [0u8; 8];
+    assert_eq!(rustix::io::read(&*waker, &mut told), Ok(8));
+    // No avatar any more: no picture, the default shown.
+    *machine.api().avatar.lock().unwrap() = None;
+    machine
+        .platform
+        .check(&user.to_string(), Secret::new(PASSWORD), Local::Rejected);
+    assert_eq!(
+        machine.platform.snapshot(uid).account.unwrap().picture,
+        None
+    );
+    assert!(!second.exists());
+}
+
+#[test]
+fn a_picture_missing_at_the_start_is_read_and_removing_the_account_removes_it() {
+    let api = FakeApi::default();
+    api.pictures_offline.store(true, Ordering::SeqCst);
+    let machine = machine_with_pictures(api);
+    let uid = machine.uid();
+    let user = account().user_name();
+    // Set up offline from the cloud: set up all the same, no picture.
+    assert_eq!(
+        machine.platform.snapshot(uid).account.unwrap().picture,
+        None
+    );
+    // The service's start reads it.
+    machine
+        .api()
+        .pictures_offline
+        .store(false, Ordering::SeqCst);
+    machine.platform.refresh_pictures();
+    let picture = machine
+        .platform
+        .setup()
+        .store()
+        .picture(&user, Some("avatar-file-1"))
+        .unwrap();
+    machine.platform.refresh_pictures();
+    assert_eq!(machine.api().pictures_asked.lock().unwrap().len(), 2);
+    let removed = machine.platform.remove(uid).unwrap();
+    machine.platform.finish_removal(&removed);
+    assert!(!picture.exists());
 }

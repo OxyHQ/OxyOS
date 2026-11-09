@@ -4,7 +4,7 @@
 //! ```text
 //!                                         the catalog's default
 //! oxyos                                   a system wallpaper, Automatic
-//! horizon/night                           a system wallpaper's variant
+//! solar-gradients/night                   a system wallpaper's variant
 //! color:1f4fd8                            a solid colour
 //! photo:fit:000000:/home/ana/Pictures/a.jpg          a photo, how it fits, the colour behind
 //! folder:fill:000000:30:/home/ana/Pictures/Trips     a folder's photos in turn, every 30 minutes
@@ -15,7 +15,7 @@
 //! off, as lines of the preferences file the session writes:
 //!
 //! ```text
-//! wallpaper = horizon
+//! wallpaper = solar-gradients
 //! wallpaper_all_desktops = false
 //! wallpaper.DEL-A0B4-7Y9K2N3 = color:1f4fd8
 //! wallpaper.BOE-0A4B-00000001.2 = gradients-ocean
@@ -24,6 +24,10 @@
 //! The first is the default, which a display with no choice of its own shows; then a display's own,
 //! by its identity (docs/adr/0018-several-displays.mdx); then a desktop's on a display, counted
 //! from 1. A display shows on a desktop that desktop's choice, else its own, else the default.
+//!
+//! A system wallpaper OxyOS no longer ships is read as the one that replaced it ([`WITHDRAWN`]),
+//! here, where every choice is read (the file, Settings, the shell's host): everything after sees
+//! only the replacement, and the file holds it from the session's next write.
 
 use crate::displays::{is_identity, keep};
 use crate::Refused;
@@ -41,6 +45,11 @@ pub const MAX_DISPLAYS: usize = 16;
 pub const MAX_DESKTOP_CHOICES: usize = 16 * 16;
 /// The most desktops a choice is kept for (the scene's workspaces).
 pub const MAX_DESKTOP: u32 = 16;
+
+/// System wallpapers withdrawn, and the one a choice of each reads as: *Automatic*, whatever
+/// variant was chosen. Horizon (`horizon`, ADR 0048) was withdrawn on 8 November 2026 for Solar
+/// Gradients, OxyOS's one wallpaper that follows the sun.
+pub const WITHDRAWN: &[(&str, &str)] = &[("horizon", "solar-gradients")];
 
 /// How a photo fills its display, as a Mac's: Fill Screen, Fit to Screen, Stretch to Fill
 /// Screen, Centre Image, Tile.
@@ -197,6 +206,12 @@ impl Choice {
                 };
                 if !is_name(name) || variant.is_some_and(|v| !is_name(v)) {
                     return None;
+                }
+                if let Some((_, replacement)) = WITHDRAWN.iter().find(|(old, _)| *old == name) {
+                    return Some(Choice::System {
+                        name: (*replacement).to_owned(),
+                        variant: None,
+                    });
                 }
                 return Some(Choice::System {
                     name: name.to_owned(),
@@ -471,7 +486,7 @@ mod tests {
         for text in [
             "",
             "oxyos",
-            "horizon/night",
+            "solar-gradients/night",
             "color:1f4fd8",
             "photo:fit:000000:/home/ana/Pictures/a b.jpg",
             "photo:tile:ffffff:/media/ana/USB/x:y.png",
@@ -529,6 +544,32 @@ mod tests {
         assert!(Choice::parse(&longest).is_ok());
     }
 
+    #[test]
+    fn a_withdrawn_wallpaper_reads_as_its_replacement_automatic() {
+        // Horizon, Automatic or any of its variants: Solar Gradients, Automatic.
+        for text in ["horizon", "horizon/night", "horizon/day"] {
+            assert_eq!(
+                Choice::parse(text),
+                Ok(system("solar-gradients")),
+                "{text:?}"
+            );
+        }
+        // The same grammar still applies; a name that only begins as one is its own.
+        assert_eq!(Choice::parse("horizon/"), Err(Refused::BadValue));
+        assert_eq!(Choice::parse("horizon/a/b"), Err(Refused::BadValue));
+        assert_eq!(Choice::parse("horizons"), Ok(system("horizons")));
+        // A display's and a desktop's lines too, written back as the replacement.
+        let mut wallpapers = Wallpapers::default();
+        wallpapers.read_line(MONITOR, "horizon");
+        wallpapers.read_line(&format!("{PANEL}.2"), "horizon/dusk");
+        assert_eq!(
+            wallpapers.lines(),
+            format!(
+                "wallpaper.{MONITOR} = solar-gradients\nwallpaper.{PANEL}.2 = solar-gradients\n"
+            )
+        );
+    }
+
     const PANEL: &str = "BOE-0A4B-00000001";
     const MONITOR: &str = "DEL-A0B4-7Y9K2N3";
 
@@ -545,16 +586,16 @@ mod tests {
         let mut wallpapers = Wallpapers::default();
         let shown = [PANEL, MONITOR];
         // On the primary: the default, the monitor keeping the old default as its own.
-        wallpapers.choose(&at(PANEL, true, 1), &shown, system("horizon"));
-        assert_eq!(wallpapers.default, system("horizon"));
-        assert_eq!(wallpapers.shown(PANEL, 1), &system("horizon"));
+        wallpapers.choose(&at(PANEL, true, 1), &shown, system("solar-gradients"));
+        assert_eq!(wallpapers.default, system("solar-gradients"));
+        assert_eq!(wallpapers.shown(PANEL, 1), &system("solar-gradients"));
         assert_eq!(wallpapers.shown(MONITOR, 1), &Choice::Default);
         // On the monitor: its own; the panel unchanged.
         wallpapers.choose(&at(MONITOR, false, 1), &shown, system("ocean"));
         assert_eq!(wallpapers.shown(MONITOR, 3), &system("ocean"));
-        assert_eq!(wallpapers.shown(PANEL, 3), &system("horizon"));
+        assert_eq!(wallpapers.shown(PANEL, 3), &system("solar-gradients"));
         // A display never seen shows the default.
-        assert_eq!(wallpapers.shown("NEW-1", 1), &system("horizon"));
+        assert_eq!(wallpapers.shown("NEW-1", 1), &system("solar-gradients"));
         // Alone, the panel's choice is the default with no line of its own.
         let mut alone = Wallpapers::default();
         alone.choose(&at(PANEL, true, 1), &[PANEL], system("ocean"));
@@ -566,17 +607,17 @@ mod tests {
     fn each_desktop_keeps_its_own_while_all_desktops_is_off() {
         let mut wallpapers = Wallpapers::default();
         let shown = [PANEL, MONITOR];
-        wallpapers.choose(&at(PANEL, true, 1), &shown, system("horizon"));
+        wallpapers.choose(&at(PANEL, true, 1), &shown, system("solar-gradients"));
         wallpapers.set_all_desktops(false, &[at(PANEL, true, 1), at(MONITOR, false, 1)]);
         wallpapers.choose(&at(PANEL, true, 2), &shown, Choice::Color(Rgb([1, 2, 3])));
-        assert_eq!(wallpapers.shown(PANEL, 1), &system("horizon"));
+        assert_eq!(wallpapers.shown(PANEL, 1), &system("solar-gradients"));
         assert_eq!(wallpapers.shown(PANEL, 2), &Choice::Color(Rgb([1, 2, 3])));
         assert_eq!(wallpapers.shown(MONITOR, 2), &Choice::Default);
         wallpapers.choose(&at(PANEL, true, 3), &shown, system("ocean"));
         // Desktop 2 removed: its choice goes, desktop 3's is desktop 2's.
         wallpapers.remove_desktop(2);
         assert_eq!(wallpapers.shown(PANEL, 2), &system("ocean"));
-        assert_eq!(wallpapers.shown(PANEL, 3), &system("horizon"));
+        assert_eq!(wallpapers.shown(PANEL, 3), &system("solar-gradients"));
         // Turned on with desktop 2 active: what each display shows there, on every desktop.
         wallpapers.set_all_desktops(true, &[at(PANEL, true, 2), at(MONITOR, false, 2)]);
         assert!(wallpapers.desktops.is_empty());
@@ -589,14 +630,16 @@ mod tests {
     fn its_lines_round_trip_and_bad_ones_are_nothing() {
         let mut wallpapers = Wallpapers::default();
         wallpapers.read_line(MONITOR, "color:1f4fd8");
-        wallpapers.read_line(&format!("{PANEL}.2"), "horizon/night");
+        wallpapers.read_line(&format!("{PANEL}.2"), "solar-gradients/night");
         wallpapers.read_line(&format!("{PANEL}.0"), "oxyos");
         wallpapers.read_line(&format!("{PANEL}.17"), "oxyos");
         wallpapers.read_line("bad identity", "oxyos");
         wallpapers.read_line(PANEL, "../x");
         assert_eq!(
             wallpapers.lines(),
-            format!("wallpaper.{MONITOR} = color:1f4fd8\nwallpaper.{PANEL}.2 = horizon/night\n")
+            format!(
+                "wallpaper.{MONITOR} = color:1f4fd8\nwallpaper.{PANEL}.2 = solar-gradients/night\n"
+            )
         );
     }
 }
