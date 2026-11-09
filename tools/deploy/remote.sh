@@ -29,9 +29,13 @@ fi
 # end a signed-in session, and which program owns tty1 is for the owner of the machine to choose):
 # its new binary takes effect at its next start.
 T=oxyos-try
+# Each staged beside its place and renamed over the one before, so none is ever missing (a session
+# started meanwhile still finds its program); a program running keeps the file it started with.
 grep -v '^#' $T/tools/deploy/system-files | while read -r from to mode; do
   [ -n "$from" ] || continue
-  sudo -n install -D -o root -g root -m "$mode" "$T/$from" "$to"
+  staged="${to%/*}/.${to##*/}.new"
+  sudo -n install -D -o root -g root -m "$mode" "$T/$from" "$staged"
+  sudo -n mv -fT "$staged" "$to"
 done
 for f in $(awk '$2 ~ "^/usr/lib/sysusers.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-sysusers "${f##*/}"; done
 for f in $(awk '$2 ~ "^/usr/lib/tmpfiles.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-tmpfiles --create "${f##*/}"; done
@@ -43,6 +47,43 @@ systemctl is-active -q oxyos-accountd || { echo "accounts: oxyos-accountd is not
 [ "$(cat /proc/sys/kernel/yama/ptrace_scope)" = 1 ] || { echo "accounts: ptrace scope is not 1"; exit 1; }
 getent passwd oxyos-login > /dev/null || { echo "accounts: no oxyos-login user"; exit 1; }
 echo "accounts: $(grep -vc '^#' $T/tools/deploy/system-files) files installed, oxyos-accountd active, ptrace scope 1 (tty1: $(systemctl is-enabled oxyos-login 2>/dev/null || true))"
+# Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10) where the machine boots systemd-boot
+# with kernel-install's entries (one converted to OxyOS, decision 9): the plugin installed above writes
+# each new kernel's Safe Mode entry beside its own; the kernels already installed get theirs here, from
+# their entries as they are, and one whose kernel is gone loses its own. Where kernel-install puts them
+# and what it names them by are its own (`kernel-install inspect`), as the plugin is told. Run again,
+# nothing changes. The boot loader's default and entries are otherwise left as they are.
+kernel=/boot/vmlinuz-$(uname -r)
+inspect=$(sudo -n kernel-install inspect "$kernel" 2>/dev/null || true)
+layout=$(echo "$inspect" | sed -n 's/.*KERNEL_INSTALL_LAYOUT=//p')
+boot_root=$(echo "$inspect" | sed -n 's/.*KERNEL_INSTALL_BOOT_ROOT=//p')
+token=$(echo "$inspect" | sed -n 's/.*KERNEL_INSTALL_ENTRY_TOKEN=//p')
+if [ "$layout" = bls ] && [ -n "$boot_root" ] && [ -n "$token" ]; then
+  synced=$(sudo -n /usr/sbin/oxyos-recovery safe-mode-entry sync --boot-root "$boot_root" --entry-token "$token")
+  echo "$synced" | sed 's/^/safe mode: /'
+else
+  echo "safe mode: no systemd-boot entries of kernel-install's here (layout '${layout:-none}'): none written"
+fi
+# Backups (docs/adr/0059-backups.mdx) as the image has them: Debian's restic and rclone, the engine and
+# the SMB client the service runs (the image's manifest's, tools/deploy/system-files.py --apt), then the
+# service installed above enabled and restarted onto its new program, and the migration's socket
+# enabled (its service answers only while no account is enrolled, so never on a machine in use). A
+# signed-in session follows the service as soon as its socket is there. No destination is configured
+# here: choosing one, and its password, is the person's (Settings › General › Backups).
+pkgs=$(python3 $T/tools/deploy/system-files.py --apt)
+missing=$(for p in $pkgs; do dpkg-query -W -f="\${Status}" $p 2>/dev/null | grep -q "ok installed" || echo $p; done)
+[ -z "$missing" ] || sudo -n apt-get install -y -q --no-install-recommends $missing > /dev/null
+for p in $pkgs; do command -v $p > /dev/null || { echo "backups: no $p"; exit 1; }; done
+sudo -n systemctl enable -q oxyos-backupd oxyos-migrate.socket
+sudo -n systemctl restart oxyos-backupd
+sudo -n systemctl start oxyos-migrate.socket
+systemctl is-active -q oxyos-backupd || { echo "backups: oxyos-backupd is not running"; exit 1; }
+systemctl is-active -q oxyos-migrate.socket || { echo "backups: oxyos-migrate.socket is not listening"; exit 1; }
+# It answers on its socket once it has read its state (Type=exec: started is not yet listening).
+rm -f backup-state.json
+for i in 1 2 3 4 5 6 7 8 9 10; do sudo -n /usr/libexec/oxyos-backupd --client '"status"' > backup-state.json 2>/dev/null && break; sleep 1; done
+[ -s backup-state.json ] || { echo "backups: oxyos-backupd does not answer on its socket"; exit 1; }
+echo "backups: $(restic version | cut -d' ' -f1-2), $(rclone version | head -1), oxyos-backupd active and answering, the migration's socket listening"
 # One GPU (ADR 0031, decision 14), on the machine itself before the session restarts: the
 # compositor and a painter opened as the session and a Bloom host open them, under strace; any
 # DRM node of a GPU that drives no display (a laptop's sleeping discrete GPU, for one), any NVK
@@ -115,12 +156,24 @@ if [ -d $V/.unpack/deploy/sounds ]; then
   sudo -n install -d -m 755 -o root -g root /usr/share/doc/oxyos-sounds
   sudo -n install -m 644 -o root -g root $V/.unpack/deploy/sounds-doc/copyright /usr/share/doc/oxyos-sounds/copyright
 fi
-# The system entries and the policy; Dropsea's and Atlas's entries go when they are not sent, and
-# so.oxy.stash's, the id Dropsea had before its rename (2 November 2026), always goes.
-sudo -n install -d -m 755 -o root -g root /usr/share/oxyos/applications
-sudo -n rm -f /usr/share/oxyos/applications/so.oxy.stash.desktop /usr/share/oxyos/applications/so.oxy.dropsea.desktop /usr/share/oxyos/applications/so.oxy.atlas.desktop
-sudo -n install -m 644 -o root -g root $V/.unpack/deploy/entries/*.desktop /usr/share/oxyos/applications/
-sudo -n install -m 644 -o root -g root $V/.unpack/deploy/system-apps.json /usr/share/oxyos/system-apps.json
+# The system entries, then the policy naming them, each staged beside its place (a dot name a
+# registry never lists) and renamed over the one before: a running session never finds one missing
+# or half written, so never leaves a system application out meanwhile. Then Dropsea's and Atlas's
+# entries go when they are not sent, and so.oxy.stash's, the id Dropsea had before its rename
+# (2 November 2026), always goes.
+A=/usr/share/oxyos/applications
+sudo -n install -d -m 755 -o root -g root $A
+for f in $V/.unpack/deploy/entries/*.desktop; do
+  n=${f##*/}
+  sudo -n install -m 644 -o root -g root "$f" "$A/.$n.new"
+  sudo -n mv -fT "$A/.$n.new" "$A/$n"
+done
+sudo -n install -m 644 -o root -g root $V/.unpack/deploy/system-apps.json /usr/share/oxyos/.system-apps.json.new
+sudo -n mv -fT /usr/share/oxyos/.system-apps.json.new /usr/share/oxyos/system-apps.json
+for n in so.oxy.dropsea.desktop so.oxy.atlas.desktop; do
+  [ -e "$V/.unpack/deploy/entries/$n" ] || sudo -n rm -f "$A/$n"
+done
+sudo -n rm -f $A/so.oxy.stash.desktop
 # The entry the one-bundle deploy installed: its id is the policy's now, its bundle gone from it.
 sudo -n rm -f /usr/local/share/oxyos/applications/so.oxy.settings.desktop
 # Inbox and Allo, the user's: their packages and the development registry naming them.

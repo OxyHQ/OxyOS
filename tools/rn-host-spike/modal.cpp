@@ -32,6 +32,25 @@ ModalHostViewAnimationType animationOf(const ShadowView& view) {
 
 }  // namespace
 
+void ModalHostViewComponentDescriptor::adopt(ShadowNode& shadowNode) const {
+  // As React Native's ModalHostViewComponentDescriptor::adopt.
+  auto& layoutable = static_cast<YogaLayoutableShadowNode&>(shadowNode);
+  const auto& data = static_cast<const ModalHostViewShadowNode::ConcreteState&>(*shadowNode.getState()).getData();
+  layoutable.setSize(Size{.width = data.screenSize.width, .height = data.screenSize.height});
+  layoutable.setPositionType(YGPositionTypeAbsolute);
+  ConcreteComponentDescriptor::adopt(shadowNode);
+}
+
+State::Shared ModalHostViewComponentDescriptor::createInitialState(const Props::Shared& /*props*/,
+                                                                   const ShadowNodeFamily::Shared& family) const {
+  Size size{};
+  if (auto screen = contextContainer_->find<std::shared_ptr<ModalScreen>>(kModalScreenKey); screen && *screen) {
+    size = (*screen)->size;
+  }
+  return std::make_shared<ModalHostViewShadowNode::ConcreteState>(
+      std::make_shared<const ModalHostViewState>(ModalHostViewState(size)), family);
+}
+
 ModalPresentation ModalHost::presentation(const Animation& animation, bool in, float progress,
                                           const Display& display) const {
   if (animation.kind == Kind::Slide) {

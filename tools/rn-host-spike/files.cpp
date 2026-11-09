@@ -30,6 +30,9 @@ bool Files::started() {
     // Its downloads and uploads reach the network as its own requests do: only with `network`
     // (docs/adr/0030-installing-applications.mdx, decision 8), which the service then refuses.
     uint32_t flags = LaunchCapabilities::current().allows("network") ? 0 : OXYOS_FILES_NO_NETWORK;
+    // The person's backups hold everything their home ever held: only with `files`
+    // (docs/adr/0059-backups.mdx), which the service then refuses as `not-permitted`.
+    if (!LaunchCapabilities::current().allows("files")) flags |= OXYOS_FILES_NO_BACKUPS;
     files_ = oxyos_files_new_with(appId_.empty() ? nullptr : appId_.data(), appId_.size(),
                                   bundleDirectory_.empty() ? nullptr : bundleDirectory_.data(),
                                   bundleDirectory_.size(), flags);

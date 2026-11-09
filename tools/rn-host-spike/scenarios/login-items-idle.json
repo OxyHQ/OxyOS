@@ -1,0 +1,148 @@
+{
+  "about": "An application in the background with nothing to do is idle (docs/adr/0060-login-items-and-background-activity.mdx; docs/performance.mdx's idle budget): the installed Chat probe registers its background activity and Super+W closes its window; its host runs on without it, never drawing, and, left alone, its threads stay asleep: in five seconds it uses next to no CPU and wakes next to never, with Settings showing it running in the background and nothing changing.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "grants": {
+    "so.oxy.settings": [
+      "settings",
+      "updates",
+      "privacy"
+    ]
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "dock": "so.oxy.backgroundprobe"
+    }
+  },
+  "installd": {
+    "publish": [
+      "so.oxy.backgroundprobe"
+    ],
+    "installed": [
+      "so.oxy.backgroundprobe"
+    ]
+  },
+  "applications_launched": [
+    {
+      "id": "so.oxy.backgroundprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "steps": [
+    {
+      "name": "Login Items & Extensions",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Login Items & Extensions"
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Chat opened from the dock",
+      "do": [
+        "press_named",
+        "Chat"
+      ],
+      "expect": {}
+    },
+    {
+      "name": "Its items asked",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Background: notRegistered"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Run in Background",
+      "do": [
+        "press_named",
+        "Run in Background"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Allowed",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_launched": {
+          "texts": [
+            "Background: enabled"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+W: its window closes, it runs on",
+      "do": [
+        "key",
+        [
+          125,
+          17
+        ]
+      ],
+      "expect": {}
+    },
+    {
+      "name": "In the background, Settings says so",
+      "do": [
+        "wait",
+        2000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Running in the background"
+        ],
+        "background": {
+          "running": [
+            "so.oxy.backgroundprobe"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Five seconds alone: nothing wakes it",
+      "do": [
+        "wait",
+        5000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "background": {
+          "running": [
+            "so.oxy.backgroundprobe"
+          ],
+          "idle_cpu_ms_max": 25,
+          "idle_wakeups_max": 25
+        }
+      }
+    }
+  ]
+}

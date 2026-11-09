@@ -25,6 +25,17 @@ firmware's variables kept from boot to boot, as a computer keeps its disk and NV
    neither the old password nor the old recovery key opens and whose first 64 MiB do not hold the
    old volume's UUID; the recovery untouched.
 6. **Erase and Reinstall** from the recovery's own menu, with the same result.
+7. **Safe Mode by a key** (decision 10): each kernel has its Safe Mode entry beside its own, never
+   counted; holding Space shows it in the picker after the recovery; chosen, the system boots with
+   `oxyos.safe-mode=1` on its command line, spends no try, and the next start is normal.
+8. **Restore from Backup** (ADR 0059, decision 7). On the system erased in 6, a backup of another
+   computer is made onto a second virtual disk (vdb, an external disk: ext4, `OxyOS Backups/<id>`,
+   restic's repository opened by the backup password): two accounts' homes (their files given the
+   accounts' uids), a picture, a Wi-Fi network and the machine's manifest, which are then removed
+   from the system. From the recovery's menu, *Restore from Backup…*: the disk, the password, the
+   backup, the confirmation word. The next start is a first boot whose users have their uids, the
+   administrator is in `sudo`, the homes hold their files with their owners, the picture and the
+   network are back and both accounts are listed to sign in again; the backup disk is untouched.
 
 Screens, both serial logs and QEMU's log of each boot are kept under `--out`/recovery/.
 """
@@ -38,6 +49,17 @@ from machine import Failure, Machine
 
 PASSWORD = "oxyos-acceptance-1"
 DISK_BYTES = 24 << 30
+BACKUP_DISK_BYTES = 2 << 30
+# The backup's computer and its accounts (ADR 0059): Ada, its administrator, and Bea, whose group's
+# number is not her uid's; users as the account service derives them from the accounts' ids.
+BACKUP_PASSWORD = "oxyos-backup-acceptance"
+BACKUP_REPOSITORY = "0123456789abcdef"
+BACKUP_ACCOUNTS = [
+    {"accountId": "65a1b2c3d4e5f60718293a4b", "user": "oxy-mwq3fq6u4x3aogbjhjfq", "uid": 1001, "gid": 1001,
+     "name": "Ada Lovelace", "administrator": True},
+    {"accountId": "019a5b6c-7d8e-7f90-a1b2-c3d4e5f60718", "user": "oxy-agnfw3d5rz7zbinsypkol5qhda", "uid": 1002,
+     "gid": 1005, "name": "Bea Ramos", "administrator": False},
+]
 # The firmware's OEM string systemd-boot reads: the kernel's console on the first serial port (the
 # recovery's program and the kernel's messages there), systemd's debug shell on the second.
 CMDLINE_EXTRA = "io.systemd.boot.kernel-cmdline-extra=console=tty0 console=ttyS0,115200 systemd.debug_shell=ttyS1"
@@ -50,11 +72,14 @@ class Scenario:
         self.directory = run.out / "recovery"
         self.directory.mkdir(parents=True, exist_ok=True)
         self.disk = self.directory / "disk.raw"
+        self.backup_disk = self.directory / "backup-disk.raw"
         self.variables = self.directory / "VARS.fd"
-        for path in (self.disk, self.variables):
+        for path in (self.disk, self.backup_disk, self.variables):
             path.unlink(missing_ok=True)
         with open(self.disk, "wb") as disk:
             disk.truncate(DISK_BYTES)
+        with open(self.backup_disk, "wb") as disk:
+            disk.truncate(BACKUP_DISK_BYTES)
         self.facts = run.facts.setdefault("recovery", {})
         theme = helpers["theme"]
         width, height = args.resolution
@@ -71,7 +96,8 @@ class Scenario:
         machine = Machine(medium, self.directory / name, self.args.firmware, self.args.resolution,
                           self.args.display, self.args.accel, memory=4096, architecture=self.args.arch,
                           disk=self.disk, variables=self.variables, smbios=[] if medium else [CMDLINE_EXTRA],
-                          debug_serial=not medium, usb_keyboard=not medium)
+                          debug_serial=not medium, usb_keyboard=not medium,
+                          external=None if medium else self.backup_disk)
         return machine.start()
 
     def screen(self):
@@ -166,6 +192,15 @@ class Scenario:
                 return True
         return False
 
+    def choose(self, label, since):
+        """Chooses the recovery's menu item `label`, by the number the menu printed for it (the
+        menu is the machine's: Restore from Backup is offered only where the recovery may erase)."""
+        menu = self.m.serial_text()[since:]
+        numbers = re.findall(r"^\s*(\d+)  " + re.escape(label), menu, re.MULTILINE)
+        if not numbers:
+            raise Failure(f"the recovery's menu has no {label}")
+        self.m.send_serial(numbers[-1] + "\r")
+
     # The phases.
 
     def install(self):
@@ -255,6 +290,12 @@ class Scenario:
         self.check("after a complete boot the entry has its three tries again, beside the recovery's",
                    any(re.fullmatch(r"oxyos-.+\+3\.conf", e) for e in entries) and "oxyos-recovery.conf" in entries,
                    " ".join(entries))
+        safe = [e for e in entries if re.fullmatch(r"oxyos-safe-mode-[0-9].*\.conf", e)]
+        safe_text = sh(f"cat /efi/loader/entries/{safe[0]}") if safe else ""
+        self.check("each kernel has its Safe Mode entry beside its own, never counted, oxyos.safe-mode=1 on its command line",
+                   len(safe) == 1 and not re.search(r"\+[0-9]+(-[0-9]+)?\.conf$", safe[0])
+                   and "title      OxyOS Safe Mode" in safe_text and " oxyos.safe-mode=1" in safe_text,
+                   " ".join(entries) + "; " + safe_text)
         slots = sh("cryptsetup luksDump /dev/vda3 | grep -c '^  [0-9]*: luks2'").strip()
         self.check("the disk opens with the developer's password and the recovery key, not the install key",
                    slots == "2" and " none " in sh("cat /etc/crypttab"), f"{slots} keyslots")
@@ -286,9 +327,9 @@ class Scenario:
         menu = self.screen()
         self.save(menu, "boot-menu")
         picker = self.m.serial_text()[console:]
-        self.check("holding Space as the machine starts shows the startup picker: OxyOS, its Recovery and the firmware's menu",
+        self.check("holding Space as the machine starts shows the startup picker: OxyOS, its Recovery, its Safe Mode and the firmware's menu",
                    shown and not menu.is_black() and "Reboot Into Firmware Interface" in picker
-                   and "EFI Default Loader" not in picker)
+                   and "OxyOS Safe Mode" in picker and "EFI Default Loader" not in picker)
         # The menu's first entry is OxyOS; the recovery is the next.
         self.m.keys("down")
         self.m.keys("ret")
@@ -300,7 +341,7 @@ class Scenario:
         sh = self.shell(debug)
         self.recovery_checks(sh)
         marks = len(self.m.serial_text()), len(self.m.debug_text())
-        self.m.send_serial("6\r")
+        self.choose("Restart", console)
         self.m.wait_serial("Restarting", timeout=60, after=marks[0])
         self.unlock()
         sh = self.shell(marks[1])
@@ -308,6 +349,34 @@ class Scenario:
         entries = self.entries(sh)
         self.check("Restart in the recovery goes back to OxyOS", any(re.fullmatch(r"oxyos-.+\+3\.conf", e) for e in entries),
                    " ".join(entries))
+        return self.restart(sh)
+
+    def safe_mode_by_key(self, marks):
+        console, debug = marks
+        shown = self.hold_space(console)
+        menu = self.screen()
+        self.save(menu, "boot-menu-safe-mode")
+        picker = self.m.serial_text()[console:]
+        self.check("the startup picker offers OxyOS Safe Mode", shown and "OxyOS Safe Mode" in picker)
+        # OxyOS, OxyOS Recovery, then OxyOS Safe Mode.
+        self.m.keys("down")
+        self.m.keys("down")
+        self.m.keys("ret")
+        self.unlock()
+        sh = self.shell(debug)
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
+        cmdline = sh("cat /proc/cmdline")
+        self.check("Safe Mode boots the kernel with oxyos.safe-mode=1 on its command line",
+                   "oxyos.safe-mode=1" in cmdline and "oxyos-recovery.target" not in cmdline, cmdline)
+        entries = self.entries(sh)
+        self.check("choosing Safe Mode spends none of OxyOS's tries",
+                   any(re.fullmatch(r"oxyos-[0-9].+\+3\.conf", e) for e in entries), " ".join(entries))
+        marks = self.restart(sh)
+        self.unlock()
+        sh = self.shell(marks[1])
+        sh("systemctl is-system-running --wait", timeout=self.args.timeout)
+        cmdline = sh("cat /proc/cmdline")
+        self.check("the next start is normal", "oxyos.safe-mode" not in cmdline, cmdline)
         return self.restart(sh)
 
     def failed_starts(self, marks):
@@ -325,7 +394,7 @@ class Scenario:
         self.check("OxyOS's entry has no tries left", any(re.fullmatch(r"oxyos-.+\+0-3\.conf", e) for e in entries),
                    " ".join(entries))
         marks = len(self.m.serial_text()), len(self.m.debug_text())
-        self.m.send_serial("6\r")
+        self.choose("Restart", console)
         self.m.wait_serial("Restarting", timeout=60, after=marks[0])
         self.unlock()
         sh = self.shell(marks[1])
@@ -337,9 +406,16 @@ class Scenario:
         armed = sh("systemctl start oxyos-erase.service && echo armed || echo refused").strip()
         request = sh("cat /efi/oxyos-recovery/erase.json")
         entries = self.entries(sh)
-        self.check("oxyos-erase.service arms the erase: the request, and OxyOS's entries with no tries",
-                   armed.endswith("armed") and '"state": "armed"' in request
-                   and all("+0" in e for e in entries if e != "oxyos-recovery.conf"), f"{armed}; {' '.join(entries)}")
+        # Condemned are the kernels' entries, which the recovery counts; the recovery's own and the Safe
+        # Mode entries are never counted (ADR 0054, decision 10: an erase pending never makes Safe Mode
+        # the default, which is sorted after the recovery).
+        kernels = [e for e in entries if e != "oxyos-recovery.conf" and not re.fullmatch(r"oxyos-safe-mode-.+\.conf", e)]
+        safe = [e for e in entries if re.fullmatch(r"oxyos-safe-mode-.+\.conf", e)]
+        self.check("oxyos-erase.service arms the erase: the request, and the kernels' entries with no tries,"
+                   " Safe Mode's never counted",
+                   armed.endswith("armed") and '"state": "armed"' in request and kernels
+                   and all(re.search(r"\+0(-[0-9]+)?\.conf$", e) for e in kernels)
+                   and safe and not any(re.search(r"\+[0-9]+(-[0-9]+)?\.conf$", e) for e in safe), f"{armed}; {' '.join(entries)}")
         return self.restart(sh)
 
     def erased(self, name, debug, started):
@@ -395,7 +471,7 @@ class Scenario:
         self.m.keys("down")
         self.m.keys("ret")
         _, at = self.m.wait_serial("Choose an option: ", timeout=self.args.timeout, after=console)
-        self.m.send_serial("1\r")
+        self.choose("Erase and Reinstall OxyOS", console)
         _, at = self.m.wait_serial("to erase this computer", timeout=60, after=at)
         started = time.monotonic()
         self.m.send_serial("erase\r")
@@ -405,7 +481,116 @@ class Scenario:
                    "" if done else self.m.serial_text()[at:][-1500:])
         if not done:
             raise Failure("the reinstall failed")
-        self.erased("reinstalled", len(self.m.debug_text()), started)
+        return self.erased("reinstalled", len(self.m.debug_text()), started)
+
+    def make_backup(self, sh):
+        """Another computer's backup on the external disk, made with the image's restic as the
+        backup service makes one: the machine's paths, its manifest, its host name."""
+        import json
+        sh("mkfs.ext4 -q -F -L Backups /dev/vdb && mkdir -p /mnt/backup && mount /dev/vdb /mnt/backup", timeout=120)
+        made = []
+        for account in BACKUP_ACCOUNTS:
+            user, uid, gid = account["user"], account["uid"], account["gid"]
+            home = f"/home/{user}"
+            made.append(home)
+            sh(f"mkdir -p '{home}/Documents/Taxes 2026' && printf '%s' 'files of {account['name']}' > '{home}/Documents/notes.txt'"
+               f" && head -c 3145728 /dev/urandom > '{home}/Documents/large.raw' && chmod 600 '{home}/Documents/notes.txt'"
+               f" && ln -s Documents/notes.txt '{home}/notes' && chown -R -h {uid}:{gid} '{home}' && chmod 700 '{home}'")
+        ada = BACKUP_ACCOUNTS[0]["user"]
+        manifest = {"version": 1, "computer": "ada-laptop", "written": int(time.time()), "accounts": BACKUP_ACCOUNTS}
+        sh("mkdir -p /var/lib/oxyos/pictures /var/lib/oxyos/backup/manifest /etc/NetworkManager/system-connections"
+           f" && printf 'PNG of Ada' > /var/lib/oxyos/pictures/{ada}"
+           " && printf '[connection]\\nid=Casa\\ntype=wifi\\n[wifi]\\nssid=Casa\\n' > /etc/NetworkManager/system-connections/Casa.nmconnection"
+           " && chmod 600 /etc/NetworkManager/system-connections/Casa.nmconnection"
+           f" && printf '%s' '{json.dumps(manifest)}' > /var/lib/oxyos/backup/manifest/machine.json")
+        repository = f"'/mnt/backup/OxyOS Backups/{BACKUP_REPOSITORY}'"
+        environment = f"RESTIC_PASSWORD='{BACKUP_PASSWORD}' RESTIC_CACHE_DIR=/run/restic-cache"
+        sh(f"mkdir -p '/mnt/backup/OxyOS Backups' && {environment} restic -q init -r {repository}", timeout=120)
+        backed = sh(f"{environment} restic -q -r {repository} backup --host ada-laptop --one-file-system"
+                    " /home /var/lib/oxyos/backup/manifest /var/lib/oxyos/pictures /etc/NetworkManager/system-connections"
+                    " && echo backed-up", timeout=600)
+        self.check("a computer's backup is made on the external disk with the image's restic", "backed-up" in backed, backed)
+        self.backed_up = {account["user"]: sh(f"cd /home/{account['user']} && find . -printf '%p %U:%G %m %s\\n' | sort"
+                                              f" && sha256sum Documents/large.raw") for account in BACKUP_ACCOUNTS}
+        self.backup_sum = sh(f"{environment} restic -q -r {repository} snapshots --no-lock --json | sha256sum")
+        # What the backup holds goes, so what comes back can only be the restore's.
+        sh("rm -rf " + " ".join(made) + " /var/lib/oxyos/pictures /var/lib/oxyos/backup"
+           " /etc/NetworkManager/system-connections/Casa.nmconnection && umount /mnt/backup && sync")
+        return self.restart(sh)
+
+    def restore_from_backup(self, marks):
+        console, debug = marks
+        self.check("holding Space shows the menu again", self.hold_space(console))
+        self.m.keys("down")
+        self.m.keys("ret")
+        _, at = self.m.wait_serial("Choose an option: ", timeout=self.args.timeout, after=console)
+        menu = self.m.serial_text()[console:at]
+        self.check("the recovery offers Restore from Backup", "2  Restore from Backup" in menu, menu[-600:])
+        self.choose("Restore from Backup", console)
+        _, at = self.m.wait_serial("press Enter to go back: ", timeout=120, after=at)
+        listed = self.m.serial_text()[console:at]
+        self.check("the backup disk is offered, the computer's own disk is not",
+                   "1  Backups (2.1 GB)" in listed and "Network Share" in listed and "3  " in listed, listed[-400:])
+        self.m.send_serial("1\r")
+        _, at = self.m.wait_serial("Backup password: ", timeout=60, after=at)
+        self.m.send_serial("wrong password\r")
+        needle, at = self.m.wait_serial("doesn't open any of the backups", "Backups of", timeout=300, after=at)
+        self.check("a wrong backup password opens nothing", needle.startswith("doesn't"))
+        _, at = self.m.wait_serial("press Enter to go back: ", timeout=120, after=at)
+        self.m.send_serial("1\r")
+        _, at = self.m.wait_serial("Backup password: ", timeout=60, after=at)
+        self.m.send_serial(BACKUP_PASSWORD + "\r")
+        _, at = self.m.wait_serial("Choose a backup, or press Enter to go back: ", timeout=300, after=at)
+        self.check("the backup password opens the computer's backups", "Backups of ada-laptop" in self.m.serial_text()[console:at])
+        self.m.send_serial("1\r")
+        _, at = self.m.wait_serial("to erase this computer", timeout=300, after=at)
+        shown = self.m.serial_text()[console:at]
+        self.check("the backup's accounts are shown before anything is erased",
+                   "Accounts: Ada Lovelace, Bea Ramos" in shown, shown[-600:])
+        started = time.monotonic()
+        self.m.send_serial("erase\r")
+        needle, end = self.m.wait_serial("The backup was restored", "Something went wrong", "didn't finish",
+                                         timeout=1800, after=at)
+        done = needle.startswith("The backup was restored")
+        self.check("Restore from Backup erases, installs OxyOS again and restores the backup", done,
+                   "" if done else self.m.serial_text()[at:][-2000:])
+        if not done:
+            raise Failure("the restore failed")
+        self.facts["restore_seconds"] = round(time.monotonic() - started, 1)
+        # The recovery's debug shell lives until its restart: the restored system's is the one after.
+        self.m.wait_serial("BdsDxe: starting", timeout=300, after=end)
+        sh = self.erased_and_restored(len(self.m.debug_text()), started)
+        return sh
+
+    def erased_and_restored(self, debug, started):
+        sh = self.shell(debug)
+        self.system_checks(sh, "restored")
+        ada, bea = (account["user"] for account in BACKUP_ACCOUNTS)
+        users = sh(f"getent passwd {ada} {bea}")
+        self.check("restored: the accounts' users are made again with their uids and groups",
+                   f"{ada}:x:1001:1001:" in users and f"{bea}:x:1002:1005:" in users, users)
+        groups = sh(f"getent group sudo {ada} {bea}")
+        self.check("restored: the administrator is in sudo, the other is not",
+                   ada in groups.splitlines()[0] and bea not in groups.splitlines()[0], groups)
+        locked = sh(f"for user in {ada} {bea}; do passwd -S $user | awk '{{print $2}}'; done").split()
+        self.check("restored: their passwords are locked until they are set up again online", locked == ["L", "L"], locked)
+        for user, before in self.backed_up.items():
+            after = sh(f"cd /home/{user} && find . -printf '%p %U:%G %m %s\\n' | sort && sha256sum Documents/large.raw")
+            self.check(f"restored: {user}'s home holds its files, owners and modes as they were", after == before,
+                       "" if after == before else f"{before}\n---\n{after}")
+        accounts = sh("ls /var/lib/oxyos/accounts; cat /var/lib/oxyos/accounts/*.json")
+        self.check("restored: both accounts are listed to sign in again, with no credential",
+                   f"{ada}.json" in accounts and f"{bea}.json" in accounts and '"credential":null' in accounts.replace(" ", "")
+                   and "deviceSecret" not in accounts, accounts[-800:])
+        extras = sh(f"cat /var/lib/oxyos/pictures/{ada}; stat -c '%a' /etc/NetworkManager/system-connections/Casa.nmconnection")
+        self.check("restored: the picture and the Wi-Fi network are back", "PNG of Ada" in extras and extras.strip().endswith("600"), extras)
+        backup = sh(f"mount /dev/vdb /mnt -o ro && RESTIC_PASSWORD='{BACKUP_PASSWORD}' RESTIC_CACHE_DIR=/run/restic-cache"
+                    f" restic -q -r '/mnt/OxyOS Backups/{BACKUP_REPOSITORY}' snapshots --no-lock --json | sha256sum; umount /mnt")
+        self.check("restored: the backup disk is as it was", backup == self.backup_sum, backup)
+        files = sh("ls /efi/oxyos-recovery/").split()
+        self.check("restored: no request is left", "erase.json" not in files, " ".join(files))
+        self.facts["restored_seconds"] = round(time.monotonic() - started, 1)
+        return sh
 
 
 def recovery(args, run, helpers):
@@ -414,9 +599,12 @@ def recovery(args, run, helpers):
     try:
         marks = scenario.installed()
         marks = scenario.recovery_by_key(marks)
+        marks = scenario.safe_mode_by_key(marks)
         marks = scenario.failed_starts(marks)
         marks = scenario.erase_from_settings(marks)
-        scenario.reinstall_from_recovery(marks)
+        sh = scenario.reinstall_from_recovery(marks)
+        marks = scenario.make_backup(sh)
+        scenario.restore_from_backup(marks)
     finally:
         if scenario.m:
             scenario.m.stop()
