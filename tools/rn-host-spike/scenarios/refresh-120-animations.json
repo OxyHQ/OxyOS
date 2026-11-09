@@ -60,7 +60,11 @@
         "window_frames": [
           60,
           80
-        ]
+        ],
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
       }
     },
     {
@@ -111,7 +115,11 @@
         "window_frames": [
           60,
           80
-        ]
+        ],
+        "frame_work": {
+          "compose_refreshes_p95": 1.0,
+          "host_refreshes_p95": 1.0
+        }
       }
     }
   ]

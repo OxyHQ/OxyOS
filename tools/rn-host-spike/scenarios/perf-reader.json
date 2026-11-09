@@ -1,0 +1,145 @@
+{
+  "about": "The screen reader moving through a window, for the gate's timing phase and perf.py's desktop (docs/performance.mdx, docs/desktop-interaction-coverage.mdx): screen-reader.json's first steps (sample/A11yProbe.tsx in Spanish): Ctrl+Alt+Right through three elements, Ctrl+Alt+Space activating the button and its announcement said, Ctrl+Alt+Left back. Each step holds exactly what is said and how soon: from the key to the reader's first utterance for it (`spoken_ms_max`), as the session hands it to speech.",
+  "locale": "es_ES.UTF-8",
+  "module": "A11yProbe",
+  "window": [
+    480,
+    560
+  ],
+  "reader": {},
+  "steps": [
+    {
+      "name": "Ctrl+Alt+Right: the first element, said",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        },
+        "spoken": [
+          {
+            "text": "Volumen, regulador",
+            "interrupting": true
+          }
+        ],
+        "spoken_ms_max": 15
+      }
+    },
+    {
+      "name": "on to the live region's text",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        },
+        "spoken": [
+          "Nivel 5"
+        ],
+        "spoken_ms_max": 15
+      }
+    },
+    {
+      "name": "on to Guardar, a button",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          106
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        },
+        "spoken": [
+          "Guardar, botón"
+        ],
+        "spoken_ms_max": 15
+      }
+    },
+    {
+      "name": "Ctrl+Alt+Space activates it: its announcement is said at once",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          57
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {
+          "click@save": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        },
+        "spoken": [
+          {
+            "text": "Guardado",
+            "interrupting": true
+          }
+        ],
+        "spoken_ms_max": 15
+      }
+    },
+    {
+      "name": "Ctrl+Alt+Left: back to the level",
+      "do": [
+        "key",
+        [
+          29,
+          56,
+          105
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        },
+        "spoken": [
+          "Nivel 5"
+        ],
+        "spoken_ms_max": 15
+      }
+    }
+  ]
+}

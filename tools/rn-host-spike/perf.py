@@ -11,6 +11,11 @@ step's expected result) and measures, from what the processes report and from /p
   `busy_ms`, and the part of it running JavaScript, `js_ms`, from the host's report, both by the
   wall clock, and that JavaScript's time on the host's CPU, `js_cpu_ms`), and the latency from input
   to the frame answering it;
+- the desktop (`desktop`): typing, an input method composing, a menu opening from a press and from
+  the keyboard, a menu following its window moved and resized, a touchpad's flick gliding, and the
+  screen reader moving through a window (perf-typing.json, perf-ime.json, perf-menus.json,
+  perf-popup-follows.json, perf-momentum.json, perf-reader.json): each input's latency to its frame,
+  the host's own input to present, the reader's first utterance, against the scenarios' budgets;
 - the shell: what the session's shell pays for an event (shell-events.json): another window zoomed
   and restored, which changes nothing the shell shows, and the pointer over the dock; for each, the
   most JavaScript any one piece of the shell's work ran on the shell's CPU, against the scenario's
@@ -72,10 +77,14 @@ runs on (regress.py's `display_hz`: the scenario's primary output's, 60 Hz witho
 scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
-               [--renderer cpu|gpu] [--check]
-               [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
+               [--renderer cpu|gpu] [--only SCENARIOS] [--check]
+               [interactions] [responses] [desktop] [shell] [cold-start] [idle] [memory] [refresh] [genie]
        perf.py --offscreen BIN [--out DIR] [--check] search
        perf.py [--out DIR] [--check] session
+
+--only names scenarios (their files' names without .json, comma-separated): the parts that run
+scenarios (interactions, responses, desktop, shell, refresh, genie) run only those, a short set for
+a device (tools/rn-host-spike/perf-device.sh).
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -155,6 +164,20 @@ RESPONSES = [
     ("Dropsea at 1.25", "perf-dropsea-scaled.json"),
     ("Dropsea on a big home, zoomed at 1.25", "perf-dropsea-home.json"),
     ("Dropsea's launch signed in", "perf-dropsea-launch-signed-in.json"),
+]
+
+# The desktop's responses (docs/desktop-interaction-coverage.mdx): (name, scenario), each input step
+# measured as a response's, its budgets the scenario's own: the step's `latency_ms` (from the input
+# to the first frame that changed), the host's input to present (`diagnostics`' `latency_max_ms`),
+# the reader's first utterance (`spoken_ms_max`) and a glide's frames (`glide`'s `frame_gap_ms`, a
+# claim on the rate the gate holds with --speed-budgets).
+DESKTOP = [
+    ("typing", "perf-typing.json"),
+    ("an input method composing", "perf-ime.json"),
+    ("menus", "perf-menus.json"),
+    ("a menu following its window", "perf-popup-follows.json"),
+    ("momentum", "perf-momentum.json"),
+    ("the screen reader", "perf-reader.json"),
 ]
 
 # The shell's responses: (name, scenario). Each step that holds the shell to a `js_work` budget
@@ -419,7 +442,7 @@ def run_scenario(options, scenario, out, during=None, app_cache=None):
     shell = read_report(out / "host-report.jsonl.shell")
     if isinstance(scenario, pathlib.Path) and scenario.parent == SCENARIOS:
         STEP_RUNS.setdefault(scenario.name, []).append(
-            measure_steps(json.loads(scenario.read_text()), summary, report, shell))
+            measure_steps(json.loads(scenario.read_text()), summary, report, shell, read_report(out / "speech.jsonl")))
     return summary, report, shell, sampler
 
 
@@ -432,12 +455,14 @@ POOLED = {"js_ms_p95_max": 95, "busy_refreshes_p95_max": 95}
 ZOOM_LINE = re.compile(r"zoom \(.*\): its configure .* its frame presented ([\d.]+) ms after")
 
 
-def measure_steps(scenario, summary, report, shell):
+def measure_steps(scenario, summary, report, shell, spoken=()):
     """What one run measured of each step's budgets on time, as regress.py would check them (the same
     windows: from the step before's end to the step's own): `js_work`'s (the most JavaScript one
     piece of work ran on the CPU, blocked and by the clock), `resize_work`'s (the frames' JavaScript
-    on the CPU and their work in refreshes, the zoom's frame), the step's `latency_ms` and its launch
-    to content (`content_ms_max`; never shown counts as infinitely late)."""
+    on the CPU and their work in refreshes, the zoom's frame), `diagnostics`' `latency_max_ms` (the
+    host's own input to present, the longest of the step's frames), the step's `latency_ms`, the
+    reader's first utterance after the input (`spoken_ms_max`) and its launch to content
+    (`content_ms_max`; never shown, or never said, counts as infinitely late)."""
     measured = {}
     hz = display_hz(scenario)
     start = summary["t_launch"]
@@ -450,6 +475,9 @@ def measure_steps(scenario, summary, report, shell):
                 if budget in wanted.get("js_work", {}):
                     measured[(index, host, budget)] = max(
                         (line.get(measure, line["parts"]).get("javascript", 0) for line in work), default=0.0)
+            if "latency_max_ms" in wanted.get("diagnostics", {}):
+                timed = [line["latency_ms"] for line in work if line["presented"] and line["latency_ms"] is not None]
+                measured[(index, host, "latency_max_ms")] = max(timed, default=0.0)
             resize = wanted.get("resize_work", {})
             if resize:
                 begun = result.get("t_inject") or start
@@ -467,6 +495,10 @@ def measure_steps(scenario, summary, report, shell):
                         measured[(index, host, "zoom_presented_ms_max")] = max(zooms)
         if "latency_ms" in expect and result.get("latency_ms") is not None:
             measured[(index, "app", "latency_ms")] = result["latency_ms"]
+        if "spoken_ms_max" in expect:
+            said = [u["t"] for u in spoken if result.get("t_inject", 0) <= u["t"] <= end]
+            measured[(index, "app", "spoken_ms_max")] = ((said[0] - result["t_inject"]) / 1e6 if said
+                                                         else float("inf"))
         if "content_ms_max" in expect:
             shown = content_shown_ms(report, expect.get("texts", []))
             measured[(index, "app", "content_ms_max")] = float("inf") if shown is None else shown
@@ -490,8 +522,9 @@ def step_budgets():
             index, host, budget = key
             expect = steps[index].get("expect", {})
             wanted = expect if host == "app" else expect.get("in_shell", {})
-            limit = (wanted.get(budget) if budget in ("latency_ms", "content_ms_max")
-                     else {**wanted.get("js_work", {}), **wanted.get("resize_work", {})}.get(budget))
+            limit = (wanted.get(budget) if budget in ("latency_ms", "content_ms_max", "spoken_ms_max")
+                     else {**wanted.get("js_work", {}), **wanted.get("resize_work", {}),
+                           **wanted.get("diagnostics", {})}.get(budget))
             values = [run[key] for run in runs if key in run]
             if budget in POOLED:
                 measured = nearest([v for run in values for v in run], POOLED[budget])
@@ -1240,11 +1273,11 @@ def show(results):
                            "of it reading clients ms", "GPU device ms (runs' median)", "app frame work ms", "app JS ms", "app JS CPU ms",
                            "shell frame work ms", "latency ms"]))
         print()
-    if "responses" in results:
+    if "responses" in results or "desktop" in results:
         def middle(stats):
             return "—" if not stats else f"{stats['p50']} / {stats['max']}"
 
-        for name, steps in results["responses"].items():
+        for name, steps in {**results.get("responses", {}), **results.get("desktop", {})}.items():
             if not steps:
                 continue
             rows = [[step["step"], middle(step["latency_ms"]), step["budget_ms"] or "—", middle(step["work_ms"]),
@@ -1419,7 +1452,7 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, memory, refresh, genie (all "
+                        help="interactions, responses, desktop, shell, cold-start, idle, memory, refresh, genie (all "
                              "by default), search (the search service, only when named, needs --offscreen "
                              "alone) and session (the running session idle, only when named)")
     parser.add_argument("--offscreen")
@@ -1430,9 +1463,16 @@ def main():
     parser.add_argument("--gpu-only", action="store_true", help="compose on the Vulkan device alone")
     parser.add_argument("--renderer", choices=["cpu", "gpu"], default=None,
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
+    parser.add_argument("--only", default=None,
+                        help="only these scenarios (file names without .json, comma-separated) in the parts that run them")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
+    every = ["interactions", "responses", "desktop", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
+    only = set(options.only.split(",")) if options.only else None
+
+    def chosen(entries):
+        """The entries (each with its scenario's file second) --only keeps."""
+        return [entry for entry in entries if only is None or entry[1].removesuffix(".json") in only]
     parts = options.parts or every
     if not set(parts) <= set(every) | {"session", "search"}:
         parser.error(f"unknown parts {parts}")
@@ -1446,11 +1486,13 @@ def main():
     results = {"machine": machine(), "gpu_only": options.gpu_only, "runs": options.runs}
     if "interactions" in parts:
         results["interactions"] = {name: interaction(options, name, scenario, steps, what, out)
-                                   for name, scenario, steps, what in INTERACTIONS}
+                                   for name, scenario, steps, what in chosen(INTERACTIONS)}
     if "responses" in parts:
-        results["responses"] = {name: responses(options, name, scenario, out) for name, scenario in RESPONSES}
+        results["responses"] = {name: responses(options, name, scenario, out) for name, scenario in chosen(RESPONSES)}
+    if "desktop" in parts:
+        results["desktop"] = {name: responses(options, name, scenario, out) for name, scenario in chosen(DESKTOP)}
     if "shell" in parts:
-        results["shell"] = {name: shell_responses(options, name, scenario, out) for name, scenario in SHELL_RESPONSES}
+        results["shell"] = {name: shell_responses(options, name, scenario, out) for name, scenario in chosen(SHELL_RESPONSES)}
     if "cold-start" in parts:
         from regress import Machine
         packaged = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages)).by_module
@@ -1461,10 +1503,10 @@ def main():
     if "memory" in parts:
         results["memory"] = memory(options, out)
     if "refresh" in parts:
-        results["refresh"] = {name: refresh(options, name, scenario, out) for name, scenario in REFRESH}
+        results["refresh"] = {name: refresh(options, name, scenario, out) for name, scenario in chosen(REFRESH)}
     if "genie" in parts:
         results["genie"] = {name: genie(options, name, scenario, steps, what, out)
-                            for name, scenario, steps, what in GENIE}
+                            for name, scenario, steps, what in chosen(GENIE)}
     if "session" in parts:
         results["session"] = session_idle(SESSION_WINDOW_S)
     if "search" in parts:

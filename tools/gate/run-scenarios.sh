@@ -21,7 +21,9 @@
 #   phase 2 one gate at a time (a lock), a fixed port's scenario one gate at a time (its port's lock).
 #   2. one at a time, alone on the cores the machine reserves for the gate (oxyos-gate-cpus, where
 #      the machine has it, tools/gate/machine.sh): the scenarios that hold a budget on time (perf-*,
-#      refresh-*), which beside siblings would measure each other, and then once more each that
+#      refresh-*), which beside siblings would measure each other, holding their budgets on speed
+#      too (regress.py --speed-budgets: JavaScript on the CPU, frames' spacing and counts, each
+#      frame's work within a refresh) where the cores are reserved, and then once more each that
 #      failed in 1 or 2; a scenario failing twice fails the gate;
 #   3. the scenarios through libinput on the kernel's virtual devices (`uinput`), with /dev/uinput
 #      (tools/gate/machine.sh grants it), else as root through sudo, else the gate fails;
@@ -144,14 +146,19 @@ reserved=
 if [ -x $reserve ] && sudo -n $reserve reserve 2>/dev/null; then
   reserved=1; trap 'sudo -n $reserve release' EXIT
 else
-  echo "gate: no reserved cores here (tools/gate/machine.sh, a gate slice): the timing runs share theirs"
+  echo "gate: no reserved cores here (tools/gate/machine.sh, a gate slice): the timing runs share theirs, their budgets on speed not held"
 fi
-grep -E '^(perf|refresh)-' "$R/list" | while read -r n; do sh "$R/run-one.sh" "$n" --renderer cpu || echo "$n" >> "$R/failed"; done
+# The budgets on speed (docs/performance.mdx, "The gate's budgets on speed") are held only alone on
+# the reserved cores, where nothing else of the machine runs: shared, a timing scenario measures the
+# machine's load.
+speed=; [ -z "$reserved" ] || speed=--speed-budgets
+timing() { case $1 in perf-* | refresh-*) echo $speed ;; esac; }
+grep -E '^(perf|refresh)-' "$R/list" | while read -r n; do sh "$R/run-one.sh" "$n" --renderer cpu $speed || echo "$n" >> "$R/failed"; done
 for n in $(cat "$R/failed"); do
   echo "scenario $n failed once (load $(cut -d' ' -f1 /proc/loadavg)), again alone:"; said "$n"
   grep -rh "fatal signal" -A12 "$R/scenarios/$n.failed" 2>/dev/null | head -14
   mv "$R/scenarios/$n.failed" "$R/scenarios/$n.failed-first"
-  sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"
+  sh "$R/run-one.sh" "$n" --renderer cpu $(timing "$n") || { said "$n"
     # A scenario in tools/gate/quarantine (flaky on main, its issue open) is said, not counted.
     issue=$(awk -v n="$n" '!/^#/ && $1 == n { print $2 }' tools/gate/quarantine)
     [ -n "$issue" ] || fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"
@@ -159,7 +166,7 @@ for n in $(cat "$R/failed"); do
 done
 [ -n "$reserved" ] && { sudo -n $reserve release; trap - EXIT; }
 flock -u 8
-phase "$(grep -cE '^(perf|refresh)-' "$R/list") timing scenarios run alone; every failure passed alone"
+phase "$(grep -cE '^(perf|refresh)-' "$R/list") timing scenarios run alone${speed:+, their budgets on speed held}; every failure passed alone"
 
 # Through the kernel's virtual devices (docs/adr/0042-scrolling.mdx): each reads only its own
 # devices (libinput's path backend), so they run one at a time beside nothing else of theirs.

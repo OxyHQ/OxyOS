@@ -1,0 +1,271 @@
+{
+  "about": "A menu opened by a press and following its window, for the gate's timing phase and perf.py's desktop (docs/performance.mdx, docs/desktop-interaction-coverage.mdx): popup-follows.json's steps (the sample app's menu, its window moved and resized by the shell, the menu kept and placed anew, a key and a press on it), each timed: from the press to the menu shown, from the move to the menu drawn where its window went, from each resize to the menu placed at its trigger anew (`latency_ms`), and the host's input to present for the press and the key (`diagnostics`' `latency_max_ms`).",
+  "window": [
+    1024,
+    560
+  ],
+  "steps": [
+    {
+      "name": "the menu opens at its trigger, its top edge where the trigger's is drawn",
+      "do": [
+        "press",
+        [
+          939,
+          411
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "touchStart@open-menu": 1,
+          "touchEnd@open-menu": 1
+        },
+        "popup_events": {
+          "open@message-actions": 1
+        },
+        "window_rect": [
+          128,
+          80,
+          1024,
+          560
+        ],
+        "popup_rect": [
+          745,
+          473,
+          266,
+          222
+        ],
+        "frame_px": {
+          "window": [
+            1024,
+            560
+          ],
+          "popup": [
+            266,
+            222
+          ]
+        },
+        "latency_ms": 60,
+        "diagnostics": {
+          "latency_max_ms": 60,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "the shell moves the window: the menu moves with it, not placed again",
+      "do": [
+        "move-window",
+        [
+          -100,
+          -20
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {},
+        "popup_events": {},
+        "delivered": {},
+        "window_rect": [
+          28,
+          60,
+          1024,
+          560
+        ],
+        "popup_rect": [
+          645,
+          453,
+          266,
+          222
+        ],
+        "latency_ms": 20,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "the shell resizes the window: the host lays it out again and the menu is placed at its trigger anew, right of it, under the pointer, which enters it",
+      "do": [
+        "resize-window",
+        [
+          900,
+          520
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {},
+        "popup_events": {
+          "reposition@message-actions": 1
+        },
+        "delivered": {
+          "2": {
+            "enter": 1
+          }
+        },
+        "window_rect": [
+          28,
+          60,
+          900,
+          520
+        ],
+        "popup_rect": [
+          899,
+          453,
+          266,
+          222
+        ],
+        "frame_px": {
+          "window": [
+            900,
+            520
+          ]
+        },
+        "latency_ms": 40,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "the shell grows the window back: the menu is placed again, at its trigger, once the larger frame is shown, and the pointer leaves it",
+      "do": [
+        "resize-window",
+        [
+          1024,
+          560
+        ]
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {},
+        "popup_events": {
+          "reposition@message-actions": 2
+        },
+        "delivered": {
+          "2": {
+            "leave": 1
+          }
+        },
+        "window_rect": [
+          28,
+          60,
+          1024,
+          560
+        ],
+        "popup_rect": [
+          645,
+          453,
+          266,
+          222
+        ],
+        "frame_px": {
+          "window": [
+            1024,
+            560
+          ]
+        },
+        "latency_ms": 35,
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "Home reaches the menu once, which kept the keyboard through the moves: its first row active",
+      "do": [
+        "key",
+        102
+      ],
+      "expect": {
+        "popups": 1,
+        "focus_surface": 2,
+        "react": {
+          "key@message-actions": 1
+        },
+        "popup_events": {},
+        "delivered": {
+          "2": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Reply",
+              "state": [
+                "focused"
+              ]
+            }
+          ]
+        },
+        "popup_rect": [
+          645,
+          453,
+          266,
+          222
+        ],
+        "latency_ms": 30,
+        "diagnostics": {
+          "latency_max_ms": 25,
+          "timed_inputs_min": 1
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
+        }
+      }
+    },
+    {
+      "name": "the menu still takes its rows' presses where they are, and closes with the keyboard back on its trigger",
+      "do": [
+        "press-popup",
+        [
+          60,
+          80
+        ]
+      ],
+      "expect": {
+        "popups": 0,
+        "focus_surface": 1,
+        "texts": [
+          "Chosen: Archive"
+        ],
+        "react": {
+          "touchStart@action-Archive": 1,
+          "touchEnd@action-Archive": 1
+        },
+        "popup_events": {
+          "close@2": 1
+        },
+        "a11y_events": {
+          "focus@open-menu": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          },
+          "2": {
+            "enter": 1,
+            "focus.out": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
+        }
+      }
+    }
+  ]
+}

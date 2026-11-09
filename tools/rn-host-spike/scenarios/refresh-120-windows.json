@@ -64,6 +64,9 @@
             }
           ],
           "frames_min": 10
+        },
+        "frame_work": {
+          "host_refreshes_p95": 1.0
         }
       }
     },
@@ -100,6 +103,9 @@
             }
           ],
           "frames_min": 10
+        },
+        "frame_work": {
+          "host_refreshes_p95": 1.0
         }
       }
     },
@@ -124,6 +130,9 @@
             8.0,
             8.9
           ]
+        },
+        "frame_work": {
+          "compose_refreshes_p95": 1.0
         }
       }
     }
