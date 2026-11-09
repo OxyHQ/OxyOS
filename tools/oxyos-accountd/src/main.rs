@@ -364,6 +364,11 @@ fn run() -> Result<(), String> {
         Ok(None) => {}
         Err(error) => eprintln!("oxyos-accountd: the machine has no administrator: {error}"),
     }
+    // Each account's user named as its account is (passwd's GECOS): users set up before the
+    // service named them are named now.
+    if let Err(error) = setup.name_users() {
+        eprintln!("oxyos-accountd: the accounts' users are not named: {error}");
+    }
     let platform: Arc<Service> = Arc::new(Platform::new(setup));
     // The accounts' keychains, synced with OxyOS's own token for each account.
     let tokens = Arc::downgrade(&platform);

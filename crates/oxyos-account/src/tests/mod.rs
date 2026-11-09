@@ -170,6 +170,8 @@ pub(crate) struct FakeApi {
     pub(crate) limited: Mutex<std::collections::VecDeque<(Option<u64>, Option<Duration>)>>,
     /// The windows a redemption's answer tells (R9), counted from the answer; none: told nothing.
     pub(crate) windows_told: Mutex<(Option<Duration>, Option<Duration>)>,
+    /// The display name `/users/me` says the account has now (changed on Oxy, say).
+    pub(crate) display_name: Mutex<Option<String>>,
 }
 
 impl Default for FakeApi {
@@ -196,6 +198,7 @@ impl Default for FakeApi {
             confirm_hiccups: Mutex::new(std::collections::VecDeque::new()),
             limited: Mutex::new(std::collections::VecDeque::new()),
             windows_told: Mutex::new((None, None)),
+            display_name: Mutex::new(Some("Ada Lovelace".into())),
         }
     }
 }
@@ -379,7 +382,7 @@ impl OxyApi for FakeApi {
         Ok(Profile {
             id: self.profile_id.unwrap_or(id).into(),
             username: Some(USERNAME.into()),
-            display_name: Some("Ada Lovelace".into()),
+            display_name: self.display_name.lock().unwrap().clone(),
             avatar: Some("avatar-file-1".into()),
             languages: Some(vec!["en-GB".into(), "es-ES".into()]),
         })
@@ -580,6 +583,11 @@ pub(crate) struct FakeUsers {
     pub(crate) steps: Mutex<Vec<UserStep>>,
     /// The files written into homes, by path.
     pub(crate) seeded: Mutex<BTreeMap<PathBuf, String>>,
+    /// Each user's full name (GECOS), as last written, and how many times one was written.
+    pub(crate) full_names: Mutex<BTreeMap<String, String>>,
+    pub(crate) full_name_writes: Mutex<usize>,
+    /// Writing a full name fails.
+    pub(crate) full_name_fails: std::sync::atomic::AtomicBool,
 }
 
 impl FakeUsers {
@@ -623,6 +631,11 @@ impl FakeUsers {
 
     pub(crate) fn steps(&self) -> Vec<UserStep> {
         self.steps.lock().unwrap().clone()
+    }
+
+    /// `name`'s full name (GECOS), as last written.
+    pub(crate) fn full_name(&self, name: &str) -> Option<String> {
+        self.full_names.lock().unwrap().get(name).cloned()
     }
 
     /// Whether `name` is in the administrators' group.
@@ -698,6 +711,26 @@ impl Users for FakeUsers {
         self.step(UserStep::EndSessions)?;
         self.ended.lock().unwrap().push(name.as_str().into());
         Ok(())
+    }
+
+    fn set_full_name(&self, name: &UserName, full_name: &str) -> Result<bool, UsersError> {
+        if self
+            .full_name_fails
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(UsersError::Failed("usermod failed".into()));
+        }
+        if !self.users.lock().unwrap().contains_key(name.as_str()) {
+            return Err(UsersError::Missing);
+        }
+        let wanted = crate::users::gecos_full_name(full_name);
+        let mut names = self.full_names.lock().unwrap();
+        if names.get(name.as_str()) == Some(&wanted) {
+            return Ok(false);
+        }
+        names.insert(name.as_str().into(), wanted);
+        *self.full_name_writes.lock().unwrap() += 1;
+        Ok(true)
     }
 
     fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError> {

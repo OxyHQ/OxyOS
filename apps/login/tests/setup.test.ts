@@ -33,7 +33,11 @@ const code = { id: "a", name: "Ada", hasPassword: true, via: "other" as const };
 const codeNoPassword = { id: "a", name: "Ada", hasPassword: false, via: "other" as const };
 
 test("each answer of the accounts' service leads somewhere, a failure to its way forward", () => {
-  assert.deepEqual(afterEnroll(qr, { enrolled: { accountId: "a", user: "oxy-a" } }), { next: "enrolled", user: "oxy-a" });
+  assert.deepEqual(afterEnroll(qr, { enrolled: { accountId: "a", user: "oxy-a", name: "Ada" } }), {
+    next: "enrolled",
+    user: "oxy-a",
+    name: "Ada",
+  });
   assert.deepEqual(afterEnroll(code, "secondFactorRequired"), { next: "secondFactor", invalid: false });
   assert.deepEqual(afterEnroll(code, { refused: { reason: "secondFactorInvalid" } }), { next: "secondFactor", invalid: true });
   // The password asked once: refused, asked again; throttled, its wait said.
@@ -107,8 +111,12 @@ test("a PIN is four to sixteen digits, as the accounts' service takes one", () =
 
 test("an answer that is not one is a failure", () => {
   assert.equal(enrollAnswerFrom("secondFactorRequired"), "secondFactorRequired");
+  // Named as the person is; a service that names nobody gives no name, never the user's.
+  assert.deepEqual(enrollAnswerFrom({ enrolled: { accountId: "a", user: "oxy-a", name: " Ada Lovelace " } }), {
+    enrolled: { accountId: "a", user: "oxy-a", name: "Ada Lovelace" },
+  });
   assert.deepEqual(enrollAnswerFrom({ enrolled: { accountId: "a", user: "oxy-a", uid: 1001 } }), {
-    enrolled: { accountId: "a", user: "oxy-a" },
+    enrolled: { accountId: "a", user: "oxy-a", name: "" },
   });
   assert.deepEqual(enrollAnswerFrom({ refused: { reason: "locked", retryAfterSeconds: 60 } }), {
     refused: { reason: "locked", retryAfterSeconds: 60 },

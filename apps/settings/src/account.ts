@@ -66,9 +66,10 @@ export function accountView(snapshot: AccountSnapshot | null | undefined): Accou
   };
 }
 
-/** What the account is called: its display name, else its handle. */
+/** What the account is called, as every screen calls the person (session-user.ts): its display
+    name, else its handle. */
 export function accountName(account: Pick<OxyAccount, "handle" | "displayName">): string {
-  return account.displayName?.trim() || account.handle;
+  return account.displayName?.trim() || account.handle.trim();
 }
 
 /** The account's picture when it is one an image can show (an http(s) or file URL); else none, and

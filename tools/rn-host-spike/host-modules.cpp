@@ -2010,9 +2010,15 @@ std::shared_ptr<TurboModule> createHostModule(
     //   `changeLocal(change, {pin, password, currentPin})`, a promise of {localSignIn} or {refused:
     //   {reason, retryAfter?}}.
     // - Passkeys (docs/adr/0050-keychain-autofill-and-passkeys.mdx): `passkey(ceremony, options)`.
+    // - Who the session is for, in the session's shell too (`follows`): `snapshot()` and
+    //   `subscribe()`, so the lock screen and the menu bar name the person as the account is
+    //   named (decision 1), never by the Unix user. The shell is registered with the service as
+    //   OxyOS itself; the login screen is not, and the service refuses it. The shell is never the
+    //   SDK's session host (`available` stays false there).
     bool available = services.application.recorded && !services.shellWindow;
     bool setup = services.shellWindow;
-    module->constants(folly::dynamic::object("available", available)("setup", setup));
+    bool follows = available || services.shellWindow;
+    module->constants(folly::dynamic::object("available", available)("setup", setup)("follows", follows));
     auto session = [&services, setup]() -> AccountSession& {
       if (!services.accountSession) {
         services.accountSession = std::make_unique<AccountSession>();
@@ -2059,12 +2065,12 @@ std::shared_ptr<TurboModule> createHostModule(
         });
       };
     };
-    module->method("snapshot", [available](jsi::Runtime& rt, const jsi::Value*, size_t) {
-      if (!available) return jsi::Value::null();
+    module->method("snapshot", [follows](jsi::Runtime& rt, const jsi::Value*, size_t) {
+      if (!follows) return jsi::Value::null();
       return jsi::valueFromDynamic(rt, AccountSession::snapshot());
     });
-    module->method("subscribe", [&services, available, session](jsi::Runtime&, const jsi::Value*, size_t) {
-      if (!available) return jsi::Value(false);
+    module->method("subscribe", [&services, follows, session](jsi::Runtime&, const jsi::Value*, size_t) {
+      if (!follows) return jsi::Value(false);
       return jsi::Value(session().subscribe([&services](const folly::dynamic& snapshot) {
         if (services.emit) services.emit("OxyOSAccountSessionChanged", snapshot);
       }));
