@@ -160,6 +160,37 @@ export function usePowerState() {
 }
 
 /**
+ * Backups (docs/adr/0059-backups.mdx): the shell (its `shell` grant: the menu bar's backup item)
+ * and Settings (`settings`: its Backups page) are told the backup service's state as it changes:
+ * followed as `{backup: State}`, `{backup: null}` while the service is not there, and null before
+ * the session said (State: `{automatic, destinations, excluded, running, lastBackup, nextBackup,
+ * held, administrator, inMenuBar}`). Both back up now and skip a backup, citing the press that
+ * asked; Settings alone lists the disks that can be added (`{backupDisks: [disk]}`), adds a disk or
+ * a share (`{backupAddDisk: {id}}`, `{backupAddShare: {id}}`), removes a destination, sets the
+ * excluded items and Back Up Automatically, each citing the press. A refusal is
+ * `{refused: {reason}}`, what the service would not do `{failed: {reason}}`. The service decides
+ * who is an administrator.
+ */
+export const backup = {
+  state: () => ask({ backup: {} }),
+  backUpNow: () => ask({ backupNow: {} }),
+  stop: () => ask({ backupStop: {} }),
+  disks: () => ask({ backupDisks: {} }),
+  addDisk: (uuid, password) => ask({ backupAddDisk: { uuid, password } }),
+  addShare: (share, sharePassword, password) => ask({ backupAddShare: { share, sharePassword, password } }),
+  remove: (id) => ask({ backupRemove: { id } }),
+  setExcluded: (paths) => ask({ backupExcluded: { paths } }),
+  setAutomatic: (enabled) => ask({ backupAutomatic: { enabled } }),
+  current: state.backup.current,
+  subscribe: state.backup.subscribe,
+};
+
+/** Backups as the session tells them, for a view: asked as it is first followed. */
+export function useBackupState() {
+  return useFollowed(backup);
+}
+
+/**
  * The input sources (docs/adr/0041-input-methods.mdx, decision 6): the session tells Settings (its
  * `settings` grant) and the shell the sources in effect and the input methods its engine has, as
  * they change, and answers `{inputSources: {}}` with them. Settings changes them through the

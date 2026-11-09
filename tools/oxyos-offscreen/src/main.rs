@@ -178,6 +178,13 @@ struct Session {
     power_waker: Option<std::os::fd::RawFd>,
     /// A connection to the played power services' control (`oxyos-offscreen --play-power`).
     pub power_control: Option<zbus::blocking::Connection>,
+    /// `--backup SOCKET VOLUMES`: the session's side of backups (docs/adr/0059-backups.mdx) over
+    /// the development backup service at SOCKET (`oxyos-offscreen --play-backup`), its waker among
+    /// the compositor's; VOLUMES is the service's played disks, which a step connects and takes
+    /// away, and each step's result says what the service holds (`backup`).
+    pub backups: Option<oxyos_compositor::backups::Backups>,
+    pub backups_waker: Option<std::os::fd::RawFd>,
+    pub backup_service: Option<(PathBuf, PathBuf)>,
     /// `--input-methods PREFIX`: the session's input methods, the real engine (ADR 0041), and its
     /// waker among the compositor's.
     input_methods: Option<oxyos_compositor::input_methods::InputMethods>,
@@ -341,6 +348,9 @@ impl Session {
             power: None,
             power_waker: None,
             power_control: None,
+            backups: None,
+            backups_waker: None,
+            backup_service: None,
             input_sources: None,
             autofill: None,
             autofill_keychain: None,
@@ -622,6 +632,56 @@ impl Session {
         .unwrap_or_else(|| "null".into())
     }
 
+    /// The development backup service (`--backup`) acts: a played disk connected (made, or
+    /// brought back from where it was taken), taken away, or a request of the person's sent to
+    /// it as `oxyos-backupd --client` would. A wait for its state is the step loop's: returned
+    /// here as what to wait for and for how long.
+    pub fn backup_act(&mut self, what: &str) -> Result<Option<(serde_json::Value, u64)>> {
+        let (socket, volumes) = self
+            .backup_service
+            .clone()
+            .ok_or("a backup step needs --backup")?;
+        let what: serde_json::Value = serde_json::from_str(what)?;
+        let away = volumes.with_file_name("away");
+        if let Some(uuid) = what.get("connect").and_then(|u| u.as_str()) {
+            let disk = volumes.join(uuid);
+            if away.join(uuid).is_dir() {
+                fs::rename(away.join(uuid), &disk)?;
+            } else {
+                fs::create_dir_all(&disk)?;
+            }
+            if let Some(label) = what.get("label").and_then(|l| l.as_str()) {
+                fs::write(disk.join(".oxyos-label"), label)?;
+            }
+        } else if let Some(uuid) = what.get("disconnect").and_then(|u| u.as_str()) {
+            fs::create_dir_all(&away)?;
+            fs::rename(volumes.join(uuid), away.join(uuid))?;
+        } else if let Some(request) = what.get("ask") {
+            let answer = backup_ask(&socket, request)?;
+            if answer.get("refused").is_some() {
+                return Err(format!("the backup service refused {request}: {answer}").into());
+            }
+        } else if let Some(until) = what.get("until") {
+            let ms = what.get("ms").and_then(|ms| ms.as_u64()).unwrap_or(30_000);
+            return Ok(Some((until.clone(), ms)));
+        } else {
+            return Err(
+                format!("a backup step is connect, disconnect, ask or until: {what}").into(),
+            );
+        }
+        Ok(None)
+    }
+
+    /// What the development backup service holds (its state, as `status` answers), for a step's
+    /// result; `null` without it.
+    pub fn backup_state(&self) -> String {
+        self.backup_service
+            .as_ref()
+            .and_then(|(socket, _)| backup_ask(socket, &serde_json::json!("status")).ok())
+            .and_then(|mut answer| answer.get_mut("status").map(serde_json::Value::take))
+            .map_or_else(|| "null".into(), |state| state.to_string())
+    }
+
     /// The battery and energy's turn (ADR 0057): the applications the run started that run.
     fn serve_power(&mut self) {
         let Some(power) = self.power.as_mut() else {
@@ -701,6 +761,10 @@ impl Session {
         self.serve_input_sources();
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
+        // Backups (ADR 0059), before the install service takes what is left.
+        if let Some(backups) = self.backups.as_mut() {
+            backups.serve(&mut self.compositor.scene, self.settings.preferences());
+        }
         // The dock's Trash, as the session follows it (docs/adr/0034-the-dock.mdx), emptying
         // itself as the person has it (docs/adr/0062-storage.mdx).
         if let Some(trash) = self.trash.as_mut() {
@@ -1124,6 +1188,12 @@ impl Session {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }
+        // Backups' side, its threads waited for and its waker given back.
+        self.backups = None;
+        if let Some(waker) = self.backups_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
         // Battery and energy's side, its threads waited for, its waker given back, and the
         // played services gone.
         if let Some(power) = self.power.as_mut() {
@@ -1407,6 +1477,35 @@ mod checks {
     }
 }
 
+/// One request of the development backup service and its answer, as `oxyos-backupd --client`.
+fn backup_ask(socket: &Path, request: &serde_json::Value) -> Result<serde_json::Value> {
+    let connection = oxyos_install::socket::Connection::connect(socket)?;
+    connection.set_timeout(Duration::from_secs(120))?;
+    connection.send(request)?;
+    match connection.receive::<serde_json::Value>()? {
+        Some(Some(answer)) => Ok(answer),
+        _ => Err("the backup service did not answer".into()),
+    }
+}
+
+/// Whether the backup service's state holds what a step waits for: an object's keys given, each
+/// matching (null: absent or null); a list item by item, of the same length; anything else
+/// equal.
+pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (wanted, state) {
+        (Value::Object(wanted), Value::Object(state)) => wanted.iter().all(|(key, value)| {
+            state
+                .get(key)
+                .map_or(value.is_null(), |held| backup_holds(value, held))
+        }),
+        (Value::Array(wanted), Value::Array(state)) => {
+            wanted.len() == state.len() && wanted.iter().zip(state).all(|(w, s)| backup_holds(w, s))
+        }
+        _ => wanted == state,
+    }
+}
+
 fn main() -> Result<()> {
     // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
     // child, its standard input the socket the compositor brokers questions over.
@@ -1438,6 +1537,23 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
+        // The development backup service (docs/adr/0059-backups.mdx), as `oxyos-backupd
+        // --development` runs it, on a run's own folders: its state, its played disks (each
+        // folder of VOLUMES a disk connected), restic's cache and what it backs up; it serves
+        // once SOCKET is there. A process of its own, as the system's service is. Never installed.
+        [flag, state, volumes, socket, cache, sources @ ..]
+            if flag == "--play-backup" && !sources.is_empty() =>
+        {
+            oxyos_backupd::run(oxyos_backupd::Arguments {
+                development: true,
+                state: state.into(),
+                socket: Some(socket.into()),
+                volumes: Some(volumes.into()),
+                cache: Some(cache.into()),
+                sources: sources.iter().map(PathBuf::from).collect(),
+            })?;
+            Ok(())
+        }
         _ if args.iter().any(|arg| arg == "--launch") => {
             let (out, launch) = launch::Launch::parse(&args)?;
             launch::run(&out, &launch)
@@ -1446,5 +1562,38 @@ fn main() -> Result<()> {
             "usage: oxyos-offscreen [--out DIR]\n       oxyos-offscreen --launch [--out DIR] [--press X,Y]... -- COMMAND [ARGS]..."
                 .into(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::backup_holds;
+    use serde_json::json;
+
+    #[test]
+    fn a_wait_holds_when_every_key_given_matches() {
+        let state = json!({
+            "running": null, "held": false,
+            "destinations": [{"id": "a", "backups": 1, "available": true}],
+            "excluded": ["/home/nate/Pictures"]
+        });
+        assert!(backup_holds(&json!({"running": null}), &state));
+        assert!(backup_holds(
+            &json!({"destinations": [{"backups": 1}]}),
+            &state
+        ));
+        assert!(!backup_holds(
+            &json!({"destinations": [{"backups": 2}]}),
+            &state
+        ));
+        // A list item by item, of the same length.
+        assert!(!backup_holds(&json!({"destinations": []}), &state));
+        assert!(!backup_holds(&json!({"excluded": []}), &state));
+        // Null: absent or null.
+        assert!(backup_holds(&json!({"lastBackup": null}), &state));
+        assert!(!backup_holds(
+            &json!({"running": {"phase": "backingUp"}}),
+            &state
+        ));
     }
 }

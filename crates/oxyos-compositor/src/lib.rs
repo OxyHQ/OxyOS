@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 pub mod arrangement;
 pub mod autofill;
 pub mod background;
+pub mod backups;
 pub mod controls;
 pub mod crashes;
 pub mod drag_badge;

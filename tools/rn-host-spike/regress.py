@@ -152,6 +152,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   energy.mdx), what they hold once the step settled ("on_ac", "battery" with its "percent",
   "state" and "charge_limit", "sysfs" with the battery's "start" and "end" thresholds as UPower
   wrote them, "active_profile", "holds", "suspends", "calls"), each key given matching;
+- backup: with the scenario's `backup` (the development backup service, `oxyos-offscreen
+  --play-backup`, on the run's own folders backing up its home, the session's backups for the menu
+  bar and Settings, docs/adr/0059-backups.mdx; `backups`, below, is an application's files
+  service's, backed up before the run), what
+  it holds once the step settled, as its `status` answers (`automatic`, `destinations` with each
+  one's `name`, `available`, `backups`, `lastFailure`; `excluded`, `running`, `held`...), each key
+  given matching ("{home}" in a text the run's home); a `backup` step acts on it: {"connect": uuid, "label"} and {"disconnect": uuid}
+  a played disk, {"ask": request} a request of the person's, and {"until": state, "ms": N} waits,
+  the session served, until it holds that state;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -1118,6 +1127,13 @@ def director_args(step, out):
         # The played power services change the machine (ADR 0057): {"on_ac": false},
         # {"percent": 9, "warning": "low"}, {"state": "charging", "time_to_full": 3600}.
         return args + ["--power", json.dumps(value)]
+    if kind == "backup":
+        # The development backup service (ADR 0059): a played disk connected or taken away, a
+        # request of the person's, or a wait until it holds a state: {"connect": uuid, "label"},
+        # {"disconnect": uuid}, {"ask": {"addDisk": {...}}}, {"until": {...}, "ms": 60000};
+        # "{home}" in a text the run's home.
+        home = str((out / "home").resolve())
+        return args + ["--backup-act", json.dumps(value).replace("{home}", home)]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -4774,6 +4790,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             held = json.loads(held) if isinstance(held, str) else held
             for problem in matches_within(expect["power"], held, "the power services'"):
                 fail(problem)
+    if "backup" in expect:
+        # What the development backup service holds once the step settled (ADR 0059): its
+        # destinations, their backups and failures, what runs, what is excluded and held.
+        held = result.get("backup")
+        if held is None:
+            fail("no backup service's state (the scenario needs `backup`)")
+        else:
+            held = json.loads(held) if isinstance(held, str) else held
+            # "{home}" the run's home: an item excluded from backups is a path of it.
+            for problem in matches_within(with_home(expect["backup"], preferences), held, "the backup service's"):
+                fail(problem)
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
@@ -5616,6 +5643,63 @@ def bluetooth_daemon(spec, out, offscreen):
     return address, stop
 
 
+def write_backup_files(spec, home):
+    """The backup scenario's `files` in the run's home, once it is made: random bytes (what
+    deduplication and compression cannot shrink), by path and size."""
+    for relative, size in spec.get("files", {}).items():
+        path = home / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(os.urandom(size))
+
+
+def played_backup_service(spec, out, offscreen, home):
+    """The development backup service (docs/adr/0059-backups.mdx) played by the development
+    compositor's own program (`--play-backup`, as `oxyos-backupd --development` runs it), a
+    process of its own on the run's folders: its state, its played disks (`disks`: each a folder
+    named by its file system's UUID, its `label` in `.oxyos-label`), restic's cache, backing up
+    the run's `home` (its `files`: `write_backup_files`). With `pace` (KiB/s) the service's
+    restic is Debian's with its own upload limit (`--limit-upload`), so a backup lasts long
+    enough to be seen running; the session's and every other program's PATH is the run's. restic must be installed (`apt install restic`). The
+    compositor's arguments and a function that stops it."""
+    restic = shutil.which("restic")
+    if restic is None:
+        raise SystemExit("the backup scenarios need restic (apt install restic): the development backup service runs it")
+    base = (out / "backup").resolve()
+    shutil.rmtree(base, ignore_errors=True)
+    volumes = base / "volumes"
+    volumes.mkdir(parents=True)
+    for disk in spec.get("disks", []):
+        (volumes / disk["uuid"]).mkdir()
+        if "label" in disk:
+            (volumes / disk["uuid"] / ".oxyos-label").write_text(disk["label"])
+    env = dict(os.environ)
+    if "pace" in spec:
+        programs = base / "bin"
+        programs.mkdir()
+        wrapper = programs / "restic"
+        wrapper.write_text(f"#!/bin/sh\nexec {restic} --limit-upload {int(spec['pace'])} \"$@\"\n")
+        wrapper.chmod(0o755)
+        env["PATH"] = f"{programs}:{env.get('PATH', '/usr/bin:/bin')}"
+    # A directory of its own under /tmp: a run's directory is too deep for a socket's path.
+    sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-backup-"))
+    socket = sockets / "socket"
+    log = open(base / "service.log", "w")
+    service = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
+                                str(volumes), str(socket), str(base / "cache"), str(home)],
+                               env=env, stdout=log, stderr=log)
+    wait_for(socket)
+
+    def stop():
+        service.terminate()
+        try:
+            service.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            service.kill()
+        log.close()
+        shutil.rmtree(sockets, ignore_errors=True)
+    return ["--backup", str(socket), str(volumes)], stop
+
+
 def power_services(spec, out, offscreen):
     """A bus of the run's own and UPower, power-profiles-daemon and logind played on it by the
     development compositor's own program (`--play-power`, docs/adr/0057-battery-and-energy.mdx),
@@ -5869,12 +5953,21 @@ def main():
         bluetooth_address, stop_bluetooth = bluetooth_daemon(scenario["bluetooth"], out, options.offscreen)
         command += ["--bluetooth-bus", bluetooth_address]
     stop_power = None
+    stop_backup = None
     if "power" in scenario:
         # The machine's power services, played on a bus of the run's own (ADR 0057): the
         # session's battery, Low Power Mode, charge limit and sleep are theirs, never the
         # developer's machine's.
         power_arguments, stop_power = power_services(scenario["power"], out, options.offscreen)
         command += power_arguments
+    if "backup" in scenario:
+        # The development backup service on the run's own folders (ADR 0059), backing up the
+        # run's home: the session's backups are its, never the machine's.
+        if "home" not in scenario:
+            raise SystemExit(f"{options.scenario}: `backup` backs up the run's `home`, which it needs")
+        backup_arguments, stop_backup = played_backup_service(scenario["backup"], out, options.offscreen,
+                                                       (out / "home").resolve())
+        command += backup_arguments
     if "input_sources" in scenario:
         # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
         # played with an engine that has the input methods named (none: none installed), from the
@@ -6083,6 +6176,10 @@ def main():
         # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
         backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
         env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
+    if "backup" in scenario:
+        # The files the backup scenario adds to the run's home (made above), which its service
+        # backs up.
+        write_backup_files(scenario["backup"], home_root)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
@@ -6125,6 +6222,8 @@ def main():
             stop_bluetooth()
         if stop_power is not None:
             stop_power()
+        if stop_backup is not None:
+            stop_backup()
         if stop_backups is not None:
             stop_backups()
     if recorder is not None:

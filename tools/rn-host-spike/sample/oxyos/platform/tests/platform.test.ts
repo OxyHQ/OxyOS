@@ -187,6 +187,25 @@ test('a followed state tells its followers in order and stops each once', () => 
   assert.ok(new PlatformError('audio', 'busy') instanceof Error);
 });
 
+test("backups are asked for as first followed, and no backup service is a state of its own", () => {
+  const { session, sent, answer, tell } = played();
+  // Before the session said: null.
+  assert.equal(session.state.backup.current(), null);
+  const told: unknown[] = [];
+  const stop = session.state.backup.subscribe((state) => told.push(state));
+  assert.deepEqual(sent.at(-1)?.body, { backup: {} });
+  // No service: told as such, not as "not said yet".
+  answer(sent.at(-1)!.serial, { backup: null });
+  assert.deepEqual(session.state.backup.current(), { backup: null });
+  // The service came: its state, told unasked.
+  tell({ backup: { automatic: true, destinations: [] } });
+  assert.deepEqual(told, [{ backup: null }, { backup: { automatic: true, destinations: [] } }]);
+  // An answer without it says nothing of it.
+  tell({ power: { battery: null } });
+  assert.equal(told.length, 2);
+  stop();
+});
+
 /** A played OxyOSKeychain: what it was asked, and its answer to each, in turn. */
 function playedKeychain(answers: unknown[], available = true) {
   const asked: unknown[][] = [];
