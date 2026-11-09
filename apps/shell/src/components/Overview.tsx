@@ -43,6 +43,7 @@ import type {
 import { belongsTo } from "../model";
 import type { WindowSize, WindowViewProps } from "../platform";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
 
 function aspectRatio(size: WindowSize | undefined) {
   return size &&
@@ -211,6 +212,8 @@ export const Overview = memo(function Overview({
   /** The windows' sizes where the platform keeps them apart (ShellPlatform's). */
   useWindowSizes?: () => ReadonlyMap<string, WindowSize> | undefined;
 }) {
+  // The desktops' cards are glass over the wallpaper: opaque with Reduce transparency on.
+  const reduced = useReducedTransparency();
   const words = useShellMessages().overview;
   // The windows' sizes, read here alone: a window resized renders the overview, nothing else.
   const sizes = useWindowSizes();
@@ -366,7 +369,7 @@ export const Overview = memo(function Overview({
             <Box
               key={workspace.id}
               testID={`workspace-${workspace.id}`}
-              className="overflow-hidden rounded-[24px] bg-[#546776]/35"
+              className={`overflow-hidden rounded-[24px] ${reduced ? "bg-[#546776]" : "bg-[#546776]/35"}`}
               style={{
                 width: cardWidth,
                 height: cardHeight,

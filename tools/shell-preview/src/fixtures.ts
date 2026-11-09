@@ -36,10 +36,10 @@ import mentionThumbnail from "../assets/surfaces/mention.png";
 import aliaThumbnail from "../assets/surfaces/alia.png";
 import splitThumbnail from "../assets/surfaces/astro-split.webp";
 import workThumbnail from "../assets/surfaces/astro-work.webp";
-import wallpaper from "../../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers/oxyos/light.svg";
+import wallpaper from "../../../config/includes.chroot_after_packages/usr/share/oxyos/wallpapers/solar-gradients/midday.jpg";
 /** The catalog's default, light (docs/adr/0048-wallpapers.mdx): the preview has no session to tell
     it another. */
-export const previewWallpaper: ShellWallpaper = { key: "oxyos/light", source: { uri: wallpaper }, fit: "fill", color: "#000000" };
+export const previewWallpaper: ShellWallpaper = { key: "solar-gradients/midday", source: { uri: wallpaper }, fit: "fill", color: "#000000" };
 const raster = (
   id: string,
   name: string,

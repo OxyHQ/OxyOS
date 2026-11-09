@@ -1,0 +1,443 @@
+{
+  "locale": "es_ES.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "installed": [
+    {
+      "package": "so.oxy.crashprobe",
+      "entry": [
+        "X-OxyOS-Pinned=4"
+      ]
+    }
+  ],
+  "home": {
+    "items": {
+      "notes.txt": "keep me",
+      ".local/share/oxyos/apps/so.oxy.crashprobe/async-storage.json": "{\"launches\": \"1\"",
+      ".cache/oxyos/apps/so.oxy.crashprobe/thumbnail.png": {
+        "bytes": 64
+      }
+    }
+  },
+  "about": "An application that quits unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx): Crash Probe, installed, reads its storage as it starts, and its storage file in the run's home is corrupt (cut short, as a power cut leaves one), so a fatal JavaScript error ends it each time, as it would end any React Native application. Opened from the dock it quits: the session reports it in the run's ~/.local/state/oxyos/crash-reports and posts one notification about it, as Crash Probe's, with Reopen and Report…; nothing is asked. Its Reopen opens it again, and it quits again within ten minutes: the system's sheet, once, in the notification's place, the keyboard on Reopen, its other buttons Ignore, Reset… and Report…. Report… shows what it reported, Copy puts it on the clipboard and Done goes back; Reopen opens it a third time and the sheet comes back, once, saying so; Ignore leaves it closed. No other application is told anything, and Allo's window only loses and gets back the keyboard as Crash Probe's comes and goes. With the host keeping a window an error unmounted, or no sheet for a second quit, the run fails.",
+  "steps": [
+    {
+      "name": "Crash Probe in the dock: started, it cannot read its storage and quits; one notification about it, with Reopen and Report…, nothing asked",
+      "do": [
+        "press_named",
+        "Crash Probe"
+      ],
+      "until_named": [
+        "Volver a abrir",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe",
+            "Crash Probe se cerró inesperadamente",
+            "Volver a abrir",
+            "Informe…"
+          ],
+          "absent": [
+            "Crash Probe sigue cerrándose inesperadamente"
+          ]
+        },
+        "crash_reports": [
+          {
+            "application": "so.oxy.crashprobe",
+            "contains": [
+              "Reason:       exit status 70",
+              "Its storage cannot be read"
+            ]
+          }
+        ],
+        "delivered": {
+          "1": {
+            "focus.in": 1,
+            "focus.out": 1
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "Crash Probe. Crash Probe se cerró inesperadamente",
+            "live": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "its Reopen: started again, it quits again within ten minutes: the system's sheet, once, the keyboard on Reopen",
+      "do": [
+        "press_named",
+        "Volver a abrir"
+      ],
+      "until_named": [
+        "Crash Probe sigue cerrándose inesperadamente",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe sigue cerrándose inesperadamente",
+            "Se ha cerrado 2 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar.",
+            "Volver a abrir",
+            "Ignorar",
+            "Restablecer…",
+            "Informe…"
+          ],
+          "absent": [
+            "Crash Probe se cerró inesperadamente"
+          ],
+          "keyboard_focus": {
+            "target": "system-sheet-accept"
+          }
+        },
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Volver a abrir"
+            }
+          ]
+        },
+        "crash_reports": [
+          {
+            "application": "so.oxy.crashprobe"
+          },
+          {
+            "application": "so.oxy.crashprobe",
+            "contains": [
+              "Repeated:     2 times in the last 10 minutes"
+            ]
+          }
+        ],
+        "delivered": {
+          "1": {
+            "focus.in": 2,
+            "focus.out": 3
+          },
+          "launched": {
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "Report…: what it reported, in the sheet",
+      "do": [
+        "press_named",
+        "Informe…"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Lo que informó Crash Probe",
+            "Copiar",
+            "Listo"
+          ],
+          "texts_matching": [
+            "Its storage cannot be read"
+          ],
+          "absent": [
+            "Crash Probe sigue cerrándose inesperadamente"
+          ]
+        },
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "Copy: the report on the clipboard, at the person's press",
+      "do": [
+        "press_named",
+        "Copiar"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Copiado"
+          ]
+        },
+        "clipboard": {
+          "types": [
+            "text/plain;charset=utf-8"
+          ],
+          "text/plain;charset=utf-8": {
+            "contains": "Crash Probe quit unexpectedly."
+          }
+        },
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "Done: back to the notice",
+      "do": [
+        "press_named",
+        "Listo"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe sigue cerrándose inesperadamente",
+            "Volver a abrir",
+            "Ignorar"
+          ],
+          "absent": [
+            "Lo que informó Crash Probe"
+          ]
+        },
+        "delivered": {},
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "Reopen: opened a third time, it quits again: the sheet again, once, saying so",
+      "do": [
+        "press_named",
+        "Volver a abrir"
+      ],
+      "until_named": [
+        "Se ha cerrado 3 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar.",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Crash Probe sigue cerrándose inesperadamente",
+            "Se ha cerrado 3 veces en los últimos 10 minutos. Si sigue cerrándose, restablecerla puede ayudar."
+          ]
+        },
+        "delivered": {
+          "1": {
+            "enter": 2,
+            "focus.in": 2,
+            "focus.out": 2,
+            "leave": 2
+          },
+          "launched": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ],
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ignore: the sheet goes and it stays closed",
+      "do": [
+        "press_named",
+        "Ignorar"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "absent": [
+            "Crash Probe sigue cerrándose inesperadamente",
+            "Crash Probe se cerró inesperadamente"
+          ]
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "focus.in": 1
+          }
+        },
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "applications_launched": [
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    },
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    },
+    {
+      "id": "so.oxy.crashprobe",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ]
+}

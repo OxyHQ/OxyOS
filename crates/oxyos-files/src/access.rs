@@ -607,7 +607,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<(), Error> {
 /// Puts `from` at `to`, replacing what is there in one step: exchanged with it
 /// (`RENAME_EXCHANGE`), which is then deleted. A file system that cannot exchange (`EINVAL`)
 /// has what is there deleted first.
-fn replace(from: &Path, to: &Path) -> Result<(), Error> {
+pub(crate) fn replace(from: &Path, to: &Path) -> Result<(), Error> {
     use rustix::fs::{renameat_with, RenameFlags, CWD};
     if std::fs::symlink_metadata(to).is_err() {
         return entries::rename_new(from, to);

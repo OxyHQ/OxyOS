@@ -115,6 +115,19 @@ fn nothing_wakes_while_nothing_happens() {
         assert!(named.contains(&"search-writer".to_string()), "{named:?}");
     };
     settle(&mut ask);
+    // Settings › Storage asks what the files occupy and the largest of them
+    // (docs/adr/0062-storage.mdx): answered from the index's columns, and nothing goes on after
+    // the answers.
+    let storage = ask(json!({"storage": {}}));
+    assert_eq!(
+        storage["storage"]["kinds"]["text"]["files"], 200,
+        "{storage}"
+    );
+    let largest = ask(json!({"largest": {"limit": 5}}));
+    assert_eq!(
+        largest["results"]["items"].as_array().map(Vec::len),
+        Some(5)
+    );
     idle();
     // Rebuilt (docs/adr/0051-search.mdx, decision 14): once the new index answers, idle as before,
     // the old one's directory gone.
@@ -127,7 +140,7 @@ fn nothing_wakes_while_nothing_happens() {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .collect();
     cache.sort();
-    assert_eq!(cache, ["index-1.1", "index-1.json"]);
+    assert_eq!(cache, ["index-2.1", "index-2.json"]);
     // The program closing its end ends the service.
     control.shutdown(std::net::Shutdown::Both).unwrap();
     service.join().unwrap().unwrap();

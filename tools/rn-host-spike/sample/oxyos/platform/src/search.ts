@@ -111,6 +111,11 @@ export function createSearch(native: SearchModule | null | undefined, events: Ev
     /** Discards the index and builds it again from the files (Settings alone); the old one answers
         until the new one is ready. */
     rebuild: (options?: CallOptions) => done({ rebuild: {} }, options),
+    /** Settings › Storage (docs/adr/0062-storage.mdx; Settings alone): what the home's files
+        occupy by kind, `{home, kinds: {KIND: {files, bytes}}, indexing, partial}`. */
+    storage: (options?: CallOptions) => ask({ storage: {} }, options),
+    /** The home's largest files, the largest first, as a question's items (`{items}`). */
+    largest: (query: { limit?: number } = {}, options?: CallOptions) => ask({ largest: query }, options),
   };
 }
 

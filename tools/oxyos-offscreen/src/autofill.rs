@@ -4,8 +4,13 @@
 //! application `ID` alone, as the accounts' service answers a session from the person's keychain.
 //! It is a fixture of this fixture compositor, never installed, never a session's: no real
 //! credential is in it, and nothing it holds is a secret.
+//!
+//! With `--autofill-saves`, applications' requests to save a login come from the accounts' service
+//! the run plays, as the session's do ([`Saves`]).
 
-use oxyos_compositor::autofill::{Answer, Ask, AutofillProvider, Field, Secret, Suggestion};
+use oxyos_compositor::autofill::{
+    Answer, Ask, AutofillProvider, Field, SaveAsk, SaveConfirmations, Secret, Suggestion,
+};
 
 /// The fixture's logins: reference, title, username, password.
 const LOGINS: [(&str, &str, &str, &str); 2] = [
@@ -96,5 +101,32 @@ impl AutofillProvider for Shared {
 
     fn answers(&mut self) -> Vec<(u64, Answer)> {
         std::mem::take(&mut self.0.borrow_mut().answers)
+    }
+}
+
+/// The accounts' service's save confirmations, as the session takes them (oxyos-session's
+/// `autofill.rs`).
+pub struct Saves(pub oxyos_account::keychain::SaveConfirmations);
+
+impl SaveConfirmations for Saves {
+    fn take(&mut self) -> Vec<SaveAsk> {
+        use oxyos_account::keychain::SaveEvent;
+        self.0
+            .take()
+            .into_iter()
+            .map(|event| match event {
+                SaveEvent::Confirm(confirmation) => SaveAsk::Confirm {
+                    id: confirmation.id,
+                    desktop_entry_id: confirmation.desktop_entry_id,
+                    username: confirmation.username.expose().to_owned(),
+                    domain: confirmation.domain,
+                },
+                SaveEvent::Withdrawn(id) => SaveAsk::Withdrawn { id },
+            })
+            .collect()
+    }
+
+    fn decide(&mut self, id: &str, save: bool) {
+        self.0.decide(id, save);
     }
 }

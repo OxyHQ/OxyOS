@@ -1432,7 +1432,7 @@ fn activity_counts_the_persons_input_and_nothing_else() {
         &|scene| scene.pointer_button(BUTTON, true),
         &|scene| scene.pointer_button(BUTTON, false),
         &|scene| scene.pointer_scroll(0, 256, ScrollSource::Wheel, false),
-        &|scene| scene.pointer_pinch(GesturePhase::Begin, 65536, 0),
+        &|scene| scene.pointer_pinch(GesturePhase::Begin, 2, 65536, 0),
         &|scene| scene.key(30, true),
         &|scene| scene.keyboard(30, false, None),
         &|scene| scene.text("a"),
@@ -2827,11 +2827,11 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
             .collect()
     };
     // An update with no pinch begun reaches nobody.
-    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 65536, 0);
     assert!(pinches(h.pump()).is_empty());
     // At the pointer, in the window's coordinates (1/256 of a pixel, as a pointer event's).
-    h.scene.pointer_pinch(GesturePhase::Begin, 65536, 0);
-    h.scene.pointer_pinch(GesturePhase::Update, 98304, -2560);
+    h.scene.pointer_pinch(GesturePhase::Begin, 2, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 98304, -2560);
     assert_eq!(
         pinches(h.pump()),
         [
@@ -2851,8 +2851,8 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
     let o = h.rect(other);
     h.scene.pointer_motion(o.x + 10, o.y + 10);
     h.pump();
-    h.scene.pointer_pinch(GesturePhase::Update, 131072, 0);
-    h.scene.pointer_pinch(GesturePhase::End, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 131072, 0);
+    h.scene.pointer_pinch(GesturePhase::End, 2, 131072, 0);
     let (x, y) = ((o.x + 10 - w.x) * 256, (o.y + 10 - w.y) * 256);
     assert_eq!(
         pinches(h.pump()),
@@ -2862,7 +2862,7 @@ fn a_pinch_goes_to_the_surface_under_the_pointer_when_it_began_until_it_ends() {
         ]
     );
     // After it ends, an update without a new beginning reaches nobody.
-    h.scene.pointer_pinch(GesturePhase::Update, 65536, 0);
+    h.scene.pointer_pinch(GesturePhase::Update, 2, 65536, 0);
     assert!(pinches(h.pump()).is_empty());
     // A pinch is not a press: focus and stacking are unchanged.
     assert_eq!(h.scene.focus(), focus);
@@ -4265,6 +4265,73 @@ fn the_clipboard_is_read_and_replaced_only_by_the_user_s_own_actions() {
     // The same paste with a fresh key is allowed.
     let fresh = type_key(&mut h);
     assert_eq!(paste(&mut h, OTHER, selection, PLAIN, fresh), Some(APP));
+}
+
+#[test]
+fn a_sensitive_copy_is_cleared_by_its_owner_with_no_input() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    // A plain copy needs an input of the owner's to be cleared.
+    copy(&mut h, APP, 1);
+    h.clear_log();
+    h.request(APP, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert!(clipboard_events(&h, APP).is_empty());
+    // One marked sensitive (a password copied from the keychain) is cleared on no input, as its
+    // owner clears it after a while.
+    let serial = type_key(&mut h);
+    for request in [
+        Request::ClipboardOffer { offer: 2, serial },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(super::SENSITIVE_TYPE),
+        },
+        Request::ClipboardCommit { offer: 2 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    h.clear_log();
+    // By its owner alone.
+    h.request(OTHER, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert!(clipboard_events(&h, APP).is_empty());
+    h.request(APP, Request::ClipboardClear { serial: 0 })
+        .unwrap();
+    assert_eq!(clipboard_events(&h, APP), [Event::ClipboardEmpty {}]);
+}
+
+#[test]
+fn a_sensitive_copy_goes_with_the_lock_and_a_plain_one_stays() {
+    let mut h = Harness::new();
+    two_windows(&mut h);
+    copy(&mut h, APP, 1);
+    h.scene.lock();
+    h.scene.unlock();
+    assert!(h.scene.clipboard().is_some());
+    let serial = type_key(&mut h);
+    for request in [
+        Request::ClipboardOffer { offer: 2, serial },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(PLAIN),
+        },
+        Request::ClipboardType {
+            offer: 2,
+            mime: mime(super::SENSITIVE_TYPE),
+        },
+        Request::ClipboardCommit { offer: 2 },
+    ] {
+        h.request(APP, request).unwrap();
+    }
+    assert!(h.scene.clipboard().is_some());
+    h.scene.lock();
+    assert!(h.scene.clipboard().is_none());
+    h.scene.unlock();
+    assert!(h.scene.clipboard().is_none());
 }
 
 #[test]
@@ -7052,6 +7119,57 @@ fn the_screen_readers_keys_reach_it_alone() {
 }
 
 #[test]
+fn with_a_screen_reader_plain_arrows_reach_the_focused_surface_once_each_in_order() {
+    // VoiceOver's arrows are its own only with its modifiers; so are the reader's: the arrows
+    // alone, before, between and after its chords, are the focused surface's, each press and
+    // release once and in the order typed, and the reader is sent its commands alone.
+    const UP: u32 = 103;
+    const DOWN: u32 = 108;
+    let mut h = Harness::new();
+    h.scene.connect(SCREEN_READER, screen_reader()).unwrap();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    let tap = |h: &mut Harness, key: u32| {
+        h.scene.keyboard(key, true, None);
+        h.scene.keyboard(key, false, None);
+    };
+    tap(&mut h, DOWN);
+    tap(&mut h, UP);
+    chord(&mut h, RIGHT, CTRL);
+    tap(&mut h, DOWN);
+    tap(&mut h, LEFT);
+    chord(&mut h, LEFT, CTRL);
+    tap(&mut h, RIGHT);
+    // A press held across the reader's chord: its release is the surface's too.
+    h.scene.keyboard(DOWN, true, None);
+    chord(&mut h, RIGHT, CTRL);
+    h.scene.keyboard(DOWN, false, None);
+    let events = logged(&mut h);
+    assert_eq!(
+        commands(&events),
+        [
+            ReaderCommand::Next,
+            ReaderCommand::Previous,
+            ReaderCommand::Next
+        ]
+    );
+    let modifiers = [(CTRL, true), (ALT, true), (ALT, false), (CTRL, false)];
+    let expected = [
+        &[(DOWN, true), (DOWN, false), (UP, true), (UP, false)][..],
+        &modifiers,
+        &[(DOWN, true), (DOWN, false), (LEFT, true), (LEFT, false)],
+        &modifiers,
+        &[(RIGHT, true), (RIGHT, false), (DOWN, true)],
+        &modifiers,
+        &[(DOWN, false)],
+    ]
+    .concat();
+    assert_eq!(keys_to(&events, APP), expected);
+    assert_eq!(h.scene.focus(), Some(window));
+}
+
+#[test]
 fn without_a_screen_reader_its_keys_are_ordinary() {
     let mut h = Harness::new();
     // An assistive technology without the grant has no keys.
@@ -8185,6 +8303,8 @@ fn new_windows_cascade_instead_of_opening_exactly_over_another() {
 
 /// AutoFill's list and its fill (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
 mod autofill;
+/// Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx).
+mod background;
 mod choosers;
 /// Hardware keys and the Control Center (ADR 0025).
 mod controls;
@@ -8202,9 +8322,13 @@ mod menus;
 /// Where each window minimizes into (ADR 0011's genie).
 mod minimize_targets;
 mod notifications;
+/// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
+mod safe_mode;
 mod screenshots;
 /// Search (docs/adr/0051-search.mdx).
 mod search;
+/// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx).
+mod session_end;
 mod shortcuts;
 /// System sounds (docs/adr/0044-system-sounds.mdx).
 mod sounds;

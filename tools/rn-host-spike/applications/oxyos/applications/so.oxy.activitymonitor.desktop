@@ -1,0 +1,10 @@
+# OxyOS's Activity Monitor (apps/activity-monitor), run from the session's Bloom bundle. The image's
+# policy gives it `activity`: the machine's processes and their activity, sampled only while one of
+# its windows shows, and quitting the person's own.
+[Desktop Entry]
+Type=Application
+Name=Activity Monitor
+Name[es]=Monitor de Actividad
+Icon=../../../../shell-preview/assets/apps/activity-monitor.png
+Keywords=cpu;memory;processes;energy;disk;network;procesos;memoria;energía;disco;red;
+X-OxyOS-Bloom-Module=OxyOSActivityMonitor

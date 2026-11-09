@@ -65,6 +65,36 @@ export function createShell(session: Session, answerSheet: ((sheet: number, acce
     chooseAutofill: (index: number, options?: CallOptions) => ask({ chooseAutofill: { index } }, options),
     /** Shows the emoji picker, citing the press or key that asked. */
     showEmojiPicker: (options?: CallOptions) => ask({ showEmoji: {} }, options),
+    /** A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+        passkey chosen and the Oxy account's password the person typed, to the session alone, which
+        hands them to the accounts' service, never to the application. */
+    answerPasskey: (sheet: number, choice: number | undefined, password: string) =>
+      tell({ passkey: choice === undefined ? { sheet, password } : { sheet, choice, password } }, sheet),
+    /** An application that quit (docs/adr/0061-crashes-and-resetting-an-application.mdx): its
+        notice's Reset… answers the notice no and asks the session to reset it, which asks the
+        person in a sheet of its own and opens it again once it is reset. */
+    resetApplication(sheet: number, id: string): void {
+      if (!available || !answerSheet) throw new PlatformError('shell', 'unavailable');
+      answerSheet(sheet, false);
+      gone(sheet);
+      void session.request({ resetApplication: { id, reopen: true } });
+    },
+    /** The power key's sheet (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 7):
+        its Restart and Sleep answer it, the session taking them only for the sheet it shows. */
+    choosePowerKey: (sheet: number, choice: string) => tell({ powerKeyChoice: { sheet, choice } }, sheet),
+    /** Reopen windows when logging back in, as the person toggled it in the session's question:
+        their `reopen_windows`, which the session keeps. */
+    setReopenWindows: (enabled: boolean) => tell({ reopenWindows: { enabled } }),
+    /**
+     * Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+     * the shell's Oxy menu and the login screen's buttons. The session decides: it asks its own
+     * question (`confirm`), every application, then logind. Resolves once it answered
+     * (`{confirming}`, `{ending: {action}}`), rejects with its refusal.
+     */
+    endSession: (action: string, confirm: boolean, options?: CallOptions) =>
+      ask({ endSession: { action, confirm } }, options),
+    /** Sleeps the computer at once (`{sleeping}`). */
+    sleep: (options?: CallOptions) => ask({ sleep: {} }, options),
   };
 }
 

@@ -1,31 +1,46 @@
 #!/bin/sh
 # The scenario gate's reserved cores (docs/developing.mdx), installed root-owned as
 # /usr/local/libexec/oxyos-gate-cpus by tools/gate/machine.sh and run through sudo by the gate's
-# user and the deploy:
-#   oxyos-gate-cpus reserve   the gate's slice on GATE_CPUS alone, the rest of the machine
-#                             (system.slice: the owner's runners and VMs; user.slice) off them
+# runners and a deploy:
+#   oxyos-gate-cpus reserve   the caller's gate slice (oxyosgate-NAME.slice, read from the calling
+#                             process's cgroup, never from an argument) on GATE_CPUS alone, and the
+#                             rest of the machine (system.slice: the owner's runners and VMs;
+#                             user.slice; every other gate slice) off them
 #   oxyos-gate-cpus release   every slice back on every CPU
+# One gate holds the reservation at a time (the gate's timing lock, tools/gate/run-scenarios.sh).
 # A reservation releases itself after RESERVE_LIMIT, so a run that dies holding it never keeps the
 # owner's builds off those cores. It takes no other argument: what it does is fixed here.
 set -eu
 . /etc/oxyos-gate.conf
+all=$(cat /sys/devices/system/cpu/online)
+gate_slices() { systemctl list-units --type=slice --all --plain --no-legend 'oxyosgate-*.slice' | awk '{ print $1 }'; }
+# An empty AllowedCPUs= alone leaves the cgroup's cpuset as it was (systemd writes nothing for it):
+# every online CPU first, then the property dropped.
+unpin() { systemctl set-property --runtime "$1" "AllowedCPUs=$all"; systemctl set-property --runtime "$1" AllowedCPUs=; }
 case "${1:-}" in
   reserve)
+    # The caller's slice: the first gate slice up the chain of processes that ran this (sudo and
+    # its caller share one), never named by the caller.
+    pid=$PPID slice=
+    while [ -z "$slice" ] && [ "${pid:-1}" -gt 1 ]; do
+      slice=$(sed -n 's|^0::/oxyosgate\.slice/\(oxyosgate-[a-z0-9]*\.slice\)/.*|\1|p' "/proc/$pid/cgroup")
+      pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+    done
+    [ -n "$slice" ] || { echo "oxyos-gate-cpus: the caller is in no gate slice" >&2; exit 1; }
     systemctl set-property --runtime system.slice "AllowedCPUs=$OWNER_CPUS"
     systemctl set-property --runtime user.slice "AllowedCPUs=$OWNER_CPUS"
-    systemctl set-property --runtime oxyosgate.slice "AllowedCPUs=$GATE_CPUS"
+    for other in $(gate_slices); do
+      [ "$other" = "$slice" ] || systemctl set-property --runtime "$other" "AllowedCPUs=$OWNER_CPUS"
+    done
+    systemctl set-property --runtime "$slice" "AllowedCPUs=$GATE_CPUS"
     systemctl stop oxyos-gate-cpus-release.timer 2>/dev/null || true
     systemd-run --quiet --collect --unit=oxyos-gate-cpus-release --on-active="$RESERVE_LIMIT" \
       /usr/local/libexec/oxyos-gate-cpus release
     ;;
   release)
-    # An empty AllowedCPUs= alone leaves the cgroup's cpuset as it was (systemd writes nothing for
-    # it): every online CPU first, then the property dropped.
-    all=$(cat /sys/devices/system/cpu/online)
-    for slice in system.slice user.slice oxyosgate.slice; do
-      systemctl set-property --runtime "$slice" "AllowedCPUs=$all"
-      systemctl set-property --runtime "$slice" AllowedCPUs=
-    done
+    unpin system.slice
+    unpin user.slice
+    for slice in $(gate_slices); do unpin "$slice"; done
     systemctl stop oxyos-gate-cpus-release.timer 2>/dev/null || true
     ;;
   *)

@@ -1,0 +1,641 @@
+{
+ "about": "Settings' Private Wi-Fi Address (docs/adr/0038-networks.mdx, 8 November 2026), as a Mac's, over a NetworkManager played on the run's own bus: LukeSkyRouter joined (saved before, no address set: the card's own), Vecinos saved with a fixed address. The joined network's sheet shows Off, the address in use and that changing it rejoins; Fixed sets the connection's `assigned-mac-address` to `stable` (its password kept, never read) and joins it again once with the daemon's address for it, shown; Rotating sets its stable-id to `${CONNECTION}/${BOOT}` and joins again with another; Vecinos' sheet, from its menu, shows Fixed, no address and no rejoining, and Off sets `permanent` without joining anything. At 1.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "grants": {
+  "so.oxy.settings": [
+   "settings",
+   "network"
+  ]
+ },
+ "controls": {
+  "output_volume": 0.5,
+  "output_muted": false,
+  "input_volume": 1,
+  "input_muted": false,
+  "display_brightness": 0.75,
+  "battery": "discharging",
+  "battery_percent": 64,
+  "battery_minutes": 200,
+  "on_ac": false,
+  "wifi": "connected",
+  "wifi_signal": 73,
+  "ssid": "LukeSkyRouter",
+  "wired": false,
+  "bluetooth": "on",
+  "bluetooth_connected": 1
+ },
+ "network": {
+  "access_points": [
+   {
+    "ssid": "LukeSkyRouter",
+    "strength": 73,
+    "security": "wpa",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Café Libre",
+    "strength": 55
+   },
+   {
+    "ssid": "Vecinos",
+    "strength": 30,
+    "security": "wpa",
+    "password": "hunter22!"
+   }
+  ],
+  "connections": [
+   {
+    "ssid": "LukeSkyRouter",
+    "password": "correct horse"
+   },
+   {
+    "ssid": "Vecinos",
+    "password": "hunter22!",
+    "assigned": "stable"
+   }
+  ],
+  "active": "LukeSkyRouter",
+  "ethernet": "unplugged"
+ },
+ "secrets": [
+  "correct horse",
+  "hunter22!"
+ ],
+ "steps": [
+  {
+   "name": "Settings with the network grant: its pages there once the session told it the network",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Wi-Fi"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi",
+   "do": [
+    "press",
+    [
+     136,
+     110
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@settings-nav-wifi": 1,
+     "touchEnd@settings-nav-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Wi-Fi's page",
+   "do": [
+    "wait_named",
+    [
+     "Details of “LukeSkyRouter”",
+     10000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Known Networks",
+     "LukeSkyRouter",
+     "Vecinos"
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "Details of the network joined: its sheet",
+   "do": [
+    "press_named",
+    "Details of “LukeSkyRouter”"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-details": 1,
+     "touchEnd@wifi-details": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Its Wi-Fi part: the Private Wi-Fi address, Off (the daemon's default for a network saved before), the address in use (the card's own), that changing it rejoins, and Forget This Network…",
+   "do": [
+    "wait_named",
+    [
+     "Private Wi-Fi address",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Private Wi-Fi address",
+     "Off",
+     "Wi-Fi address",
+     "F4:A4:75:12:34:56",
+     "Changing it rejoins “LukeSkyRouter”.",
+     "Forget This Network…"
+    ],
+    "network": {
+     "address": "F4:A4:75:12:34:56",
+     "attempts": []
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Tab: the sheet's parts, its Wi-Fi part chosen",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "wifi-details-tab-wifi",
+     "ring": true
+    },
+    "react": {
+     "focus@wifi-details-tab-wifi": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: the private address",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "blur@wifi-details-tab-wifi": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
+  },
+  {
+   "name": "Space: its choices",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Off",
+     "ring": true
+    },
+    "react": {
+     "click@Private Wi-Fi address": 1,
+     "blur@Private Wi-Fi address": 1,
+     "focus@Off": 1,
+     "show@wifi-private": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Fixed",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Fixed",
+     "ring": true
+    },
+    "react": {
+     "blur@Off": 1,
+     "focus@Fixed": 1
+    }
+   }
+  },
+  {
+   "name": "Space: Fixed chosen, the keyboard back on the private address",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "click@Fixed": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
+  },
+  {
+   "name": "Set (`stable`, its password kept) and joined again once with an address of the daemon's making, shown",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "62:37:67:8C:C4:FA"
+    ],
+    "network": {
+     "active": "LukeSkyRouter",
+     "address": "62:37:67:8C:C4:FA",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter",
+       "assigned": "stable",
+       "stable_id": null,
+       "psk": "correct horse"
+      },
+      {
+       "ssid": "Vecinos",
+       "assigned": "stable"
+      }
+     ],
+     "attempts": [
+      {
+       "ssid": "LukeSkyRouter",
+       "address": "62:37:67:8C:C4:FA"
+      }
+     ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "Space: the choices again",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Off",
+     "ring": true
+    },
+    "react": {
+     "click@Private Wi-Fi address": 1,
+     "blur@Private Wi-Fi address": 1,
+     "focus@Off": 1,
+     "show@wifi-private": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Fixed",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Fixed",
+     "ring": true
+    },
+    "react": {
+     "blur@Off": 1,
+     "focus@Fixed": 1
+    }
+   }
+  },
+  {
+   "name": "Tab: Rotating",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Rotating",
+     "ring": true
+    },
+    "react": {
+     "blur@Fixed": 1,
+     "focus@Rotating": 1
+    }
+   }
+  },
+  {
+   "name": "Space: Rotating chosen",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "click@Rotating": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
+  },
+  {
+   "name": "Set (its stable-id the connection and the boot) and joined again once with another address",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "42:38:C4:B9:53:66"
+    ],
+    "absent": [
+     "62:37:67:8C:C4:FA"
+    ],
+    "network": {
+     "active": "LukeSkyRouter",
+     "address": "42:38:C4:B9:53:66",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter",
+       "assigned": "stable",
+       "stable_id": "${CONNECTION}/${BOOT}",
+       "psk": "correct horse"
+      },
+      {
+       "ssid": "Vecinos"
+      }
+     ],
+     "attempts": [
+      {
+       "ssid": "LukeSkyRouter",
+       "address": "62:37:67:8C:C4:FA"
+      },
+      {
+       "ssid": "LukeSkyRouter",
+       "address": "42:38:C4:B9:53:66"
+      }
+     ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "TCP/IP: its addresses",
+   "do": [
+    "press_named",
+    "TCP/IP"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "192.168.8.133",
+     "255.255.255.0"
+    ],
+    "react": {
+     "blur@Private Wi-Fi address": 1,
+     "touchStart@wifi-details-tab-tcpip": 1,
+     "touchEnd@wifi-details-tab-tcpip": 1
+    }
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-details-ok": 1,
+     "touchEnd@wifi-details-ok": 1
+    }
+   }
+  },
+  {
+   "name": "Closed",
+   "do": [
+    "wait",
+    800
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "absent": [
+     "Private Wi-Fi address"
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "A known network's menu",
+   "do": [
+    "press_named",
+    "More for “Vecinos”"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-known-Vecinos-more": 1,
+     "touchEnd@wifi-known-Vecinos-more": 1
+    }
+   }
+  },
+  {
+   "name": "Network Settings…",
+   "do": [
+    "press_named",
+    "Network Settings…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "touchStart@wifi-settings-Vecinos": 1,
+     "touchEnd@wifi-settings-Vecinos": 1,
+     "show@settings-page": 1
+    }
+   }
+  },
+  {
+   "name": "Its sheet: Fixed, as set; not joined, so no tabs, no address in use and nothing said of rejoining",
+   "do": [
+    "wait_named",
+    [
+     "Private Wi-Fi address",
+     5000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Fixed",
+     "Using a private address helps reduce tracking"
+    ],
+    "absent": [
+     "Changing it rejoins",
+     "42:38:C4:B9:53:66",
+     "TCP/IP"
+    ],
+    "react": {}
+   }
+  },
+  {
+   "name": "Tab: the private address",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "focus@Private Wi-Fi address": 1
+    }
+   }
+  },
+  {
+   "name": "Space: its choices",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Off",
+     "ring": true
+    },
+    "react": {
+     "click@Private Wi-Fi address": 1,
+     "blur@Private Wi-Fi address": 1,
+     "focus@Off": 1,
+     "show@wifi-private": 1
+    }
+   }
+  },
+  {
+   "name": "Space: Off chosen",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "Private Wi-Fi address",
+     "ring": true
+    },
+    "react": {
+     "click@Off": 1,
+     "focus@Private Wi-Fi address": 1
+    }
+   }
+  },
+  {
+   "name": "Set (`permanent`) and nothing joined: the network joined keeps its address",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "network": {
+     "active": "LukeSkyRouter",
+     "address": "42:38:C4:B9:53:66",
+     "connections": [
+      {
+       "ssid": "LukeSkyRouter"
+      },
+      {
+       "ssid": "Vecinos",
+       "assigned": "permanent",
+       "stable_id": null,
+       "psk": "hunter22!"
+      }
+     ],
+     "attempts": [
+      {
+       "ssid": "LukeSkyRouter"
+      },
+      {
+       "ssid": "LukeSkyRouter"
+      }
+     ]
+    },
+    "react": {}
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@Private Wi-Fi address": 1,
+     "touchStart@wifi-details-ok": 1,
+     "touchEnd@wifi-details-ok": 1
+    }
+   }
+  }
+ ]
+}
