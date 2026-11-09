@@ -963,7 +963,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--passkey-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1182,6 +1182,9 @@ impl Launch {
                     );
                     continue;
                 }
+                // `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for
+                // the application ID (passkeys.rs); documented here, the usage line left to the
+                // changes queued that rewrite it.
                 Some("--passkey-fixture") => {
                     let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     passkey_fixture = Some(id.to_string());
@@ -2244,18 +2247,16 @@ fn shell_json(compositor: &Compositor) -> String {
 
 /// Passkeys' sheets during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
 /// `--passkey-fixture`: what the fixture accounts' service was answered so far, in order (never a
-/// password); `null` without it.
-fn passkeys_json(session: &Session) -> String {
-    let Some(service) = session.passkey_service.as_ref() else {
-        return "null".to_string();
-    };
+/// password); none without it.
+fn passkeys_json(session: &Session) -> Option<String> {
+    let service = session.passkey_service.as_ref()?;
     let told: Vec<String> = service
         .borrow()
         .told
         .iter()
         .map(|told| json_string(told))
         .collect();
-    format!("{{\"told\":[{}]}}", told.join(","))
+    Some(format!("{{\"told\":[{}]}}", told.join(",")))
 }
 
 /// AutoFill during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
@@ -6158,7 +6159,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"passkeys\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -6177,7 +6178,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .as_ref()
                 .map_or("null".to_string(), |sources| sources.json()),
             autofill_json(&session),
-            passkeys_json(&session),
             shell_json(&session.compositor),
             session.compositor.surface_rect(CLIENT, WINDOW).is_some(),
             minimize_target_json(&session.compositor),
@@ -6215,6 +6215,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.gpu_frames(CLIENT).0,
             session.compositor.gpu_frames(CLIENT).1,
         ));
+        // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
+        // added to the step's result as one more field.
+        if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
+            if step.ends_with('}') {
+                step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
+            }
+        }
         snapshots.push(snapshot(
             &session.compositor,
             out,

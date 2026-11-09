@@ -928,6 +928,11 @@ fn main() -> Result<()> {
                 Err(error) => eprintln!("[session] {id} not reopened: {error}"),
             }
         }
+        // Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+        // service's prompts shown, the shell's answers taken, before the store takes the rest.
+        if let Some(passkeys) = passkeys.as_mut() {
+            passkeys.serve(&mut compositor);
+        }
         // Input sources (ADR 0041), before the store, which takes the requests left.
         if let Some(methods) = input_methods.as_mut() {
             methods.serve(&mut compositor, &mut settings, settings::now());
@@ -946,9 +951,6 @@ fn main() -> Result<()> {
                 })
                 .collect();
             power.serve(&mut compositor, settings.preferences(), &running);
-        }
-        if let Some(passkeys) = passkeys.as_mut() {
-            passkeys.serve(&mut compositor);
         }
         // Before the store, which takes the requests left.
         if let Some(networks) = networks.as_mut() {
