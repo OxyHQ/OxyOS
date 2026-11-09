@@ -295,12 +295,19 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   drag's end to the glide's end going only that way and covering that distance (or stopping at the
   end it reaches), within a pixel, over at least "frames_min" frames, never faster than the frame
   before (`glide_speeding`); and its events in order: scrollEndDrag, momentumScrollBegin, the
-  glide's scrolls, momentumScrollEnd. With "held" (a `flick_hold` step: fingers coming to rest on
-  the touchpad while it glides), the glide instead stops where the resting fingers find it, as
-  macOS stops a scroll under resting fingers: short of the fling's distance, its
-  momentumScrollEnd once, in the frame the host handled their hold's begin (`hold.begin`), and no
-  scroll after it; with "pressed" (a `flick_press` step: a click while it glides) the same, where
-  the click finds it (`pointer.press`), as a touch stops Android's fling;
+  glide's scrolls, momentumScrollEnd, and nothing after; "axis": "x" for a glide across (the
+  offsets, velocity and distance along x; "y" by default). With "stopped_by" (input on the glide's
+  own surface while it glides: "hold", a `flick_hold` step's fingers coming to rest on the
+  touchpad; "press", a `flick_press` step's click; "wheel", a `flick_wheel` step's notch;
+  "fingers", a `flick_fingers` step's new fingers), the glide instead stops where the input finds
+  it, as macOS stops a scroll's momentum under the hand and a touch stops Android's fling: short of
+  the fling's distance, its momentumScrollEnd once, as the host handled the input (`hold.begin`,
+  `pointer.press`, the wheel's or the fingers' first `scroll`), and no glide scroll after it; then
+  only what the input does: nothing, the notch's one scroll by its distance from where the glide
+  ended, or the new fingers' drag (scrollBeginDrag where it ended, their scrolls their way,
+  scrollEndDrag and the momentum around a fling of nothing). "held" and "pressed" (true) are
+  "stopped_by" "hold" and "press". With "kept_by" (the same kinds of input on another surface of
+  the application while it glides, a popup's), the glide goes on to its end as without it;
 - scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
   the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
   Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
@@ -406,7 +413,8 @@ virtual devices (`--uinput`, or a scenario's `uinput`: true, which runs only tha
 root, the devices being the kernel's), where a keyboard types one key at a time and a wheel scrolls one
 notch at a time: what React and the client receive is then counted per key and per notch. A
 `scroll` step ([x, y, dy] a wheel's notches, [x, y, dy, events] a touchpad's two fingers in that
-many events, then lifted) is then the hand's, as `scroll_named` and `scroll_output` are: the
+many events, then lifted; on the scene, and in `scroll_paced`, `flick` and its stops, dy may be
+[dx, dy], across and down) is then the hand's, down only, as `scroll_named` and `scroll_output` are: the
 wheel turned toward the person, or the fingers moved down, for a positive dy, which libinput turns
 as the session's natural scrolling says (docs/adr/0042-scrolling.mdx, decision 6); a step's
 `scroll_input` ({"way": "down" or "up", "events": [least, most]}) checks the scrolls the host
@@ -807,7 +815,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
@@ -1047,8 +1055,9 @@ def director_args(step, out):
         # A double click whose second press is held and dragged: [x0, y0, x1, y1].
         return args + ["--double-drag", ",".join(map(str, value))]
     if kind == "scroll":
-        # A wheel's notches, [x, y, dy], or a touchpad's two fingers, [x, y, dy, events].
-        return args + ["--scroll", ",".join(map(str, value))]
+        # A wheel's notches, [x, y, dy], or a touchpad's two fingers, [x, y, dy, events]; dy may be
+        # [dx, dy], across and down.
+        return args + ["--scroll", scroll_fields(value)]
     if kind == "scroll_named":
         # A scroll by DY on the node of this accessible name (a dock icon's, ADR 0045): [name, dy]
         # a wheel's notch, or [name, dy, events] a touchpad's two fingers in that many events.
@@ -1102,7 +1111,7 @@ def director_args(step, out):
         return args + ["--drag-hold", ",".join(map(str, value))]
     if kind == "scroll_paced":
         # A touchpad's scroll at its pace over the window: [x, y, dy, events, hz].
-        return args + ["--scroll-paced", ",".join(map(str, value))]
+        return args + ["--scroll-paced", scroll_fields(value)]
     if kind == "drag_paced_named":
         # A paced drag from the node of one accessible name to the node of another (a file onto the
         # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
@@ -1128,15 +1137,14 @@ def director_args(step, out):
         return args + ["--double-click", ",".join(map(str, value))]
     if kind == "flick":
         # The same, then the fingers lifting: [x, y, dy, events, hz].
-        return args + ["--flick", ",".join(map(str, value))]
-    if kind == "flick_hold":
-        # A flick, then two fingers resting on the touchpad that long after the lift and lifting
-        # 150 ms later: [x, y, dy, events, hz, after_ms].
-        return args + ["--flick-hold", ",".join(map(str, value))]
-    if kind == "flick_press":
-        # A flick, then a click of the primary button where the fingers were, that long after the
-        # lift: [x, y, dy, events, hz, after_ms].
-        return args + ["--flick-press", ",".join(map(str, value))]
+        return args + ["--flick", scroll_fields(value)]
+    if kind in ("flick_hold", "flick_press", "flick_wheel", "flick_fingers"):
+        # A flick, then that long after the lift: two fingers resting on the touchpad and lifting
+        # 150 ms later, [x, y, dy, events, hz, after_ms]; a click of the primary button, the same;
+        # a wheel's notch, [..., after_ms, notch]; or two fingers scrolling at the flick's rate,
+        # resting and lifting, [..., after_ms, dy, events]. Each where the fingers were, or at a
+        # window-local point (beyond the window, over a popup of it) given last: [..., x, y].
+        return args + [f"--{kind.replace('_', '-')}", scroll_fields(value)]
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
@@ -3137,6 +3145,12 @@ def check_pixels(name, expect, screenshot, window, fail):
                  f"{'anything but ' if unlike else ''}{colour}")
 
 
+def scroll_fields(value):
+    """A scroll step's numbers as oxyos-offscreen takes them: a distance written [dx, dy] (across
+    and down) as DX:DY, a number (down) as it is."""
+    return ",".join(f"{v[0]}:{v[1]}" if isinstance(v, list) else str(v) for v in value)
+
+
 def android_fling_distance(velocity, friction):
     """How far Android's SplineOverScroller flings at `velocity` dp a second with `friction`, for a
     device of 160 dots per inch (dp): its getSplineFlingDistance."""
@@ -3208,15 +3222,16 @@ def offset_before(report, view, start):
     return ys[-1] if ys else 0
 
 
-def glide_speeding(scrolls):
+def glide_speeding(scrolls, axis="y"):
     """Where a glide sped up: its offsets come from a spline that only slows, sampled at each frame,
     so each frame's average speed is at most the one before (a concave curve's secants only fall),
     but for the offsets' rounding to the display's pixels (a logical pixel at most, each end) and the
     microseconds between a frame's clock and its report. A glide begun again, or a frame's offset
-    taken from another clock, goes faster. Each (frame, px/s before, px/s then) that did."""
+    taken from another clock, goes faster. Each (frame, px/s before, px/s then) that did, along
+    `axis` ("x" across, "y" down)."""
     speeding = []
     times = [line["t"] / 1e9 for line in scrolls]
-    offsets = [line["y"] for line in scrolls]
+    offsets = [line[axis] for line in scrolls]
     speeds = [(b - a) / max(u - t, 1e-6) for a, b, t, u in zip(offsets, offsets[1:], times, times[1:])]
     for i in range(1, len(speeds)):
         dt_before, dt = times[i] - times[i - 1], times[i + 1] - times[i]
@@ -3226,22 +3241,39 @@ def glide_speeding(scrolls):
     return speeding
 
 
+# What meets a glide (`glide`'s "stopped_by" and "kept_by"; "held" and "pressed" are "stopped_by"
+# "hold" and "press"): the input the host reports handling for each, by its report's line.
+GLIDE_INPUTS = {
+    "hold": lambda line: line.get("event") == "hold.begin",
+    "press": lambda line: line.get("event") == "pointer.press",
+    "wheel": lambda line: line.get("event") == "scroll" and line.get("source") == "wheel",
+    "fingers": lambda line: line.get("event") == "scroll" and line.get("source") == "finger" and not line.get("stop"),
+}
+
+
 def check_glide(wanted, report, start, end, fail):
     """The step's `glide`: a scroll view flung by a touchpad's fingers, as Android flings it."""
-    view = wanted["view"]
+    view, axis = wanted["view"], wanted.get("axis", "y")
     lines = [line for line in report if start <= line["t"] <= end
              and scroll_view_name(line) == view]
+    stopped_by = wanted.get("stopped_by") or ("hold" if wanted.get("held") else "press" if wanted.get("pressed") else None)
+    kept_by = wanted.get("kept_by")
     flings = [line for line in lines if line["kind"] == "fling"]
-    if len(flings) != 1:
-        fail(f"{view} was flung {len(flings)} times, expected once")
+    # New fingers stopping it begin a drag of their own, which lifts resting: a fling of nothing.
+    flung = 2 if stopped_by == "fingers" else 1
+    if len(flings) != flung:
+        fail(f"{view} was flung {len(flings)} times, expected {'once' if flung == 1 else 'twice'}")
         return
     fling = flings[0]
+    velocity = fling["v" + axis]
     lo, hi = wanted["velocity"]
-    if not lo <= fling["vy"] <= hi:
-        fail(f"{view} was flung at {fling['vy']:.0f} px/s, expected {lo} to {hi}")
-    distance = android_fling_distance(fling["vy"], fling["friction"])
-    if abs(distance - fling["dy"]) > 0.5:
-        fail(f"{view}'s fling goes {fling['dy']:.1f} px, Android's goes {distance:.1f} at {fling['vy']:.0f} px/s")
+    if not lo <= velocity <= hi:
+        fail(f"{view} was flung at {velocity:.0f} px/s, expected {lo} to {hi}")
+    distance = android_fling_distance(velocity, fling["friction"])
+    if abs(distance - fling["d" + axis]) > 0.5:
+        fail(f"{view}'s fling goes {fling['d' + axis]:.1f} px, Android's goes {distance:.1f} at {velocity:.0f} px/s")
+    if flung == 2 and (flings[1]["dx"] or flings[1]["dy"]):
+        fail(f"{view}'s second drag, the fingers that stopped it, flung it ({flings[1]['dx']}, {flings[1]['dy']})")
     events = [line for line in lines if line["kind"] == "deliver"]
     names = [line["event"] for line in events]
     if "scrollEndDrag" not in names:
@@ -3249,37 +3281,48 @@ def check_glide(wanted, report, start, end, fail):
         return
     after = events[names.index("scrollEndDrag"):]
     order = [line["event"] for line in after]
+    if "momentumScrollEnd" not in order:
+        fail(f"{view}'s momentum never ended: {order}")
+        return
+    # The glide, then what the input that stopped it did (`rest`).
+    ended_at = order.index("momentumScrollEnd")
+    rest = after[ended_at + 1:]
+    after, order = after[:ended_at + 1], order[:ended_at + 1]
     glide = order[2:-1]
-    if order[:2] != ["scrollEndDrag", "momentumScrollBegin"] or order[-1:] != ["momentumScrollEnd"] or \
-            any(name != "scroll" for name in glide):
+    if order[:2] != ["scrollEndDrag", "momentumScrollBegin"] or any(name != "scroll" for name in glide):
         fail(f"{view}'s events after the drag were {order}, expected scrollEndDrag, momentumScrollBegin, "
              f"scrolls, momentumScrollEnd")
         return
-    offsets = [after[0]["y"]] + [line["y"] for line in after[2:-1]]
+    offsets = [after[0][axis]] + [line[axis] for line in after[2:-1]]
     steps = [b - a for a, b in zip(offsets, offsets[1:])]
     if any(step * distance <= 0 for step in steps):
         fail(f"{view} did not glide only one way: {steps}")
-    speeding = glide_speeding(after[0:1] + after[2:-1])
+    speeding = glide_speeding(after[0:1] + after[2:-1], axis)
     if speeding:
         fail(f"{view} sped up as it glided: {speeding}")
     if len(steps) < wanted.get("frames_min", 0):
         fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
-    covered, ended = offsets[-1] - offsets[0], after[-1].get("y")
+    covered, ended = offsets[-1] - offsets[0], after[-1].get(axis)
     reached_end = wanted.get("to_end", False)
-    # Stopped: by fingers coming to rest (`held`, a flick_hold) or a click (`pressed`, a
-    # flick_press), as the host handled it: the momentum ends then, once, with no scroll after.
-    stopper = "hold.begin" if wanted.get("held") else "pointer.press" if wanted.get("pressed") else None
-    if stopper:
-        what = "the fingers' rest" if stopper == "hold.begin" else "the click"
-        stops = [line for line in report if start <= line["t"] <= end and line["kind"] == "input"
-                 and line.get("event") == stopper]
-        if len(stops) != 1:
-            fail(f"the host handled {len(stops)} {stopper}, expected one")
+    meets = stopped_by or kept_by
+    if meets:
+        # The input that came while it glided, as the host handled it, after the fingers lifted.
+        inputs = [line for line in report if after[0]["t"] < line["t"] <= end and line["kind"] == "input"
+                  and GLIDE_INPUTS[meets](line)]
+        if not inputs or (meets != "fingers" and len(inputs) != 1):
+            fail(f"the host handled {len(inputs)} {meets} inputs after the lift, expected "
+                 f"{'some' if meets == 'fingers' else 'one'}")
             return
-        stopped = stops[0]["t"]
-        ends = [line for line in after if line["event"] == "momentumScrollEnd"]
-        if len(ends) != 1:
-            fail(f"{view} ended its momentum {len(ends)} times, expected once")
+        met = inputs[0]
+        surface = after[-1]["surface"]
+    if stopped_by:
+        # Stopped where the input found it, on the glide's own surface: the momentum ends then,
+        # once, with no scroll of the glide after; then the input does what it does.
+        what = {"hold": "the fingers' rest", "press": "the click", "wheel": "the wheel's notch",
+                "fingers": "the new fingers"}[stopped_by]
+        if met["surface"] != surface:
+            fail(f"{what} came on surface {met['surface']}, not the glide's ({surface})")
+        stopped = met["t"]
         if after[-1]["t"] < stopped or after[-1]["t"] - stopped > 2e6:
             fail(f"{view}'s momentum ended {(after[-1]['t'] - stopped) / 1e6:.1f} ms from {what}, "
                  f"expected as the host handled it")
@@ -3288,7 +3331,38 @@ def check_glide(wanted, report, start, end, fail):
             fail(f"{view} scrolled {len(late)} times after {what}")
         if abs(covered) >= abs(distance) - 1:
             fail(f"{view} glided {covered:.1f} px of the fling's {distance:.1f}: {what} did not stop it")
+        then = [line["event"] for line in rest]
+        if stopped_by == "wheel":
+            notch = met["d" + axis]
+            if then != ["scroll"] or abs(rest[0][axis] - (ended + notch)) > 0.01:
+                fail(f"{view} then had {then} (to {[line.get(axis) for line in rest]}), expected the notch's one "
+                     f"scroll by {notch} from {ended}")
+        elif stopped_by == "fingers":
+            body = then[1:-3]
+            if then[:1] != ["scrollBeginDrag"] or then[-3:] != ["scrollEndDrag", "momentumScrollBegin",
+                                                                  "momentumScrollEnd"] \
+                    or not body or any(name != "scroll" for name in body):
+                fail(f"{view} then had {then}, expected the new fingers' scrollBeginDrag, scrolls, scrollEndDrag "
+                     f"and momentum")
+            elif rest[0]["t"] < after[-1]["t"] or abs(rest[0][axis] - ended) > 0.01:
+                fail(f"{view}'s new drag began at {rest[0][axis]} before its momentum ended at {ended}")
+            else:
+                moves = [b[axis] - a[axis] for a, b in zip(rest, rest[1:len(body) + 1])]
+                if any(move * met["d" + axis] <= 0 for move in moves):
+                    fail(f"{view}'s new drag did not go the fingers' way: {moves}")
+        elif rest:
+            fail(f"{view} then had {then}, expected nothing")
         return
+    if rest:
+        fail(f"{view} had {[line['event'] for line in rest]} after its momentum ended")
+    if kept_by:
+        # Input on another surface of the application while it glided (a popup's): it reaches no
+        # view of the glide's surface and leaves it gliding to its end.
+        if met["surface"] == surface:
+            fail(f"the {kept_by} input came on the glide's own surface ({surface}), expected another")
+        if not after[1]["t"] < met["t"] < after[-1]["t"]:
+            fail(f"the {kept_by} input came at {(met['t'] - after[1]['t']) / 1e6:.0f} ms of the glide, "
+                 f"not while it went on ({(after[-1]['t'] - after[1]['t']) / 1e6:.0f} ms)")
     if reached_end:
         if abs(covered) >= abs(distance) + 1:
             fail(f"{view} glided {covered:.1f} px, past the fling's {distance:.1f}")

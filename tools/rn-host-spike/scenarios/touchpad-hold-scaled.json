@@ -1,5 +1,5 @@
 {
-  "about": "touchpad-hold.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same flick and glide, each scroll event stamped when it was dispatched, and the same resting fingers stopping the second glide under them, and a click the third. Every glide's frames only slow.",
+  "about": "touchpad-hold.json at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25, a 1600x1000 output): the same flick and glide, each scroll event stamped when it was dispatched, and the same resting fingers stopping the second glide under them, a click the third, a wheel's notch the fourth and new fingers the fifth. Every glide's frames only slow.",
   "module": "GlideProbe",
   "window": [
     600,
@@ -113,6 +113,42 @@
         "glide": {"view": "list", "velocity": [900, 1500], "pressed": true},
         "scroll_times": "dispatch",
         "texts": ["Glide 3: scrolls stamped rising yes, momentum stamped yes"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a fourth flick, and a wheel's notch where the fingers were 150 ms after the lift: the glide stops where the notch finds it, its momentum ending once, then the notch scrolls the list from there, once",
+      "do": ["flick_wheel", [150, 150, 120, 6, 60, 150, 40]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 1,
+          "scroll@list": [9, 41],
+          "scrollEndDrag@list": 1,
+          "momentumScrollBegin@list": 1,
+          "momentumScrollEnd@list": 1
+        },
+        "delivered": {"1": {"scroll": 8}},
+        "glide": {"view": "list", "velocity": [900, 1500], "stopped_by": "wheel"},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 4: scrolls stamped rising yes, momentum stamped yes"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a fifth flick, and new fingers scrolling down 150 ms after the lift: the glide stops where they find it, its momentum ending once, then their drag begins there and goes their way, resting before they lift so nothing is flung",
+      "do": ["flick_fingers", [150, 150, 120, 6, 60, 150, 60, 6]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@list": 2,
+          "scroll@list": [14, 46],
+          "scrollEndDrag@list": 2,
+          "momentumScrollBegin@list": 2,
+          "momentumScrollEnd@list": 2
+        },
+        "delivered": {"1": {"scroll": 14}},
+        "glide": {"view": "list", "velocity": [900, 1500], "stopped_by": "fingers"},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 6: scrolls stamped rising no, momentum stamped yes"],
         "focus_surface": 1
       }
     }

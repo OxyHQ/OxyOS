@@ -1,0 +1,145 @@
+{
+  "about": "A glide meets input on another surface of its application (sample/NestedScrollProbe.tsx; docs/adr/0042-scrolling.mdx, decision 7): input stops the glides of the surface it reaches and only those, as Android aborts a view's OverScroller only for input its window receives. A flick leaves the list gliding, and the popover it opens as its glide begins (a compositor popup of the window, holding the pointer's grab) takes a wheel's notch, new fingers or a click while it glides: the list glides on to Android's distance for the lift's velocity, its momentum ending once at its end, and nothing reaches it. Before, each of them stopped it where it was.",
+  "module": "NestedScrollProbe",
+  "window": [640, 400],
+  "steps": [
+    {
+      "name": "Arm pressed: the list's next glide opens the popover as it begins",
+      "do": ["press", [500, 98]],
+      "expect": {
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "touchStart@arm": 1,
+          "touchEnd@arm": 1
+        },
+        "delivered": {"1": {"enter": 1, "press": 1, "release": 1}},
+        "texts": ["armed; popover closed"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a flick, the popover opening over the window as it glides, and a wheel's notch on the popover 400 ms after the lift: the list glides on to its end",
+      "do": ["flick_wheel", [340, 200, 240, 6, 60, 400, 40, 540, 180]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@glider": 1,
+          "scroll@glider": [8, 80],
+          "scrollEndDrag@glider": 1,
+          "momentumScrollBegin@glider": 1,
+          "momentumScrollEnd@glider": 1
+        },
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "scroll": 7}, "2": {"enter": 1, "focus.in": 1, "scroll": 1}},
+        "glide": {"view": "glider", "velocity": [2000, 2800], "kept_by": "wheel", "frames_min": 8},
+        "scroll_offset": {"glider": [0, 1128.4888916015625]},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 1 ended at 1128; not armed; popover open"],
+        "focus_surface": 2
+      }
+    },
+    {
+      "name": "Escape closes the popover, the list where its glide ended: the popover hears the key, the window has the keyboard back",
+      "do": ["key", [1]],
+      "expect": {
+        "react": {
+          "key@note": 1
+        },
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "2": {"focus.out": 1, "key.press": 1, "key.release": 1}},
+        "texts": ["not armed; popover closed"],
+        "focus_surface": 1,
+        "scroll_offset": {}
+      }
+    },
+    {
+      "name": "Arm pressed: the list's next glide opens the popover as it begins",
+      "do": ["press", [500, 98]],
+      "expect": {
+        "react": {
+          "touchStart@arm": 1,
+          "touchEnd@arm": 1
+        },
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "texts": ["armed; popover closed"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "another flick, and new fingers scrolling on the popover: the list glides on to its end, and they drag nothing",
+      "do": ["flick_fingers", [340, 200, 240, 6, 60, 400, 60, 6, 540, 180]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@glider": 1,
+          "scroll@glider": [8, 80],
+          "scrollEndDrag@glider": 1,
+          "momentumScrollBegin@glider": 1,
+          "momentumScrollEnd@glider": 1
+        },
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "scroll": 7}, "3": {"enter": 1, "focus.in": 1, "scroll": 7}},
+        "glide": {"view": "glider", "velocity": [2000, 2800], "kept_by": "fingers", "frames_min": 8},
+        "scroll_offset": {"glider": [0, 2256.977783203125]},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 2 ended at 2257; not armed; popover open"],
+        "focus_surface": 3
+      }
+    },
+    {
+      "name": "Escape closes the popover, again: the popover hears the key, the window has the keyboard back",
+      "do": ["key", [1]],
+      "expect": {
+        "react": {
+          "key@note": 1
+        },
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "3": {"focus.out": 1, "key.press": 1, "key.release": 1}},
+        "texts": ["not armed; popover closed"],
+        "focus_surface": 1,
+        "scroll_offset": {}
+      }
+    },
+    {
+      "name": "Arm pressed: the list's next glide opens the popover as it begins",
+      "do": ["press", [500, 98]],
+      "expect": {
+        "react": {
+          "touchStart@arm": 1,
+          "touchEnd@arm": 1
+        },
+        "delivered": {"1": {"press": 1, "release": 1}},
+        "texts": ["armed; popover closed"],
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a third flick, and a click on the popover: the list glides on to its end, and the click is the popover's",
+      "do": ["flick_press", [340, 200, 240, 6, 60, 400, 540, 180]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@glider": 1,
+          "scroll@glider": [8, 80],
+          "scrollEndDrag@glider": 1,
+          "momentumScrollBegin@glider": 1,
+          "momentumScrollEnd@glider": 1,
+          "touchStart@note": 1,
+          "touchEnd@note": 1
+        },
+        "delivered": {"1": {"focus.out": 1, "leave": 1, "scroll": 7}, "4": {"enter": 1, "focus.in": 1, "press": 1, "release": 1}},
+        "glide": {"view": "glider", "velocity": [2000, 2800], "kept_by": "press", "frames_min": 8},
+        "scroll_offset": {"glider": [0, 3385.466796875]},
+        "scroll_times": "dispatch",
+        "texts": ["Glide 3 ended at 3385; not armed; popover open"],
+        "focus_surface": 4
+      }
+    },
+    {
+      "name": "Escape closes the popover, a third time: the popover hears the key, the window has the keyboard back",
+      "do": ["key", [1]],
+      "expect": {
+        "react": {
+          "key@note": 1
+        },
+        "delivered": {"1": {"enter": 1, "focus.in": 1}, "4": {"focus.out": 1, "key.press": 1, "key.release": 1}},
+        "texts": ["not armed; popover closed"],
+        "focus_surface": 1,
+        "scroll_offset": {}
+      }
+    }
+  ]
+}
