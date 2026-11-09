@@ -571,6 +571,79 @@ fn a_disk_added_is_backed_up_at_once_then_every_hour_and_when_it_comes_back() {
 }
 
 #[test]
+fn a_question_about_versions_runs_restic_once_deriving_the_machines_key_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let Some(real) = engine(&dir.path().join("cache")) else {
+        return;
+    };
+    // restic through a wrapper that writes down each run: the key it was hinted, and what it ran.
+    let runs = dir.path().join("runs.log");
+    let wrapper = dir.path().join("restic");
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\necho \"${{RESTIC_KEY_HINT:-none}} $*\" >> '{}'\nexec '{}' \"$@\"\n",
+            runs.display(),
+            real.restic().display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    let engine = Engine::new(&dir.path().join("cache")).with_programs(&wrapper, real.rclone());
+    let mut fixture = Fixture::new(engine, dir);
+    fixture.connect("1234-ABCD", "Backup");
+    fixture.schedule();
+    let client = fixture.connect_client();
+    ask(
+        &client,
+        r#"{"addDisk":{"uuid":"1234-ABCD","password":"correct horse"}}"#,
+    );
+    fixture.until("backed up", |s| {
+        s.destinations[0].last_backup.is_some() && s.running.is_none()
+    });
+    fs::write(&runs, "").unwrap();
+
+    let path = fixture
+        .home
+        .join("Documents/notes.txt")
+        .display()
+        .to_string();
+    for _ in 0..2 {
+        let versions = ask(
+            &client,
+            &serde_json::json!({"versions": {"path": path}}).to_string(),
+        );
+        assert_eq!(
+            versions["versions"].as_array().unwrap().len(),
+            1,
+            "{versions}"
+        );
+    }
+    let ran = fs::read_to_string(&runs).unwrap();
+    let ran: Vec<&str> = ran.lines().collect();
+    // The snapshots the backup left were learned as it ended: each question finds, nothing else,
+    // and derives the machine's key alone (restic's key hint).
+    assert_eq!(ran.len(), 2, "{ran:?}");
+    for run in &ran {
+        assert!(run.contains(" find "), "{run}");
+        assert!(!run.starts_with("none "), "no key hint: {run}");
+    }
+
+    // A backup forgets them and learns them again as it ends; a question then still runs once.
+    ask(&client, r#"{"backUpNow":{}}"#);
+    fixture.until("backed up again", |s| {
+        s.destinations[0].backups == 2 && s.running.is_none()
+    });
+    fs::write(&runs, "").unwrap();
+    ask(
+        &client,
+        &serde_json::json!({"versions": {"path": path}}).to_string(),
+    );
+    let ran = fs::read_to_string(&runs).unwrap();
+    assert_eq!(ran.lines().count(), 1, "{ran}");
+}
+
+#[test]
 fn a_file_is_browsed_back_in_time_and_retrieved_from_its_own_home_only() {
     let dir = tempfile::tempdir().unwrap();
     let Some(engine) = engine(&dir.path().join("cache")) else {
