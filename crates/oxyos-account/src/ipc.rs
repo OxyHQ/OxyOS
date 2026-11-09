@@ -119,26 +119,17 @@
 use crate::api::{DeviceCredential, OxyApi, Profile};
 use crate::pin::{PinCheck, PinState};
 use crate::platform::{Checked, Local, Platform};
-use crate::secret::{self, Secret};
+use crate::secret::Secret;
 use crate::setup::{
     Appearance, Attempt, Enrolled, Event, Request as SetupRequest, SetupError, Stage, Step,
 };
 use crate::store::State;
 use crate::users::Users;
-use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
-use rustix::net::{
-    AddressFamily, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix,
-    SocketFlags, SocketType,
-};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::io;
-use std::mem::MaybeUninit;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use zeroize::Zeroizing;
 
 /// Where the service listens.
 pub const SOCKET: &str = "/run/oxyos/accountd/socket";
