@@ -8,7 +8,7 @@ publish.workspace = true
 [dependencies]
 # The file system's own calls: renaming without replacing (renameat2), inotify, poll, extended
 # attributes (tags, and copies that keep them) and the user's id.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "event", "process"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "event", "process", "pipe"] }
 # A Mac's Finder tags (`com.apple.metadata:_kMDItemUserTags`), a binary property list, read and
 # written by the proven codec rather than one of our own (docs/adr/0049-file-tags.mdx).
 plist = { version = "1", default-features = false }
@@ -27,8 +27,19 @@ sha2 = "0.10"
 oxyos-net = { path = "../oxyos-net", optional = true }
 # An application's id, by the registry's own rule.
 oxyos-apps = { path = "../oxyos-apps" }
+# The backup service's socket (docs/adr/0059-backups.mdx): SOCK_SEQPACKET, one JSON message per
+# packet, a pipe handed over with a message, as every OxyOS service's.
+oxyos-install = { path = "../oxyos-install" }
+# A folder got back from a backup comes as a tar archive, read by the proven crate (its own
+# extraction is not used: every item is checked here before it is written, never through a link).
+tar = { version = "0.4", default-features = false }
 # Where the user's folders are (xdg-user-dirs' `user-dirs.dirs`).
 oxyos-preferences = { path = "../oxyos-preferences" }
+
+[dev-dependencies]
+# The backup service itself, run on the tests' own folders as `oxyos-backupd --development` runs
+# it, over Debian's restic.
+oxyos-backup = { path = "../oxyos-backup" }
 
 [features]
 # The service an application's host runs (`Service`, transfers through `oxyos-net`). Without it,

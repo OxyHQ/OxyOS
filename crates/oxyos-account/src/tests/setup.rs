@@ -43,6 +43,7 @@ fn request(password: &str) -> Request {
         account: ACCOUNT.into(),
         password: Some(Secret::new(password)),
         pin: None,
+        appearance: None,
     }
 }
 
@@ -73,7 +74,7 @@ fn an_account_is_set_up_with_its_user_verifier_and_credential() {
     );
     assert_eq!(
         machine.api().calls(),
-        vec![Call::Mint, Call::Profile, Call::Password]
+        vec![Call::Mint, Call::Profile, Call::Password, Call::Confirm]
     );
     assert_eq!(
         machine.setup.users().verifier(&name).as_deref(),
@@ -137,13 +138,13 @@ fn offline_at_the_second_factor_leaves_nothing() {
         offline_from: Some(Call::SecondFactor),
         ..FakeApi::default()
     });
-    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+    let Ok(Progress::SecondFactor(mut pending)) = machine.setup.enroll(request(PASSWORD)) else {
         panic!("a second factor is asked for");
     };
     assert_eq!(
         machine
             .setup
-            .second_factor(&pending, &Secret::new(CODE))
+            .second_factor(&mut pending, &Secret::new(CODE))
             .unwrap_err(),
         SetupError::Offline
     );
@@ -243,7 +244,7 @@ fn an_authenticator_is_asked_for_and_a_wrong_code_may_be_followed_by_the_right_o
         authenticator: true,
         ..FakeApi::default()
     });
-    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+    let Ok(Progress::SecondFactor(mut pending)) = machine.setup.enroll(request(PASSWORD)) else {
         panic!("a second factor is asked for");
     };
     // Nothing on the machine yet.
@@ -251,14 +252,14 @@ fn an_authenticator_is_asked_for_and_a_wrong_code_may_be_followed_by_the_right_o
     assert_eq!(
         machine
             .setup
-            .second_factor(&pending, &Secret::new("000000"))
+            .second_factor(&mut pending, &Secret::new("000000"))
             .unwrap_err(),
         SetupError::SecondFactorInvalid
     );
     nothing_left(&machine);
     let enrolled = machine
         .setup
-        .second_factor(&pending, &Secret::new(CODE))
+        .second_factor(&mut pending, &Secret::new(CODE))
         .unwrap();
     assert_eq!(enrolled.account, account());
     assert_eq!(
@@ -272,7 +273,8 @@ fn an_authenticator_is_asked_for_and_a_wrong_code_may_be_followed_by_the_right_o
             Call::Profile,
             Call::Password,
             Call::SecondFactor,
-            Call::SecondFactor
+            Call::SecondFactor,
+            Call::Confirm
         ]
     );
 }
@@ -307,6 +309,7 @@ fn enrolled_other(machine: &Machine<FakeUsers>, id: &str, uid: u32) -> UserName 
                 username: None,
                 display_name: None,
                 avatar: None,
+                languages: None,
             },
             credential: None,
             password_changed: false,
@@ -374,8 +377,9 @@ fn a_first_account_that_cannot_be_made_the_administrator_is_not_set_up() {
         Err(SetupError::Failed(_))
     ));
     nothing_left(&machine);
-    // Its platform credential was ended online, as any failed setup's is.
-    assert!(machine.api().calls().contains(&Call::SignOut));
+    // Its platform credential was never confirmed: pending at Oxy, it expires by itself (R8).
+    assert!(!machine.api().calls().contains(&Call::SignOut));
+    assert!(machine.api().is_pending(&platform_secret(1)));
 }
 
 #[test]
@@ -599,6 +603,7 @@ fn unusable_requests_never_reach_oxy() {
                 account: account.into(),
                 password: Some(Secret::new(password)),
                 pin: None,
+                appearance: None,
             })
             .unwrap_err();
         assert!(
@@ -727,7 +732,7 @@ fn without_oxyoss_client_id_nothing_is_set_up() {
 }
 
 #[test]
-fn a_platform_credential_the_machine_could_not_take_is_ended_online() {
+fn a_platform_credential_the_machine_could_not_take_is_left_to_expire() {
     let machine = machine(FakeApi::default());
     machine.setup.users().fail(UserStep::SetVerifier);
     assert!(matches!(
@@ -735,18 +740,16 @@ fn a_platform_credential_the_machine_could_not_take_is_ended_online() {
         Err(SetupError::Failed(_))
     ));
     nothing_left(&machine);
-    // Its device was signed out at Oxy with the credential the sign-in issued.
+    // Never confirmed: the credential the sign-in issued is pending at Oxy and expires by itself
+    // (R8), and the setup client's, which it would have replaced, still works. Nothing is ended
+    // online.
     assert_eq!(
         machine.api().calls(),
-        vec![
-            Call::Mint,
-            Call::Profile,
-            Call::Password,
-            Call::Mint,
-            Call::SignOut
-        ]
+        vec![Call::Mint, Call::Profile, Call::Password]
     );
-    assert!(machine.api().revoked.load(Ordering::SeqCst));
+    assert!(machine.api().is_pending(&platform_secret(1)));
+    assert!(machine.api().live().contains(&DEVICE_SECRET.to_string()));
+    assert!(!machine.api().revoked.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -755,12 +758,12 @@ fn the_second_factor_names_the_platform_too() {
         authenticator: true,
         ..FakeApi::default()
     });
-    let Ok(Progress::SecondFactor(pending)) = machine.setup.enroll(request(PASSWORD)) else {
+    let Ok(Progress::SecondFactor(mut pending)) = machine.setup.enroll(request(PASSWORD)) else {
         panic!("a second factor");
     };
     machine
         .setup
-        .second_factor(&pending, &Secret::new(CODE))
+        .second_factor(&mut pending, &Secret::new(CODE))
         .unwrap();
     assert_eq!(
         *machine.api().platforms.lock().unwrap(),
@@ -770,5 +773,35 @@ fn the_second_factor_names_the_platform_too() {
     assert_eq!(
         stored.credential.unwrap().device_secret.expose(),
         platform_secret(1)
+    );
+}
+
+#[test]
+fn the_user_is_named_as_the_account_and_a_name_not_written_sets_up_all_the_same() {
+    let machine = machine(FakeApi::default());
+    enrolled(machine.setup.enroll(request(PASSWORD)));
+    let name = account().user_name();
+    assert_eq!(
+        machine.setup.users().full_name(name.as_str()).as_deref(),
+        Some("Ada Lovelace")
+    );
+    // usermod failing is no failed setup: the name is written when the service starts.
+    let machine = self::machine(FakeApi::default());
+    machine
+        .setup
+        .users()
+        .full_name_fails
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    enrolled(machine.setup.enroll(request(PASSWORD)));
+    assert_eq!(machine.setup.users().full_name(name.as_str()), None);
+    machine
+        .setup
+        .users()
+        .full_name_fails
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    machine.setup.name_users().unwrap();
+    assert_eq!(
+        machine.setup.users().full_name(name.as_str()).as_deref(),
+        Some("Ada Lovelace")
     );
 }

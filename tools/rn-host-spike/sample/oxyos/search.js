@@ -149,5 +149,10 @@ export function createSearch() {
     /** Discards the index and builds it again from the files (Settings alone); the old one answers
         until the new one is ready. */
     rebuild: () => told({ rebuild: {} }),
+    /** Settings › Storage (docs/adr/0062-storage.mdx; Settings alone): what the home's files
+        occupy by kind, `{home, kinds: {KIND: {files, bytes}}, indexing, partial}`, and the home's
+        largest files, the largest first, as a question's items. */
+    storage: () => ask({ storage: {} }),
+    largest: (options = {}) => ask({ largest: options }),
   });
 }

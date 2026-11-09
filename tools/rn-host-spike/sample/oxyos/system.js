@@ -51,12 +51,41 @@ export const updates = {
  */
 export const session = {
   signOut: () => ask({ signOut: {} }),
+  // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
+  // the shell's Oxy menu and the login screen's buttons, with the `shell` grant, citing the press
+  // or key that asked. The session decides: it asks its own question (`confirm`), every
+  // application, then logind. Answered `{confirming}`, `{ending: {action}}`, `{sleeping}` or
+  // `{refused: {reason}}`.
+  endSession: (action, confirm) => ask({ endSession: { action, confirm } }),
+  sleep: () => ask({ sleep: {} }),
 };
 
-/** The account's decisions on its applications' capabilities: `privacy` grant. */
+/**
+ * Settings › Storage (docs/adr/0062-storage.mdx), with Settings' `settings` grant: the session's
+ * measurement of the volume, the system's image, the Trash and each application, asked as the
+ * page shows it (`{storage: {volume, system, trash, apps}}`, nothing followed); an item shown in
+ * the file manager, citing the press that asked (`{revealed: {}}`); and an application removed
+ * through the store's uninstall, confirmed in the shell's system sheet (`{uninstalled: {id}}` or
+ * `{cancelled: {}}`). A refusal is `{refused: {reason}}`.
+ */
+export const storage = {
+  measure: () => ask({ storage: {} }),
+  reveal: (uri) => ask({ reveal: { uri } }),
+  remove: (id) => ask({ uninstall: { id } }),
+  // Reset… (docs/adr/0061-crashes-and-resetting-an-application.mdx): the session confirms it in
+  // its sheet, quits the application and erases its own data (`{reset: {id}}`).
+  reset: (id) => ask({ resetApplication: { id } }),
+};
+
+/** The account's decisions on its applications' capabilities: `privacy` grant. The list is told
+    again, unasked, when what it says changed elsewhere: an application granted a capability as it
+    registered its login item or background activity, or one running in the background or no
+    longer (docs/adr/0060-login-items-and-background-activity.mdx). */
 export const privacy = {
   list: () => ask({ privacy: {} }),
   decide: (id, capability, granted) => ask({ decide: { id, capability, granted } }),
+  current: state.privacy.current,
+  subscribe: state.privacy.subscribe,
 };
 
 /**
@@ -80,6 +109,37 @@ export const power = {
 /** The battery and Low Power Mode as they change, for a view: asked once, then followed. */
 export function usePowerState() {
   return useFollowed(power);
+}
+
+/**
+ * Backups (docs/adr/0059-backups.mdx): the shell (its `shell` grant: the menu bar's backup item)
+ * and Settings (`settings`: its Backups page) are told the backup service's state as it changes:
+ * followed as `{backup: State}`, `{backup: null}` while the service is not there, and null before
+ * the session said (State: `{automatic, destinations, excluded, running, lastBackup, nextBackup,
+ * held, administrator, inMenuBar}`). Both back up now and skip a backup, citing the press that
+ * asked; Settings alone lists the disks that can be added (`{backupDisks: [disk]}`), adds a disk or
+ * a share (`{backupAddDisk: {id}}`, `{backupAddShare: {id}}`), removes a destination, sets the
+ * excluded items and Back Up Automatically, each citing the press. A refusal is
+ * `{refused: {reason}}`, what the service would not do `{failed: {reason}}`. The service decides
+ * who is an administrator.
+ */
+export const backup = {
+  state: () => ask({ backup: {} }),
+  backUpNow: () => ask({ backupNow: {} }),
+  stop: () => ask({ backupStop: {} }),
+  disks: () => ask({ backupDisks: {} }),
+  addDisk: (uuid, password) => ask({ backupAddDisk: { uuid, password } }),
+  addShare: (share, sharePassword, password) => ask({ backupAddShare: { share, sharePassword, password } }),
+  remove: (id) => ask({ backupRemove: { id } }),
+  setExcluded: (paths) => ask({ backupExcluded: { paths } }),
+  setAutomatic: (enabled) => ask({ backupAutomatic: { enabled } }),
+  current: state.backup.current,
+  subscribe: state.backup.subscribe,
+};
+
+/** Backups as the session tells them, for a view: asked as it is first followed. */
+export function useBackupState() {
+  return useFollowed(backup);
 }
 
 /**
@@ -220,5 +280,34 @@ export function useSystemSheets() {
     native?.request(JSON.stringify({ bluetoothCode: { sheet, code } }));
     setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
   }, []);
-  return { sheets, answer, answerPassword, answerCode };
+  // A passkey sheet's answer (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): the
+  // passkey chosen and the Oxy account's password the person typed, to the session alone, citing
+  // the press or key that submitted it. The session takes it only from the shell, for a passkey
+  // sheet it shows, and hands it to the accounts' service, never to the application.
+  const answerPasskey = React.useCallback((sheet, choice, password) => {
+    const passkey = choice === undefined ? { sheet, password } : { sheet, choice, password };
+    native?.request(JSON.stringify({ passkey }));
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  // An application that quit (docs/adr/0061-crashes-and-resetting-an-application.mdx): its
+  // notice's Reset… answers the notice no and asks the session to reset it, citing the press; the
+  // session asks the person in a sheet of its own, and opens it again once it is reset.
+  const resetApplication = React.useCallback((sheet, id) => {
+    native?.answerSheet(sheet, false);
+    void connection.request({ resetApplication: { id, reopen: true } });
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  // The power key's sheet (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 7): its
+  // Restart and Sleep answer it, citing the press, the session taking them only for the power
+  // key's sheet it shows.
+  const choosePowerKey = React.useCallback((sheet, choice) => {
+    void connection.request({ powerKeyChoice: { sheet, choice } });
+    setSheets((waiting) => waiting.filter((s) => s.sheet !== sheet));
+  }, []);
+  // Reopen windows when logging back in, toggled in the session's question: the person's
+  // `reopen_windows`, which the session keeps.
+  const reopenWindows = React.useCallback((enabled) => {
+    void connection.request({ reopenWindows: { enabled } });
+  }, []);
+  return { sheets, answer, answerPassword, answerCode, answerPasskey, resetApplication, choosePowerKey, reopenWindows };
 }

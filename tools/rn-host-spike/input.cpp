@@ -1341,7 +1341,11 @@ std::optional<std::pair<Tag, int>> PointerInput::barAt(const SurfaceContent& con
   Tag target = hitTest(tree_, content, x, y);
   if (target < 0) return std::nullopt;
   auto path = ancestry(tree_, target);
-  for (auto at = path.rbegin(); at != path.rend(); ++at) {
+  // Only the scroll views of the surface pressed: a popup's views are portaled under the window's
+  // (a menu opened from a row of a scrolled page), and the window's scroll bars are not in the popup.
+  bool inside = true;
+  for (auto at = path.rbegin(); at != path.rend() && inside; ++at) {
+    inside = *at != content.view;
     const auto& view = tree_.views().at(*at).view;
     if (std::string(view.componentName ? view.componentName : "") != "ScrollView") continue;
     auto range = scrollRange(*at);

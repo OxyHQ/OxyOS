@@ -7,7 +7,8 @@
 //!   A password the machine accepts is accepted at once and asked of Oxy afterwards, never delaying
 //!   the session: refused, the account is flagged `passwordChanged`, and while flagged and online
 //!   a locally accepted password waits for Oxy (the old one works only offline). Each online
-//!   check is the platform's own sign-in, which rotates the platform credential: the new one
+//!   check is the platform's own sign-in, which rotates the platform credential: the new one,
+//!   once Oxy confirms it (ADR 0058 R8; until then it is pending and the old one works),
 //!   replaces the old in the account's file, written whole.
 //! - **Revocation.** Oxy answering that the device's session is gone (a mint refused with
 //!   `invalid_device_secret`, `no_active_session` or `account_not_on_device`, R4) signs the account
@@ -148,6 +149,13 @@ pub struct SnapshotAccount {
     pub display_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
+    /// The account's picture on this machine (its avatar's image, as the accounts' service last
+    /// read it: a root-owned file the session reads, [`crate::store`]); none without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
+    /// The account's languages, primary first, as the platform last read them online.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub languages: Option<Vec<String>>,
 }
 
 /// An application's token, as it is handed to the application.
@@ -397,6 +405,24 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         f(entry)
     }
 
+    /// Every enrolled account's picture read where it is missing or out of date (the service
+    /// started; accounts set up before pictures were kept): online, each one's subscribers told.
+    /// Run on a thread of its own: nothing waits for Oxy's cloud.
+    pub fn refresh_pictures(&self) {
+        let Ok(enrollments) = self.setup.store().enrollments() else {
+            return;
+        };
+        for enrollment in enrollments {
+            if enrollment.state() == crate::store::State::Ready
+                && self
+                    .setup
+                    .picture_user(&enrollment.user, &enrollment.profile)
+            {
+                self.changed(&enrollment);
+            }
+        }
+    }
+
     /// The account was signed out or removed: a new revision, whatever snapshots were made between.
     fn switched(&self, enrollment: &Enrollment) {
         let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1;
@@ -505,6 +531,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 handle: profile.username.clone().unwrap_or_default(),
                 display_name: profile.display_name.clone(),
                 avatar: profile.avatar.clone(),
+                picture: self
+                    .setup
+                    .store()
+                    .picture(&enrollment.user, profile.avatar.as_deref())
+                    .map(|path| path.to_string_lossy().into_owned()),
+                languages: profile.languages.clone(),
             }),
             online,
         }
@@ -937,6 +969,10 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         drop(token);
         if let Some(profile) = &profile {
             self.update_profile(&enrollment, credential, profile);
+            // Its picture read anew when its avatar changed (or was never read): subscribers told.
+            if self.setup.picture_user(&enrollment.user, profile) {
+                self.changed(&enrollment);
+            }
         }
         let username = profile
             .as_ref()
@@ -981,6 +1017,20 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 return Online::Failed("an answer outside the contract".into());
             }
         };
+        // The rotated credential is pending until Oxy confirms it (ADR 0058 R8), and the one it
+        // replaces works until then: unconfirmed, it expires by itself and the machine keeps the
+        // one it has. Confirmed, it is the one the machine keeps.
+        let rotated = match api.confirm_platform_credential(&rotated) {
+            Ok(()) => Some(rotated),
+            Err(error) => {
+                eprintln!(
+                    "oxyos-accountd: {}: the rotated credential could not be confirmed ({error}): \
+                     kept the one it had",
+                    enrollment.user
+                );
+                None
+            }
+        };
         if set_verifier {
             if let Err(error) = self.setup.users().set_verifier(&enrollment.user, password) {
                 // The password is right, and the credential was rotated all the same: kept.
@@ -988,11 +1038,15 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                     "oxyos-accountd: {}: the new password could not become the verifier: {error}",
                     enrollment.user
                 );
-                self.rotate(&enrollment, credential, rotated);
+                if let Some(rotated) = rotated {
+                    self.rotate(&enrollment, credential, rotated);
+                }
                 return Online::Failed(error.to_string());
             }
         }
-        self.rotate(&enrollment, credential, rotated);
+        if let Some(rotated) = rotated {
+            self.rotate(&enrollment, credential, rotated);
+        }
         Online::Accepted
     }
 
@@ -1058,6 +1112,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         if let Ok(true) = self.rewrite(enrollment, credential, |stored| {
             stored.profile = profile.clone()
         }) {
+            // A name changed on Oxy is the person's name here too: the user's full name, and
+            // every snapshot's subscriber (the lock screen, the menu bar, Settings) told.
+            if profile.name() != enrollment.profile.name() {
+                let _machine = self.setup.lock_machine();
+                self.setup.name_user(&enrollment.user, profile);
+            }
             self.changed(enrollment);
         }
     }
@@ -1208,8 +1268,8 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         if let Err(error) = self.setup.store().remove(user) {
             eprintln!("oxyos-accountd: {user}: its file cannot be removed: {error}");
         }
-        if let Some(picture) = self.setup.store().picture(user) {
-            let _ = std::fs::remove_file(picture);
+        if let Err(error) = self.setup.store().remove_pictures(user) {
+            eprintln!("oxyos-accountd: {user}: its picture cannot be removed: {error}");
         }
         self.live
             .lock()

@@ -6,6 +6,8 @@ decides about an ordering is decided the same way every time, whatever the machi
 
 import importlib.util
 import pathlib
+import subprocess
+import sys
 import unittest
 
 _spec = importlib.util.spec_from_file_location("regress", pathlib.Path(__file__).with_name("regress.py"))
@@ -151,6 +153,205 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         report = [deliver(10, "scroll", "list", "list"), deliver(20, "scroll", "ScrollView#3")]
         del report[1]["within"]
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
+
+
+class ActivityIsCountedPerStep(unittest.TestCase):
+    """`activity` and `processes` (docs/adr/0063-activity-monitor.mdx): counts in the step, from the
+    step before's settling, and the signals a known process received between them."""
+
+    def results(self, before, now):
+        return [{"t_settled": 100, "activity": before}, {"t_settled": 200, "activity": now}]
+
+    def check(self, expect, before, now, processes=None):
+        failures = []
+        step = {"name": "hidden", "do": ["wait", 1], "expect": expect}
+        results = self.results(before, now)
+        regress.check_activity(1, step, results[1], results, processes or regress.ProcessRecorder(None, []),
+                               failures)
+        return failures
+
+    def test_a_hidden_step_holds_its_counts_to_none(self):
+        held = {"samples": 4, "sent": 4, "wakeups": 9, "host_wakeups": 30, "followed": True}
+        self.assertEqual(self.check({"activity": {"samples": 0, "wakeups": 0, "followed": True}}, held, held), [])
+
+    def test_a_count_in_the_step_is_the_difference(self):
+        before = {"samples": 4, "sent": 4, "wakeups": 9, "host_wakeups": 30, "followed": True}
+        now = {"samples": 5, "sent": 5, "wakeups": 11, "host_wakeups": 33, "followed": True}
+        failures = self.check({"activity": {"samples": 0, "host_wakeups": [0, 5]}}, before, now)
+        self.assertEqual(failures, ["step 2 (hidden): activity samples 1 in the step, expected 0"])
+
+    def test_signals_are_those_of_the_step(self):
+        directory = pathlib.Path(regress.tempfile.mkdtemp())
+        record = directory / "idle.signals"
+        record.write_text("50 started 7\n90 TERM\n150 TERM\n")
+
+        class Known:
+            processes = {"idle": (None, record)}
+            ended = {"idle": 160}
+            signals = regress.ProcessRecorder.signals
+            running_at = regress.ProcessRecorder.running_at
+
+        expect = {"processes": {"idle": {"signals": ["TERM"], "running": False}}}
+        self.assertEqual(self.check(expect, {}, {}, Known()), [])
+        expect = {"processes": {"idle": {"signals": [], "running": True}}}
+        self.assertEqual(len(self.check(expect, {}, {}, Known())), 2)
+
+
+class DeliveredCounts(unittest.TestCase):
+    # What the compositor delivered is the step's exactly; a count may be a [least, most] (a pinch
+    # through libinput, as many updates as it recognized frames of the fingers).
+    def test_exact_counts_and_ranges(self):
+        got = {"1": {"pinch.begin": 1, "pinch.update": 22, "pinch.end": 1}}
+        self.assertTrue(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [10, 30], "pinch.end": 1}}))
+        self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [23, 30], "pinch.end": 1}}))
+        self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": 21, "pinch.end": 1}}))
+        # An event more, or a window more, is not what the step says.
+        self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [10, 30]}}))
+        self.assertFalse(regress.counts_match({**got, "2": {"focus.in": 1}}, {"1": got["1"]}))
+        self.assertTrue(regress.counts_match({}, {}))
+
+
+class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
+    """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""
+
+    STATE = {
+        ".local/state/oxyos/crash-reports": None,
+        ".local/state/oxyos/crash-reports/so.oxy.crash_probe_2026-11-08-101200-2.crash": "second at 10:12\nboom",
+        ".local/state/oxyos/crash-reports/so.oxy.crash_probe_2026-11-08-101200.crash": "first at 10:12",
+        ".local/state/oxyos/crash-reports/so.oxy.allo_2026-11-08-091000.crash": "Allo, at nine",
+        ".local/state/oxyos/elsewhere.crash": "not a report",
+    }
+
+    def check(self, wanted):
+        failures = []
+        regress.check_crash_reports(self.STATE, wanted, failures.append)
+        return failures
+
+    def test_each_application_in_order_with_what_it_says(self):
+        self.assertEqual(self.check([
+            {"application": "so.oxy.allo"},
+            {"application": "so.oxy.crash_probe", "contains": ["first"]},
+            {"application": "so.oxy.crash_probe", "contains": ["second", "boom"]},
+        ]), [])
+
+    def test_another_order_count_or_text_fails(self):
+        self.assertTrue(self.check([{"application": "so.oxy.allo"}]))
+        self.assertTrue(self.check([
+            {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.allo"},
+        ]))
+        self.assertTrue(self.check([
+            {"application": "so.oxy.allo", "contains": ["Mention"]},
+            {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"},
+        ]))
+
+# A run's processes as its /proc shows them: those whose command is `sleep 7.31` (a twin's).
+TWIN = """
+import os, subprocess, time
+twin = subprocess.Popen(["sleep", "7.31"])
+time.sleep(1.5)
+seen = 0
+for entry in os.listdir("/proc"):
+    try:
+        seen += open(f"/proc/{entry}/cmdline", "rb").read() == b"sleep\\x007.31\\x00"
+    except OSError:
+        pass
+twin.kill()
+print(seen)
+"""
+
+
+class ARunSeesOnlyItsOwnProcesses(unittest.TestCase):
+    """A scenario whose session lists the machine's processes (Activity Monitor's) runs in a PID
+    namespace of its own: two at once, one user's, never see each other's processes."""
+
+    @classmethod
+    def setUpClass(cls):
+        refused = regress.pid_namespace_refused()
+        if refused:
+            raise unittest.SkipTest(f"this machine gives no PID namespace of a run's own: {refused}")
+
+    def twins(self, isolated):
+        command = [sys.executable, "-c", TWIN]
+        runs = [subprocess.Popen(regress.pid_namespace_command(command) if isolated else command,
+                                 stdout=subprocess.PIPE, text=True) for _ in range(2)]
+        return [int(run.communicate(timeout=30)[0]) for run in runs]
+
+    def test_two_runs_at_once_each_see_only_their_own(self):
+        self.assertEqual(self.twins(isolated=False), [2, 2], "without namespaces each sees both")
+        self.assertEqual(self.twins(isolated=True), [1, 1])
+
+    def test_which_scenarios_list_processes(self):
+        self.assertTrue(regress.lists_processes({"processes": [{"name": "oxyos-test-idle"}]}))
+        self.assertTrue(regress.lists_processes({"grants": {"so.oxy.activitymonitor": ["activity"]}}))
+        self.assertFalse(regress.lists_processes({"grants": {"so.oxy.settings": ["settings"]}}))
+
+    def test_the_init_reaps_orphans_and_ends_with_its_child(self):
+        # An orphan left to the init, then the child's status 3: no zombie listed, 3 returned.
+        orphan = ("import os, subprocess, sys, time\n"
+                  "subprocess.Popen(['sh', '-c', 'sleep 0.2 & exit 0']).wait()\n"
+                  "time.sleep(1)\n"
+                  "zombies = [e for e in os.listdir('/proc') if e.isdigit() and"
+                  " open(f'/proc/{e}/stat').read().rsplit(')', 1)[1].split()[0] == 'Z']\n"
+                  "print(len(zombies)); sys.exit(3)")
+        run = subprocess.run(regress.pid_namespace_command([sys.executable, "-c", orphan]),
+                             capture_output=True, text=True, timeout=30)
+        self.assertEqual((run.returncode, run.stdout.strip()), (3, "0"), run.stderr)
+
+class LaunchToContent(unittest.TestCase):
+    """`content_ms_max`: from the host's `main` to the first frame showing every one of the step's
+    texts, across its surfaces, a closed popup's left out."""
+
+    MS = 1_000_000
+
+    def report(self, *frames):
+        lines = [{"t": 5 * self.MS, "kind": "stage", "name": "main"}]
+        for at, surface, texts in frames:
+            lines.append({"t": (5 + at) * self.MS, "kind": "frame", "surface": surface, "texts": texts})
+        return lines
+
+    def check(self, report, budget=1500, texts=("notas.txt", "3 elementos")):
+        failures = []
+        step = {"name": "launch", "do": ["wait", 2500], "expect": {"texts": list(texts), "content_ms_max": budget}}
+        result = {"t_settled": max(line["t"] for line in report)}
+        regress.check_step(0, step, result, report, 0, failures)
+        return result.get("content_ms"), failures
+
+    def test_its_listing_within_the_budget(self):
+        shown, failures = self.check(self.report((40, 1, []), (284, 1, ["Inicio", "notas.txt", "3 elementos"])))
+        self.assertEqual((shown, failures), (284.0, []))
+
+    def test_every_text_counts_on_any_surface(self):
+        shown, failures = self.check(self.report((100, 1, ["notas.txt"]), (200, 1, ["notas.txt"]),
+                                                 (300, 2, ["3 elementos"])))
+        self.assertEqual((shown, failures), (300.0, []))
+
+    def test_a_late_listing_fails(self):
+        shown, failures = self.check(self.report((40, 1, []), (5200, 1, ["notas.txt", "3 elementos"])))
+        self.assertEqual(shown, 5200.0)
+        self.assertIn("over the 1500 ms budget", failures[0])
+
+    def test_a_blank_window_fails(self):
+        shown, failures = self.check(self.report((40, 1, []), (2600, 1, [])))
+        self.assertIsNone(shown)
+        self.assertTrue(any("never all shown" in failure for failure in failures))
+
+    def test_a_closed_popups_text_is_not_shown(self):
+        report = self.report((100, 2, ["3 elementos"]), (150, 1, []))
+        report.append({"t": 200 * self.MS, "kind": "popup", "event": "close", "surface": 2})
+        report += self.report((300, 1, ["notas.txt"]))[1:]
+        self.assertIsNone(regress.content_shown_ms(report, ["notas.txt", "3 elementos"]))
+
+    def test_under_collect_it_is_measured_not_held(self):
+        regress.COLLECT = True
+        try:
+            shown, failures = self.check(self.report((5200, 1, ["notas.txt", "3 elementos"])))
+        finally:
+            regress.COLLECT = False
+        self.assertEqual((shown, failures), (5200.0, []))
+
+    def test_a_budget_with_no_texts_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.check(self.report((40, 1, ["notas.txt"])), texts=())
 
 
 if __name__ == "__main__":

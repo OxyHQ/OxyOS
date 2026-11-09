@@ -495,6 +495,112 @@ fn emptying_the_trash_deletes_what_it_holds_even_read_only_folders() {
     assert_eq!(infos.count(), 0);
 }
 
+/// An item put in the home's Trash `days` ago, as another file manager would have put it: its
+/// info's deletion date in local time.
+fn trashed_days_ago(place: &Place, name: &str, days: i64, contents: &str) -> PathBuf {
+    let deleted = jiff::Zoned::now()
+        .checked_sub(jiff::SignedDuration::from_hours(days * 24))
+        .expect("a date");
+    place.file(
+        &format!("home/ada/.local/share/Trash/info/{name}.trashinfo"),
+        &format!(
+            "[Trash Info]\nPath=/home/ada/{name}\nDeletionDate={}\n",
+            deleted.strftime("%Y-%m-%dT%H:%M:%S")
+        ),
+    );
+    place.file(
+        &format!("home/ada/.local/share/Trash/files/{name}"),
+        contents,
+    )
+}
+
+#[test]
+fn only_what_has_been_in_the_trash_longer_than_its_time_is_erased_and_the_next_is_said() {
+    let place = Place::new("sweep");
+    let scope = scope_in(&place);
+    let old = trashed_days_ago(&place, "old.txt", 40, "old");
+    let recent = trashed_days_ago(&place, "recent.txt", 10, "recent");
+    let newer = trashed_days_ago(&place, "newer.txt", 2, "newer");
+    // An item whose info gives no date is kept: nothing says how long it has been there.
+    let undated = place.file("home/ada/.local/share/Trash/files/undated.txt", "?");
+    let now = jiff::Timestamp::now().as_millisecond();
+    let swept = trash::erase_older(&scope, now - trash::KEPT_FOR_MS).expect("sweep");
+    assert_eq!(swept.erased, 1);
+    assert!(!old.exists());
+    assert!(!place
+        .path("home/ada/.local/share/Trash/info/old.txt.trashinfo")
+        .exists());
+    assert!(recent.exists() && newer.exists() && undated.exists());
+    // The next due is the earliest left: the one put in ten days ago, to the second.
+    let ten_days = 10 * 24 * 60 * 60 * 1000;
+    let next = swept.next.expect("a next");
+    assert!((next - (now - ten_days)).abs() < 2_000, "{next} vs {now}");
+    // Nothing older: nothing erased, the same next.
+    let again = trash::erase_older(&scope, now - trash::KEPT_FOR_MS).expect("sweep");
+    assert_eq!(
+        again,
+        trash::Swept {
+            erased: 0,
+            next: Some(next)
+        }
+    );
+    // An empty Trash has no next.
+    trash::empty(&scope).expect("empty");
+    assert_eq!(
+        trash::erase_older(&scope, now).expect("sweep"),
+        trash::Swept::default()
+    );
+}
+
+#[test]
+fn the_trash_occupies_its_items_blocks_a_folders_kept_in_the_directory_size_cache() {
+    let place = Place::new("occupied");
+    let scope = scope_in(&place);
+    let home_trash = trash::home_trash(&scope);
+    assert_eq!(trash::occupied(&home_trash, &|| false).expect("size"), 0);
+    let file = place.file("home/ada/notes.txt", &"n".repeat(10_000));
+    let folder = place.dir("home/ada/Project");
+    place.file("home/ada/Project/a.bin", &"a".repeat(50_000));
+    place.file("home/ada/Project/inner/b.bin", &"b".repeat(20_000));
+    let measured = crate::usage::allocated(&folder, &|| false).expect("du");
+    let file_blocks = crate::usage::blocks(&std::fs::metadata(&file).expect("file"));
+    trash::trash(&scope, &file).expect("trash");
+    trash::trash(&scope, &folder).expect("trash");
+    assert_eq!(
+        trash::occupied(&home_trash, &|| false).expect("size"),
+        file_blocks + measured
+    );
+    // The folder's size is kept as the specification writes it: SIZE MTIME NAME.
+    let cache = std::fs::read_to_string(home_trash.dir.join("directorysizes")).expect("cache");
+    let line: Vec<&str> = cache.trim_end().split(' ').collect();
+    assert_eq!(line.len(), 3, "{cache}");
+    assert_eq!(line[0], measured.to_string());
+    assert_eq!(line[2], "Project");
+    // Taken from there while the folder's info is unchanged: a size kept there is what it says
+    // (nothing changes a folder in the Trash), and no walk asked to stop stops it.
+    let info_time = line[1];
+    std::fs::write(
+        home_trash.dir.join("directorysizes"),
+        format!("4096 {info_time} Project\n"),
+    )
+    .expect("cache");
+    assert_eq!(
+        trash::occupied(&home_trash, &|| true).expect("size"),
+        file_blocks + 4096
+    );
+    // Another info (the folder restored and trashed again) is measured again.
+    std::fs::write(home_trash.dir.join("directorysizes"), "4096 1 Project\n").expect("cache");
+    assert_eq!(
+        trash::occupied(&home_trash, &|| false).expect("size"),
+        file_blocks + measured
+    );
+    // An item gone leaves the cache.
+    trash::empty(&scope).expect("empty");
+    assert_eq!(trash::occupied(&home_trash, &|| false).expect("size"), 0);
+    let cache = std::fs::read_to_string(home_trash.dir.join("directorysizes")).expect("cache");
+    assert_eq!(cache, "");
+}
+
 #[test]
 fn an_item_on_a_volume_goes_to_that_volumes_trash() {
     let place = Place::new("volume-trash");

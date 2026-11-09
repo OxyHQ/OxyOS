@@ -13,6 +13,12 @@
 //! - a request that cannot be read is carried out on no disk.
 //!
 //! It is written whole: to a new file beside it, flushed, renamed over, the directory flushed.
+//!
+//! A request may also say which backup the new root is restored from (*Restore from Backup*,
+//! [ADR 0059](../../../docs/adr/0059-backups.mdx), decision 7): where it is and which computer's
+//! and backup it is, never a password (the EFI system partition is read by anyone holding the
+//! disk). A power cut during that restore resumes it as an erase does, the recovery asking for the
+//! backup password again.
 
 use crate::disks::Layout;
 use serde::{Deserialize, Serialize};
@@ -47,6 +53,25 @@ pub struct EraseRequest {
     pub encrypted: bool,
     /// When it was made, in seconds since the epoch: for the log.
     pub requested_at: u64,
+    /// The backup the new root is restored from, if it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<Restore>,
+}
+
+/// The backup a new root is restored from, named without its passwords.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Restore {
+    /// Where the backup is, as the backups' library names it (a disk by its file system's UUID,
+    /// or a share by its computer, name and user): kept as that library wrote it.
+    pub source: serde_json::Value,
+    /// The computer's repository in `OxyOS Backups`.
+    pub repository: String,
+    /// The backup, restic's snapshot.
+    pub snapshot: String,
+    /// The computer's name and the backup's time, to tell the person what is being restored.
+    pub computer: String,
+    pub time: i64,
 }
 
 impl EraseRequest {
@@ -67,6 +92,7 @@ impl EraseRequest {
                 .ok_or("the root partition has no UUID")?,
             encrypted: layout.root.encrypted(),
             requested_at,
+            restore: None,
         })
     }
 

@@ -34,7 +34,7 @@ const CATALOG: WallpaperCatalog = {
       name: "Dynamic Wallpapers",
       wallpapers: [
         { id: "oxyos", name: "OxyOS", automatic: "appearance", preview: "file:///w/oxyos/light.svg", variants: [] },
-        { id: "horizon", name: "Horizon", automatic: "sun", preview: "file:///w/horizon/day.svg", variants: [] },
+        { id: "solar-gradients", name: "Solar Gradients", automatic: "sun", preview: "file:///w/solar-gradients/midday.jpg", variants: [] },
       ],
     },
   ],
@@ -48,7 +48,7 @@ test("every choice the grammar has reads back to its own text", () => {
   for (const text of [
     "",
     "oxyos",
-    "horizon/night",
+    "solar-gradients/night",
     "color:1f4fd8",
     "photo:fill:000000:/home/nate/Pictures/a.jpg",
     "photo:tile:ffffff:/home/nate/Pictures/with:colons and spaces.png",
@@ -66,9 +66,9 @@ test("every choice the grammar has reads back to its own text", () => {
 test("what the session would refuse is no choice", () => {
   for (const text of [
     "Oxyos",
-    "1horizon",
-    "horizon/",
-    "horizon/night/extra",
+    "1solar",
+    "solar-gradients/",
+    "solar-gradients/night/extra",
     "color:1F4FD8",
     "color:12345",
     "photo:cover:000000:/a.jpg",
@@ -100,20 +100,20 @@ test("a path is at most 1024 bytes, counted in UTF-8", () => {
 test("the default shows as the catalog's default wallpaper; something unreadable too", () => {
   assert.deepEqual(shownChoice("", CATALOG), { kind: "system", id: "oxyos", variant: null });
   assert.deepEqual(shownChoice("photo:nope", CATALOG), { kind: "system", id: "oxyos", variant: null });
-  assert.deepEqual(shownChoice("horizon/dawn", CATALOG), { kind: "system", id: "horizon", variant: "dawn" });
+  assert.deepEqual(shownChoice("solar-gradients/dawn", CATALOG), { kind: "system", id: "solar-gradients", variant: "dawn" });
 });
 
 test("a tile stays chosen while its options change, and choosing one keeps what still applies", () => {
   const photo = parseChoice("photo:center:ffffff:/p/a.jpg")!;
   assert.equal(tileValue(photo), tileValue(parseChoice("photo:fill:000000:/p/a.jpg")!));
-  assert.equal(tileValue(parseChoice("horizon/night")!), tileValue(parseChoice("horizon")!));
+  assert.equal(tileValue(parseChoice("solar-gradients/night")!), tileValue(parseChoice("solar-gradients")!));
   // Another photo keeps the fit and the colour behind it.
   assert.equal(choiceText(chooseTile("photo:/p/b.jpg", photo)!), "photo:center:ffffff:/p/b.jpg");
   // A folder after a shuffle keeps its interval.
   const shuffle = parseChoice("shuffle:gradients:15")!;
   assert.equal(choiceText(chooseTile("folder:/p/Trips", shuffle)!), "folder:fill:000000:15:/p/Trips");
   // A system wallpaper is chosen Automatic; a shuffle starts hourly.
-  assert.equal(choiceText(chooseTile("system:horizon", photo)!), "horizon");
+  assert.equal(choiceText(chooseTile("system:solar-gradients", photo)!), "solar-gradients");
   assert.equal(choiceText(chooseTile("shuffle:dynamic", photo)!), "shuffle:dynamic:60");
   assert.equal(chooseTile("photo:relative", photo), null);
 });

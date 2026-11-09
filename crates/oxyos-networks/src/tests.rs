@@ -13,6 +13,7 @@ fn known(ssid: &str) -> Known {
         id: format!("uuid-{ssid}"),
         ssid: ssid.into(),
         auto_join: true,
+        private_address: PrivateAddress::Fixed,
     }
 }
 
@@ -185,4 +186,222 @@ fn a_signal_is_shown_as_the_wifi_glyphs_arcs() {
     // As the shell's top bar and Settings draw it (`signalBars`).
     let shown: Vec<u8> = [0, 1, 33, 34, 66, 67, 100].map(arcs).to_vec();
     assert_eq!(shown, [0, 1, 1, 2, 2, 3, 3]);
+}
+
+#[test]
+fn a_private_address_from_the_connections_settings_and_back() {
+    use PrivateAddress::*;
+    // The daemon's default (no setting, `preserve`) and the hardware's own address are off.
+    assert_eq!(PrivateAddress::of(None, None), Off);
+    assert_eq!(PrivateAddress::of(Some(""), None), Off);
+    assert_eq!(PrivateAddress::of(Some("preserve"), None), Off);
+    assert_eq!(
+        PrivateAddress::of(Some("permanent"), Some(ROTATING_STABLE_ID)),
+        Off
+    );
+    // `stable` is fixed unless its stable-id changes with the boot or every activation.
+    assert_eq!(PrivateAddress::of(Some("stable"), None), Fixed);
+    assert_eq!(
+        PrivateAddress::of(Some("stable"), Some("${CONNECTION}")),
+        Fixed
+    );
+    assert_eq!(
+        PrivateAddress::of(Some("stable-ssid"), Some("${BOOT}")),
+        Fixed
+    );
+    assert_eq!(
+        PrivateAddress::of(Some("stable"), Some(ROTATING_STABLE_ID)),
+        Rotating
+    );
+    assert_eq!(
+        PrivateAddress::of(Some("stable"), Some("x-${RANDOM}")),
+        Rotating
+    );
+    assert_eq!(PrivateAddress::of(Some("random"), None), Rotating);
+    // A fixed hardware address someone set is none of the three.
+    assert_eq!(PrivateAddress::of(Some("02:11:22:33:44:55"), None), Other);
+    // Each of the three set reads back as itself; another is never set from here.
+    for mode in [Fixed, Rotating, Off] {
+        let (assigned, stable_id) = mode.settings().unwrap();
+        assert_eq!(PrivateAddress::of(Some(assigned), stable_id), mode);
+    }
+    assert_eq!(Other.settings(), None);
+    assert_eq!(
+        Fixed.settings(),
+        Some(("stable", None)),
+        "the daemon's own per-connection id"
+    );
+    assert_eq!(serde_json::to_value(Rotating).unwrap(), "rotating");
+    assert_eq!(
+        PrivateAddress::default(),
+        Fixed,
+        "a new network's, as Apple's"
+    );
+}
+
+#[test]
+fn a_band_and_channel_from_a_frequency() {
+    use crate::diagnostics::band_and_channel;
+    assert_eq!(band_and_channel(2412), (Some("2.4"), Some(1)));
+    assert_eq!(band_and_channel(2437), (Some("2.4"), Some(6)));
+    assert_eq!(band_and_channel(2484), (Some("2.4"), Some(14)));
+    assert_eq!(band_and_channel(5180), (Some("5"), Some(36)));
+    assert_eq!(band_and_channel(5825), (Some("5"), Some(165)));
+    assert_eq!(band_and_channel(5935), (Some("6"), Some(2)));
+    assert_eq!(band_and_channel(5955), (Some("6"), Some(1)));
+    assert_eq!(band_and_channel(6115), (Some("6"), Some(33)));
+    assert_eq!(band_and_channel(60480), (None, None));
+}
+
+#[test]
+fn the_neighbour_table_says_whether_the_router_answered_arp() {
+    use crate::diagnostics::neighbour_in;
+    let table = "IP address       HW type     Flags       HW address            Mask     Device\n\
+        192.168.8.1      0x1         0x2         a0:b1:c2:d3:e4:f5     *        wlp0s20f3\n\
+        192.168.8.7      0x1         0x0         00:00:00:00:00:00     *        wlp0s20f3\n";
+    assert!(neighbour_in(table, "192.168.8.1".parse().unwrap()));
+    assert!(
+        !neighbour_in(table, "192.168.8.7".parse().unwrap()),
+        "incomplete"
+    );
+    assert!(!neighbour_in(table, "10.0.0.1".parse().unwrap()));
+}
+
+/// A probe that answers as told, counting what it was asked.
+struct Played {
+    ping: Ping,
+    neighbour: bool,
+    resolved: Resolved,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+
+impl Probe for Played {
+    fn ping(&self, address: std::net::Ipv4Addr, count: u32, _: std::time::Duration) -> Ping {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("ping {address} {count}"));
+        self.ping.clone()
+    }
+    fn neighbour(&self, address: std::net::Ipv4Addr) -> bool {
+        self.asked
+            .lock()
+            .unwrap()
+            .push(format!("neighbour {address}"));
+        self.neighbour
+    }
+    fn resolve(&self, name: &str, _: std::time::Duration) -> Resolved {
+        self.asked.lock().unwrap().push(format!("resolve {name}"));
+        self.resolved.clone()
+    }
+}
+
+fn survey(joined: bool) -> Survey {
+    Survey {
+        link: joined.then(|| Link {
+            ssid: "Home".into(),
+            interface: "wlp0s20f3".into(),
+            bssid: "A0:B1:C2:00:00:01".into(),
+            signal: 73,
+            quality: LinkQuality::of(73),
+            frequency: 5180,
+            band: Some("5"),
+            channel: Some(36),
+            width: Some(80),
+            tx_rate: Some(866),
+            max_rate: Some(1201),
+            security: Security::Wpa,
+            address: "02:11:22:33:44:55".into(),
+            permanent_address: "F4:A4:75:12:34:56".into(),
+            private_address: PrivateAddress::Fixed,
+        }),
+        connectivity: Connectivity::of(4, true),
+        router: Some("192.168.8.1".parse().unwrap()),
+        dns: vec!["192.168.8.1".into()],
+    }
+}
+
+#[test]
+fn diagnostics_say_what_was_measured_and_nothing_else() {
+    use std::time::Duration;
+    let ms = Duration::from_millis;
+    // The router answering two echoes of three: reached, the median of those answered.
+    let probe = Played {
+        ping: Ping::Sent {
+            sent: 3,
+            answered: vec![ms(3), ms(1), ms(2)],
+        },
+        neighbour: true,
+        resolved: Resolved::Addresses {
+            count: 2,
+            took: ms(14),
+        },
+        asked: Default::default(),
+    };
+    let found = diagnose(&survey(true), &probe, "oxy.so");
+    assert_eq!(found.router.verdict, RouterVerdict::Reached);
+    assert_eq!(
+        (found.router.sent, found.router.answered, found.router.ms),
+        (3, 3, Some(2.0))
+    );
+    assert_eq!(found.dns.verdict, DnsVerdict::Resolved);
+    assert_eq!((found.dns.ms, found.dns.addresses), (Some(14), 2));
+    assert_eq!(found.dns.servers, ["192.168.8.1"]);
+    // Asked once each; the neighbour table only when no echo came back.
+    assert_eq!(
+        *probe.asked.lock().unwrap(),
+        ["ping 192.168.8.1 3", "resolve oxy.so"]
+    );
+    // Silent to echoes but there by ARP; then not there at all.
+    for (neighbour, verdict) in [
+        (true, RouterVerdict::Present),
+        (false, RouterVerdict::Unreachable),
+    ] {
+        let probe = Played {
+            ping: Ping::Sent {
+                sent: 3,
+                answered: Vec::new(),
+            },
+            neighbour,
+            resolved: Resolved::TimedOut,
+            asked: Default::default(),
+        };
+        let found = diagnose(&survey(true), &probe, "oxy.so");
+        assert_eq!(found.router.verdict, verdict);
+        assert_eq!((found.router.answered, found.router.ms), (0, None));
+        assert_eq!(
+            (found.dns.verdict, found.dns.ms),
+            (DnsVerdict::TimedOut, None)
+        );
+    }
+    // A machine that lets no user ping says so, nothing made up.
+    let probe = Played {
+        ping: Ping::NotAllowed,
+        neighbour: true,
+        resolved: Resolved::Failed { took: ms(30) },
+        asked: Default::default(),
+    };
+    let found = diagnose(&survey(true), &probe, "oxy.so");
+    assert_eq!(
+        (found.router.verdict, found.router.sent),
+        (RouterVerdict::NotAllowed, 0)
+    );
+    assert_eq!(
+        (found.dns.verdict, found.dns.ms),
+        (DnsVerdict::Failed, Some(30))
+    );
+    // Wi-Fi not joined: nothing is checked, nothing asked.
+    let found = diagnose(&survey(false), &probe, "oxy.so");
+    assert_eq!(found.router.verdict, RouterVerdict::NotChecked);
+    assert_eq!(found.dns.verdict, DnsVerdict::NotChecked);
+    assert_eq!(probe.asked.lock().unwrap().len(), 2);
+    // The daemon's check alone says whether the internet answers.
+    assert_eq!(
+        Connectivity::of(4, false),
+        Connectivity {
+            checked: false,
+            state: "unknown"
+        }
+    );
+    assert_eq!(Connectivity::of(2, true).state, "portal");
 }

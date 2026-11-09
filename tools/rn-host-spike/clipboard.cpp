@@ -51,6 +51,32 @@ bool Clipboard::copy(OxyOSClient* client, uint64_t serial, const std::string& te
   return false;
 }
 
+bool Clipboard::copySensitive(OxyOSClient* client, uint64_t serial, const std::string& text) {
+  static constexpr const char* kSensitive = "x-oxyos-sensitive";
+  static const uint8_t kMarked[] = {'1'};
+  OxyOSClipboardEntry entries[] = {
+      {kText, std::strlen(kText), reinterpret_cast<const uint8_t*>(text.data()), text.size()},
+      {kSensitive, std::strlen(kSensitive), kMarked, sizeof kMarked},
+  };
+  if (oxyos_client_copy(client, serial, entries, 2) != 0) {
+    std::cerr << "[host] sensitive copy not sent: " << oxyos_last_error() << "\n";
+    return false;
+  }
+  sensitiveUntil_ = std::chrono::steady_clock::now() + kSensitiveFor;
+  return true;
+}
+
+bool Clipboard::expire(OxyOSClient* client) {
+  if (!sensitiveUntil_ || std::chrono::steady_clock::now() < *sensitiveUntil_) return false;
+  sensitiveUntil_.reset();
+  // The compositor empties it only if this client's sensitive copy is what it holds: a later copy,
+  // this client's or another's, stays.
+  if (oxyos_client_clear_clipboard(client, 0) != 0) {
+    std::cerr << "[host] a sensitive copy not cleared: " << oxyos_last_error() << "\n";
+  }
+  return true;
+}
+
 void Clipboard::paste(OxyOSClient* client, uint64_t serial, std::function<void(std::string)> done) {
   if (!hasText()) return done("");
   int fd = oxyos_client_paste(client, *selection_, kText, std::strlen(kText), serial);
@@ -70,7 +96,7 @@ std::vector<int> Clipboard::fds() const {
 }
 
 std::optional<std::chrono::steady_clock::time_point> Clipboard::nextDeadline() const {
-  std::optional<std::chrono::steady_clock::time_point> first;
+  std::optional<std::chrono::steady_clock::time_point> first = sensitiveUntil_;
   for (const auto& paste : pastes_) {
     if (!first || paste.started + kTimeout < *first) first = paste.started + kTimeout;
   }

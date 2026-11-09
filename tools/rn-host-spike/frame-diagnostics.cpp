@@ -25,6 +25,8 @@ constexpr auto kSlowLinesEvery = std::chrono::seconds(1);
 constexpr auto kResizeRunEnds = std::chrono::milliseconds(500);
 // A window operation not answered by then is said to be.
 constexpr auto kOperationAnswer = std::chrono::seconds(3);
+// Waiting this long for the compositor's answer to a frame is a hold (frame-diagnostics.h).
+constexpr auto kHeldAfter = std::chrono::seconds(1);
 
 const char* const kPartNames[] = {"other", "events", "javascript", "animation", "mount", "draw", "present"};
 
@@ -99,6 +101,8 @@ void FrameDiagnostics::beginTurn() {
   // What the loop slept since its last turn was the compositor's when a frame waited for it.
   if (waitedForCompositor_) waitMs_ += ms(since_.wall - turnEnded_);
   waitedForCompositor_ = false;
+  // Waiting that long is a hold: what came before this turn is the hold's.
+  if (waitingSince_ && since_.wall - *waitingSince_ >= kHeldAfter) hold(since_.wall);
   current_ = Part::Other;
   turning_ = true;
   presentedThisTurn_ = false;
@@ -113,6 +117,13 @@ void FrameDiagnostics::endTurn(bool waitingForCompositor, bool sleeping) {
   turning_ = false;
   turnEnded_ = now;
   waitedForCompositor_ = waitingForCompositor;
+  if (!waitingForCompositor) {
+    waitingSince_.reset();
+    // The answer came: the hold is said before the frame after it.
+    if (held_) endHold();
+  } else if (!waitingSince_) {
+    waitingSince_ = now;
+  }
   if (presentedThisTurn_) {
     finish(true, now);
   } else if (sleeping && !waitingForCompositor) {
@@ -154,8 +165,59 @@ void FrameDiagnostics::input(uint32_t kind, uint32_t detail, uint64_t timeNs) {
                                                 detail == OXYOS_POINTER_LEAVE);
   trigger(name, moving ? 1 : 2);
   // The input's time, as its device registered it; when the read itself without one.
-  uint64_t at = timeNs != 0 ? timeNs : monotonicNs();
-  if (inputNs_ == 0 || at < inputNs_) inputNs_ = at;
+  inputsNs_.push_back(timeNs != 0 ? timeNs : monotonicNs());
+}
+
+void FrameDiagnostics::hold(Clock::time_point now) {
+  if (!held_) held_ = Held{.since = *waitingSince_};
+  held_->until = now;
+  for (size_t i = 0; i < parts_.size(); ++i) held_->parts[i] += parts_[i];
+  held_->waitMs += waitMs_;
+  held_->commitMs += commitMs_;
+  held_->layoutMs += layoutMs_;
+  held_->textMs += textMs_;
+  held_->turns += turns_;
+  parts_.fill(ThreadSpan{});
+  waitMs_ = commitMs_ = layoutMs_ = textMs_ = 0;
+  turns_ = 0;
+  // The inputs that waited longer than a hold are timed by no frame; newer ones (one that wakes
+  // the displays) are timed by the frame after it.
+  uint64_t oldest = monotonicNs() - static_cast<uint64_t>(std::chrono::nanoseconds(kHeldAfter).count());
+  auto untimed = std::erase_if(inputsNs_, [&](uint64_t at) { return at < oldest; });
+  held_->untimedInputs += static_cast<int>(untimed);
+  // What started the frame after it, when no input of its own: its window being shown again.
+  if (inputsNs_.empty()) {
+    trigger_ = "being shown again";
+    triggerRank_ = -1;
+  }
+}
+
+void FrameDiagnostics::endHold() {
+  Held held = std::move(*held_);
+  held_.reset();
+  ThreadSpan all;
+  for (const auto& span : held.parts) all += span;
+  auto part = [&](Part p) { return held.parts[static_cast<size_t>(p)]; };
+  double heldMs = ms(held.until - held.since);
+  log(format("held %.1f s by the compositor (its answer withheld: the window not shown, or the displays off): "
+             "meanwhile %d turn%s worked %.1f ms (JavaScript %.1f, animation %.1f, drawing %.1f; on the CPU %.1f); "
+             "%d input%s not timed",
+             heldMs / 1000, held.turns, held.turns == 1 ? "" : "s", all.wallMs, part(Part::JavaScript).wallMs,
+             part(Part::Animation).wallMs, part(Part::Draw).wallMs, all.cpuMs, held.untimedInputs,
+             held.untimedInputs == 1 ? "" : "s"));
+  auto& report = Report::get();
+  if (report.enabled()) {
+    folly::dynamic parts = folly::dynamic::object, cpu = folly::dynamic::object;
+    for (size_t i = 0; i < held.parts.size(); ++i) {
+      parts[kPartNames[i]] = round2(held.parts[i].wallMs);
+      cpu[kPartNames[i]] = round2(held.parts[i].cpuMs);
+    }
+    report.diagnostic("held", folly::dynamic::object("held_ms", heldMs)("held_after_ms", ms(kHeldAfter))(
+                                  "work_ms", all.wallMs)("cpu_ms", all.cpuMs)("wait_ms", held.waitMs)(
+                                  "commit_ms", held.commitMs)("turns", held.turns)(
+                                  "untimed_inputs", held.untimedInputs)("parts", std::move(parts))(
+                                  "cpu", std::move(cpu)));
+  }
 }
 
 void FrameDiagnostics::committed(double commitMs, double layoutMs, double textMs) {
@@ -212,7 +274,9 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
   bool slow = late > periodMs_;
   int dropped = slow ? static_cast<int>(std::ceil(late / periodMs_)) - 1 : 0;
   std::optional<double> latency;
-  if (presented && inputNs_ != 0) latency = static_cast<double>(monotonicNs() - inputNs_) / 1e6;
+  if (presented && !inputsNs_.empty()) {
+    latency = static_cast<double>(monotonicNs() - *std::min_element(inputsNs_.begin(), inputsNs_.end())) / 1e6;
+  }
   std::string what = first_ && presented ? "the first frame" : trigger_.empty() ? "JavaScript" : trigger_;
 
   // The report has every frame, and work that drew none when it was slow or ran JavaScript: what
@@ -295,7 +359,7 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
   gpu_ = false;
   trigger_.clear();
   triggerRank_ = -1;
-  inputNs_ = 0;
+  inputsNs_.clear();
 }
 
 void FrameDiagnostics::resized(Clock::time_point received, float width, float height) {
@@ -345,7 +409,10 @@ void FrameDiagnostics::minimizeAsked() {
 void FrameDiagnostics::closeAsked(const char* by) {
   if (!started_ || (operation_ && operation_->name.starts_with("close"))) return;
   std::string name = std::string("close (asked by ") + by;
-  if (inputNs_ != 0) name += format(" %.1f ms after the input", static_cast<double>(monotonicNs() - inputNs_) / 1e6);
+  if (!inputsNs_.empty()) {
+    name += format(" %.1f ms after the input",
+                   static_cast<double>(monotonicNs() - *std::min_element(inputsNs_.begin(), inputsNs_.end())) / 1e6);
+  }
   operation_ = Operation{.name = name + ")", .asked = Clock::now()};
 }
 
@@ -377,6 +444,7 @@ void FrameDiagnostics::ended() {
     operation_.reset();
   }
   if (resizeRun_) endResizeRun();
+  if (held_) endHold();
   summarize(now);
   started_ = false;
 }

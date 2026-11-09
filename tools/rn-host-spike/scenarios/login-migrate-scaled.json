@@ -1,0 +1,325 @@
+{
+  "about": "Migrate from a Backup at the first boot (docs/adr/0059-backups.mdx, decision 7), as a Mac's Setup Assistant offers Migration Assistant before its first user: no account is enrolled, so the setup assistant opens on its welcome; Get Started shows Transfer Your Data (from a backup, or Not Now to set up as new), which needs no network. A played migration service (no backup of anyone's): its one disk is chosen, a wrong backup password is refused and said, the right one opens one computer, ada-laptop, whose backups are listed newest first by date with the accounts its newest holds; the newest is chosen, confirmed, and its progress shown while the service restores. The assistant then ends and the login screen lists the accounts brought over, each to sign in again online with its Oxy account, never a password field that could not open it, and nobody is signed in. In Spanish, at 1.25 (1600 × 1000).",
+  "locale": "es_ES.UTF-8",
+  "tz": "UTC",
+  "shell": "OxyOSLogin",
+  "outputs": "1600x1000@1.25",
+  "login": {
+    "password": "oxyos.correcta",
+    "accounts": [],
+    "record": [],
+    "migrate": {
+      "disks": [
+        {
+          "uuid": "1234-ABCD",
+          "label": "Copias",
+          "fsType": "ext4",
+          "size": 2000000000000
+        }
+      ],
+      "password": "played backup password",
+      "computers": [
+        {
+          "repository": "0123456789abcdef",
+          "name": "ada-laptop",
+          "backups": [
+            {
+              "snapshot": "bbbb2222",
+              "time": 1794069000
+            },
+            {
+              "snapshot": "aaaa1111",
+              "time": 1793442600
+            }
+          ],
+          "accounts": [
+            {
+              "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+              "name": "Ada Lovelace",
+              "administrator": true
+            },
+            {
+              "user": "oxy-bbbbbbbbbbbbbbbbbbbb",
+              "name": "Bea Ramos",
+              "administrator": false
+            }
+          ]
+        }
+      ],
+      "unopened": 1,
+      "step_ms": 1500,
+      "accounts": [
+        {
+          "accountId": "0123456789abcdef01234567",
+          "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+          "uid": 1001,
+          "name": "Ada Lovelace"
+        },
+        {
+          "accountId": "0123456789abcdef01234568",
+          "user": "oxy-bbbbbbbbbbbbbbbbbbbb",
+          "uid": 1002,
+          "name": "Bea Ramos"
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "name": "the welcome",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Te damos la bienvenida a OxyOS",
+            "Empezar"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Started pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Empezar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Transfer Your Data: from a backup, or set up as new",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Transfiere tus datos a este ordenador",
+            "Desde una copia de seguridad",
+            "Ahora no",
+            "Continuar",
+            "Atrás"
+          ]
+        }
+      }
+    },
+    {
+      "name": "From a Backup, Continue: where the backups are, the disks the service finds",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Continuar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "migrate_asked": [
+          "disks: disks"
+        ],
+        "in_shell": {
+          "texts": [
+            "¿Dónde están las copias?",
+            "Copias",
+            "Carpeta compartida de la red…"
+          ],
+          "absent": [
+            "Transfiere tus datos a este ordenador"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the disk, Continue pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Continuar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "its backup password asked, the field focused",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "migrate_asked": [],
+        "in_shell": {
+          "texts": [
+            "Introduce la contraseña de las copias de Copias"
+          ],
+          "focus_input": "login-migrate-password"
+        }
+      }
+    },
+    {
+      "name": "a wrong password: refused and said",
+      "do": [
+        "keyboard",
+        "wrong password\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "migrate_asked": [
+          "backups: wrongPassword"
+        ],
+        "never": [
+          "wrong password"
+        ],
+        "in_shell": {
+          "texts": [
+            "Esa contraseña no abre ninguna de las copias que hay ahí."
+          ],
+          "never": [
+            "wrong password"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the right one: the computer's backups, newest first, and its accounts",
+      "do": [
+        "keyboard",
+        "played backup password\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "migrate_asked": [
+          "backups: backups"
+        ],
+        "never": [
+          "played backup password"
+        ],
+        "in_shell": {
+          "texts": [
+            "Copias de ada-laptop",
+            "Cuentas: Ada Lovelace y Bea Ramos",
+            "7 de noviembre de 2026 a las 16:30"
+          ],
+          "absent": [
+            "Esa contraseña no abre ninguna de las copias que hay ahí."
+          ],
+          "never": [
+            "played backup password"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the newest backup, Continue pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Continuar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "what migrating brings over, to confirm",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "migrate_asked": [],
+        "in_shell": {
+          "texts": [
+            "¿Migrar ada-laptop?",
+            "Migrar",
+            "Atrás"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Migrate pressed",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Migrar"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "its progress, while the service restores",
+      "do": [
+        "wait",
+        1000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "ada-laptop",
+            "No apagues este ordenador."
+          ],
+          "absent": [
+            "¿Migrar ada-laptop?"
+          ]
+        }
+      }
+    },
+    {
+      "name": "migrated: the accounts brought over listed, each to sign in again online",
+      "do": [
+        "wait",
+        12000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "migrate_asked": [
+          "migrate: migrated"
+        ],
+        "shell": {
+          "locked": true,
+          "signed_in": false
+        },
+        "in_shell": {
+          "texts": [
+            "Ada Lovelace",
+            "Bea Ramos",
+            "Vuelve a iniciar sesión en la cuenta de Oxy de Ada Lovelace para usarla en este ordenador.",
+            "Volver a iniciar sesión"
+          ],
+          "absent": [
+            "Transfiere tus datos a este ordenador",
+            "No apagues este ordenador."
+          ]
+        }
+      }
+    }
+  ],
+  "final": {
+    "in_shell": {
+      "texts": [
+        "Volver a iniciar sesión"
+      ]
+    }
+  }
+}
