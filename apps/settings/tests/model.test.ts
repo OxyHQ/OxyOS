@@ -28,6 +28,7 @@ test("preferences are named as the session's file names them", () => {
     "accent",
     "app_expose_swipe",
     "appearance",
+    "backup_in_menu_bar",
     "battery_percentage",
     "caret_blink",
     "desktops_swipe",

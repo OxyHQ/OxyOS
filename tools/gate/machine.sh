@@ -7,9 +7,10 @@
 #     Actions runners and every run of the gate are its;
 #   - oxyosgate.slice: every gate's, a weight of 20 against system.slice's 100 (the machine's own
 #     work), at most GATE_CPU_QUOTA of CPU and GATE_MEMORY_MAX of memory in all; inside it each
-#     runner's slice, oxyosgate-N.slice, and a deploy's, oxyosgate-deploy.slice, sharing it evenly,
-#     each at most GATE_RUN_MEMORY_MAX (systemd nests a slice under the part of its name before a
-#     dash);
+#     runner's slice, oxyosgate-N.slice, and a deploy's, oxyosgate-deploy.slice, each at most
+#     GATE_RUN_MEMORY_MAX (systemd nests a slice under the part of its name before a dash). Their
+#     CPU they share task by task (no CPU controller below oxyosgate.slice): every gate's builds run
+#     at the least priority (run-scenarios.sh), below every gate's scenarios;
 #   - the GPU's render node (group render), and uinput with the event nodes of the development
 #     compositor's own virtual devices (named "oxyos-offscreen ...") for the scenarios that go
 #     through libinput (group oxyos-uinput), instead of running those as root;
@@ -29,11 +30,26 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 GATE_USER=${GATE_USER:-oxyos-ci}
 GATE_HOME=/home/$GATE_USER
 GATE_CPU_QUOTA=${GATE_CPU_QUOTA:-2400%}
-GATE_MEMORY_HIGH=${GATE_MEMORY_HIGH:-28G}
-GATE_MEMORY_MAX=${GATE_MEMORY_MAX:-32G}
+GATE_MEMORY_HIGH=${GATE_MEMORY_HIGH:-36G}
+GATE_MEMORY_MAX=${GATE_MEMORY_MAX:-40G}
 GATE_RUN_MEMORY_MAX=${GATE_RUN_MEMORY_MAX:-16G}
 
-# gate_slice NAME DESCRIPTION: one gate's slice in oxyosgate.slice, an even share of it.
+# The gate's slices' limits: written in their units, and given to a slice that runs now (live).
+GATE_LIMITS="CPUWeight=20 IOWeight=20 CPUQuota=$GATE_CPU_QUOTA MemoryHigh=$GATE_MEMORY_HIGH MemoryMax=$GATE_MEMORY_MAX"
+GATE_RUN_LIMITS="MemoryMax=$GATE_RUN_MEMORY_MAX"
+# live SLICE LIMITS: a slice that runs now given its unit's limits for this boot (the unit file
+# holds them for the next). systemd applies a changed unit file only to a slice it starts: a daemon
+# reload left the running oxyosgate.slice at its old memory limits. A slice is never restarted,
+# which would stop every runner and job in it.
+live() {
+  if systemctl is-active --quiet "$1"; then
+    # The limits, each its own word.
+    # shellcheck disable=SC2086
+    systemctl set-property --runtime "$1" $2
+  fi
+}
+
+# gate_slice NAME DESCRIPTION: one gate's slice in oxyosgate.slice, its memory capped.
 gate_slice() {
   cat > "/etc/systemd/system/$1" <<EOF
 # OxyOS's scenario gate (docs/developing.mdx), written by tools/gate/machine.sh: $2.
@@ -41,7 +57,7 @@ gate_slice() {
 Description=OxyOS scenario gate, $2
 
 [Slice]
-MemoryMax=$GATE_RUN_MEMORY_MAX
+$(printf '%s\n' $GATE_RUN_LIMITS)
 EOF
 }
 
@@ -104,6 +120,7 @@ WantedBy=multi-user.target
 EOF
   gate_slice "oxyosgate-$n.slice" "runner $n"
   systemctl daemon-reload
+  live "oxyosgate-$n.slice" "$GATE_RUN_LIMITS"
   systemctl enable --now "oxyos-gate-runner@$n.service"
   exit 0
 fi
@@ -133,11 +150,7 @@ cat > /etc/systemd/system/oxyosgate.slice <<EOF
 Description=OxyOS scenario gate
 
 [Slice]
-CPUWeight=20
-IOWeight=20
-CPUQuota=$GATE_CPU_QUOTA
-MemoryHigh=$GATE_MEMORY_HIGH
-MemoryMax=$GATE_MEMORY_MAX
+$(printf '%s\n' $GATE_LIMITS)
 EOF
 gate_slice oxyosgate-deploy.slice "a deploy's gate (tools/deploy/deploy.sh)"
 
@@ -186,4 +199,9 @@ printf '%s\n' "f /run/lock/oxyos-gate-timing.lock 0666 root root -" "d /run/lock
   > /etc/tmpfiles.d/oxyos-gate.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/oxyos-gate.conf
 systemctl daemon-reload
+# The limits now, for the slices that run: the gate's, and each gate's own (its runners', a deploy's).
+live oxyosgate.slice "$GATE_LIMITS"
+for slice in $(systemctl list-units --type=slice --all --plain --no-legend 'oxyosgate-*.slice' | awk '{ print $1 }'); do
+  live "$slice" "$GATE_RUN_LIMITS"
+done
 echo "machine.sh: $GATE_USER, oxyosgate.slice, $(sed -n 's/^GATE_CPUS=//p' /etc/oxyos-gate.conf) reserved for one gate at a time"

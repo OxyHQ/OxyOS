@@ -58,10 +58,13 @@ const en = {
       preparing: "Creating your home folder",
       signingIn: "Connecting this computer to your account",
       finishing: "Finishing up",
+      confirming: "Confirming this computer with Oxy",
       starting: "Opening your desktop",
     },
     stageDone: "done",
     stageNow: "in progress",
+    waiting: (seconds: number) =>
+      `Oxy is busy right now. Setup goes on by itself in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
     problemTitle: "Your Account Isn't Set Up Yet",
     unreachable:
       "Oxy couldn't be reached. Your sign-in, PIN and choices are kept: check the connection, then try again.",
@@ -142,10 +145,13 @@ const es: LoginMessages = {
       preparing: "Creando tu carpeta personal",
       signingIn: "Conectando este ordenador con tu cuenta",
       finishing: "Terminando",
+      confirming: "Confirmando este ordenador con Oxy",
       starting: "Abriendo tu escritorio",
     },
     stageDone: "hecho",
     stageNow: "en curso",
+    waiting: (seconds: number) =>
+      `Oxy está ocupado ahora mismo. La configuración seguirá sola en ${seconds} ${seconds === 1 ? "segundo" : "segundos"}.`,
     problemTitle: "Tu cuenta aún no está configurada",
     unreachable:
       "No se ha podido contactar con Oxy. Tu inicio de sesión, tu PIN y tus elecciones se conservan: revisa la conexión y vuelve a intentarlo.",

@@ -8,6 +8,7 @@ import {
   sheetView,
   size,
   spokenCode,
+  submittablePassword,
   validBluetoothCode,
   validWifiPassword,
   type AvailableUpdate,
@@ -91,6 +92,27 @@ test("a permission asks in the registry's name for the app", () => {
   assert.equal(view.title, "¿Permitir que Notas enviarte notificaciones?");
   assert.equal(view.accept, "Permitir");
   assert.equal(view.refuse, "No permitir");
+});
+
+test("an app asking to save a password: its registry name, the username, never the password", () => {
+  const sheet = readSheet(
+    '{"kind":"save-password","id":"so.oxy.mail","username":"bea@example.com","domain":"example.com"}',
+  );
+  assert.ok(sheet);
+  const es = sheetView(sheet, ES, { "so.oxy.mail": "Correo" });
+  assert.equal(es.title, "¿Guardar la contraseña para Correo?");
+  assert.equal(es.body, "bea@example.com · example.com");
+  assert.equal(es.accept, "Guardar");
+  assert.equal(es.refuse, "Ahora no");
+  assert.equal(es.destructive, false);
+  assert.equal(es.lines.length, 1);
+  const en = sheetView({ kind: "save-password", id: "so.oxy.mail", username: "bea" }, EN);
+  // Without the registry's name, its id: never a name the application gives itself.
+  assert.equal(en.title, "Save password for so.oxy.mail?");
+  assert.equal(en.body, "bea");
+  assert.equal(en.accept, "Save");
+  assert.equal(en.refuse, "Not Now");
+  assert.match(en.lines[0].label, /keychain/);
 });
 
 test("sheets queue in order, once each, and go", () => {
@@ -262,6 +284,97 @@ test("a passkey is one to six digits; a PIN one to 16 bytes", () => {
   assert.equal(bluetoothCodeTyped("ñ".repeat(9), "pin"), "ñ".repeat(8));
   // Said digit by digit.
   assert.equal(spokenCode("048213"), "0 4 8 2 1 3");
+});
+
+test("a passkey's sheet asks to use one for the relying party, by the app, with the Oxy account's password", () => {
+  const get = {
+    kind: "passkey" as const,
+    mode: "get" as const,
+    id: "so.oxy.astro",
+    rpId: "github.com",
+    choices: [{ userName: "ada", displayName: "Ada Lovelace" }],
+    incorrect: false,
+  };
+  const es = sheetView(get, ES, { "so.oxy.astro": "Astro" });
+  assert.equal(es.title, "¿Usar tu llave de acceso para github.com?");
+  assert.equal(es.body, "Cuenta: ada. Lo pide Astro.");
+  assert.equal(es.accept, "Continuar");
+  assert.equal(es.refuse, "Cancelar");
+  assert.deepEqual(es.password, { label: "Contraseña de la cuenta Oxy", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
+  assert.equal(es.passwordKind, "account");
+  assert.equal(es.choices, undefined);
+  assert.equal(es.error, undefined);
+  const en = sheetView(get, EN, {});
+  assert.equal(en.title, "Use your passkey for github.com?");
+  assert.equal(en.body, "Account: ada. Requested by so.oxy.astro.");
+  assert.equal(en.accept, "Continue");
+  assert.deepEqual(readSheet(JSON.stringify(get)), get);
+});
+
+test("several passkeys are a chooser; a wrong password or too many say so", () => {
+  const sheet = {
+    kind: "passkey" as const,
+    mode: "get" as const,
+    id: "so.oxy.mention",
+    rpId: "mention.earth",
+    choices: [
+      { userName: "ada@example.com", displayName: "Ada" },
+      { userName: "bea@example.com", displayName: "Bea" },
+    ],
+    incorrect: true,
+  };
+  const es = sheetView(sheet, ES, { "so.oxy.mention": "Mention" });
+  assert.equal(es.body, "Lo pide Mention.");
+  assert.deepEqual(es.choices, {
+    label: "Elige una cuenta",
+    rows: [
+      { title: "ada@example.com", detail: "Ada" },
+      { title: "bea@example.com", detail: "Bea" },
+    ],
+  });
+  assert.equal(es.error, "La contraseña no es correcta. Inténtalo de nuevo.");
+  const throttled = sheetView({ ...sheet, incorrect: false, retryAfter: 30 }, EN, {});
+  assert.equal(throttled.error, "Too many attempts. Try again in 30 seconds.");
+  assert.equal(sheetView({ ...sheet, incorrect: false, retryAfter: 1 }, ES, {}).error, "Demasiados intentos. Inténtalo de nuevo dentro de 1 segundo.");
+});
+
+test("creating a passkey names the account and where it is kept", () => {
+  const sheet = {
+    kind: "passkey" as const,
+    mode: "create" as const,
+    id: "so.oxy.astro",
+    rpId: "github.com",
+    userName: "ada",
+    choices: [],
+    incorrect: false,
+  };
+  const es = sheetView(sheet, ES, { "so.oxy.astro": "Astro" });
+  assert.equal(es.title, "¿Crear una llave de acceso para github.com?");
+  assert.equal(
+    es.body,
+    "Cuenta: ada. Se guarda en el llavero de tu cuenta Oxy, cifrado de extremo a extremo, en todos tus dispositivos. Lo pide Astro.",
+  );
+  assert.equal(sheetView(sheet, EN, {}).title, "Create a passkey for github.com?");
+});
+
+test("a passkey already there, or none, is only said, with one button", () => {
+  const base = { kind: "passkey" as const, id: "so.oxy.astro", rpId: "github.com", choices: [], incorrect: false };
+  const excluded = sheetView({ ...base, mode: "excluded" }, ES, { "so.oxy.astro": "Astro" });
+  assert.equal(excluded.title, "Ya tienes una llave de acceso para github.com.");
+  assert.equal(excluded.body, "No hace falta crear otra. Lo pide Astro.");
+  assert.equal(excluded.accept, "Aceptar");
+  assert.equal(excluded.refuse, "");
+  assert.equal(excluded.password, undefined);
+  const none = sheetView({ ...base, mode: "none" }, EN, {});
+  assert.equal(none.title, "You don't have a passkey for github.com.");
+  assert.equal(none.accept, "OK");
+});
+
+test("the account's password is submitted once anything is typed; a Wi-Fi password once it can be one", () => {
+  assert.equal(submittablePassword("", "account"), false);
+  assert.equal(submittablePassword("x", "account"), true);
+  assert.equal(submittablePassword("x"), false);
+  assert.equal(submittablePassword("12345678", "wifi"), true);
 });
 
 // An application that quit unexpectedly, and resetting one (docs/adr/0061).

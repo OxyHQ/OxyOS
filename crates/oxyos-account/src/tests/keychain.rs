@@ -1521,6 +1521,30 @@ fn the_wire_format_is_the_documented_one() {
             },
             json!({"keychainCode": {"itemId": "i"}}),
         ),
+        (
+            Request::SavePassword {
+                username: Secret::new("ada"),
+                password: Secret::new("pw"),
+                domain: Some("dropsea.net".into()),
+            },
+            json!({"savePassword": {"username": "ada", "password": "pw", "domain": "dropsea.net"}}),
+        ),
+        (
+            Request::SavePassword {
+                username: Secret::new("ada"),
+                password: Secret::new("pw"),
+                domain: None,
+            },
+            json!({"savePassword": {"username": "ada", "password": "pw"}}),
+        ),
+        (Request::ConfirmSaves {}, json!({"confirmSaves": {}})),
+        (
+            Request::SaveDecision {
+                id: "7".into(),
+                save: true,
+            },
+            json!({"saveDecision": {"id": "7", "save": true}}),
+        ),
     ] {
         assert_eq!(serde_json::to_value(&request).unwrap(), wire);
         let read: Request = serde_json::from_value(wire).unwrap();
@@ -1585,6 +1609,22 @@ fn the_wire_format_is_the_documented_one() {
         (
             refused(Reason::NotPermitted),
             json!({"refused": {"reason": "notPermitted"}}),
+        ),
+        (Answer::Saved {}, json!({"saved": {}})),
+        (Answer::NotSaved {}, json!({"notSaved": {}})),
+        (Answer::ConfirmingSaves, json!("confirmingSaves")),
+        (
+            Answer::ConfirmSave(SaveConfirmation {
+                id: "7".into(),
+                desktop_entry_id: "so.oxy.dropsea".into(),
+                username: Secret::new("ada"),
+                domain: None,
+            }),
+            json!({"confirmSave": {"id": "7", "desktopEntryId": "so.oxy.dropsea", "username": "ada"}}),
+        ),
+        (
+            Answer::SaveWithdrawn { id: "7".into() },
+            json!({"saveWithdrawn": {"id": "7"}}),
         ),
     ] {
         assert_eq!(serde_json::to_value(&answer).unwrap(), wire);
@@ -1852,4 +1892,397 @@ fn a_key_that_cannot_be_locked_in_memory_keeps_the_keychain_locked() {
         .unwrap();
     assert!(status.success());
     let _ = Duration::ZERO;
+}
+
+// Saving a login an application asked to save (decision 5), once the person said yes.
+
+fn saving(app: &str, username: &str, password: &str, domain: Option<&str>) -> SaveLogin {
+    SaveLogin {
+        desktop_entry_id: app.into(),
+        username: Secret::new(username),
+        password: Secret::new(password),
+        domain: domain.map(str::to_owned),
+    }
+}
+
+#[test]
+fn a_save_needs_the_keychain_unlocked_and_a_vault() {
+    let (_oxy, base) = Oxy::start();
+    let a = machine(&base, "a");
+    let save = saving("so.oxy.mail", "bea", "made-up-1", None);
+    assert_eq!(a.service.may_save(a.uid, &a.user), Err(Reason::Locked));
+    assert_eq!(a.service.save(a.uid, &a.user, &save), Err(Reason::Locked));
+    a.unlock(PASSWORD_A);
+    assert_eq!(a.service.may_save(a.uid, &a.user), Err(Reason::NotMember));
+    assert_eq!(
+        a.service.save(a.uid, &a.user, &save),
+        Err(Reason::NotMember)
+    );
+    a.create();
+    assert_eq!(a.service.may_save(a.uid, &a.user), Ok(()));
+    a.lock();
+    assert_eq!(a.service.may_save(a.uid, &a.user), Err(Reason::Locked));
+}
+
+#[test]
+fn a_saved_login_is_the_applications_alone_and_saved_again_is_updated() {
+    let (_oxy, base) = Oxy::start();
+    let a = machine(&base, "a");
+    a.unlock(PASSWORD_A);
+    a.create();
+    // No verification: the person's yes in the session's sheet is what lets it be saved.
+    a.service
+        .save(
+            a.uid,
+            &a.user,
+            &saving(
+                "so.oxy.mail",
+                "bea@example.com",
+                "made-up-1",
+                Some("example.com"),
+            ),
+        )
+        .unwrap();
+    a.verify(PASSWORD_A);
+    let items = a.list();
+    assert_eq!(items.len(), 1);
+    let saved = a.reveal(&items[0].item_id);
+    let ItemFields::Login {
+        title,
+        username,
+        password,
+        urls,
+        apps,
+        ..
+    } = &saved.fields
+    else {
+        panic!("not a login");
+    };
+    assert_eq!(title.expose(), "example.com");
+    assert_eq!(username.expose(), "bea@example.com");
+    assert_eq!(password.expose(), "made-up-1");
+    assert_eq!(urls, &[Secret::new("https://example.com")]);
+    assert_eq!(apps, &[Secret::new("so.oxy.mail")]);
+    // Offered to its application, and to no other.
+    let suggested = |app: &str| match a.registrar(Request::AutofillSuggest {
+        desktop_entry_id: app.into(),
+        field: Field::Password,
+    }) {
+        Answer::AutofillSuggestions(suggestions) => suggestions,
+        other => panic!("no suggestions: {other:?}"),
+    };
+    assert_eq!(suggested("so.oxy.mail").len(), 1);
+    assert!(suggested("so.oxy.dropsea").is_empty());
+    // The same username saved again with another password: the same login, its password changed
+    // and the old one kept in its history.
+    a.service
+        .save(
+            a.uid,
+            &a.user,
+            &saving(
+                "so.oxy.mail",
+                "bea@example.com",
+                "made-up-2",
+                Some("example.com"),
+            ),
+        )
+        .unwrap();
+    let items = a.list();
+    assert_eq!(items.len(), 1);
+    let ItemFields::Login { password, .. } = a.reveal(&items[0].item_id).fields else {
+        panic!("not a login");
+    };
+    assert_eq!(password.expose(), "made-up-2");
+    // Nothing new: nothing written.
+    let modified = items[0].modified_at.clone();
+    a.service
+        .save(
+            a.uid,
+            &a.user,
+            &saving(
+                "so.oxy.mail",
+                "bea@example.com",
+                "made-up-2",
+                Some("example.com"),
+            ),
+        )
+        .unwrap();
+    assert_eq!(a.list()[0].modified_at, modified);
+    // Another application's login of the same username is its own.
+    a.service
+        .save(
+            a.uid,
+            &a.user,
+            &saving("so.oxy.dropsea", "bea@example.com", "made-up-3", None),
+        )
+        .unwrap();
+    assert_eq!(a.list().len(), 2);
+    assert_eq!(suggested("so.oxy.dropsea").len(), 1);
+}
+
+#[test]
+fn a_domain_is_a_host_name_and_a_username_is_drawn_as_itself() {
+    assert_eq!(saved_domain("Example.COM").as_deref(), Some("example.com"));
+    assert_eq!(
+        saved_domain("login.example.co.uk").as_deref(),
+        Some("login.example.co.uk")
+    );
+    for not in [
+        "",
+        "localhost",
+        "https://example.com",
+        "example.com/login",
+        "example.com:443",
+        "-example.com",
+        "example-.com",
+        "exa mple.com",
+        "127.0.0.1",
+        "example..com",
+    ] {
+        assert_eq!(saved_domain(not), None, "{not}");
+    }
+    assert!(savable_text("bea@example.com", 512));
+    assert!(savable_text("Beatriz Núñez", 512));
+    for not in [
+        "",
+        "  ",
+        "bea\nexample",
+        "bea\u{202e}moc.elpmaxe",
+        "\u{2066}bea",
+    ] {
+        assert!(!savable_text(not, 512), "{not:?}");
+    }
+    assert!(!savable_text(&"a".repeat(513), 512));
+}
+
+#[test]
+fn an_application_asks_to_save_and_only_the_persons_yes_saves_it() {
+    let (_oxy, base) = Oxy::start();
+    let socket = sockets::service(FakeApi::default());
+    socket.sessions.set_save_wait(Duration::from_millis(500));
+    let dir = TempDir::new("keychain-save");
+    let keychains = KeychainService::new(
+        HttpApi::new(&base).unwrap(),
+        dir.path().to_owned(),
+        "ThinkPad".into(),
+        Box::new(|_, _| Some(Secret::new("device:a"))),
+        Memory::BestEffort,
+    );
+    socket.machine.platform.set_keychains(keychains.clone());
+    let uid = sockets::me();
+    let user = account().user_name().as_str().to_owned();
+    let registrar = Registrar::connect(&socket.path).unwrap();
+    let save = |password: &str| {
+        json!({"send": {"savePassword": {"username": "ada", "password": password,
+                                          "domain": "dropsea.net"}}})
+    };
+    // An unregistered process: refused, as everything is.
+    let mut stranger = Application::start(&socket, json!([save("made-up-0")]));
+    stranger.go();
+    assert_eq!(stranger.line(), sockets::not_permitted());
+    stranger.end();
+    // Dropsea, registered: refused while locked, then without a vault, then with no session to
+    // ask the person in.
+    let mut dropsea = Application::start(
+        &socket,
+        json!([
+            save("made-up-1"),
+            "wait",
+            save("made-up-1"),
+            "wait",
+            save("made-up-1"),
+            "wait",
+            save("made-up-1"),
+            "wait",
+            save("made-up-2"),
+            "wait",
+            {"post": {"savePassword": {"username": "ada", "password": "made-up-3"}}},
+            "wait",
+            save("made-up-4"),
+            "collect",
+            "wait",
+            save("made-up-5"),
+            "wait",
+            {"send": {"savePassword": {"username": "ada\nroot", "password": "made-up-6"}}},
+            {"send": {"savePassword": {"username": "ada", "password": "made-up-6",
+                                       "domain": "https://dropsea.net"}}},
+            {"send": {"savePassword": {"username": "ada", "password": ""}}},
+            {"send": {"confirmSaves": {}}},
+            {"send": {"saveDecision": {"id": "1", "save": true}}},
+        ]),
+    );
+    registrar
+        .register("so.oxy.dropsea", false, dropsea.pidfd().as_fd())
+        .unwrap()
+        .unwrap();
+    dropsea.go();
+    assert_eq!(dropsea.line(), json!({"refused": {"reason": "locked"}}));
+    crate::session::check(
+        &socket.path,
+        Secret::new(PASSWORD),
+        crate::platform::Local::Accepted,
+    )
+    .unwrap();
+    sockets::wait_for("the keychain unlocked", || {
+        keychains.may_save(uid, &user) != Err(Reason::Locked)
+    });
+    dropsea.go();
+    assert_eq!(dropsea.line(), json!({"refused": {"reason": "notMember"}}));
+    let Answer::KeychainRecoveryKey { recovery_key } =
+        keychains.settings(uid, &user, Request::KeychainCreate {})
+    else {
+        panic!("no recovery key");
+    };
+    keychains.settings(
+        uid,
+        &user,
+        Request::KeychainConfirmRecoveryKey { recovery_key },
+    );
+    assert_eq!(keychains.may_save(uid, &user), Ok(()));
+    dropsea.go();
+    assert_eq!(
+        dropsea.line(),
+        json!({"refused": {"reason": "unavailable"}})
+    );
+    // The session takes the confirmations on a registrar connection of its own.
+    let confirmer = crate::ipc::Connection::connect(&socket.path).unwrap();
+    confirmer.set_timeout(Duration::from_secs(10)).unwrap();
+    let told = |connection: &crate::ipc::Connection| -> Value {
+        let mut packet = vec![0u8; 65536];
+        let length = rustix::net::recv(connection, &mut packet, rustix::net::RecvFlags::empty())
+            .unwrap()
+            .0;
+        let text = std::str::from_utf8(&packet[..length]).unwrap().to_owned();
+        // Never a password.
+        assert!(!text.contains("made-up"), "{text}");
+        serde_json::from_str(&text).unwrap()
+    };
+    confirmer.send(&Request::ConfirmSaves {}).unwrap();
+    assert_eq!(told(&confirmer), json!("confirmingSaves"));
+    // One at a time per user.
+    let second = crate::ipc::Connection::connect(&socket.path).unwrap();
+    second.set_timeout(Duration::from_secs(10)).unwrap();
+    second.send(&Request::ConfirmSaves {}).unwrap();
+    assert_eq!(told(&second), json!({"refused": {"reason": "tooMany"}}));
+    // The person says no: nothing saved.
+    dropsea.go();
+    let asked = told(&confirmer);
+    let id = asked["confirmSave"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        asked,
+        json!({"confirmSave": {"id": id, "desktopEntryId": "so.oxy.dropsea", "username": "ada",
+                               "domain": "dropsea.net"}})
+    );
+    confirmer
+        .send(&Request::SaveDecision {
+            id: id.clone(),
+            save: false,
+        })
+        .unwrap();
+    assert_eq!(dropsea.line(), json!({"notSaved": {}}));
+    let suggested = |app: &str| keychains_suggest(&keychains, uid, &user, app);
+    assert!(suggested("so.oxy.dropsea").is_empty());
+    // Yes: saved, Dropsea's.
+    dropsea.go();
+    let id = told(&confirmer)["confirmSave"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // An answer for another request, or on another connection, decides nothing.
+    second
+        .send(&Request::SaveDecision {
+            id: id.clone(),
+            save: true,
+        })
+        .ok();
+    confirmer
+        .send(&Request::SaveDecision {
+            id: format!("{id}0"),
+            save: true,
+        })
+        .unwrap();
+    confirmer
+        .send(&Request::SaveDecision { id, save: true })
+        .unwrap();
+    assert_eq!(dropsea.line(), json!({"saved": {}}));
+    assert_eq!(suggested("so.oxy.dropsea").len(), 1);
+    assert!(suggested("so.oxy.mention").is_empty());
+    // A request waiting: a second of the same application's is refused at once.
+    dropsea.go();
+    let waiting = told(&confirmer)["confirmSave"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    dropsea.go();
+    assert_eq!(dropsea.line(), json!({"refused": {"reason": "tooMany"}}));
+    // Unanswered in time: not saved, and the session told to take its sheet away.
+    assert_eq!(dropsea.line(), json!({"notSaved": {}}));
+    assert_eq!(told(&confirmer), json!({"saveWithdrawn": {"id": waiting}}));
+    // The session's connection goes while the person is asked: not saved.
+    dropsea.go();
+    told(&confirmer);
+    drop(confirmer);
+    assert_eq!(dropsea.line(), json!({"notSaved": {}}));
+    // What the sheet could not show as itself, or a domain that is no host name, or nothing.
+    dropsea.go();
+    for _ in 0..3 {
+        assert_eq!(
+            dropsea.line(),
+            json!({"refused": {"reason": "invalidRequest"}})
+        );
+    }
+    // An application never takes the confirmations nor answers them.
+    assert_eq!(dropsea.line(), sockets::not_permitted());
+    assert_eq!(dropsea.line(), sockets::not_permitted());
+    dropsea.end();
+    // Only the yes saved: Dropsea's one login, holding the password said yes to.
+    let suggestions = suggested("so.oxy.dropsea");
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(
+        keychains.registrar(
+            uid,
+            &user,
+            Request::AutofillFill {
+                desktop_entry_id: "so.oxy.dropsea".into(),
+                reference: suggestions[0].reference.clone(),
+                field: Field::Password,
+            }
+        ),
+        Answer::AutofillCredential {
+            username: Secret::new("ada"),
+            password: Secret::new("made-up-2"),
+        }
+    );
+    // The registrar asking to save, as an application would: refused.
+    let refused_registrar = crate::ipc::Connection::connect(&socket.path).unwrap();
+    refused_registrar
+        .set_timeout(Duration::from_secs(10))
+        .unwrap();
+    refused_registrar
+        .send(&serde_json::json!({"savePassword": {"username": "ada", "password": "made-up-7"}}))
+        .unwrap();
+    assert_eq!(told(&refused_registrar), sockets::not_permitted());
+    drop(refused_registrar);
+    drop(second);
+    drop(registrar);
+    socket.machine.platform.settle();
+}
+
+fn keychains_suggest(
+    keychains: &KeychainService<HttpApi>,
+    uid: u32,
+    user: &str,
+    app: &str,
+) -> Vec<Suggestion> {
+    match keychains.registrar(
+        uid,
+        user,
+        Request::AutofillSuggest {
+            desktop_entry_id: app.into(),
+            field: Field::Password,
+        },
+    ) {
+        Answer::AutofillSuggestions(suggestions) => suggestions,
+        other => panic!("no suggestions: {other:?}"),
+    }
 }

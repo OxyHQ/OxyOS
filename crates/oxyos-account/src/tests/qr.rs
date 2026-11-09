@@ -6,7 +6,7 @@
 //! without success.
 
 use super::*;
-use crate::setup::{Appearance, Attempt, Request, Setup, SetupError, Stage, Step};
+use crate::setup::{Appearance, Attempt, Event, Request, Setup, SetupError, Stage, Step};
 use crate::store::Store;
 use std::time::Duration;
 
@@ -28,7 +28,8 @@ fn setup(api: FakeApi, retries: usize) -> (Setup<FakeApi, FakeUsers>, TempDir) {
     let store = Store::open(&dir.path().join("accounts")).unwrap();
     let setup = Setup::new(api, FakeUsers::default(), store)
         .with_platform(platform_client())
-        .with_retry_delays(vec![Duration::ZERO; retries]);
+        .with_retry_delays(vec![Duration::ZERO; retries])
+        .with_sleep(|_| {});
     (setup, dir)
 }
 
@@ -38,7 +39,11 @@ fn advance(
     attempt: &mut Attempt,
 ) -> (Vec<Stage>, Result<Step, SetupError>) {
     let mut stages = Vec::new();
-    let result = setup.advance(attempt, &mut |stage| stages.push(stage));
+    let result = setup.advance(attempt, &mut |event| {
+        if let Event::Started(stage) = event {
+            stages.push(stage)
+        }
+    });
     (stages, result)
 }
 
@@ -75,7 +80,8 @@ fn a_qr_setup_tells_its_steps_in_order_and_spends_the_proof_last() {
             Stage::Verifying,
             Stage::Preparing,
             Stage::SigningIn,
-            Stage::Finishing
+            Stage::Finishing,
+            Stage::Confirming
         ]
     );
     // The user was made before the proof was spent (useradd is the redemption's precondition),
@@ -183,21 +189,24 @@ fn a_machine_that_cannot_take_the_credential_keeps_it_and_the_retry_asks_oxy_not
     assert_eq!(files(&setup), 0);
     assert!(attempt.holds_credential());
     assert!(!setup.api().calls().contains(&Call::SignOut));
-    assert!(setup.api().live().contains(&platform_secret(1)));
+    assert!(setup.api().is_pending(&platform_secret(1)));
     let asked = setup.api().calls().len();
     setup.users().failing.lock().unwrap().clear();
     let (stages, result) = advance(&setup, &mut attempt);
     assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
-    // Nothing asked of Oxy: the kept credential set up the machine.
-    assert_eq!(setup.api().calls().len(), asked);
-    assert_eq!(stages, [Stage::Preparing, Stage::Finishing]);
+    // Nothing asked of Oxy but the confirmation: the kept credential set up the machine.
+    assert_eq!(setup.api().calls()[asked..], [Call::Confirm]);
+    assert_eq!(
+        stages,
+        [Stage::Preparing, Stage::Finishing, Stage::Confirming]
+    );
     assert_eq!(stored_secret(&setup), platform_secret(1));
     assert!(!attempt.holds_credential());
     assert!(setup.users().is_admin(account().user_name().as_str()));
 }
 
 #[test]
-fn a_setup_abandoned_with_a_kept_credential_ends_it_online() {
+fn a_setup_abandoned_with_a_kept_credential_ends_nothing_online() {
     let (setup, _dir) = setup(FakeApi::default(), 2);
     setup.users().fail(UserStep::MakeAdministrator);
     let mut attempt = setup.start(request()).unwrap();
@@ -205,10 +214,11 @@ fn a_setup_abandoned_with_a_kept_credential_ends_it_online() {
     assert!(matches!(result, Err(SetupError::Failed(_))), "{result:?}");
     setup.abandon(&mut attempt);
     assert!(!attempt.holds_credential());
-    // Its own token minted with the kept credential, then the device signed out.
+    // The credential it was issued is pending at Oxy and expires by itself (R8).
     let calls = setup.api().calls();
-    assert_eq!(calls[calls.len() - 2..], [Call::Mint, Call::SignOut]);
-    assert!(setup.api().revoked.load(Ordering::SeqCst));
+    assert!(!calls.contains(&Call::SignOut));
+    assert!(!calls.contains(&Call::Confirm));
+    assert!(setup.api().is_pending(&platform_secret(1)));
     assert!(setup.users().names().is_empty());
     assert_eq!(files(&setup), 0);
 }
@@ -299,4 +309,274 @@ fn a_home_that_cannot_be_seeded_undoes_the_setup_and_keeps_the_sign_in() {
     assert!(setup.users().names().is_empty());
     assert_eq!(files(&setup), 0);
     assert!(attempt.holds_credential());
+}
+
+/// The steps and the waits a turn told, then its result.
+fn told(
+    setup: &Setup<FakeApi, FakeUsers>,
+    attempt: &mut Attempt,
+) -> (Vec<Event>, Result<Step, SetupError>) {
+    let mut events = Vec::new();
+    let result = setup.advance(attempt, &mut |event| events.push(event));
+    (events, result)
+}
+
+#[test]
+fn a_confirmation_oxy_cannot_be_reached_for_keeps_the_setup_and_a_retry_only_confirms() {
+    let (setup, _dir) = setup(FakeApi::default(), 1);
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .extend([Hiccup::Unreachable, Hiccup::Unavailable]);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    // The machine took the account; Oxy has not confirmed it.
+    assert!(attempt.awaits_confirmation());
+    assert_eq!(setup.users().names().len(), 1);
+    assert_eq!(stored_secret(&setup), platform_secret(1));
+    assert!(setup.api().is_pending(&platform_secret(1)));
+    let asked = setup.api().calls().len();
+    let (stages, result) = advance(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    assert_eq!(stages, [Stage::Confirming]);
+    assert_eq!(setup.api().calls()[asked..], [Call::Confirm]);
+    assert!(setup.api().live().contains(&platform_secret(1)));
+    assert!(!attempt.awaits_confirmation());
+}
+
+#[test]
+fn a_confirmation_whose_answer_is_lost_is_asked_again_and_holds() {
+    let (setup, _dir) = setup(FakeApi::default(), 2);
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::AnswerLost);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    // Confirmed twice, the same answer: it is the machine's.
+    let confirms = setup
+        .api()
+        .calls()
+        .iter()
+        .filter(|call| **call == Call::Confirm)
+        .count();
+    assert_eq!(confirms, 2);
+    assert!(setup.api().live().contains(&platform_secret(1)));
+}
+
+#[test]
+fn a_credential_oxy_will_not_confirm_undoes_the_setup_and_is_sign_in_again() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    // Its ten minutes pass before the retry.
+    setup.api().expire();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::CredentialRefused);
+    assert!(!attempt.awaits_confirmation());
+    assert!(setup.users().names().is_empty());
+    assert_eq!(files(&setup), 0);
+    // The first account was made the administrator, never recorded: the next one is.
+    assert!(!setup.store().fact(crate::store::ADMINISTRATOR_MADE));
+}
+
+#[test]
+fn an_account_set_up_again_that_oxy_will_not_confirm_is_put_back_as_it_was() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    setup.enroll(request()).unwrap();
+    let before = setup.store().get(&account()).unwrap().unwrap();
+    let mut again = request();
+    again.credential.device_secret = Secret::new(OTHER_DEVICE_SECRET);
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    let mut attempt = setup.start(again).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    setup.api().expire();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::CredentialRefused);
+    assert_eq!(setup.store().get(&account()).unwrap(), Some(before));
+    // The credential it had was not ended: it is still the account's.
+    assert!(!setup.api().calls().contains(&Call::SignOut));
+}
+
+#[test]
+fn a_setup_abandoned_before_its_confirmation_is_kept() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::AnswerLost);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    setup.abandon(&mut attempt);
+    // Oxy confirmed it (its answer lost): the account works, nothing ended online.
+    assert_eq!(stored_secret(&setup), platform_secret(1));
+    assert!(setup.api().live().contains(&platform_secret(1)));
+    assert!(!setup.api().calls().contains(&Call::SignOut));
+    assert!(setup.store().fact(crate::store::ADMINISTRATOR_MADE));
+}
+
+#[test]
+fn a_redemption_oxy_asks_to_wait_is_waited_told_and_asked_again_with_its_key() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .extend([(Some(30), None), (None, None)]);
+    let mut attempt = setup.start(request()).unwrap();
+    let (events, result) = told(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    let waits: Vec<_> = events
+        .iter()
+        .filter(|event| matches!(event, Event::Waiting(_)))
+        .collect();
+    // Oxy's wait, then the default one where it said none.
+    assert_eq!(waits, [&Event::Waiting(30), &Event::Waiting(30)]);
+    let at = |wanted: Event| events.iter().position(|event| *event == wanted).unwrap();
+    assert!(at(Event::Started(Stage::SigningIn)) < at(Event::Waiting(30)));
+    assert!(at(Event::Waiting(30)) < at(Event::Started(Stage::Finishing)));
+    let keys = setup.api().keys.lock().unwrap().clone();
+    assert_eq!(keys.len(), 3);
+    assert!(keys.iter().all(|key| *key == keys[0]));
+}
+
+#[test]
+fn a_wait_that_would_outlast_the_window_oxy_told_is_sign_in_again_however_new_the_setup() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    // Just started; Oxy says the claim's window ends in 20 s: a 30 s wait would outlast it.
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .push_back((Some(30), Some(Duration::from_secs(20))));
+    let mut attempt = setup.start(request()).unwrap();
+    let (events, result) = told(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::CredentialRefused);
+    assert!(!events
+        .iter()
+        .any(|event| matches!(event, Event::Waiting(_))));
+    assert!(setup.users().names().is_empty());
+    assert_eq!(files(&setup), 0);
+}
+
+#[test]
+fn a_wait_that_fits_the_window_oxy_told_is_waited_however_long_the_setup_ran() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    let mut attempt = setup.start(request()).unwrap();
+    // However long the setup has run, only Oxy's window counts: it is never measured from the
+    // setup's start (nothing is kept of when it started).
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .push_back((Some(500), Some(Duration::from_secs(590))));
+    let (events, result) = told(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    assert!(events.contains(&Event::Waiting(500)));
+}
+
+#[test]
+fn a_wait_before_oxy_told_any_window_is_waited() {
+    // A 429 of the device id's budget, the proof not yet looked at: no window, no decision.
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    setup
+        .api()
+        .limited
+        .lock()
+        .unwrap()
+        .push_back((Some(600), None));
+    let mut attempt = setup.start(request()).unwrap();
+    let (events, result) = told(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
+    assert!(events.contains(&Event::Waiting(600)));
+}
+
+#[test]
+fn the_window_oxy_told_last_decides_a_later_wait() {
+    let (setup, _dir) = setup(FakeApi::default(), 0);
+    // The account's 429 tells the window (100 s); the next, the device id's, tells none, and its
+    // wait would outlast what is left of it.
+    setup.api().limited.lock().unwrap().extend([
+        (Some(30), Some(Duration::from_secs(100))),
+        (Some(200), None),
+    ]);
+    let mut attempt = setup.start(request()).unwrap();
+    let (events, result) = told(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::CredentialRefused);
+    assert!(events.contains(&Event::Waiting(30)));
+    assert!(!events.contains(&Event::Waiting(200)));
+}
+
+#[test]
+fn a_confirmation_is_asked_again_only_within_the_window_oxy_told() {
+    let (setup, _dir) = setup(FakeApi::default(), 2);
+    // Oxy says the confirmation's window has ended (0 s left) as it answers.
+    *setup.api().windows_told.lock().unwrap() =
+        (Some(Duration::from_secs(0)), Some(Duration::from_secs(0)));
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .extend([Hiccup::Unreachable, Hiccup::Unreachable]);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    let confirms = |setup: &Setup<FakeApi, FakeUsers>| {
+        setup
+            .api()
+            .calls()
+            .iter()
+            .filter(|call| **call == Call::Confirm)
+            .count()
+    };
+    // Not asked again past its window, though two retries were allowed.
+    assert_eq!(confirms(&setup), 1);
+    // The person's retry asks once more all the same: the server decides.
+    let (_, result) = advance(&setup, &mut attempt);
+    assert_eq!(result.unwrap_err(), SetupError::Offline);
+    assert_eq!(confirms(&setup), 2);
+}
+
+#[test]
+fn a_confirmation_within_its_window_is_asked_again() {
+    let (setup, _dir) = setup(FakeApi::default(), 2);
+    *setup.api().windows_told.lock().unwrap() = (
+        Some(Duration::from_secs(600)),
+        Some(Duration::from_secs(600)),
+    );
+    setup
+        .api()
+        .confirm_hiccups
+        .lock()
+        .unwrap()
+        .push_back(Hiccup::Unreachable);
+    let mut attempt = setup.start(request()).unwrap();
+    let (_, result) = advance(&setup, &mut attempt);
+    assert!(matches!(result, Ok(Step::Enrolled(_))), "{result:?}");
 }

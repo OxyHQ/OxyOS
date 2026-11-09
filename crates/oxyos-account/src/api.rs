@@ -12,7 +12,9 @@
 //! - `POST /auth/signin/second-factor {challengeId, code, device}`.
 //!
 //! - `POST /session/device/platform {device, platformClient, redemptionKey}`: the QR's device proof
-//!   redeemed for the platform credential (ADR 0058 R6), repeatable with the same key (R7).
+//!   redeemed for the platform credential (ADR 0058 R6), repeatable with the same key (R7);
+//! - `POST /session/device/platform/confirm {deviceId, deviceSecret}`: a platform credential
+//!   confirmed once the machine holds it (R8).
 //!
 //! A sign-in of the platform's own (Oxy ADR 0058 2.1, as accepted with OxyOS's refinements) names
 //! OxyOS's public client (`platformClient: {platform: "oxyos", clientId}`), sent with no web
@@ -33,6 +35,7 @@ use crate::secret::Secret;
 use crate::AccountId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "http")]
 pub(crate) mod http;
@@ -98,6 +101,10 @@ pub struct Profile {
     pub username: Option<String>,
     pub display_name: Option<String>,
     pub avatar: Option<String>,
+    /// The account's languages, primary first, as locale strings (Oxy's `languages`); none when
+    /// it names none. Files kept before the platform read them have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub languages: Option<Vec<String>>,
 }
 
 /// A sign-in Oxy completed: who signed in, on which device, and the holder secret it issued (the
@@ -108,9 +115,32 @@ pub struct SignedIn {
     pub user_id: String,
     pub device_id: String,
     pub device_secret: Option<Secret>,
+    /// The windows the QR's redemption told (none for another sign-in).
+    pub windows: Windows,
 }
 
-/// OxyOS's public client, named by the platform's own sign-ins (`platformClient`).
+/// When the QR's windows end, as Oxy told them (ADR 0058 R9) and this machine measures them: on
+/// its own monotonic clock, from when the answer arrived, the seconds Oxy counted less
+/// [`WINDOW_MARGIN`] for the way back. Neither machine's clock setting enters into it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Windows {
+    /// The claim's: until then the proof may be redeemed, and redeemed again with its key.
+    pub redemption: Option<Instant>,
+    /// The pending credential's confirmation's (R8).
+    pub confirm: Option<Instant>,
+}
+
+/// What a window is shortened by for the answer's way back.
+pub const WINDOW_MARGIN: Duration = Duration::from_secs(2);
+
+/// A window's end: `seconds` from `arrived`, less [`WINDOW_MARGIN`] (never before `arrived`).
+pub fn window_end(arrived: Instant, seconds: u64) -> Instant {
+    arrived + Duration::from_secs(seconds).saturating_sub(WINDOW_MARGIN)
+}
+
+/// OxyOS's public client, named by the platform's own sign-ins (`platformClient`). It says that
+/// it confirms each platform credential it is issued (`confirms: true`, Oxy ADR 0058 R8): the
+/// credential is pending, and mints nothing, until [`OxyApi::confirm_platform_credential`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlatformClient {
     pub client_id: String,
@@ -119,9 +149,10 @@ pub struct PlatformClient {
 impl Serialize for PlatformClient {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
-        let mut client = serializer.serialize_struct("PlatformClient", 2)?;
+        let mut client = serializer.serialize_struct("PlatformClient", 3)?;
         client.serialize_field("platform", PLATFORM)?;
         client.serialize_field("clientId", &self.client_id)?;
+        client.serialize_field("confirms", &true)?;
         client.end()
     }
 }
@@ -183,8 +214,12 @@ pub enum ApiError {
     InvalidCredentials,
     /// The authenticator's code is wrong, or the challenge expired or was spent.
     SecondFactorInvalid,
-    /// Too many attempts: try again after this many seconds, if Oxy said.
-    Locked { retry_after: Option<u64> },
+    /// Too many attempts: try again after this many seconds, if Oxy said; and, once Oxy knew the
+    /// QR's proof (R9), when its window ends.
+    Locked {
+        retry_after: Option<u64>,
+        window: Option<Instant>,
+    },
     /// The platform does not name an application Oxy recognises for it
     /// (`application_not_recognised`).
     NotRecognised,
@@ -208,10 +243,13 @@ impl fmt::Display for ApiError {
             }
             ApiError::Locked {
                 retry_after: Some(seconds),
+                ..
             } => {
                 write!(f, "too many attempts: try again in {seconds} s")
             }
-            ApiError::Locked { retry_after: None } => f.write_str("too many attempts"),
+            ApiError::Locked {
+                retry_after: None, ..
+            } => f.write_str("too many attempts"),
             ApiError::NotRecognised => f.write_str("Oxy does not recognise the application"),
             ApiError::Refused { status, code } => {
                 write!(
@@ -269,6 +307,13 @@ pub trait OxyApi {
         platform: &PlatformClient,
         key: &RedemptionKey,
     ) -> Result<SignedIn, ApiError>;
+    /// Confirms a platform credential a platform sign-in issued (Oxy ADR 0058 R8): until then it
+    /// is pending, mints nothing and expires with the QR's ten minutes (a password's sign-in's,
+    /// ten minutes after it), and the credential it replaces still works. The machine confirms it
+    /// once it holds it: an answer lost on its way leaves nothing live that nobody holds. Again
+    /// for a confirmed credential, the same answer. Every credential that cannot be confirmed
+    /// (unknown, expired) is one refusal, `InvalidDeviceSecret`.
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError>;
     /// A short token for one application, minted with the platform credential, pinned to
     /// `account`.
     fn mint_app_token(

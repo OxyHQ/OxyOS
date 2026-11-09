@@ -17,10 +17,12 @@ import {
   RiCheckLine,
   RiComputerLine,
   RiGlobalLine,
+  RiHistoryLine,
   RiImageLine,
   RiInformationLine,
   RiKeyboardLine,
   RiHand,
+  RiKey2Line,
   RiLoginBoxLine,
   RiLockLine,
   RiMouseLine,
@@ -136,9 +138,11 @@ import {
 import { BluetoothPage } from "./BluetoothPage";
 import { NetworkPage, WifiPage } from "./NetworkPages";
 import { BatteryPage } from "./BatteryPage";
+import { BackupsPage } from "./BackupsPage";
 import { accountView, type AccountView } from "./account";
 import { AccountPicture } from "./AccountPicture";
 import { TransferResetPage } from "./TransferResetPage";
+import { PasswordsPage } from "./PasswordsPage";
 import { StoragePage } from "./StoragePage";
 import { LoginItemsPage } from "./LoginItemsPage";
 import { LocalSignInSection } from "./LocalSignInSection";
@@ -2267,10 +2271,18 @@ export function Settings({
   // before (opened by its URL, `oxyos-settings://battery`, the battery's menu's Battery Settings…).
   const powerItem = power ? (power.battery ? words.battery : words.energy) : null;
   const powerPage = power === undefined ? null : power?.battery || power === null ? "battery" : "energy";
+  // Backups (docs/adr/0059-backups.mdx): the sidebar's item once the session told the backup
+  // service is there; the page, also before (opened by its URL, `oxyos-settings://backups`, the
+  // menu bar's Open Backups Settings…), says when it is not.
+  const backupItem = !!snapshot.backup;
+  const backupPage = snapshot.backup !== undefined;
   // The Oxy account first, as a Mac's sidebar begins with its Apple Account: its picture and name,
   // where the platform has an account to show.
   const account = accountView(snapshot.account);
   const accountKind = account?.kind;
+  // Passwords where the platform keeps an account's keychain: with an account session, once it told
+  // the account (docs/adr/0050-keychain-autofill-and-passkeys.mdx: the keychain is the account's).
+  const keychain = actions.keychain !== undefined && accountKind !== undefined;
   const accountName = account?.kind === "signed_in" ? account.name : null;
   const accountPicture = account?.kind === "signed_in" ? `${account.picture}|${account.initials}` : "";
   const AccountIcon = React.useMemo(() => {
@@ -2326,6 +2338,9 @@ export function Settings({
           { key: "notifications", label: words.notifications, icon: RiNotification3Line, page: "notifications" },
           { key: "sound", label: words.sound, icon: RiVolumeUpLine, page: "sound" },
           { key: "lock-screen", label: words.lockScreen, icon: RiLockLine, page: "lock-screen" },
+          // After Lock Screen, as a Mac lists Passwords after Touch ID & Password: where the
+          // platform has an account session to keep them (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
+          ...(keychain ? [{ key: "passwords", label: words.passwords, icon: RiKey2Line, page: "passwords" }] : []),
           { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
           { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
         ],
@@ -2346,6 +2361,8 @@ export function Settings({
           { key: "software-update", label: words.softwareUpdate, icon: RiRefreshLine, page: "software-update" },
           // After Software Update, as a Mac's General lists Storage (docs/adr/0062-storage.mdx).
           { key: "storage", label: words.storage, icon: RiHardDrive2Line, page: "storage" },
+          // Just before Transfer or Reset, as a Mac's General lists Time Machine.
+          ...(backupItem ? [{ key: "backups", label: words.backups, icon: RiHistoryLine, page: "backups" }] : []),
           // After Storage, as a Mac's General lists Transfer or Reset.
           { key: "transfer-reset", label: words.transferReset, icon: RiResetLeftLine, page: "transfer-reset" },
           // Just above Privacy, as a Mac's System Settings lists Spotlight.
@@ -2355,7 +2372,7 @@ export function Settings({
         ],
       },
     ];
-  }, [strings, words, networked, bluetooth, powerItem, accountKind, accountName, AccountIcon]);
+  }, [strings, words, networked, bluetooth, powerItem, backupItem, accountKind, accountName, AccountIcon, keychain]);
   const pages = React.useMemo<Record<string, SettingsModalPage>>(
     () => ({
       ...(accountKind
@@ -2366,6 +2383,7 @@ export function Settings({
       notifications: { title: words.notifications, content: <WithPageProps render={NotificationsPage} /> },
       sound: { title: words.sound, content: <WithPageProps render={SoundPage} /> },
       "lock-screen": { title: words.lockScreen, content: <WithPageProps render={LockScreenPage} /> },
+      ...(keychain ? { passwords: { title: words.passwords, content: <WithPageProps render={PasswordsPage} /> } } : {}),
       displays: { title: words.displays, content: <WithPageProps render={DisplaysPage} /> },
       accessibility: { title: words.accessibility, content: <WithPageProps render={AccessibilityPage} /> },
       keyboard: { title: words.keyboard, content: <WithPageProps render={KeyboardPage} /> },
@@ -2395,8 +2413,9 @@ export function Settings({
             },
           }
         : {}),
+      ...(backupPage ? { backups: { title: words.backups, content: <WithPageProps render={BackupsPage} /> } } : {}),
     }),
-    [strings, words, networked, bluetooth, powerPage, accountKind],
+    [strings, words, networked, bluetooth, powerPage, backupPage, accountKind, keychain],
   );
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);

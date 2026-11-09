@@ -100,12 +100,15 @@ pub(crate) struct Answer {
     pub(crate) status: u16,
     pub(crate) retry_after: Option<u64>,
     pub(crate) body: Zeroizing<Vec<u8>>,
+    /// When it arrived, on the monotonic clock: what the windows it tells are measured from.
+    pub(crate) arrived: std::time::Instant,
 }
 
 pub(crate) fn answer(
     result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<Answer, ApiError> {
     let mut response = result.map_err(transport)?;
+    let arrived = std::time::Instant::now();
     let status = response.status().as_u16();
     let retry_after = response
         .headers()
@@ -122,6 +125,7 @@ pub(crate) fn answer(
         status,
         retry_after,
         body: Zeroizing::new(body),
+        arrived,
     })
 }
 
@@ -138,13 +142,28 @@ fn transport(error: ureq::Error) -> ApiError {
 
 /// An error answer: `{error: code, message}` (an `ApiError`'s `toJSON`), or `{error: {code}}`.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ErrorBody {
     error: Option<serde_json::Value>,
+    /// The QR's window, told beside a rate limit once Oxy knew the proof (R9).
+    redemption_window: Option<WindowAnswer>,
+}
+
+/// A window as Oxy tells it (R9): only its seconds are read, measured from the answer's arrival;
+/// its `expiresAt` is for logs and people, and this machine's clock is never asked.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowAnswer {
+    expires_in_seconds: u64,
 }
 
 pub(crate) fn refusal(answer: &Answer) -> ApiError {
-    let code = serde_json::from_slice::<ErrorBody>(&answer.body)
-        .ok()
+    let body = serde_json::from_slice::<ErrorBody>(&answer.body).ok();
+    let window = body
+        .as_ref()
+        .and_then(|body| body.redemption_window.as_ref())
+        .map(|window| window_end(answer.arrived, window.expires_in_seconds));
+    let code = body
         .and_then(|body| body.error)
         .and_then(|error| match error {
             serde_json::Value::String(code) => Some(code),
@@ -157,6 +176,7 @@ pub(crate) fn refusal(answer: &Answer) -> ApiError {
     match (answer.status, code.as_deref()) {
         (429, _) | (_, Some("SIGNIN_LOCKED")) => ApiError::Locked {
             retry_after: answer.retry_after,
+            window,
         },
         (_, Some("invalid_device_secret")) => ApiError::InvalidDeviceSecret,
         (_, Some("account_not_on_device" | "no_active_session")) => ApiError::AccountNotOnDevice,
@@ -242,6 +262,22 @@ struct Me {
     username: Option<String>,
     name: Option<serde_json::Value>,
     avatar: Option<String>,
+    languages: Option<serde_json::Value>,
+}
+
+/// The account's languages, primary first: the array's non-empty strings, none if it has none.
+fn languages(languages: Option<serde_json::Value>) -> Option<Vec<String>> {
+    let serde_json::Value::Array(items) = languages? else {
+        return None;
+    };
+    let languages: Vec<String> = items
+        .into_iter()
+        .filter_map(|item| match item {
+            serde_json::Value::String(text) if !text.trim().is_empty() => Some(text.trim().into()),
+            _ => None,
+        })
+        .collect();
+    (!languages.is_empty()).then_some(languages)
 }
 
 /// The account's name: a string, or `{full}` or `{first, last}`.
@@ -321,6 +357,8 @@ struct SignInAnswer {
     device_id: Option<String>,
     device_secret: Option<Secret>,
     user: Option<SignInUser>,
+    redemption_window: Option<WindowAnswer>,
+    confirm_window: Option<WindowAnswer>,
 }
 
 #[derive(Deserialize)]
@@ -328,12 +366,20 @@ struct SignInUser {
     id: String,
 }
 
-fn signed_in(answer: SignInAnswer) -> Result<SignedIn, ApiError> {
+fn signed_in(answer: SignInAnswer, arrived: std::time::Instant) -> Result<SignedIn, ApiError> {
+    let end = |window: Option<WindowAnswer>| {
+        window.map(|window| window_end(arrived, window.expires_in_seconds))
+    };
+    let windows = Windows {
+        redemption: end(answer.redemption_window),
+        confirm: end(answer.confirm_window),
+    };
     match (answer.device_id, answer.user) {
         (Some(device_id), Some(user)) => Ok(SignedIn {
             user_id: user.id,
             device_id,
             device_secret: answer.device_secret.filter(|secret| !secret.is_empty()),
+            windows,
         }),
         _ => Err(ApiError::Unexpected(
             "a sign-in without its account or device".into(),
@@ -366,6 +412,7 @@ impl OxyApi for HttpApi {
             username: me.username.filter(|name| !name.trim().is_empty()),
             display_name: display_name(me.name),
             avatar: me.avatar.filter(|avatar| !avatar.is_empty()),
+            languages: languages(me.languages),
         })
     }
 
@@ -394,7 +441,7 @@ impl OxyApi for HttpApi {
                 )),
             };
         }
-        signed_in(step).map(SignInStep::SignedIn)
+        signed_in(step, answer.arrived).map(SignInStep::SignedIn)
     }
 
     fn second_factor(
@@ -413,7 +460,7 @@ impl OxyApi for HttpApi {
                 platform_client: platform,
             },
         )?;
-        signed_in(parse(&answer)?)
+        signed_in(parse(&answer)?, answer.arrived)
     }
 
     fn platform_device_sign_in(
@@ -431,12 +478,22 @@ impl OxyApi for HttpApi {
             },
         )?;
         match parse::<SignInAnswer>(&answer) {
-            Ok(step) => signed_in(step),
+            Ok(step) => signed_in(step, answer.arrived),
             // One answer for every proof that cannot be redeemed (replayed without its key or with
             // another, stale, another client's, an account no longer on the device, a wrong
             // secret): never told apart.
             Err(ApiError::Refused { status: 401, .. }) => Err(ApiError::InvalidDeviceSecret),
             Err(error) => Err(error),
+        }
+    }
+
+    fn confirm_platform_credential(&self, credential: &DeviceCredential) -> Result<(), ApiError> {
+        let answer = self.post("/session/device/platform/confirm", &Proof::from(credential))?;
+        match answer.status {
+            200 => Ok(()),
+            // One answer for every credential that cannot be confirmed: never told apart.
+            401 => Err(ApiError::InvalidDeviceSecret),
+            _ => Err(refusal(&answer)),
         }
     }
 

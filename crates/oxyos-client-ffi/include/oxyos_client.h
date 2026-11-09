@@ -96,6 +96,8 @@ typedef struct OxyOSClient OxyOSClient;
 /* Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx,
  * protocol version 33). */
 #define OXYOS_EVENT_BACKGROUND_ITEM_STATE 165
+/* Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10, protocol version 36). */
+#define OXYOS_EVENT_SAFE_MODE 166
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -553,6 +555,8 @@ typedef struct OxyOSClient OxyOSClient;
  *                      oxyos_client_background_item `code` (0: the person changed it, unasked);
  *                      `detail` OXYOS_BACKGROUND_ITEM_LOGIN_ITEM or _BACKGROUND, `flag` an
  *                      OXYOS_BACKGROUND_* status (protocol version 33).
+ *   SAFE_MODE          to the shell and the login screen: the session started in Safe Mode, told
+ *                      once as it connects; show it until the session ends (protocol version 36).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -2094,8 +2098,8 @@ int64_t oxyos_accounts(char* out, size_t capacity);
  * strictly and written rebuilt. A message is at most OXYOS_ACCOUNT_MESSAGE_MAX bytes. */
 #define OXYOS_ACCOUNT_MESSAGE_MAX 16384
 /* The session's snapshot, asked once, as JSON {"status" ("signed_in", "signed_out" or
- * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?} or null),
- * "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
+ * "unavailable"), "revision", "account" ({"id", "handle", "displayName"?, "avatar"?, "languages"?
+ * (its locales, primary first)} or null), "online"}, written as oxyos_applications writes; OXYOS_ERROR when the service could not be
  * asked or refused (oxyos_last_error). */
 int64_t oxyos_account_session_snapshot(char* out, size_t capacity);
 /* A short token for the calling application, `reason` "boot", "preflight" or "response-401" (which
@@ -2130,6 +2134,36 @@ int64_t oxyos_account_session_local_sign_in(char* out, size_t capacity);
  * nothing changed. */
 int64_t oxyos_account_session_change_local(const char* change, const char* pin, const char* password,
                                            const char* current_pin, char* out, size_t capacity);
+/* One of Settings' keychain requests (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8):
+ * `request` is its JSON as the accounts' service reads it ({"keychainList": {}}, {"keychainReveal":
+ * {"itemId"}} ...; secret: copied into a buffer this library overwrites; overwrite your own).
+ * Settings alone may ask (anyone else is refused notPermitted); the registrar's requests (AutoFill,
+ * the lock) and anything else are not sent. Blocks while the service answers, which may ask Oxy:
+ * call it off the interface's thread. Writes the answer as JSON, rebuilt: one of the keychain's
+ * answers, or {"refused": {"reason", "retryAfter"? (seconds, when throttled)}}. It may hold secrets
+ * (an item, a recovery key, a code): overwrite `out` once handed on. Give OXYOS_ACCOUNT_MESSAGE_MAX
+ * bytes. OXYOS_ERROR when it is not a request of Settings' or the service could not be asked. */
+int64_t oxyos_account_session_keychain(const char* request, char* out, size_t capacity);
+/* Asks to save a login the calling application has just used (docs/adr/0050-keychain-autofill-and-
+ * passkeys.mdx, decision 5): `username`, `password` (secret: copied into a buffer this library
+ * overwrites; overwrite your own) and the website it is for (`domain`, a host name, or NULL). The
+ * service asks the person in the session's sheet and saves it only on their yes. Blocks until they
+ * answer (at most two minutes): never on the interface's thread. The answer, JSON: {"saved": {}},
+ * {"notSaved": {}}, or {"refused": {"reason" ("locked", "notMember", "tooMany", "unavailable",
+ * "invalidRequest", "notPermitted", "offline", ...)}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes.
+ * OXYOS_ERROR when the service could not be asked. */
+int64_t oxyos_account_session_save_password(const char* username, const char* password,
+                                            const char* domain, char* out, size_t capacity);
+/* A passkey ceremony for the calling application (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+ * decision 7): `ceremony` "create" with WebAuthn's PublicKeyCredentialCreationOptionsJSON, or "get"
+ * with PublicKeyCredentialRequestOptionsJSON (binary as base64url; `rp.id` / `rpId` required). The
+ * client data is made here (origin https://<rpId>); the person verifies in the system's sheet.
+ * Blocks while they answer (up to six and a half minutes): never on the interface's thread. JSON
+ * {"credential": RegistrationResponseJSON | AuthenticationResponseJSON} or {"error": {"name"
+ * (WebAuthn's DOMException name: "NotAllowedError", "InvalidStateError", "NotSupportedError",
+ * "TypeError", "UnknownError"), "reason"}}. Give OXYOS_ACCOUNT_MESSAGE_MAX bytes. OXYOS_ERROR when
+ * the service could not be asked. */
+int64_t oxyos_account_session_passkey(const char* ceremony, const char* options, char* out, size_t capacity);
 /* The session's snapshot as it changes: the service sends it at once and at every change. */
 typedef struct OxyOSAccountSubscription OxyOSAccountSubscription;
 /* NULL when the service could not be asked (oxyos_last_error). */
@@ -2182,14 +2216,25 @@ int64_t oxyos_account_enrollment_answer(const OxyOSAccountEnrollment* enrollment
 int64_t oxyos_account_enrollment_retry(OxyOSAccountEnrollment* enrollment, char* out, size_t capacity);
 /* A setup's step, as the service starts it: "securing" (the PIN's verifier), "verifying" (Oxy checks
  * the sign-in), "preparing" (the account's user and home), "signingIn" (Oxy issues this computer's
- * credential), "finishing" (the account's file, its verifier), in that order, any of them skipped
- * where it has nothing to do (a retry with a kept credential: "preparing", "finishing"). `stage` is
+ * credential), "finishing" (the account's file, its verifier), "confirming" (Oxy confirms this
+ * computer's credential), in that order, any of them skipped where it has nothing to do (a retry
+ * with a kept credential: "preparing", "finishing", "confirming"; one after Oxy could not confirm:
+ * "confirming"). `stage` is
  * a static string; nothing secret is told. */
 typedef void (*OxyOSAccountEnrollmentProgressFn)(void* context, const char* stage);
 /* `progress` (null: none) is called with `context` on the thread blocked in _enroll,
  * _second_factor or _retry, before that call returns. 0, or OXYOS_ERROR. */
 int oxyos_account_enrollment_on_progress(OxyOSAccountEnrollment* enrollment,
                                          OxyOSAccountEnrollmentProgressFn progress, void* context);
+/* A wait Oxy asks of a setup: it rate-limited the QR's redemption, and the wait ends within the
+ * QR's window. The service waits `retry_after_seconds`, asks again with the same sign-in and goes
+ * on; nothing secret is told. */
+typedef void (*OxyOSAccountEnrollmentWaitingFn)(void* context, uint64_t retry_after_seconds);
+/* `waiting` (null: none) is called with `context` on the thread blocked in _enroll, _second_factor
+ * or _retry, which goes on blocking through the wait and the rest of the setup (its answer is
+ * waited for that much longer). 0, or OXYOS_ERROR. */
+int oxyos_account_enrollment_on_waiting(OxyOSAccountEnrollment* enrollment,
+                                        OxyOSAccountEnrollmentWaitingFn waiting, void* context);
 /* The appearance a new account's home starts with, "light", "dark" or "auto", before _enroll: 0, or
  * OXYOS_ERROR for anything else (nothing set). An account set up again keeps its own. */
 int oxyos_account_enrollment_set_appearance(OxyOSAccountEnrollment* enrollment, const char* appearance);

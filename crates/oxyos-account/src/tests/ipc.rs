@@ -720,7 +720,8 @@ fn a_setup_tells_its_steps_before_its_answer() {
             Stage::Verifying,
             Stage::Preparing,
             Stage::SigningIn,
-            Stage::Finishing
+            Stage::Finishing,
+            Stage::Confirming
         ]
     );
     assert!(matches!(answer, Answer::Enrolled { .. }), "{answer:?}");
@@ -748,7 +749,10 @@ fn a_failed_setup_keeps_its_sign_in_and_a_retry_finishes_it() {
     setup.users().failing.lock().unwrap().clear();
     client.send(&Request::Retry).unwrap();
     let (stages, answer) = stages_and_answer(&client);
-    assert_eq!(stages, [Stage::Preparing, Stage::Finishing]);
+    assert_eq!(
+        stages,
+        [Stage::Preparing, Stage::Finishing, Stage::Confirming]
+    );
     assert!(matches!(answer, Answer::Enrolled { .. }), "{answer:?}");
     let log = service.finish();
     // One redemption, and nothing ended online.
@@ -771,7 +775,7 @@ fn a_failed_setup_keeps_its_sign_in_and_a_retry_finishes_it() {
 
 #[cfg(feature = "local")]
 #[test]
-fn a_client_that_goes_away_after_a_failure_ends_the_credential_kept() {
+fn a_client_that_goes_away_after_a_failure_ends_nothing_online() {
     let mut service = Service::start(FakeApi::default(), Enrollers { login: Some(me()) }, 1);
     let platform = service.platform.clone();
     let setup = platform.setup();
@@ -781,8 +785,11 @@ fn a_client_that_goes_away_after_a_failure_ends_the_credential_kept() {
     assert!(matches!(answer(&client), Answer::Failed { .. }));
     drop(client);
     service.finish();
+    // The credential it was issued is pending at Oxy (R8): it expires by itself.
     let calls = setup.api().calls();
-    assert_eq!(calls[calls.len() - 2..], [Call::Mint, Call::SignOut]);
+    assert!(!calls.contains(&Call::SignOut));
+    assert!(!calls.contains(&Call::Confirm));
+    assert!(setup.api().is_pending(&platform_secret(1)));
     assert!(setup.users().names().is_empty());
     assert!(setup.store().users().unwrap().is_empty());
 }
@@ -804,4 +811,39 @@ fn a_retry_out_of_turn_and_an_unknown_appearance_are_not_requests() {
     let setup = platform.setup();
     service.finish();
     assert!(setup.api().calls().is_empty());
+}
+
+#[cfg(feature = "local")]
+#[test]
+fn a_wait_oxy_asks_for_is_told_before_the_setup_goes_on() {
+    let api = FakeApi::default();
+    api.limited.lock().unwrap().push_back((Some(1), None));
+    let mut service = Service::start(api, Enrollers { login: Some(me()) }, 1);
+    let client = service.connect();
+    client.send(&enroll_by_qr(None)).unwrap();
+    let mut told = Vec::new();
+    let answer = loop {
+        match client.receive::<Answer>().unwrap().unwrap().unwrap() {
+            event @ (Answer::Progress(_) | Answer::Waiting { .. }) => told.push(event),
+            answer => break answer,
+        }
+    };
+    assert!(matches!(answer, Answer::Enrolled { .. }), "{answer:?}");
+    let waiting = told
+        .iter()
+        .position(|event| {
+            *event
+                == Answer::Waiting {
+                    retry_after_seconds: 1,
+                }
+        })
+        .expect("the wait was told");
+    assert_eq!(told[waiting - 1], Answer::Progress(Stage::SigningIn));
+    assert_eq!(told.last(), Some(&Answer::Progress(Stage::Confirming)));
+    // On the wire as the login screen reads it.
+    assert_eq!(
+        serde_json::to_value(&told[waiting]).unwrap(),
+        serde_json::json!({"waiting": {"retryAfterSeconds": 1}})
+    );
+    service.finish();
 }

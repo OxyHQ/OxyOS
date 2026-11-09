@@ -152,6 +152,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   energy.mdx), what they hold once the step settled ("on_ac", "battery" with its "percent",
   "state" and "charge_limit", "sysfs" with the battery's "start" and "end" thresholds as UPower
   wrote them, "active_profile", "holds", "suspends", "calls"), each key given matching;
+- backup: with the scenario's `backup` (the development backup service, `oxyos-offscreen
+  --play-backup`, on the run's own folders backing up its home, the session's backups for the menu
+  bar and Settings, docs/adr/0059-backups.mdx; `backups`, below, is an application's files
+  service's, backed up before the run), what
+  it holds once the step settled, as its `status` answers (`automatic`, `destinations` with each
+  one's `name`, `available`, `backups`, `lastFailure`; `excluded`, `running`, `held`...), each key
+  given matching ("{home}" in a text the run's home); a `backup` step acts on it: {"connect": uuid, "label"} and {"disconnect": uuid}
+  a played disk, {"ask": request} a request of the person's, and {"until": state, "ms": N} waits,
+  the session served, until it holds that state;
 - controls: with the scenario's `controls` (a machine the session's hardware keys and Control
   Center act on, ADR 0025: `output_volume`, `display_brightness`, `battery`, `wifi`, `ssid`...),
   the machine as it is once the step settled, each key given matching;
@@ -302,6 +311,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   `selectInputSource`) and the emoji pickers asked for ("emoji", `showEmoji`), each key given
   matching;
 - latency_ms: budget from injecting the input to the first changed frame;
+- content_ms_max: launch to content, with `texts`: the first frame (each surface's latest presented
+  frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
+  after the host's start (its report's first `stage` "main"), by the wall clock: what a person
+  waits for from launching an application to seeing what they opened, an application that renders
+  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
+  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
+  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -461,6 +477,11 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
+A scenario with `safe_mode` true runs the session as a start in Safe Mode
+(docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
+as oxyos-session reads `oxyos.safe-mode=1` on the kernel's command line): nothing opened at login,
+no background activity but the system applications', and the shell told it.
+
 Every run's wallpapers are the repository's catalog (`OXYOS_WALLPAPERS`,
 config/includes.chroot_after_packages/usr/share/oxyos/wallpapers, as the image installs it,
 docs/adr/0048-wallpapers.mdx); a choice is a preference as any other (`preferences`: `wallpaper`,
@@ -561,7 +582,8 @@ refused, so nothing of the network outside reaches the run. The server answers t
 as oxy-api does (`{"data": …}`, `{"data": [...], "pagination": …}`): `store.categories`, `store.apps`
 (summaries; `?category=` filters them) and `store.listings` (each slug's page; any other is a 404),
 reviews empty; `store.unavailable_first` ({PATH: N}) answers the first N requests for a path 503, as a
-store that is down; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
+store that is down; `store.late_ms` ({PATH: MS}) sends what it answers for a path (a 404 for one it
+does not play, `/users/me` among them) that long after it was asked, as over a slow network; `store.files` ({NAME: TEXT}) are files the run writes for it (an app's icon, an SVG
 document, as a listing's `icon` may be a file URL or path), and `{store_files}` in any answer is the
 directory holding them. It also answers NetInfo's check that the Internet is reachable
 (`clients3.google.com/generate_204`, 204), so the machine reads as online and a store that is down is
@@ -643,13 +665,16 @@ A scenario with `account` runs against a played accounts' service's session sock
 (docs/adr/0020-oxy-account-login.mdx, decision 6; `OXYOS_ACCOUNTD_SESSION_SOCKET`, which every run
 points at a socket of its own, so none asks the machine's): the application ids it knows as the
 session's launches (`account.registered`; any other process is refused `notPermitted`), its
-snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online), and its changes while
+snapshot (`account.snapshot`, over a signed-in Ada Lovelace, @ada, online, no languages; an
+`account` given replaces hers whole and is told unchanged, `languages` included), and its changes while
 the run goes on (`account.later`: [{"when_shown": TEXT, "snapshot": {...}}], pushed once the
 application's window first shows TEXT; or {"when_shown": TEXT, "restart": {"refuse_for": MS}}, the
 service restarting as a package upgrade restarts it: every subscription closed under its
 application, then every process refused `notPermitted` for MS, as the real service refuses one until
 the session has registered it again; those refusals are not recorded). A token it mints names the application it is for and is no
-credential. Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
+credential; `account.token_delay_ms` answers each `token` (boot, preflight...) that long after it was
+asked, as a mint over a slow network does, its other answers (`snapshot`, `subscribe`) as at once
+(each connection is answered on its own; the token is recorded when it is answered). Erasing the computer (docs/adr/0054-recovery-and-erasing.mdx), Settings' alone:
 `account.erase` is what `erasePreview` answers (over an available computer whose asking account is
 its administrator, Ada Lovelace alone, online) and `account.erase.password` the administrator's
 password, which `eraseAll` takes (`erasing`, every account signed out online where its preview says
@@ -657,7 +682,21 @@ so); a wrong one is refused `wrongPassword`, and from the `account.erase.throttl
 on, `throttled` with `retryAfter` 30. A step's `account_session` expectation is what it was asked in
 the step, exactly, in any order: "APPLICATION ASKED: ANSWERED" ("-" for a process it refused;
 `token boot: token`, `token preflight: no token`, `subscribe: snapshot`, `remove: removed`,
-`erasePreview: preview`, `eraseAll: erasing` or the reason it was refused).
+`erasePreview: preview`, `eraseAll: erasing` or the reason it was refused). `account.keychain` as an object
+plays the keychain Settings › Passwords asks (`PlayedKeychain`: its items, codes, strong passwords, recovery
+key, members and enrollments; recorded "keychainVerify: verified", "keychainList: items" ... or the
+reason it was refused, never a value).
+
+Saving a login (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5): the development
+compositor (`autofill.saves`) takes the played service's save confirmations as the session takes
+the real one's (`confirmSaves`); an application's `savePassword` is refused `locked` with
+`account.keychain` "locked", `notMember` with "off", and `unavailable` with nobody taking the
+confirmations; otherwise the compositor is asked (`confirmSave`, never the password) and its answer
+is the application's (`saved` or `notSaved`; past `account.save_wait` seconds, 120 by default,
+`notSaved` and the request withdrawn). The service logs `savePassword: saved`, `notSaved` or the
+reason; a scenario's `account_saved` is what it saved once the run ended, exactly, without the
+password ([{"application", "username", "domain"}]), and none of the scenario's `secrets` may be in
+its log.
 
 Every scenario, every step, whatever it says (docs/adr/0016-windows.mdx, decision 11): the person's
 input reached exactly whom it should, once. The development compositor records every input event
@@ -1098,6 +1137,13 @@ def director_args(step, out):
         # The played power services change the machine (ADR 0057): {"on_ac": false},
         # {"percent": 9, "warning": "low"}, {"state": "charging", "time_to_full": 3600}.
         return args + ["--power", json.dumps(value)]
+    if kind == "backup":
+        # The development backup service (ADR 0059): a played disk connected or taken away, a
+        # request of the person's, or a wait until it holds a state: {"connect": uuid, "label"},
+        # {"disconnect": uuid}, {"ask": {"addDisk": {...}}}, {"until": {...}, "ms": 60000};
+        # "{home}" in a text the run's home.
+        home = str((out / "home").resolve())
+        return args + ["--backup-act", json.dumps(value).replace("{home}", home)]
     if kind == "clipboard":
         # Another application copies (ADR 0007): {type: content}, a text or "base64:..." bytes,
         # the most faithful type first. The director reads each from a file the list names.
@@ -1170,7 +1216,15 @@ def serve_accounts(path, accounts, login=None, log=None):
         elif by_device:
             # A sign-in by the QR: Oxy's device-proof route redeems the credential handed over
             # (the real service's; played here as its answer), and the PIN is the local credential.
-            progress(connection, (["securing"] if pin else []) + ["verifying", "preparing", "signingIn"])
+            progress(connection, (["securing"] if pin else []) + ["verifying", "preparing"])
+            wait = played.get("wait_first")
+            if wait:
+                # `login.enroll.wait_first`: Oxy answered the redemption 429 (its limit, per proof,
+                # oxy ADR 0058): the service tells the wait, waits, and asks again with the same key.
+                record("waiting", wait)
+                connection.send(json.dumps({"waiting": {"retryAfterSeconds": wait}}).encode())
+                time.sleep(wait)
+            progress(connection, ["signingIn"])
             answer = None
         elif request.get("password") != played["password"]:
             progress(connection, (["securing"] if pin else []) + ["verifying", "signingIn"])
@@ -1190,7 +1244,8 @@ def serve_accounts(path, accounts, login=None, log=None):
                 answer = {"failed": {"reason": failing}}
                 failing = None
             elif answer is None:
-                progress(connection, ["finishing"])
+                # The credential confirmed with Oxy once the machine holds it (oxy ADR 0058 R8).
+                progress(connection, ["finishing", "confirming"])
                 listed = dict(played["account"], password=request.get("password") is not None)
                 if pin is not None:
                     pins[listed["user"]] = pin
@@ -1216,11 +1271,10 @@ def serve_accounts(path, accounts, login=None, log=None):
                 return
             turn = json.loads(packet)
             if kept and turn == "retry":
-                # What the service kept is set up again: the machine, and Oxy only if it was not
-                # reached.
+                # What the service kept is tried again: Oxy, where it was not reached; the machine,
+                # where it could not be set up. Then finishing and the confirmation, as at first.
                 record.asked = "retry"
-                progress(connection, ["preparing", "signingIn"] if answer["failed"]["reason"] == "unreachable"
-                         else ["preparing"])
+                progress(connection, ["signingIn"] if answer["failed"]["reason"] == "unreachable" else ["preparing"])
                 answer = None
                 continue
             if kept or not isinstance(turn, dict) or "secondFactor" not in turn:
@@ -1307,6 +1361,182 @@ def played_token(application, reason):
     return "played." + base64.urlsafe_b64encode(claims).decode().rstrip("=")
 
 
+class PlayedKeychain:
+    """The accounts' service's keychain as Settings asks it (docs/adr/0050-keychain-autofill-and-passkeys.mdx,
+    step 2's Settings messages), played from a scenario's `account.keychain`: `state` ("member", "off",
+    ...), `vault` (whether the account has one at Oxy), `password` (the account's, which
+    `keychainVerify` takes; listing, reading, writing, auditing, a code, a strong password, removing a
+    member and approving need it first, as the service), `items` (each as `keychainReveal` gives it,
+    `itemId` and all), `codes` ({itemId: {code, period, remaining}}, what `keychainCode` answers),
+    `generated` (the strong passwords `keychainGenerate` answers, in turn), `recovery_key` (what
+    `keychainCreate` shows and `keychainConfirmRecoveryKey` and `keychainJoin` take, read as the
+    service reads one: case, hyphens and spaces ignored), `members` and `enrollments` (each as
+    Settings is told them; an enrollment's `code` is shown once it is approved by this machine).
+    A weak password is one shorter than 12 characters (the played service's stand-in for zxcvbn).
+    Every value is the scenario's own fixture; what is recorded is the request's name and the answer's
+    word, never a value."""
+
+    VERIFIED = {"keychainList", "keychainReveal", "keychainPut", "keychainDelete", "keychainAudit",
+                "keychainGenerate", "keychainCode", "keychainRemoveMember"}
+
+    def __init__(self, spec):
+        self.spec = spec
+        self.state = spec.get("state", "member")
+        self.vault = spec.get("vault", self.state == "member")
+        self.verified = bool(spec.get("verified", False))
+        self.items = {item["itemId"]: dict(item) for item in spec.get("items", [])}
+        self.members = [dict(member) for member in spec.get("members", [])]
+        self.enrollments = [dict(enrollment) for enrollment in spec.get("enrollments", [])]
+        self.generated = list(spec.get("generated", []))
+        self.made = 0
+        self.wrong = 0
+
+    @staticmethod
+    def refused(reason, **extra):
+        return {"refused": dict({"reason": reason}, **extra)}, reason
+
+    @staticmethod
+    def key_text(text):
+        return re.sub(r"[\s-]", "", str(text or "")).upper()
+
+    def status(self):
+        status = {"state": self.state, "vault": self.vault, "verified": self.verified}
+        if self.state == "member":
+            status["items"] = len(self.items)
+        return {"keychainStatus": status}
+
+    def summary(self, item):
+        kind = item["type"]
+        if kind == "login":
+            domains = [re.sub(r"^[a-z][a-z0-9+.-]*://", "", url).split("/")[0] for url in item.get("urls", [])]
+            title, username = item["title"], item.get("username") or None
+        elif kind == "passkey":
+            domains, title, username = [item["rpId"]], item["rpName"], item["userName"]
+        elif kind == "wifi":
+            domains, title, username = [], item["ssid"], None
+        elif kind == "totp":
+            domains, title, username = [], item["title"], item.get("account")
+        else:
+            domains, title, username = [], item["title"], None
+        summary = {"itemId": item["itemId"], "type": kind, "title": title, "domains": domains,
+                   "hasCode": bool(item.get("totp")) or kind == "totp", "modifiedAt": item["modifiedAt"]}
+        if username:
+            summary["username"] = username
+        return summary
+
+    def audit(self):
+        logins = [item for item in self.items.values() if item["type"] == "login"]
+        by_password = {}
+        for item in logins:
+            by_password.setdefault(item["password"], []).append(item["itemId"])
+        reused = [ids for ids in by_password.values() if len(ids) > 1]
+        weak = [item["itemId"] for item in logins if len(item["password"]) < 12]
+        return {"reusedCount": sum(len(ids) for ids in reused), "weakCount": len(weak),
+                "reused": reused, "weak": weak}
+
+    def answer(self, asked, body):
+        body = body if isinstance(body, dict) else {}
+        if asked == "keychainStatus":
+            return self.status(), self.state
+        if self.state == "locked":
+            return self.refused("locked")
+        if asked == "keychainVerify":
+            if self.spec.get("throttle_after") is not None and self.wrong >= self.spec["throttle_after"]:
+                return self.refused("throttled", retryAfter=30)
+            if body.get("password") != self.spec.get("password"):
+                self.wrong += 1
+                return self.refused("wrongPassword")
+            self.wrong = 0
+            self.verified = True
+            return "keychainVerified", "verified"
+        if asked in self.VERIFIED and not self.verified:
+            return self.refused("verificationRequired")
+        if asked == "keychainCreate":
+            if self.vault is True:
+                return self.refused("vaultExists")
+            self.state = "creating"
+            return {"keychainRecoveryKey": {"recoveryKey": self.spec["recovery_key"]}}, "recoveryKey"
+        if asked == "keychainConfirmRecoveryKey":
+            if self.state != "creating":
+                return self.refused("invalidRequest")
+            if self.key_text(body.get("recoveryKey")) != self.key_text(self.spec["recovery_key"]):
+                return self.refused("recoveryKeyMismatch")
+            self.state, self.vault = "member", True
+            return self.status(), "member"
+        if asked == "keychainJoin":
+            if body.get("method") == "recoveryKey":
+                if self.key_text(body.get("recoveryKey")) != self.key_text(self.spec["recovery_key"]):
+                    return self.refused("recoveryKeyMismatch")
+                self.state = "member"
+                return self.status(), "member"
+            self.state = "joining"
+            return {"keychainEnrollment": {"enrollmentId": "played-join", "status": "waiting"}}, "waiting"
+        if self.state != "member":
+            return self.refused("notMember")
+        if asked == "keychainList":
+            return {"keychainItems": [self.summary(item) for item in self.items.values()]}, "items"
+        if asked == "keychainReveal":
+            item = self.items.get(body.get("itemId"))
+            return ({"keychainItem": item}, "item") if item else self.refused("notFound")
+        if asked == "keychainCode":
+            code = self.spec.get("codes", {}).get(body.get("itemId"))
+            return ({"keychainCode": code}, "code") if code else self.refused("notFound")
+        if asked == "keychainGenerate":
+            if not self.generated:
+                return self.refused("failed")
+            password = self.generated.pop(0)
+            self.generated.append(password)
+            return {"generatedPassword": password}, "generated"
+        if asked == "keychainPut":
+            item = dict(body.get("item") or {})
+            item_id = item.pop("itemId", None)
+            now = "2026-11-08T12:00:00.000Z"
+            if item_id is None:
+                self.made += 1
+                item_id, created = f"played-item-{self.made}", now
+            elif item_id in self.items:
+                created = self.items[item_id]["createdAt"]
+            else:
+                return self.refused("notFound")
+            self.items[item_id] = dict(item, itemId=item_id, createdAt=created, modifiedAt=now)
+            return {"keychainSaved": {"itemId": item_id}}, "saved"
+        if asked == "keychainDelete":
+            if self.items.pop(body.get("itemId"), None) is None:
+                return self.refused("notFound")
+            return "keychainDeleted", "deleted"
+        if asked == "keychainAudit":
+            return {"keychainAudit": self.audit()}, "audit"
+        if asked == "keychainMembers":
+            return {"keychainMembers": self.members}, "members"
+        if asked == "keychainEnrollments":
+            return {"keychainEnrollments": self.enrollments}, "enrollments"
+        if asked == "keychainApprove":
+            enrollment = next((e for e in self.enrollments if e["enrollmentId"] == body.get("enrollmentId")), None)
+            if enrollment is None:
+                return self.refused("notFound")
+            if not body.get("confirm"):
+                enrollment["status"] = "code"
+                return {"keychainEnrollment": enrollment}, "code"
+            if not self.verified:
+                return self.refused("verificationRequired")
+            self.enrollments.remove(enrollment)
+            self.members.append({"memberId": f"played-member-{len(self.members) + 1}",
+                                 "name": enrollment.get("name", "Device"),
+                                 "platform": enrollment.get("platform", ""), "self": False, "orphaned": False})
+            return "keychainApproved", "approved"
+        if asked == "keychainDeny":
+            before = len(self.enrollments)
+            self.enrollments = [e for e in self.enrollments if e["enrollmentId"] != body.get("enrollmentId")]
+            return ("keychainDenied", "denied") if len(self.enrollments) < before else self.refused("notFound")
+        if asked == "keychainRemoveMember":
+            member = next((m for m in self.members if m["memberId"] == body.get("memberId")), None)
+            if member is None or member["self"]:
+                return self.refused("invalidRequest")
+            self.members.remove(member)
+            return "keychainMemberRemoved", "removed"
+        return self.refused("invalidRequest")
+
+
 def serve_account_session(path, spec, log):
     """The accounts' service's session socket (docs/adr/0020-oxy-account-login.mdx, decision 6:
     SOCK_SEQPACKET, one JSON message a packet) as applications ask it. The service knows a peer by
@@ -1334,6 +1564,84 @@ def serve_account_session(path, spec, log):
     # changes them; the secrets are the run's own and never logged.
     local_sign_in = dict({"pin": "none", "password": True}, **spec.get("local", {}))
     pins_set = [spec.get("local_pin")]
+    keychain = PlayedKeychain(spec["keychain"]) if isinstance(spec.get("keychain"), dict) else None
+    # Saving (ADR 0050, decision 5): the compositor's confirmations connection, the requests it
+    # was asked and not yet answered (id -> [event, decision]), and what was saved.
+    confirmer = {"connection": None, "next": 0}
+    deciding = {}
+    ACCOUNT["saved"] = []
+
+    def is_compositor(connection):
+        pid, _, _ = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                                struct.calcsize("3i")))
+        try:
+            return os.path.basename(os.readlink(f"/proc/{pid}/exe")) == "oxyos-offscreen"
+        except OSError:
+            return False
+
+    def confirm_saves(connection):
+        # The development compositor stands for the session's registrar: it takes the save
+        # confirmations, and answers each.
+        with lock:
+            if confirmer["connection"] is not None:
+                connection.send(json.dumps({"refused": {"reason": "tooMany"}}).encode())
+                return
+            confirmer["connection"] = connection
+            connection.send(json.dumps("confirmingSaves").encode())
+        record("session", "confirmSaves", "confirmingSaves")
+        try:
+            while True:
+                try:
+                    packet = connection.recv(16384)
+                except OSError:
+                    return
+                if not packet:
+                    return
+                message = json.loads(packet)
+                decision = message.get("saveDecision") if isinstance(message, dict) else None
+                if isinstance(decision, dict) and decision.get("id") in deciding:
+                    deciding[decision["id"]][1] = bool(decision.get("save"))
+                    deciding[decision["id"]][0].set()
+        finally:
+            with lock:
+                confirmer["connection"] = None
+            for waiting in list(deciding.values()):
+                waiting[0].set()
+
+    def save_password(application, asked):
+        username, domain = asked.get("username"), asked.get("domain")
+        if not isinstance(username, str) or not username or not isinstance(asked.get("password"), str) \
+                or not asked["password"]:
+            return {"refused": {"reason": "invalidRequest"}}
+        # `account.keychain`: its state, or the played keychain whose state it is.
+        keychain = spec.get("keychain", "member")
+        if isinstance(keychain, dict):
+            keychain = keychain.get("state", "member")
+        if keychain == "locked":
+            return {"refused": {"reason": "locked"}}
+        if keychain == "off":
+            return {"refused": {"reason": "notMember"}}
+        with lock:
+            connection = confirmer["connection"]
+            if connection is None:
+                return {"refused": {"reason": "unavailable"}}
+            confirmer["next"] += 1
+            id = str(confirmer["next"])
+            waiting = deciding[id] = [threading.Event(), False]
+            ask = {"id": id, "desktopEntryId": application, "username": username}
+            if domain:
+                ask["domain"] = domain
+            connection.send(json.dumps({"confirmSave": ask}).encode())
+        answered = waiting[0].wait(spec.get("save_wait", 120))
+        deciding.pop(id, None)
+        if not answered:
+            with lock:
+                if confirmer["connection"] is not None:
+                    confirmer["connection"].send(json.dumps({"saveWithdrawn": {"id": id}}).encode())
+        if not waiting[1]:
+            return {"notSaved": {}}
+        ACCOUNT["saved"].append({"application": application, "username": username, "domain": domain})
+        return {"saved": {}}
 
     def record(application, asked, answered):
         with lock, open(log, "a") as out:
@@ -1411,6 +1719,11 @@ def serve_account_session(path, spec, log):
                     next(iter(message)) if isinstance(message, dict) and len(message) == 1 else "invalid")
                 if asked == "token":
                     asked = f"token {message['token'].get('reason')}"
+                # Known by its program, not its environment: the development compositor carries
+                # the application's OXYOS_APP_ID, which its child inherits.
+                if message == {"confirmSaves": {}} and is_compositor(connection):
+                    confirm_saves(connection)
+                    return
                 if application is None:
                     record(None, asked, "refused")
                     connection.send(json.dumps({"refused": {"reason": "notPermitted"}}).encode())
@@ -1423,6 +1736,10 @@ def serve_account_session(path, spec, log):
                         if message == "subscribe":
                             subscribers.append(connection)
                 elif asked.startswith("token "):
+                    # A mint over a slow network (`account.token_delay_ms`): this connection waits,
+                    # each other is answered on its own thread meanwhile.
+                    time.sleep(spec.get("token_delay_ms", 0) / 1000)
+                    snapshot = ACCOUNT["snapshot"]
                     if snapshot["status"] == "signed_in" and snapshot["online"] and not spec.get("refuse_tokens"):
                         token = {"accessToken": played_token(application, message["token"]["reason"]),
                                  "expiresAt": "2026-11-06T12:05:00.000Z"}
@@ -1493,6 +1810,19 @@ def serve_account_session(path, spec, log):
                         answer = {"localSignIn": dict(local_sign_in)}
                     record(application, asked, next(iter(answer)) if "localSignIn" in answer
                            else answer["refused"]["reason"])
+                    connection.send(json.dumps(answer).encode())
+                elif keychain is not None and asked.startswith("keychain") and application == "so.oxy.settings":
+                    # Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, step 2's
+                    # Settings messages), played: `account.keychain`.
+                    with lock:
+                        answer, said = keychain.answer(asked, message[asked] if isinstance(message, dict) else None)
+                    record(application, asked, said)
+                    connection.send(json.dumps(answer).encode())
+                elif asked == "savePassword" and isinstance(message["savePassword"], dict):
+                    # The password is never logged nor kept.
+                    answer = save_password(application, message["savePassword"])
+                    told = next(iter(answer)) if "refused" not in answer else answer["refused"]["reason"]
+                    record(application, asked, told)
                     connection.send(json.dumps(answer).encode())
                 elif message == {"remove": {}} and application == "so.oxy.settings":
                     record(application, asked, "removed")
@@ -2452,6 +2782,25 @@ def latest_frames(report, until, closed_before):
         if line["kind"] == "frame" and line["t"] <= until:
             frames[line["surface"]] = line
     return {s: f for s, f in frames.items() if s not in closed_before}
+
+
+def content_shown_ms(report, texts):
+    """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
+    "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
+    reads them (in each surface's latest frame, a closed popup's left out); None when they never
+    all were, or the host reported no start."""
+    main = next((line["t"] for line in report if line["kind"] == "stage" and line.get("name") == "main"), None)
+    if main is None:
+        return None
+    shown = {}
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True):
+            shown[line["surface"]] = line.get("texts", [])
+            if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
+                return round((line["t"] - main) / 1e6, 1)
+    return None
 
 
 def png_pixel_reader(path):
@@ -4474,6 +4823,17 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             held = json.loads(held) if isinstance(held, str) else held
             for problem in matches_within(expect["power"], held, "the power services'"):
                 fail(problem)
+    if "backup" in expect:
+        # What the development backup service holds once the step settled (ADR 0059): its
+        # destinations, their backups and failures, what runs, what is excluded and held.
+        held = result.get("backup")
+        if held is None:
+            fail("no backup service's state (the scenario needs `backup`)")
+        else:
+            held = json.loads(held) if isinstance(held, str) else held
+            # "{home}" the run's home: an item excluded from backups is a path of it.
+            for problem in matches_within(with_home(expect["backup"], preferences), held, "the backup service's"):
+                fail(problem)
     if "controls" in expect:
         # The played machine once the step settled (ADR 0025): what the session did to it, each
         # key given matching (levels within 1/65536 of all of it).
@@ -4673,6 +5033,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
         if differing:
             fail(f"AutoFill has {differing}, expected {wanted}")
+    if "passkeys" in expect:
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7): what
+        # the fixture accounts' service was answered so far, exactly, in order.
+        held, wanted = (result.get("passkeys") or {}).get("told"), expect["passkeys"]["told"]
+        if held != wanted:
+            fail(f"the passkeys' service was told {held}, expected {wanted}")
     if "input_sources" in expect:
         held, wanted = result.get("input_sources") or {}, expect["input_sources"]
         differing = {k: held.get(k) for k, v in wanted.items() if held.get(k) != v}
@@ -4694,6 +5060,18 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "latency_ms" in expect and result.get("latency_ms") is not None and not COLLECT:
         if result["latency_ms"] > expect["latency_ms"]:
             fail(f"latency {result['latency_ms']} ms over the {expect['latency_ms']} ms budget")
+    if "content_ms_max" in expect:
+        # Launch to content: a budget with nothing to wait for is no check.
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_ms_max needs the step's texts")
+        result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
+        if not COLLECT:
+            if shown_ms is None:
+                fail(f"launch to content: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_ms_max']} ms budget from the host's start)")
+            elif shown_ms > expect["content_ms_max"]:
+                fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
+                     f"start, over the {expect['content_ms_max']} ms budget")
     return end
 
 
@@ -5074,6 +5452,8 @@ def store_fixture(spec, out):
                 down = failing.get(url.path, 0) > 0
                 if down:
                     failing[url.path] -= 1
+            # An answer arriving late (`store.late_ms`), as over a slow network.
+            time.sleep(spec.get("late_ms", {}).get(url.path, 0) / 1000)
             if down:
                 return self.reply(503, {"message": "The store is down for the scenario"})
             if url.path in spec.get("images", {}):
@@ -5316,6 +5696,63 @@ def bluetooth_daemon(spec, out, offscreen):
     return address, stop
 
 
+def write_backup_files(spec, home):
+    """The backup scenario's `files` in the run's home, once it is made: random bytes (what
+    deduplication and compression cannot shrink), by path and size."""
+    for relative, size in spec.get("files", {}).items():
+        path = home / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(os.urandom(size))
+
+
+def played_backup_service(spec, out, offscreen, home):
+    """The development backup service (docs/adr/0059-backups.mdx) played by the development
+    compositor's own program (`--play-backup`, as `oxyos-backupd --development` runs it), a
+    process of its own on the run's folders: its state, its played disks (`disks`: each a folder
+    named by its file system's UUID, its `label` in `.oxyos-label`), restic's cache, backing up
+    the run's `home` (its `files`: `write_backup_files`). With `pace` (KiB/s) the service's
+    restic is Debian's with its own upload limit (`--limit-upload`), so a backup lasts long
+    enough to be seen running; the session's and every other program's PATH is the run's. restic must be installed (`apt install restic`). The
+    compositor's arguments and a function that stops it."""
+    restic = shutil.which("restic")
+    if restic is None:
+        raise SystemExit("the backup scenarios need restic (apt install restic): the development backup service runs it")
+    base = (out / "backup").resolve()
+    shutil.rmtree(base, ignore_errors=True)
+    volumes = base / "volumes"
+    volumes.mkdir(parents=True)
+    for disk in spec.get("disks", []):
+        (volumes / disk["uuid"]).mkdir()
+        if "label" in disk:
+            (volumes / disk["uuid"] / ".oxyos-label").write_text(disk["label"])
+    env = dict(os.environ)
+    if "pace" in spec:
+        programs = base / "bin"
+        programs.mkdir()
+        wrapper = programs / "restic"
+        wrapper.write_text(f"#!/bin/sh\nexec {restic} --limit-upload {int(spec['pace'])} \"$@\"\n")
+        wrapper.chmod(0o755)
+        env["PATH"] = f"{programs}:{env.get('PATH', '/usr/bin:/bin')}"
+    # A directory of its own under /tmp: a run's directory is too deep for a socket's path.
+    sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-backup-"))
+    socket = sockets / "socket"
+    log = open(base / "service.log", "w")
+    service = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
+                                str(volumes), str(socket), str(base / "cache"), str(home)],
+                               env=env, stdout=log, stderr=log)
+    wait_for(socket)
+
+    def stop():
+        service.terminate()
+        try:
+            service.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            service.kill()
+        log.close()
+        shutil.rmtree(sockets, ignore_errors=True)
+    return ["--backup", str(socket), str(volumes)], stop
+
+
 def power_services(spec, out, offscreen):
     """A bus of the run's own and UPower, power-profiles-daemon and logind played on it by the
     development compositor's own program (`--play-power`, docs/adr/0057-battery-and-energy.mdx),
@@ -5413,7 +5850,7 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
                         help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
@@ -5490,6 +5927,10 @@ def main():
         # follows the user's (ADR 0034); never the developer's.
         if "home" in scenario:
             command += ["--trash"]
+    # Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): the session started in it, as
+    # oxyos-session reads oxyos.safe-mode=1 on the kernel's command line.
+    if scenario.get("safe_mode"):
+        command += ["--safe-mode"]
     if scenario.get("companion"):
         # A second application started once the first's window is shown (ADR 0035): the other side
         # of a drag between applications, its report the application's with ".companion".
@@ -5565,12 +6006,21 @@ def main():
         bluetooth_address, stop_bluetooth = bluetooth_daemon(scenario["bluetooth"], out, options.offscreen)
         command += ["--bluetooth-bus", bluetooth_address]
     stop_power = None
+    stop_backup = None
     if "power" in scenario:
         # The machine's power services, played on a bus of the run's own (ADR 0057): the
         # session's battery, Low Power Mode, charge limit and sleep are theirs, never the
         # developer's machine's.
         power_arguments, stop_power = power_services(scenario["power"], out, options.offscreen)
         command += power_arguments
+    if "backup" in scenario:
+        # The development backup service on the run's own folders (ADR 0059), backing up the
+        # run's home: the session's backups are its, never the machine's.
+        if "home" not in scenario:
+            raise SystemExit(f"{options.scenario}: `backup` backs up the run's `home`, which it needs")
+        backup_arguments, stop_backup = played_backup_service(scenario["backup"], out, options.offscreen,
+                                                       (out / "home").resolve())
+        command += backup_arguments
     if "input_sources" in scenario:
         # The input sources the session tells (docs/adr/0041-input-methods.mdx, decision 6),
         # played with an engine that has the input methods named (none: none installed), from the
@@ -5602,6 +6052,15 @@ def main():
         # AutoFill (docs/adr/0050-keychain-autofill-and-passkeys.mdx) answered by the development
         # compositor's fixture keychain, its made-up items associated with the application named.
         command += ["--autofill-fixture", scenario["autofill"]["application"]]
+        if scenario["autofill"].get("saves"):
+            # Applications' requests to save a login (decision 5), told by the played accounts'
+            # service (`account`) and asked in the shell's sheet, as the session asks them.
+            command += ["--autofill-saves"]
+    if scenario.get("passkeys"):
+        # Passkeys' sheets (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7) asked by
+        # the development compositor's fixture accounts' service for the application named, its
+        # account password made up (oxyos-offscreen's passkeys.rs).
+        command += ["--passkey-fixture", scenario["passkeys"]["application"]]
     if scenario.get("input_methods"):
         # The session's input methods (ADR 0041): the real engine, fcitx5 and its engines, built
         # by tools/input-methods/build.sh, run as the session runs it.
@@ -5775,6 +6234,10 @@ def main():
         # The home's backups (docs/adr/0059-backups.mdx), the run's own service's.
         backups_socket, stop_backups = backup_service(scenario["backups"], home_root, out, options.offscreen)
         env["OXYOS_BACKUPD_SOCKET"] = str(backups_socket)
+    if "backup" in scenario:
+        # The files the backup scenario adds to the run's home (made above), which its service
+        # backs up.
+        write_backup_files(scenario["backup"], home_root)
     # Its data directory is under the run's XDG_DATA_HOME, its home's in a scenario with one.
     for app, files in scenario.get("app_data", {}).items():
         directory = pathlib.Path(env["XDG_DATA_HOME"]) / "oxyos" / "apps" / app
@@ -5817,6 +6280,8 @@ def main():
             stop_bluetooth()
         if stop_power is not None:
             stop_power()
+        if stop_backup is not None:
+            stop_backup()
         if stop_backups is not None:
             stop_backups()
     if recorder is not None:
@@ -5906,6 +6371,17 @@ def main():
             failures.append("the password is in the login program's record")
     if "installd_final" in scenario:
         check_installd(scenario["installd_final"], failures)
+    # What the played accounts' service saved once the person said yes (ADR 0050, decision 5),
+    # exactly, in order; never the password.
+    if "account_saved" in scenario and ACCOUNT.get("saved") != scenario["account_saved"]:
+        failures.append(f"the accounts' service saved {ACCOUNT.get('saved')}, expected exactly "
+                        f"{scenario['account_saved']}")
+    # Nothing the played service logged holds a secret.
+    if scenario.get("secrets") and ACCOUNT.get("log") and pathlib.Path(ACCOUNT["log"]).exists():
+        logged = pathlib.Path(ACCOUNT["log"]).read_bytes()
+        for secret in scenario["secrets"]:
+            if secret.encode() in logged:
+                failures.append("a secret is in the accounts' service's log")
     # Secrets typed in the scenario (a Wi-Fi password, ADR 0038) reach the daemon alone: never
     # the user's preferences or configuration, nor what the application was told or reported.
     if scenario.get("secrets"):
@@ -5959,6 +6435,9 @@ def main():
             "median": round(statistics.median(flips), 2) if flips else None,
             "max": round(max(flips), 2) if flips else None,
         },
+        # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
+        "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
+                       if "content_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }

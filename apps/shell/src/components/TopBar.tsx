@@ -30,12 +30,22 @@ import Svg, { Rect, Circle, Path } from "react-native-svg";
 import { Box } from "../primitives";
 import { WifiArcs } from "./WifiArcs";
 import { OxyLogo } from "./OxyLogo";
-import { batteryLabel, batteryMenuLines, significantApps, wifiLabel, wifiOn } from "../controls";
+import { batteryLabel, batteryMenuLines, significantApps, statusItemOrder, wifiLabel, wifiOn } from "../controls";
+import { backupAvailable, backupHandAngle, backupMenuLines, backupSaid, showsBackupItem } from "../backup";
 import { signalArcs } from "../network";
-import type { ShellBattery, ShellBatteryMenu, ShellEnergyApp, ShellMenu, ShellMenuItem, ShellNetwork } from "../model";
+import type {
+  ShellBackupMenu,
+  ShellBattery,
+  ShellBatteryMenu,
+  ShellEnergyApp,
+  ShellMenu,
+  ShellMenuItem,
+  ShellNetwork,
+} from "../model";
 import type { ShellKeyboard } from "../platform";
 import { barClock, clockSaid } from "../clock";
 import { useShellLocale, useShellMessages } from "../useShellMessages";
+import { SafeModeLabel } from "./SafeModeLabel";
 import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
@@ -152,6 +162,56 @@ function BatteryIcon({ power, lowPower = false }: { power: ShellBattery; lowPowe
     </Svg>
   );
 }
+
+/** The backup icon's geometry, in its 16-unit box: a clock face open on the left, its arrow
+    turning back (counter-clockwise) at the open end, as Time Machine's glyph. Angles are degrees
+    clockwise from twelve. */
+const BACKUP_CENTER = { x: 8.6, y: 8 };
+const BACKUP_RADIUS = 5.8;
+/** Where the arc ends in its arrowhead, and where it begins past the gap. */
+const BACKUP_ARROW_AT = 285;
+const BACKUP_ARC_FROM = 232;
+/** The hour hand stays at four o'clock; the minute hand is the one that moves. */
+const BACKUP_HOUR_AT = 120;
+const BACKUP_HOUR_LENGTH = 2.5;
+const BACKUP_MINUTE_LENGTH = 3.9;
+function clockPoint(degrees: number, radius: number): [number, number] {
+  const radians = (degrees * Math.PI) / 180;
+  return [BACKUP_CENTER.x + radius * Math.sin(radians), BACKUP_CENTER.y - radius * Math.cos(radians)];
+}
+const svgPoint = ([x, y]: [number, number]) => `${x.toFixed(2)} ${y.toFixed(2)}`;
+function handPath(degrees: number, length: number): string {
+  return `M${svgPoint([BACKUP_CENTER.x, BACKUP_CENTER.y])}L${svgPoint(clockPoint(degrees, length))}`;
+}
+/** The face: from the arrowhead clockwise round to the gap's far side. */
+const BACKUP_ARC = `M${svgPoint(clockPoint(BACKUP_ARROW_AT, BACKUP_RADIUS))}A${BACKUP_RADIUS} ${BACKUP_RADIUS} 0 1 1 ${svgPoint(
+  clockPoint(BACKUP_ARC_FROM, BACKUP_RADIUS),
+)}`;
+/** The arrowhead, pointing the way the arc turns back (counter-clockwise, its tangent there). */
+const BACKUP_ARROW = (() => {
+  const radians = (BACKUP_ARROW_AT * Math.PI) / 180;
+  const [x, y] = clockPoint(BACKUP_ARROW_AT, BACKUP_RADIUS);
+  const back = [-Math.cos(radians), -Math.sin(radians)];
+  const out = [Math.sin(radians), -Math.cos(radians)];
+  const tip: [number, number] = [x + back[0] * 2.5, y + back[1] * 2.5];
+  const outer: [number, number] = [x + out[0] * 1.9 - back[0] * 0.2, y + out[1] * 1.9 - back[1] * 0.2];
+  const inner: [number, number] = [x - out[0] * 1.9 - back[0] * 0.2, y - out[1] * 1.9 - back[1] * 0.2];
+  return `M${svgPoint(tip)}L${svgPoint(outer)}L${svgPoint(inner)}Z`;
+})();
+const BACKUP_HOUR_HAND = handPath(BACKUP_HOUR_AT, BACKUP_HOUR_LENGTH);
+
+/** The backup item's icon: still while idle; while a backup runs, its minute hand at the backup's
+    progress (`backupHandAngle`), so it moves only as the session tells progress. */
+const BackupIcon = memo(function BackupIcon({ angle }: { angle: number }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 16 16">
+      <Path d={BACKUP_ARC} stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+      <Path d={BACKUP_ARROW} fill="#fff" />
+      <Path d={BACKUP_HOUR_HAND} stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+      <Path d={handPath(angle, BACKUP_MINUTE_LENGTH)} stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+    </Svg>
+  );
+});
 
 /** Wi-Fi as the session says it is: its signal in arcs; off or not connected, faint. */
 function WifiIcon({ network }: { network: ShellNetwork }) {
@@ -311,6 +371,85 @@ const BatteryMenuItem = memo(function BatteryMenuItem({
   );
 });
 
+const BACKUP_ITEM = "shell-backup";
+const BACKUP_MENU_WIDTH = 280;
+
+/**
+ * The backup item (docs/adr/0059-backups.mdx, decision 10), as a Mac's Time Machine extra: the
+ * clock with its arrow turning back, opening what the backups are doing (Backing Up… and how far,
+ * or the latest backup and when, or why it failed), Back Up Now or Skip This Backup, Browse
+ * Backups and Open Backups Settings…. Named "Backups", what they are doing its value. `today` is
+ * the local day's start, so the item renders again only when the state or the day changes.
+ */
+const BackupMenuItem = memo(function BackupMenuItem({
+  menu,
+  today,
+  onItemFocus,
+  onOpenChange,
+  restoreFocus,
+}: {
+  menu: ShellBackupMenu;
+  today: number;
+  onItemFocus?: (testID: string) => void;
+  onOpenChange?: (open: boolean) => void;
+  restoreFocus: boolean;
+}) {
+  const messages = useShellMessages();
+  const [open, setOpenState] = useState(false);
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+  const { state } = menu;
+  const day = new Date(today);
+  const lines = backupMenuLines(state, day, messages);
+  const words = messages.backup;
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild restoreFocus={restoreFocus}>
+        <Button
+          appearance="plain"
+          testID={BACKUP_ITEM}
+          accessibilityLabel={words.title}
+          accessibilityValue={{ text: backupSaid(state, day, messages) }}
+          aria-expanded={open}
+          style={{ ...menuStyle, paddingLeft: 2, paddingRight: 2 }}
+          colors={TRANSPARENT_WHITE}
+          hitSlop={STATUS_SLOP}
+          onFocus={() => onItemFocus?.(BACKUP_ITEM)}
+        >
+          <BackupIcon angle={backupHandAngle(state.running)} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent label={words.title} sideOffset={MENU_SIDE_OFFSET} minWidth={BACKUP_MENU_WIDTH}>
+        {lines.map((line, index) => (
+          <DropdownMenuLabel key={index}>{line}</DropdownMenuLabel>
+        ))}
+        <DropdownMenuSeparator />
+        {state.running ? (
+          <DropdownMenuItem testID="shell-backup-skip" onPress={menu.skip}>
+            {words.skip}
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem testID="shell-backup-now" disabled={!backupAvailable(state)} onPress={menu.backUpNow}>
+            {words.backUpNow}
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem testID="shell-backup-browse" onPress={menu.browse}>
+          {words.browse}
+        </DropdownMenuItem>
+        <DropdownMenuItem testID="shell-backup-settings" onPress={menu.openSettings}>
+          {words.settings}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+});
+
 /** The Ethernet icon, as Bloom's icons are drawn (a Button's `icon`). */
 function EthernetIcon({ width = 15, height = 15, fill = "#fff" }: { width?: number; height?: number; fill?: string }) {
   return <RiArrowLeftRightLine width={width} height={height} fill={fill} />;
@@ -357,22 +496,21 @@ export interface StatusPanels {
 }
 const NOTHING_OPEN: StatusPanels = { network: false, controlCenter: false, notifications: false };
 
-/** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx): the
-    battery's first where it is a menu. */
+/** The status items, as the keyboard goes along them (← →, docs/adr/0039-keyboard-access.mdx), in
+    the bar's order: the backup item's first where it is shown, then the battery's where it is a
+    menu (`statusItemOrder`). */
 function statusItems(
   network: ShellNetwork | undefined,
   inputSources?: InputSourcesState | null,
   battery = false,
+  backup = false,
 ): string[] {
-  const first = networkItem(network);
-  return [
-    ...(battery ? [BATTERY_ITEM] : []),
-    ...(first ? [first] : []),
-    ...(showsInputSources(inputSources) ? [INPUT_SOURCE_ITEM] : []),
-    "shell-search",
-    "shell-control-center",
-    "shell-clock",
-  ];
+  return statusItemOrder({
+    backup,
+    battery,
+    network: networkItem(network),
+    inputSource: showsInputSources(inputSources),
+  });
 }
 
 /** The status item Super+F8 puts the keyboard on, as a Mac's Control-F8 its first status menu. */
@@ -380,8 +518,9 @@ export function firstStatusItem(
   network: ShellNetwork | undefined,
   inputSources?: InputSourcesState | null,
   battery = false,
+  backup = false,
 ): string {
-  return statusItems(network, inputSources, battery)[0];
+  return statusItems(network, inputSources, battery, backup)[0];
 }
 
 const INPUT_SOURCE_ITEM = "shell-input-source";
@@ -750,6 +889,7 @@ const BarMenus = memo(function BarMenus({
  * battery when the session says it changed, the menus when the active window's do.
  */
 export const TopBar = memo(function TopBar({
+  safeMode = false,
   menus,
   now,
   overview,
@@ -775,7 +915,11 @@ export const TopBar = memo(function TopBar({
   openKeyboardSettings,
   onInputMenuChange,
   batteryMenu,
+  backupMenu,
 }: {
+  /** The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): said
+      in red before the status items for the whole session, as a Mac's menu bar says "Safe Boot". */
+  safeMode?: boolean;
   menus: readonly ShellMenu[];
   now: Date;
   overview: () => void;
@@ -816,12 +960,16 @@ export const TopBar = memo(function TopBar({
   selectInputSource?: (id: string) => void;
   showEmoji?: () => void;
   openKeyboardSettings?: () => void;
-  /** The input source's or the battery's menu opened or closed: while open, its keys (Escape
-      among them) are its own. */
+  /** The input source's, the battery's or the backup item's menu opened or closed: while open,
+      its keys (Escape among them) are its own. */
   onInputMenuChange?: (open: boolean) => void;
   /** The battery's menu, once the session told what it needs (docs/adr/0057-battery-and-
       energy.mdx); without it the battery is a level indicator alone. */
   batteryMenu?: ShellBatteryMenu;
+  /** The backup item's state and menu, where the session has the backup service
+      (docs/adr/0059-backups.mdx): shown once a destination exists, while the person keeps it in
+      the menu bar. */
+  backupMenu?: ShellBackupMenu;
 }) {
   // The status item the keyboard is on, as the platform focuses it.
   const focusedItem = useRef<string | null>(null);
@@ -829,7 +977,10 @@ export const TopBar = memo(function TopBar({
   // status items'.
   const inputMenuOpen = useRef(false);
   const batteryButton = !!(power && batteryMenu && power.battery !== "absent");
-  const items = statusItems(network, inputSources, batteryButton);
+  const backupShown = showsBackupItem(backupMenu?.state);
+  const items = statusItems(network, inputSources, batteryButton, backupShown);
+  // The day the backup item says "today" of: its start, which changes once a day, not each minute.
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const latestItems = useRef(items);
   latestItems.current = items;
   useEffect(() => {
@@ -887,7 +1038,17 @@ export const TopBar = memo(function TopBar({
         returnKeyboard={returnKeyboard}
       />
       <Box className="flex-row items-center gap-2.5">
+        {safeMode ? <SafeModeLabel /> : null}
         <Box className="flex-row items-center gap-4">
+          {backupMenu && backupShown && (
+            <BackupMenuItem
+              menu={backupMenu}
+              today={today}
+              onItemFocus={onItemFocus}
+              onOpenChange={inputMenuChanged}
+              restoreFocus={!!statusKeys}
+            />
+          )}
           {power &&
             (batteryMenu ? (
               <BatteryMenuItem

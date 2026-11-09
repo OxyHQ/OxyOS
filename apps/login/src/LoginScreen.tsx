@@ -14,7 +14,7 @@ import { SetupAssistant, type SetupActions } from "./SetupAssistant";
 import { useLoginMessages } from "./useLoginMessages";
 
 export type { LoginAccount, Accounts } from "./model";
-export type { SetupActions, SetupAssistantFrameProps, AssistantPage, EnrollRequest } from "./SetupAssistant";
+export type { SetupActions, SetupAssistantFrameProps, AssistantPage, EnrollRequest, SetupProgress } from "./SetupAssistant";
 
 /** What the login screen asks of its platform. It holds no authority over who signs in. */
 export type LoginActions = {
@@ -121,12 +121,16 @@ export function LoginScreen({
   wallpaper,
   now,
   Masked,
+  safeMode = false,
 }: {
   accounts: Accounts;
   actions: LoginActions;
   wallpaper: ShellWallpaper;
   now: Date;
   Masked?: ComponentType<MaskedProps>;
+  /** The machine started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10): said
+      at the top right, in red, as a Mac's login window says "Safe Boot". */
+  safeMode?: boolean;
 }) {
   const words = useLoginMessages();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -244,7 +248,14 @@ export function LoginScreen({
     );
   }
   return (
-    <LockBackdrop testID="login" wallpaper={wallpaper} now={now} Masked={Masked} clock={!shown}>
+    <LockBackdrop
+      testID="login"
+      wallpaper={wallpaper}
+      now={now}
+      Masked={Masked}
+      clock={!shown}
+      safeMode={safeMode}
+    >
       {content}
     </LockBackdrop>
   );

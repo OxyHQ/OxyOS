@@ -786,6 +786,10 @@ messages! {
         // is told unasked when the person changed it (removed it from Open at Login, turned its
         // background activity off or on).
         165 => BackgroundItemState { serial: u32, kind: BackgroundItemKind, status: BackgroundStatus },
+        // To the shell and the login screen (version 36, docs/adr/0054-recovery-and-erasing.mdx,
+        // decision 10): the session started in Safe Mode, told as they connect and only then. They
+        // show it until the session ends.
+        166 => SafeMode {},
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.

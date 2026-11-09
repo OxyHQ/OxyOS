@@ -2722,6 +2722,7 @@ dependencies = [
 name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "oxyos-account",
  "oxyos-app-storage",
  "oxyos-apps",
@@ -2759,6 +2760,7 @@ dependencies = [
  "oxyos-apps",
  "oxyos-audio",
  "oxyos-auth",
+ "oxyos-backup",
  "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor-core",
@@ -3069,9 +3071,11 @@ dependencies = [
  "async-channel",
  "async-io",
  "evdev",
+ "oxyos-account",
  "oxyos-apps",
  "oxyos-audio",
  "oxyos-auth",
+ "oxyos-backupd",
  "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor",
@@ -3081,6 +3085,7 @@ dependencies = [
  "oxyos-gpu",
  "oxyos-input",
  "oxyos-input-methods",
+ "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
  "oxyos-networks",
@@ -3227,6 +3232,7 @@ dependencies = [
  "oxyos-account",
  "oxyos-apps",
  "oxyos-auth",
+ "oxyos-backup",
  "oxyos-compositor",
  "oxyos-compositor-core",
  "oxyos-controls",

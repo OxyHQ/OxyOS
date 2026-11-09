@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <fcntl.h>
 #include <memory>
 #include <iostream>
 #include <poll.h>
@@ -39,7 +40,14 @@ AccountSession::Answer answered(int64_t length, std::string& buffer) {
 
 }  // namespace
 
-AccountSession::AccountSession() : wake_(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)) {
+AccountSession::PasskeyOutbox::~PasskeyOutbox() {
+  if (wake >= 0) close(wake);
+}
+
+AccountSession::AccountSession()
+    : wake_(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK)), passkeys_(std::make_shared<PasskeyOutbox>()) {
+  // The passkeys' threads wake the host through the same eventfd, held open by their outbox.
+  if (wake_ >= 0) passkeys_->wake = fcntl(wake_, F_DUPFD_CLOEXEC, 0);
   worker_ = std::thread([this] { work(); });
 }
 
@@ -170,6 +178,53 @@ void AccountSession::eraseAll(std::string password, Done done) {
       std::move(done));
 }
 
+void AccountSession::keychain(std::string request, Done done) {
+  auto secret = std::make_shared<std::string>(std::move(request));
+  run(
+      [secret] {
+        std::string buffer(kMessage, '\0');
+        auto answer = answered(oxyos_account_session_keychain(secret->c_str(), buffer.data(), buffer.size()), buffer);
+        forget(*secret);
+        return answer;
+      },
+      std::move(done));
+}
+
+void AccountSession::savePassword(std::string username, std::string password, std::string domain, Done done) {
+  auto secret = std::make_shared<std::array<std::string, 3>>(
+      std::array<std::string, 3>{std::move(username), std::move(password), std::move(domain)});
+  run(
+      [secret] {
+        std::string buffer(kMessage, '\0');
+        auto& [username, password, domain] = *secret;
+        auto answer = answered(oxyos_account_session_save_password(username.c_str(), password.c_str(),
+                                                                    domain.empty() ? nullptr : domain.c_str(),
+                                                                    buffer.data(), buffer.size()),
+                               buffer);
+        for (auto& text : *secret) forget(text);
+        return answer;
+      },
+      std::move(done));
+}
+
+void AccountSession::passkey(std::string ceremony, std::string options, Done done) {
+  uint64_t ticket = ++passkeyTickets_;
+  passkeyDone_.emplace(ticket, std::move(done));
+  std::thread([outbox = passkeys_, ticket, ceremony = std::move(ceremony), options = std::move(options)] {
+    std::string buffer(kMessage, '\0');
+    Answer answer = answered(
+        oxyos_account_session_passkey(ceremony.c_str(), options.c_str(), buffer.data(), buffer.size()), buffer);
+    {
+      std::lock_guard lock(outbox->mutex);
+      outbox->answers.emplace_back(ticket, std::move(answer));
+    }
+    uint64_t one = 1;
+    if (outbox->wake >= 0 && write(outbox->wake, &one, sizeof one) < 0) {
+      std::cerr << "[host] a passkey's answer could not wake the host\n";
+    }
+  }).detach();
+}
+
 void AccountSession::holdCredential(std::string deviceId, std::string deviceSecret, std::string accountId) {
   if (held_) {
     for (auto& secret : *held_) forget(secret);
@@ -288,6 +343,16 @@ void AccountSession::reportStages(Stage stage) {
   currentReport = stage ? std::make_unique<StageReport>(StageReport{this, std::move(stage)}) : nullptr;
   oxyos_account_enrollment_on_progress(enrollment_, currentReport ? &AccountSession::reported : nullptr,
                                        currentReport.get());
+  // A wait is told for every call that reports, by the session's own handler.
+  oxyos_account_enrollment_on_waiting(enrollment_, currentReport && waiting_ ? &AccountSession::waited : nullptr,
+                                      currentReport.get());
+}
+
+void AccountSession::waited(void* context, uint64_t seconds) {
+  auto* report = static_cast<StageReport*>(context);
+  if (!report || !report->session->waiting_) return;
+  auto told = report->session->waiting_;
+  report->session->post(Answer{}, [told, seconds](Answer&) { told(seconds); });
 }
 
 void AccountSession::reported(void* context, const char* stage) {
@@ -343,6 +408,18 @@ bool AccountSession::deliver() {
   {
     std::lock_guard lock(mutex_);
     answers.swap(answers_);
+  }
+  std::deque<std::pair<uint64_t, Answer>> passkeys;
+  {
+    std::lock_guard lock(passkeys_->mutex);
+    passkeys.swap(passkeys_->answers);
+  }
+  for (auto& [ticket, answer] : passkeys) {
+    auto found = passkeyDone_.find(ticket);
+    if (found == passkeyDone_.end()) continue;
+    Done done = std::move(found->second);
+    passkeyDone_.erase(found);
+    answers.emplace_back(std::move(answer), std::move(done));
   }
   if (!answers.empty()) {
     uint64_t count;

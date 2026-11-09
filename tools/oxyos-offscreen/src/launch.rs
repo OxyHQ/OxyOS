@@ -307,6 +307,10 @@ pub enum Step {
     /// The played power services change the machine (`--power-bus`, docs/adr/0057-battery-and-
     /// energy.mdx): unplugged, a lower charge, UPower's warning.
     Power(String),
+    /// The development backup service acts (`--backup`, docs/adr/0059-backups.mdx): a played disk
+    /// connected or taken away, a request of the person's, or a wait, the session served all
+    /// along, until its state holds what is given (`Session::backup_act`).
+    Backup(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -497,6 +501,7 @@ impl Step {
             Step::Sound(what) => format!("the sound: {what}"),
             Step::Bluetooth(what) => format!("BlueZ: {what}"),
             Step::Power(what) => format!("the power services: {what}"),
+            Step::Backup(what) => format!("the backup service: {what}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -711,6 +716,7 @@ impl Step {
             Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
             Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
             Step::Power(what) => format!("\"power\":{}", json_string(what)),
+            Step::Backup(what) => format!("\"backup\":{}", json_string(what)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -828,6 +834,14 @@ pub struct Launch {
     /// `--autofill-fixture ID`: AutoFill answered by the fixture keychain, its items associated
     /// with the application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
     pub autofill_fixture: Option<String>,
+    /// `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for the
+    /// application `ID` (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 7).
+    pub passkey_fixture: Option<String>,
+    /// `--autofill-saves`: with `--autofill-fixture`, applications' requests to save a login are
+    /// asked of the person as the session asks them: told by the accounts' service at
+    /// `OXYOS_ACCOUNTD_SESSION_SOCKET` (a run's played one), asked in the shell's sheet, answered
+    /// back (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 5).
+    pub autofill_saves: bool,
     /// `--shell PROGRAM,ARG...`: the session's shell, started before the application on a socket
     /// granting `shell`, run as `PROGRAM ARG... --shell OUTPUT` (docs/adr/0009-session-shell.mdx).
     pub shell: Option<Vec<std::ffi::OsString>>,
@@ -882,6 +896,10 @@ pub struct Launch {
     /// `--trash`: the user's Trashes followed for the dock as the session follows them
     /// (docs/adr/0034-the-dock.mdx); a scenario's own home's, never the developer's.
     pub trash: bool,
+    /// `--safe-mode`: the session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx,
+    /// decision 10), as `oxyos-session` reads it from the kernel's command line: nothing opened at
+    /// login, no background activity but the system's, the shell and the login screen told.
+    pub safe_mode: bool,
     /// `--storage FILE`: Settings › Storage as the session serves it (docs/adr/0062-storage.mdx),
     /// on the run's own home, the volume's figures and the system's a played disk's (FILE, JSON:
     /// `name`, `capacity`, `available`, `reserved`, `system`), never the developer's disk.
@@ -924,6 +942,11 @@ pub struct Launch {
     /// (docs/adr/0057-battery-and-energy.mdx) and the played machine's battery (`--controls`) are
     /// theirs, and each step's result says what they hold (`power`).
     pub power_bus: Option<String>,
+    /// `--backup SOCKET VOLUMES`: the session's backups (docs/adr/0059-backups.mdx) are the
+    /// development backup service's at SOCKET (`oxyos-offscreen --play-backup`), never the
+    /// system's; VOLUMES is its played disks, which a step connects and takes away
+    /// (`--backup-act`), and each step's result says what the service holds (`backup`).
+    pub backup: Option<(PathBuf, PathBuf)>,
     /// `--input-methods PREFIX`: the session's input methods (docs/adr/0041-input-methods.mdx),
     /// the engine built under PREFIX (`tools/input-methods/build.sh`) run as the session runs it,
     /// in a directory of the run's own with nothing learned before.
@@ -951,7 +974,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-named MS NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1047,6 +1070,8 @@ impl Launch {
         let (mut seat, mut input_method) = (false, false);
         let mut im_candidates = None;
         let mut autofill_fixture = None;
+        let mut passkey_fixture = None;
+        let mut autofill_saves = false;
         let mut shell = None;
         let mut file_chooser = None;
         let mut companion = None;
@@ -1060,10 +1085,12 @@ impl Launch {
         let mut sound = None;
         let mut bluetooth_bus = None;
         let mut power_bus = None;
+        let mut backup = None;
         let mut input_methods = None;
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
         let mut trash = false;
+        let mut safe_mode = false;
         let mut storage = None;
         let mut runtimes = None;
         let mut installed_fixture = None;
@@ -1167,9 +1194,21 @@ impl Launch {
                     );
                     continue;
                 }
+                // `--passkey-fixture ID`: passkeys' sheets asked by the fixture accounts' service for
+                // the application ID (passkeys.rs); documented here, the usage line left to the
+                // changes queued that rewrite it.
+                Some("--passkey-fixture") => {
+                    let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    passkey_fixture = Some(id.to_string());
+                    continue;
+                }
                 Some("--autofill-fixture") => {
                     let id = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     autofill_fixture = Some(id.to_string());
+                    continue;
+                }
+                Some("--autofill-saves") => {
+                    autofill_saves = true;
                     continue;
                 }
                 Some("--preferences") => {
@@ -1203,6 +1242,12 @@ impl Launch {
                     power_bus = Some(address.to_string());
                     continue;
                 }
+                Some("--backup") => {
+                    let socket = args.next().ok_or(USAGE)?;
+                    let volumes = args.next().ok_or(USAGE)?;
+                    backup = Some((PathBuf::from(socket), PathBuf::from(volumes)));
+                    continue;
+                }
                 Some("--input-sources-available") => {
                     let methods = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     input_sources_available = Some(methods.to_string());
@@ -1234,6 +1279,10 @@ impl Launch {
                 }
                 Some("--trash") => {
                     trash = true;
+                    continue;
+                }
+                Some("--safe-mode") => {
+                    safe_mode = true;
                     continue;
                 }
                 Some("--storage") => {
@@ -1662,6 +1711,10 @@ impl Launch {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Power(what.to_string())
                 }
+                Some("--backup-act") => {
+                    let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Backup(what.to_string())
+                }
                 Some("--clipboard") => {
                     let list = args.next().ok_or(USAGE)?;
                     let mut contents = Vec::new();
@@ -1821,6 +1874,8 @@ impl Launch {
                 input_method,
                 im_candidates,
                 autofill_fixture,
+                passkey_fixture,
+                autofill_saves,
                 shell,
                 file_chooser,
                 companion,
@@ -1836,6 +1891,7 @@ impl Launch {
                 grants,
                 installd,
                 trash,
+                safe_mode,
                 storage,
                 runtimes,
                 installed_fixture,
@@ -1845,6 +1901,7 @@ impl Launch {
                 sound,
                 bluetooth_bus,
                 power_bus,
+                backup,
                 input_methods,
                 input_sources_available,
                 outputs: screens,
@@ -2209,6 +2266,20 @@ fn shell_json(compositor: &Compositor) -> String {
         compositor.scene.is_locked(),
         compositor.signed_in
     )
+}
+
+/// Passkeys' sheets during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
+/// `--passkey-fixture`: what the fixture accounts' service was answered so far, in order (never a
+/// password); none without it.
+fn passkeys_json(session: &Session) -> Option<String> {
+    let service = session.passkey_service.as_ref()?;
+    let told: Vec<String> = service
+        .borrow()
+        .told
+        .iter()
+        .map(|told| json_string(told))
+        .collect();
+    Some(format!("{{\"told\":[{}]}}", told.join(",")))
 }
 
 /// AutoFill during a step (docs/adr/0050-keychain-autofill-and-passkeys.mdx), with
@@ -5003,6 +5074,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Sound(_)
         | Step::Bluetooth(_)
         | Step::Power(_)
+        | Step::Backup(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -5092,6 +5164,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.follow_displays(file)?;
     }
     session.grant_settings = launch.grant_settings.clone();
+    // Safe Mode, told to the shell and the login screen as they connect.
+    if launch.safe_mode {
+        session.compositor.scene.set_safe_mode();
+    }
     session.chooser_command = launch.file_chooser.clone();
     session.grants = launch.grants.clone();
     if let Some(socket) = &launch.installd {
@@ -5158,14 +5234,37 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             oxyos_compositor::screenshots::Language::of(&[session.settings.locale()]),
         )?);
     }
+    if let Some(application) = &launch.passkey_fixture {
+        // Passkeys' sheets as the session shows them, the accounts' service the fixture's.
+        let service = std::rc::Rc::new(std::cell::RefCell::new(
+            crate::passkeys::FixtureService::new(application.clone()),
+        ));
+        session.passkeys = Some(oxyos_compositor::passkeys::Passkeys::new(Box::new(
+            crate::passkeys::Shared(service.clone()),
+        )));
+        session.passkey_service = Some(service);
+    }
     if let Some(application) = &launch.autofill_fixture {
         // AutoFill as the session serves it, its keychain the fixture's.
         let keychain = std::rc::Rc::new(std::cell::RefCell::new(
             crate::autofill::FixtureKeychain::new(application.clone()),
         ));
-        session.autofill = Some(oxyos_compositor::autofill::Autofill::new(Box::new(
+        let mut autofill = oxyos_compositor::autofill::Autofill::new(Box::new(
             crate::autofill::Shared(keychain.clone()),
-        )));
+        ));
+        if launch.autofill_saves {
+            let socket = std::env::var_os("OXYOS_ACCOUNTD_SESSION_SOCKET")
+                .map(std::path::PathBuf::from)
+                .ok_or("--autofill-saves asks the service at OXYOS_ACCOUNTD_SESSION_SOCKET")?;
+            let saves = oxyos_account::keychain::SaveConfirmations::spawn(socket, |said| {
+                eprintln!("[offscreen] saving passwords: {said}")
+            })?;
+            let waker = saves.wake_fd()?;
+            session.autofill_saves_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+            session.compositor.wakers.push(waker);
+            autofill = autofill.with_saves(Box::new(crate::autofill::Saves(saves)));
+        }
+        session.autofill = Some(autofill);
         session.autofill_keychain = Some(keychain);
     }
     if let Some(methods) = &launch.input_sources_available {
@@ -5286,6 +5385,21 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.compositor.wakers.push(waker);
         session.power = Some(power);
     }
+    if let Some((socket, volumes)) = &launch.backup {
+        // The session's side of backups over the development service (ADR 0059): scheduled
+        // backups held while the played machine's Low Power Mode is on, as the session's are.
+        let low_power = session
+            .power
+            .as_ref()
+            .map(oxyos_compositor::power::Power::low_power)
+            .unwrap_or_default();
+        let backups = oxyos_compositor::backups::Backups::new(socket.clone(), low_power)?;
+        let waker = backups.wake_fd()?;
+        session.backups_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.backups = Some(backups);
+        session.backup_service = Some((socket.clone(), volumes.clone()));
+    }
     if launch.input_method {
         let mut ime = crate::ime::Ime::connect(&mut session.compositor)?;
         ime.candidates = launch.im_candidates;
@@ -5354,9 +5468,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }),
         ));
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
-        // starts them.
+        // starts them; none in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
         let open_at_login = session.settings.preferences().open_at_login.clone();
-        if let Some(launcher) = session.launcher.as_mut() {
+        if launch.safe_mode {
+            eprintln!("[launch] Safe Mode: nothing opened at login");
+            if let Some(background) = session.background.as_mut() {
+                background.set_safe_mode();
+            }
+        } else if let Some(launcher) = session.launcher.as_mut() {
             for id in &open_at_login {
                 if let Err(error) = launcher.launch(id) {
                     eprintln!("[launch] {id} not opened at login: {error}");
@@ -5833,6 +5952,35 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Backup(_)) => {
+                if let Step::Backup(what) = step {
+                    if let Some((until, ms)) = session.backup_act(what)? {
+                        // Real time, the session served all along, until the service holds it.
+                        let deadline = Instant::now() + Duration::from_millis(ms);
+                        loop {
+                            let state: serde_json::Value =
+                                serde_json::from_str(&session.backup_state())?;
+                            if crate::backup_holds(&until, &state) {
+                                break;
+                            }
+                            if Instant::now() >= deadline {
+                                return Err(format!(
+                                    "step {} ({}): the backup service did not hold {until} in {ms} ms: {state}",
+                                    index + 1,
+                                    step.describe()
+                                )
+                                .into());
+                            }
+                            session.compositor.serve(&session.listener)?;
+                            session.serve_launches();
+                            session.serve_installs();
+                            session.serve_preferences();
+                            session.reader.absorb(&mut session.compositor);
+                        }
+                    }
+                }
+                0
+            }
             _ if matches!(step, Step::Clipboard(_)) => {
                 if let (Step::Clipboard(contents), Some(pasteboard)) =
                     (step, session.pasteboard.as_mut())
@@ -6079,7 +6227,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"backup\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -6113,6 +6261,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .map_or("null".to_string(), |played| played.machine().to_string()),
             session.bluetooth_state(),
             session.power_state(),
+            session.backup_state(),
             session.compositor.displays_off(),
             preferences_file_json(launch.preferences.as_deref()),
             menus_json(
@@ -6135,6 +6284,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             session.compositor.gpu_frames(CLIENT).0,
             session.compositor.gpu_frames(CLIENT).1,
         ));
+        // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
+        // added to the step's result as one more field.
+        if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
+            if step.ends_with('}') {
+                step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
+            }
+        }
         snapshots.push(snapshot(
             &session.compositor,
             out,
