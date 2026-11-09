@@ -2712,8 +2712,7 @@ dependencies = [
 name = "oxyos-boot-logo"
 version = "0.1.0"
 dependencies = [
- "oxyos-compositor",
- "oxyos-protocol",
+ "oxyos-splash",
  "oxyos-vector",
  "png",
 ]
@@ -2793,6 +2792,7 @@ dependencies = [
  "oxyos-seat",
  "oxyos-solar",
  "oxyos-sound",
+ "oxyos-splash",
  "oxyos-vector",
  "oxyos-vt",
  "png",
@@ -3291,6 +3291,13 @@ version = "0.1.0"
 dependencies = [
  "oxyos-protocol",
  "rustix",
+]
+
+[[package]]
+name = "oxyos-splash"
+version = "0.1.0"
+dependencies = [
+ "oxyos-vector",
 ]
 
 [[package]]
