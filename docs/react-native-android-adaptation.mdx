@@ -118,13 +118,17 @@ What a person does with a mouse, a touchpad and a keyboard in an application's m
 
 ## What OxyOS does not provide
 
-**Absent:** the call throws, and the host logs `TurboModule unavailable`.
+**Absent:** the call throws, and the host says `TurboModule unavailable: NAME` in the session's log, once per runtime for each name (`turbo-module-cache.h`).
 - `ToastAndroid`, `Vibration`, `PermissionsAndroid`;
 - `ShareModule`, `ActionSheetManager`;
 - `DialogManagerAndroid`: `Alert.alert` and `Alert.prompt` throw. React Native's Android `Alert` returns silently without that module, with no dialog and no callback, so OxyOS overrides it (`sample/oxyos/Libraries/Alert/Alert.oxyos.js`). Bloom's own alert surfaces, with `Alert`'s signature, draw their dialogs in the application;
-- the Expo modules Bloom does not need. Of those an Expo Router application's runtime looks for: `ExpoSplashScreen` (OxyOS shows no splash screen: expo-router's calls to it do nothing, as on the web), `ExpoUpdates`, `EXDevLauncher` and `ExpoGo` (a release build without updates or a development client), `ExpoFontUtils`, `ExpoSystemUI` (the root view's colour and the system bars; Dropsea only configures it), `RNSModule` (react-native-screens' native screens: an application whose routes use a native stack is not supported yet; Dropsea's use Expo Router's `Slot` and Bloom's AppShell), `RNVectorIconsManager` (an icon font rendered to an image), `FileSystem` (expo-file-system, its own work) and the Oxy SDK's own `OxyBackgroundSession`. Their packages find them missing and take their own fallbacks; calling one that has none throws.
+- `ExpoSystemUI` (the root view's colour and the system bars: `expo-system-ui` requires it as it loads; Dropsea only configures it), `RNVectorIconsManager` (an icon font rendered to an image), `FileSystem` (expo-file-system, its own work) and the Oxy SDK's own `OxyBackgroundSession`.
 
-**Absent, and only React Native's own code calls them:** `SoundManager` (Pressability's touch sound) and `FrameRateLogger` (scroll performance logging). React Native skips them when they are missing; no API an application calls depends on them.
+**Absent, looked up as their packages load, each with a fallback of its own: not said.** These are `kProbedWithFallback` in `turbo-module-cache.h`, the same list; a lookup of any other missing name is said.
+- Expo's, which a release build of an Expo Router application looks up: `ExpoSplashScreen` (`requireOptionalNativeModule`; OxyOS shows no splash screen, so expo-router's calls to it do nothing, as on the web), `ExpoUpdates` (optional, in expo-constants and expo-asset), `EXDevLauncher` (`NativeModules.EXDevLauncher` tested, in expo-constants and expo's `Expo.fx`) and `ExpoGo` (`requireNativeModule` in a try: not Expo Go), `ExpoFontUtils`, `ExpoStatusBar` and `ExpoObserve` (expo-image's integration), each optional, `ExpoBlur` (looked up for its views' prototypes in a try; the views themselves are drawn), and `NativeUnimoduleProxy` (async-storage's optional chaining);
+- `RNSModule` (react-native-screens' `TurboModuleRegistry.get`): an application whose routes use a native stack is not supported yet; Dropsea's use Expo Router's `Slot` and Bloom's AppShell;
+- React Native's own: `SoundManager` (Pressability's touch sound) and `FrameRateLogger` (scroll performance logging), which it skips when they are missing; and `LinkingManager` and `AccessibilityManager`, the iOS names its `Linking` and `AccessibilityInfo` look up beside the Android ones the host serves (`IntentAndroid`, `AccessibilityInfo`);
+- `PlatformLocalStorage` and `RNC_AsyncSQLiteDBStorage`, the first two names async-storage 2.2 tries before `RNCAsyncStorage`, which the host serves.
 
 **Accepted with no effect, reported once:**
 - *There is nothing to apply on OxyOS:* status bar style, colour and visibility (there is no status bar); the default back-press handler; red-box messages.

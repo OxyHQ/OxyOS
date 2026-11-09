@@ -165,8 +165,9 @@ export type ShellLock = {
   /** Sends the password for the session to check; false if it could not be sent. */
   authenticate: (password: string) => boolean;
   /** The account's PIN for this computer (docs/adr/0020-oxy-account-login.mdx, decision 2):
-      `set`, or `locked` after too many wrong ones; none without one, or when it cannot be read. */
-  pin?: "set" | "locked";
+      `set`, or `locked` after too many wrong ones; none without one; `unknown` when the service
+      could not say and never said (the password's field first, the PIN's offered beside it). */
+  pin?: "set" | "locked" | "unknown";
   /** Whether the account's password signs in on this computer; false: the PIN is its one local
       credential. True when it cannot be read. */
   password?: boolean;
