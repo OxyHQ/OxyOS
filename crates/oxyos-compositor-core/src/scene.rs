@@ -2104,8 +2104,9 @@ impl Scene {
         if kind == ShellKind::Background {
             return ((output.x, output.y), Size::new(output.width, output.height));
         }
-        // A notification (a banner, ADR 0026) is at the output's top-right corner, its own size
-        // there, whatever its edge: it slides in from beside itself at the right edge (ADR 0011).
+        // A notification is at the output's top-right corner, its own size there, whatever its
+        // edge: at the right edge a banner (ADR 0026), which slides in from beside itself (ADR
+        // 0011); with none a hardware key's bezel over the whole output (ADR 0025), shown at once.
         if kind == ShellKind::Notification {
             let size = Size::new(size.width.min(output.width), size.height.min(output.height));
             let x = output.right() - i64::from(size.width);

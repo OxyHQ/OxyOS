@@ -246,6 +246,10 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
             },
         },
         (Kind::Notification, _) => Motion::faded(motion::NOTIFICATION_FADES_OUT),
+        // A hardware key's bezel shows where it is at once, a Mac's: never slid across the output.
+        // The shell fades it out itself; its surface going fades as a notification's does.
+        (Kind::Bezel, Change::Arrived) => Motion::AT_ONCE,
+        (Kind::Bezel, _) => Motion::faded(motion::NOTIFICATION_FADES_OUT),
         (Kind::Lock, _) => Motion::faded(motion::LOCK_FADES),
         // A drag that dropped nothing: its image slides back to its item's place, fading as it
         // arrives, a Mac's.
@@ -1992,6 +1996,28 @@ mod tests {
         let frame = t.going(start + Duration::from_millis(50)).next().unwrap().2;
         assert_eq!(frame.shift, Shift::None);
         assert_eq!(frame.place(rect), rect);
+    }
+
+    /// A hardware key's bezel is a whole-output notification with no edge: given a banner's slide
+    /// it crossed the whole output from beyond its right edge for 600 ms before it rested, of the
+    /// 1.5 s it shows.
+    #[test]
+    fn a_bezel_shows_where_it_is_at_once_and_fades_out() {
+        let mut t = Transitions::default();
+        let start = Duration::from_secs(1);
+        t.arrive(KEY, Kind::Bezel, start);
+        assert_eq!(t.arriving(KEY, start), Frame::WHOLE);
+        assert!(t.is_empty());
+        t.go(KEY, Kind::Bezel, start, Some(snapshot()));
+        let gone = t
+            .going(start + Duration::from_millis(100))
+            .next()
+            .unwrap()
+            .2;
+        let rect = Rect::new(0, 0, 1280, 720);
+        assert!(gone.opacity < 255 && gone.place(rect) == rect);
+        t.advance(start + lasts(Kind::Bezel, Change::Gone));
+        assert!(t.is_empty());
     }
 
     #[test]

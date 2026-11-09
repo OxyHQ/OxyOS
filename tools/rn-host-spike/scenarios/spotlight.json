@@ -370,12 +370,6 @@
     "in_shell": {
      "absent": [
       "Mejor resultado"
-     ],
-     "urls_opened": [
-      {
-       "url": "oxyos-settings://appearance",
-       "application": "so.oxy.settings"
-      }
      ]
     },
     "urls_opened": [
