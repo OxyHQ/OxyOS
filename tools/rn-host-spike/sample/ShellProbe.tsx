@@ -464,6 +464,16 @@ const NO_SHEETS: readonly { sheet: number; text: string }[] = [];
  * levels' (the controls'), so a volume set by the slider or a key renders the level's card alone,
  * never the shell around it.
  */
+/** The networks as the daemon tells them, the same state while what it says is the same: a scan
+    that found what was there renders nothing. */
+let networksShown: { said: string; state: unknown } | null = null;
+function sameNetworks(state: unknown): unknown {
+  const said = JSON.stringify(state ?? null);
+  if (networksShown && networksShown.said === said) return networksShown.state;
+  networksShown = { said, state };
+  return state;
+}
+
 let soundShown: { available?: unknown; outputs: string; state: unknown } | null = null;
 function soundForControlCenter(state: unknown): unknown {
   if (state === null || typeof state !== 'object') return state;
@@ -481,7 +491,7 @@ function SessionShell() {
   const { answerSheet: answer, answerPassword, answerCode } = platformShell;
   const { answerPasskey, resetApplication, choosePowerKey, setReopenWindows: reopenWindows } = platformShell;
   // The networks as the session tells them (ADR 0038): the Control Center's Wi-Fi view.
-  const networks = useFollowed(network.wifi);
+  const networks = useFollowed(network.wifi, sameNetworks);
   // The sound's outputs as the session tells them (ADR 0056): the Control Center's Sound view.
   const sound = useFollowed(audio.state, soundForControlCenter);
   // Bluetooth as the session tells it (ADR 0055): the Control Center's Bluetooth module and view.
