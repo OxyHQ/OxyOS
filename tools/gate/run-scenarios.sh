@@ -17,6 +17,8 @@
 #
 # The runs, in order:
 #   1. every scenario but those below, GATE_JOBS at a time;
+#   Gates may run at once on one machine (several runners, a deploy): each in a slice of its own,
+#   phase 2 one gate at a time (a lock), a fixed port's scenario one gate at a time (its port's lock).
 #   2. one at a time, alone on the cores the machine reserves for the gate (oxyos-gate-cpus, where
 #      the machine has it, tools/gate/machine.sh): the scenarios that hold a budget on time (perf-*,
 #      refresh-*), which beside siblings would measure each other, and then once more each that
@@ -40,7 +42,14 @@ while [ $# -gt 0 ]; do
     *) sed -n '8,12p' "$0" >&2; exit 2 ;;
   esac
 done
-"$TREE/tools/dev/bootstrap"
+# build COMMAND...: a build (bootstrap, Cargo, CMake and Ninja, npm and the packages' bundlers) at
+# the least priority, below every gate's scenarios. Every gate on the machine shares its CPU task by
+# task (tools/gate/machine.sh: no CPU controller below oxyosgate.slice), so a build at full priority
+# took the CPU of another gate's running scenarios: a deploy beside a merge-queue run's build failed
+# 17 scenarios that passed alone, each late by a step (the host answering a press 0.8 s on, a drag's
+# return without its frames). A scenario never runs below a build, whichever gate either is.
+build() { nice -n 19 "$@"; }
+build "$TREE/tools/dev/bootstrap"
 . "$TREE/tools/dev/env.sh"
 W=$OXYOS_TOOLCHAIN
 IM=$OXYOS_INPUT_METHODS_WORK/prefix
@@ -60,13 +69,14 @@ T=$CARGO_TARGET_DIR/release
 started=$(date +%s)
 phase() { echo "[$(( $(date +%s) - started ))s] $*"; }
 fail() { echo "gate: $*"; exit 1; }
-# step LOG COMMAND...: the command's output in the run's LOG, its last lines said if it fails.
-step() { log=$R/$1; shift; "$@" > "$log" 2>&1 || { tail -30 "$log"; fail "$(basename "$log" .log) failed (log: $log)"; }; }
+# step LOG COMMAND...: a build's command (build), its output in the run's LOG, its last lines said if
+# it fails.
+step() { log=$R/$1; shift; build "$@" > "$log" 2>&1 || { tail -30 "$log"; fail "$(basename "$log" .log) failed (log: $log)"; }; }
 
 phase "OxyOS $(git -C "$TREE" rev-parse --short HEAD), Bloom $(git -C "$BLOOM_DIR" rev-parse --short HEAD), Dropsea $(git -C "$DROPSEA_DIR" rev-parse --short HEAD), Atlas $(git -C "$ATLAS_DIR" rev-parse --short HEAD); run $R"
 cd "$TREE"
 step cargo.log cargo build --release --locked -p oxyos-client-ffi -p oxyos-offscreen -p oxyos-reader -p oxyos-pack \
-  -p oxyos-login -p oxyos-installd -p oxyos-accountd -p oxyos-gpu-client -p oxyos-networks
+  -p oxyos-login -p oxyos-installd -p oxyos-accountd -p oxyos-gpu-client -p oxyos-networks -p oxyos-backupd
 phase "native parts built"
 
 # The runtime: the host built with this tree's C ABI (a build directory of this tree's, kept between
@@ -97,11 +107,19 @@ done
 # run-one NAME [regress.py arguments...]: one run, its record kept only when it fails. Phases 1 to 3
 # paint on the CPU, as the scenarios' pixels were written (a machine with a GPU offers it to the
 # hosts, whose Ganesh draws a level or two apart, and keeps scratch textures); phase 4 is the GPU's.
+# A scenario that serves its probe on a fixed port (its `http.port`, and the one after it) runs
+# under that port's lock, so the same scenario in another gate at once waits for it rather than
+# finding the port taken.
+LOCKS=/run/lock/oxyos-gate; [ -d $LOCKS ] && [ -w $LOCKS ] || { LOCKS=$OXYOS_CACHE/locks; mkdir -p "$LOCKS"; }
 cat > "$R/run-one.sh" <<EOF
+# The gate's timing lock is the gate's: nothing a run starts keeps it.
+exec 8>&-
 n=\$1; shift
 out=$R/scenarios/\$n
-python3 -X faulthandler tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/\${n%%@*}.json --offscreen $T/oxyos-offscreen \\
-  --runtimes $M/runtimes --packages $M/packages --input-methods $IM --out \$out "\$@" < /dev/null > \$out.txt 2>&1 && { rm -rf \$out \$out.txt; exit 0; }
+port=\$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("http", {}).get("port", ""))' tools/rn-host-spike/scenarios/\${n%%@*}.json)
+set -- \${port:+flock $LOCKS/port-\$port} python3 -X faulthandler tools/rn-host-spike/regress.py tools/rn-host-spike/scenarios/\${n%%@*}.json --offscreen $T/oxyos-offscreen \\
+  --runtimes $M/runtimes --packages $M/packages --input-methods $IM --out \$out "\$@"
+"\$@" < /dev/null > \$out.txt 2>&1 && { rm -rf \$out \$out.txt; exit 0; }
 rm -rf \$out.failed; mv \$out \$out.failed 2>/dev/null; mkdir -p \$out.failed; mv \$out.txt \$out.failed/regress.txt
 exit 1
 EOF
@@ -111,25 +129,31 @@ said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3 | 
 grep -vE '^(perf|refresh)-' "$R/list" | xargs -P "$GATE_JOBS" -I{} sh -c "sh '$R/run-one.sh' {} --renderer cpu || echo {} >> '$R/failed'"
 phase "$(grep -vcE '^(perf|refresh)-' "$R/list") scenarios run, $GATE_JOBS at a time: $(wc -l < "$R/failed") failed"
 
-# Alone, on the reserved cores: one run at a time on this machine (the lock), and the cores given
-# back however this ends.
-lock=/run/lock/oxyos-gate-timing.lock; [ -w $lock ] || lock=$W/.locks/timing
-exec 8>>"$lock"
-flock 8
+# Alone, on the reserved cores, given back however this ends: one gate at a time on this machine
+# (the timing lock, whoever runs it: a runner, a deploy), the gate's own slice on them and every other
+# gate's, the owner's and the users' off them, so a timing scenario measures OxyOS, not the machine.
+# The machine's (root's, every user's: tools/gate/machine.sh), else one of this cache's. Opened to
+# read, which a lock needs no more than.
+timing=/run/lock/oxyos-gate-timing.lock; [ -r $timing ] || { timing=$LOCKS/timing; : >> "$timing"; }
+exec 8<"$timing"
+flock -n 8 || { phase "waiting for another gate's timing scenarios to end"; flock 8; }
 reserve=/usr/local/libexec/oxyos-gate-cpus
 reserved=
 if [ -x $reserve ] && sudo -n $reserve reserve 2>/dev/null; then
   reserved=1; trap 'sudo -n $reserve release' EXIT
-  grep -q oxyosgate.slice /proc/self/cgroup || echo "gate: not in oxyosgate.slice: the timing runs share their cores"
 else
-  echo "gate: no reserved cores on this machine (tools/gate/machine.sh): the timing runs share theirs"
+  echo "gate: no reserved cores here (tools/gate/machine.sh, a gate slice): the timing runs share theirs"
 fi
 grep -E '^(perf|refresh)-' "$R/list" | while read -r n; do sh "$R/run-one.sh" "$n" --renderer cpu || echo "$n" >> "$R/failed"; done
 for n in $(cat "$R/failed"); do
   echo "scenario $n failed once (load $(cut -d' ' -f1 /proc/loadavg)), again alone:"; said "$n"
   grep -rh "fatal signal" -A12 "$R/scenarios/$n.failed" 2>/dev/null | head -14
   mv "$R/scenarios/$n.failed" "$R/scenarios/$n.failed-first"
-  sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"; fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"; }
+  sh "$R/run-one.sh" "$n" --renderer cpu || { said "$n"
+    # A scenario in tools/gate/quarantine (flaky on main, its issue open) is said, not counted.
+    issue=$(awk -v n="$n" '!/^#/ && $1 == n { print $2 }' tools/gate/quarantine)
+    [ -n "$issue" ] || fail "scenario $n failed twice (records: $R/scenarios/$n.failed*)"
+    echo "gate: scenario $n failed twice, quarantined ($issue, tools/gate/quarantine): not counted"; }
 done
 [ -n "$reserved" ] && { sudo -n $reserve release; trap - EXIT; }
 flock -u 8

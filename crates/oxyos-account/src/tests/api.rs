@@ -122,7 +122,8 @@ fn the_mints_refusals_are_told_apart() {
             .mint_token(&credential(), &account())
             .unwrap_err(),
         ApiError::Locked {
-            retry_after: Some(42)
+            retry_after: Some(42),
+            window: None,
         }
     );
 }
@@ -142,11 +143,40 @@ fn the_profile_is_read_with_the_token() {
             username: Some("ada".into()),
             display_name: Some("Ada Lovelace".into()),
             avatar: Some("file-9".into()),
+            languages: None,
         }
     );
     let request = request.join().unwrap();
     assert_eq!(request.line, "GET /users/me HTTP/1.1");
     assert_eq!(request.header("authorization"), Some("Bearer token-1"));
+}
+
+#[test]
+fn the_profile_keeps_the_accounts_languages_primary_first() {
+    let profile = |languages: &str| {
+        let (base, request) = server(
+            200,
+            "",
+            &format!(
+                r#"{{"data":{{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"{languages}}}}}"#
+            ),
+        );
+        let profile = api(&base).profile(&Secret::new("token-1")).unwrap();
+        request.join().unwrap();
+        profile.languages
+    };
+    let both = Some(vec!["es-ES".to_owned(), "en-GB".to_owned()]);
+    assert_eq!(profile(r#","languages":["es-ES","en-GB"]"#), both);
+    // Only its non-empty strings.
+    assert_eq!(
+        profile(r#","languages":["es-ES",""," ",7,null,"en-GB"]"#),
+        both
+    );
+    // None when it names none, or not as a list.
+    assert_eq!(profile(""), None);
+    assert_eq!(profile(r#","languages":null"#), None);
+    assert_eq!(profile(r#","languages":[""]"#), None);
+    assert_eq!(profile(r#","languages":"es-ES""#), None);
 }
 
 #[test]
@@ -174,6 +204,7 @@ fn the_password_is_checked_on_the_same_device_naming_the_platform() {
             user_id: ACCOUNT.into(),
             device_id: DEVICE.into(),
             device_secret: Some(Secret::new("platform-secret-1")),
+            windows: crate::api::Windows::default(),
         }
     );
     let request = request.join().unwrap();
@@ -184,7 +215,7 @@ fn the_password_is_checked_on_the_same_device_naming_the_platform() {
             "identifier": USERNAME,
             "password": PASSWORD,
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
-            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID, "confirms": true},
         })
     );
     // A native client: no web Origin, which would have the platform client refused.
@@ -331,7 +362,7 @@ fn an_authenticator_is_a_challenge_answered_with_its_code() {
             "challengeId": CHALLENGE,
             "code": CODE,
             "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
-            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID, "confirms": true},
         })
     );
 }
@@ -357,6 +388,7 @@ fn the_sign_ins_refusals_are_told_apart() {
             r#"{"error":"SIGNIN_LOCKED","message":"x","details":{"retryAfterSeconds":900}}"#,
             ApiError::Locked {
                 retry_after: Some(900),
+                window: None,
             },
         ),
         (
@@ -439,4 +471,246 @@ fn oxys_api_is_reached_over_https_only() {
     ] {
         assert!(HttpApi::new(base).is_err(), "{base}");
     }
+}
+
+#[test]
+fn a_qr_sign_in_is_redeemed_by_its_device_proof_alone_naming_the_platform() {
+    let (base, request) = server(
+        200,
+        "",
+        r#"{"sessionId":"s-1","deviceId":"device-1","expiresAt":"2026-11-06T00:00:00.000Z","accessToken":"token-2","deviceSecret":"platform-secret-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e","username":"ada"}}"#,
+    );
+    let key = RedemptionKey::new().unwrap();
+    let signed_in = api(&base)
+        .platform_device_sign_in(&credential(), &platform_client(), &key)
+        .unwrap();
+    assert_eq!(
+        signed_in,
+        SignedIn {
+            user_id: ACCOUNT.into(),
+            device_id: DEVICE.into(),
+            device_secret: Some(Secret::new("platform-secret-1")),
+            windows: crate::api::Windows::default(),
+        }
+    );
+    let request = request.join().unwrap();
+    assert_eq!(request.line, "POST /session/device/platform HTTP/1.1");
+    // Exactly the contract's keys: the proof, the platform and the redemption's key (R7), no
+    // password, no identifier.
+    assert_eq!(
+        request.body,
+        serde_json::json!({
+            "device": {"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET},
+            "platformClient": {"platform": "oxyos", "clientId": CLIENT_ID, "confirms": true},
+            "redemptionKey": key.expose(),
+        })
+    );
+    // 256 bits, as 64 hexadecimal digits: within the contract's 43 to 128 URL-safe characters.
+    assert_eq!(key.expose().len(), 64);
+    assert!(key.expose().bytes().all(|b| b.is_ascii_hexdigit()));
+    assert_ne!(key.expose(), RedemptionKey::new().unwrap().expose());
+    assert_eq!(format!("{key:?}"), "RedemptionKey(…)");
+    assert_eq!(request.header("origin"), None);
+}
+
+#[test]
+fn a_proof_that_cannot_be_redeemed_is_one_refusal_and_a_limit_says_when() {
+    let (base, request) = server(
+        401,
+        "",
+        r#"{"error":"invalid_grant","message":"Invalid grant"}"#,
+    );
+    let key = RedemptionKey::new().unwrap();
+    assert_eq!(
+        api(&base).platform_device_sign_in(&credential(), &platform_client(), &key),
+        Err(ApiError::InvalidDeviceSecret)
+    );
+    request.join().unwrap();
+    let (base, request) = server(429, "Retry-After: 120\r\n", r#"{"error":"rate_limited"}"#);
+    assert_eq!(
+        api(&base).platform_device_sign_in(&credential(), &platform_client(), &key),
+        Err(ApiError::Locked {
+            retry_after: Some(120),
+            window: None,
+        })
+    );
+    request.join().unwrap();
+}
+
+#[test]
+fn a_platform_credential_is_confirmed_by_itself_and_one_refusal_says_it_cannot_be() {
+    let (base, request) = server(200, "", r#"{"confirmed":true}"#);
+    api(&base)
+        .confirm_platform_credential(&credential())
+        .unwrap();
+    let request = request.join().unwrap();
+    assert_eq!(
+        request.line,
+        "POST /session/device/platform/confirm HTTP/1.1"
+    );
+    // The credential proves itself: its device and secret, no bearer.
+    assert_eq!(
+        request.body,
+        serde_json::json!({"deviceId": DEVICE, "deviceSecret": DEVICE_SECRET})
+    );
+    assert_eq!(request.header("authorization"), None);
+    let (base, request) = server(
+        401,
+        "",
+        r#"{"error":"invalid_grant","message":"Invalid grant"}"#,
+    );
+    assert_eq!(
+        api(&base).confirm_platform_credential(&credential()),
+        Err(ApiError::InvalidDeviceSecret)
+    );
+    request.join().unwrap();
+    let (base, request) = server(503, "", r#"{"error":"unavailable"}"#);
+    assert!(matches!(
+        api(&base).confirm_platform_credential(&credential()),
+        Err(ApiError::Refused { status: 503, .. })
+    ));
+    request.join().unwrap();
+}
+
+#[test]
+fn the_windows_oxy_tells_are_measured_from_their_answer_never_from_a_clock() {
+    // Oxy's `expiresAt` says a time long past (another machine's clock, or this one's wrong):
+    // only the seconds count, from the answer's arrival.
+    let (base, request) = server(
+        200,
+        "",
+        r#"{"sessionId":"s-1","deviceId":"device-1","deviceSecret":"platform-secret-1","user":{"id":"0190f6c4-8a1e-7b3c-9d2e-4f5a6b7c8d9e"},"redemptionWindow":{"expiresAt":"2000-01-01T00:00:00.000Z","expiresInSeconds":300},"confirmWindow":{"expiresAt":"2000-01-01T00:00:00.000Z","expiresInSeconds":120}}"#,
+    );
+    let before = std::time::Instant::now();
+    let signed_in = api(&base)
+        .platform_device_sign_in(
+            &credential(),
+            &platform_client(),
+            &RedemptionKey::new().unwrap(),
+        )
+        .unwrap();
+    let after = std::time::Instant::now();
+    request.join().unwrap();
+    let redemption = signed_in.windows.redemption.unwrap();
+    let confirm = signed_in.windows.confirm.unwrap();
+    // 300 s less the margin for the way back, from when the answer arrived.
+    assert!(redemption >= before + std::time::Duration::from_secs(298));
+    assert!(redemption <= after + std::time::Duration::from_secs(298));
+    assert!(confirm >= before + std::time::Duration::from_secs(118));
+    assert!(confirm <= after + std::time::Duration::from_secs(118));
+    // The account's 429 tells it too; a refusal that tells none leaves none.
+    let (base, request) = server(
+        429,
+        "Retry-After: 60\r\n",
+        r#"{"error":"RATE_LIMITED","message":"Too many attempts","redemptionWindow":{"expiresAt":"2099-01-01T00:00:00.000Z","expiresInSeconds":200}}"#,
+    );
+    let refused = api(&base)
+        .platform_device_sign_in(
+            &credential(),
+            &platform_client(),
+            &RedemptionKey::new().unwrap(),
+        )
+        .unwrap_err();
+    request.join().unwrap();
+    let ApiError::Locked {
+        retry_after: Some(60),
+        window: Some(window),
+    } = refused
+    else {
+        panic!("{refused:?}");
+    };
+    assert!(window <= std::time::Instant::now() + std::time::Duration::from_secs(198));
+    assert!(window > std::time::Instant::now() + std::time::Duration::from_secs(190));
+}
+
+/// Answers each request of `answers` in turn (status, extra headers, body bytes), handing back the
+/// request lines.
+fn cloud(answers: Vec<(u16, String, Vec<u8>)>) -> (String, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let handle = std::thread::spawn(move || {
+        let mut lines = Vec::new();
+        for (status, headers, body) in answers {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            loop {
+                let mut header = String::new();
+                reader.read_line(&mut header).unwrap();
+                if header.trim_end().is_empty() {
+                    break;
+                }
+            }
+            lines.push(line.trim_end().to_owned());
+            let head = format!(
+                "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n{headers}\r\n",
+                body.len()
+            );
+            (&stream).write_all(head.as_bytes()).unwrap();
+            (&stream).write_all(&body).unwrap();
+        }
+        lines
+    });
+    (base, handle)
+}
+
+#[test]
+fn a_picture_is_the_avatars_thumbnail_from_the_cloud_followed_where_it_is_kept() {
+    let png = b"\x89PNG\r\n\x1a\nthumbnail".to_vec();
+    // The cloud redirects a file's URL to where it is kept, as cloud.oxy.so does.
+    let (base, lines) = cloud(vec![
+        (302, "Location: /variants/thumb.webp\r\n".into(), Vec::new()),
+        (200, "Content-Type: image/png\r\n".into(), png.clone()),
+    ]);
+    let api = HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud(&base)
+        .unwrap();
+    assert_eq!(api.picture("01a1236a-7bb5-79ea-b83f-cb38c5e2944f"), Ok(png));
+    assert_eq!(
+        lines.join().unwrap(),
+        [
+            "GET /01a1236a-7bb5-79ea-b83f-cb38c5e2944f?variant=thumb HTTP/1.1",
+            "GET /variants/thumb.webp HTTP/1.1"
+        ]
+    );
+    // No thumbnail: the image itself.
+    let jpeg = vec![0xff, 0xd8, 0xff, 0xe0, 1, 2, 3];
+    let (base, lines) = cloud(vec![
+        (404, String::new(), b"{}".to_vec()),
+        (200, String::new(), jpeg.clone()),
+    ]);
+    let api = HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud(&base)
+        .unwrap();
+    assert_eq!(api.picture("avatar-1"), Ok(jpeg));
+    assert_eq!(
+        lines.join().unwrap(),
+        [
+            "GET /avatar-1?variant=thumb HTTP/1.1",
+            "GET /avatar-1 HTTP/1.1"
+        ]
+    );
+    // What is not an image is never a picture, and an id that is not one is never asked.
+    let (base, lines) = cloud(vec![(200, String::new(), b"<html>".to_vec())]);
+    let api = HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud(&base)
+        .unwrap();
+    assert!(matches!(
+        api.picture("avatar-1"),
+        Err(ApiError::Unexpected(_))
+    ));
+    lines.join().unwrap();
+    assert!(matches!(
+        api.picture("../users/me"),
+        Err(ApiError::Unexpected(_))
+    ));
+    // The cloud is HTTPS, or a development server on this machine.
+    assert!(HttpApi::new("https://api.oxy.so")
+        .unwrap()
+        .with_cloud("http://cloud.example")
+        .is_err());
 }

@@ -19,6 +19,8 @@ import {
 } from "../controls";
 import type { ShellControl, ShellControls, ShellLevel } from "../model";
 import { useShellMessages } from "../useShellMessages";
+import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { glass } from "./glass";
 
 const SIZE = 200;
 const SEGMENT = 9;
@@ -53,6 +55,7 @@ export const Bezel = memo(function Bezel({
   bezel?: ShellControls["bezel"];
   levels: ShellControls["levels"];
 }) {
+  const reduced = useReducedTransparency();
   const messages = useShellMessages();
   const [shown, setShown] = useState<ShellControls["bezel"]>(undefined);
   const opacity = useRef(new Animated.Value(0)).current;
@@ -109,7 +112,7 @@ export const Bezel = memo(function Bezel({
           width: SIZE,
           height: SIZE,
           borderRadius: 36,
-          backgroundColor: "#1b1f27b8",
+          backgroundColor: glass("#1b1f27b8", reduced),
           alignItems: "center",
           justifyContent: "center",
           gap: 26,

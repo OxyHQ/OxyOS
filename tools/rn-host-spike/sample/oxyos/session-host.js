@@ -10,6 +10,11 @@
 // The interface is `@oxy.so/core/host`'s (B1, contract 1), mirrored here: the runtime and the
 // application each carry their own copy of the SDK, so the registration is the one global both read,
 // `globalThis[Symbol.for('oxy.so/session-host')]`, made once and never replaced.
+//
+// Every snapshot names the system's language as `preferredLanguages` (oxy ADR 0058 R11): the
+// session's locale, the one `Intl` defaults to (docs/adr/0040-language-and-region.mdx, decision 4),
+// so an Oxy application speaks the system's language from its first frame, as a Mac's applications
+// speak the system's preferred languages, and never waits for the account's.
 import { DeviceEventEmitter, Linking, TurboModuleRegistry } from 'react-native';
 
 /** The contract this host speaks (`OXY_SESSION_HOST_CONTRACT`). */
@@ -19,6 +24,21 @@ const KEY = Symbol.for('oxy.so/session-host');
 export const ACCOUNT_SETTINGS_URL = 'oxyos-settings://oxy-account';
 const REASONS = new Set(['boot', 'preflight', 'response-401']);
 const ACTIONS = new Set(['sign_in', 'switch_account', 'sign_out', 'manage_account']);
+
+/** The account's languages (locales, primary first), kept only as a list of strings. */
+const isLanguages = (languages) => Array.isArray(languages)
+  && languages.every((language) => typeof language === 'string');
+
+/**
+ * The system's language as a language tag (`es-MX`), its Unicode extensions (`-u-hc-h12`, the hour
+ * cycle the session keeps with it) left out, or null where the host does not say one.
+ */
+function systemLanguage(locale) {
+  const tag = locale?.getLocale?.();
+  if (typeof tag !== 'string') return null;
+  const language = tag.split(/-[ux]-/i)[0];
+  return language ? language : null;
+}
 
 /** A snapshot of the service's, kept only if it is one; anything else is none. */
 function snapshotOf(told) {
@@ -34,6 +54,7 @@ function snapshotOf(told) {
       handle: account.handle,
       ...(typeof account.displayName === 'string' ? { displayName: account.displayName } : {}),
       ...(typeof account.avatar === 'string' ? { avatar: account.avatar } : {}),
+      ...(isLanguages(account.languages) ? { languages: Object.freeze([...account.languages]) } : {}),
     });
   }
   if ((status === 'signed_in') !== (kept !== null)) return null;
@@ -48,35 +69,52 @@ function snapshotOf(told) {
  * the network is a new snapshot of the same revision.
  */
 export function createSessionHost(native = TurboModuleRegistry.get('OxyOSAccountSession'), events = DeviceEventEmitter,
-  linking = Linking) {
+  linking = Linking, locale = TurboModuleRegistry.get('OxyOSLocale')) {
   if (!native || !native.getConstants().available) return null;
   let revision = 0;
+  let told = null;
   let current = null;
   const listeners = new Set();
-  const take = (told) => {
-    const next = snapshotOf(told) ?? { status: 'unavailable', account: null, online: false };
+  // The service's last snapshot and the system's language now, as one snapshot; false when nothing
+  // changed. A new language is a new snapshot of the same revision.
+  const update = () => {
+    const next = told ?? { status: 'unavailable', account: null, online: false };
+    const language = systemLanguage(locale);
     if (current && current.status === next.status && current.online === next.online
-      && JSON.stringify(current.account) === JSON.stringify(next.account)) {
+      && JSON.stringify(current.account) === JSON.stringify(next.account)
+      && current.preferredLanguages?.[0] === (language ?? undefined)) {
       return false;
     }
     if (!current || current.status !== next.status || current.account?.id !== next.account?.id) revision += 1;
-    current = Object.freeze({ ...next, revision });
+    current = Object.freeze({
+      ...next,
+      revision,
+      ...(language ? { preferredLanguages: Object.freeze([language]) } : {}),
+    });
     return true;
+  };
+  const take = (snapshot) => {
+    told = snapshotOf(snapshot);
+    return update();
   };
   take(native.snapshot());
   const tell = () => {
     for (const listener of [...listeners]) listener();
   };
-  // Followed on one connection the service keeps. Once it ends (the service went away), the session
-  // is unavailable until the application next asks for a token, which follows it again: nothing
-  // wakes an idle application to look.
+  // Language & Region changed: the window has already made the new locale `Intl`'s default.
+  events.addListener('OxyOSLocaleChanged', () => {
+    if (update()) tell();
+  });
+  // Followed on one connection the service keeps. The host follows it again by itself when it ends
+  // (the service restarted under the application), and says null only if it stays unfollowed for
+  // more than a few seconds: the session is unavailable then, until a snapshot comes again.
   let following = false;
   const follow = () => {
     following = native.subscribe();
     if (!following && take(null)) tell();
   };
   events.addListener('OxyOSAccountSessionChanged', (told) => {
-    if (told === null) following = false;
+    following = told !== null;
     if (take(told)) tell();
   });
   follow();

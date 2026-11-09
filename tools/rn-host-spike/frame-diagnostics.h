@@ -23,6 +23,20 @@
 //     frames, their work's median, 95th percentile and most, the latency from an input (its
 //     device's time) to the frame presented after it, and the slow and dropped frames.
 //
+// A frame the compositor holds is not a slow frame. The compositor answers a shown window's frame
+// at its display's next refresh; it withholds the answer while the window is not shown or the
+// displays are off (the compositor's `set_displays_on` completes the frame in flight unshown, then
+// composes nothing, so the next frame waits for the displays to come back). Waiting for that answer
+// longer than kHeldAfter (a second: dozens of refreshes at any rate a display runs at, and longer
+// than the compositor's own slowest turns, a modeset, which it reports itself) is a hold, as
+// Android's FrameMetrics and JankStats count only the frames of a window that draws: from then on,
+// the turns' work and the wait go to the hold, not to the frame, and the inputs that have waited
+// longer than kHeldAfter are timed by no frame (no one saw a frame answer them late; an input that
+// wakes the displays is newer, and its wait for the frame after the hold is timed). When the answer
+// comes, the hold has a line of its own ("held N s by the compositor …": how long, and the work
+// done meanwhile, which is the application's and never dropped), and the frame after it is timed
+// from the turn the answer came in.
+//
 // Resizes (a configure to the frame answering it, its layout and settle) and the window's own
 // operations (zoom, minimize, close, from the request to what answers it) have lines of their own.
 // With OXYOS_HOST_REPORT, every frame's timing, every line and every summary also go to the report
@@ -115,7 +129,17 @@ class FrameDiagnostics {
     double workMs = 0, waitMs = 0;
     std::optional<double> latencyMs;
   };
+  // A frame held by the compositor (above): since when the loop waited for its answer, until the
+  // last turn charged to it, and the work, the wait and the inputs not timed meanwhile.
+  struct Held {
+    Clock::time_point since, until;
+    std::array<ThreadSpan, static_cast<size_t>(Part::Count)> parts{};
+    double waitMs = 0, commitMs = 0, layoutMs = 0, textMs = 0;
+    int turns = 0, untimedInputs = 0;
+  };
   void charge(const ThreadSample& now);
+  void hold(Clock::time_point now);
+  void endHold();
   void finish(bool presented, Clock::time_point now);
   void due(Clock::time_point now);
   void summarize(Clock::time_point now);
@@ -140,7 +164,13 @@ class FrameDiagnostics {
   bool gpu_ = false, presentedThisTurn_ = false, first_ = true;
   std::string trigger_;
   int triggerRank_ = -1;
-  uint64_t inputNs_ = 0;  // the earliest input's device time since the last frame
+  // The inputs' device times since the last frame (CLOCK_MONOTONIC nanoseconds): the frame's
+  // latency is from the earliest.
+  std::vector<uint64_t> inputsNs_;
+  // Since when the loop waits for the compositor's answer to the window's frame, without a turn
+  // between that did not wait; and the hold that wait became, if it did.
+  std::optional<Clock::time_point> waitingSince_;
+  std::optional<Held> held_;
 
   // The slow lines' pace: one a second, with how many were not written since.
   std::optional<Clock::time_point> slowLogged_;
