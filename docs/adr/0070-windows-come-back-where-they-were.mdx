@@ -1,0 +1,42 @@
+---
+title: "ADR 0070: Windows come back where they were"
+description: How OxyOS puts an application's windows back where they were, as a Mac does — the session keeping each application's windows' frames, zoom, desktops and minimized state and their order, and the desktops themselves, following them as they change; a window opening at its frame before its first frame, kept on a display that shows it; what opens at login coming back whole, in its order; and Reset forgetting it.
+order: 79
+---
+
+# ADR 0070: Windows come back where they were
+
+Status: **accepted; implemented** (the scene, the session's part shared by the session and the development compositor, the scenarios). Decided on 10 November 2026, at the platform author's request for a Mac's "nothing ever breaks": an application reopened after a crash, a quit or a login opened its window centred, whatever the person had done with it, and the desktops they had made were gone. Builds on [ADR 0009](./0009-session-shell) (desktops: workspaces), [ADR 0013](./0013-launching-applications) (launch records), [ADR 0016](./0016-windows) (zoom), [ADR 0061](./0061-crashes-and-resetting-an-application) (Reset, amended) and [ADR 0064](./0064-sleep-restart-shut-down-and-log-out) (Reopen windows).
+
+## Problem
+
+A window opened centred on the display it was made on, or a step down and to the right of a window already there (`Scene::placed`). Nothing remembered where the person had put it, how large it was, whether it was zoomed, on which desktop or minimized, so a quit, a crash's Reopen, a login item or *Reopen windows when logging back in* (ADR 0064) brought the application back but not its window. The desktops themselves lived only as long as the session: every login started with one. ADR 0061 left a window's place to a later decision, saying only that it would be the application's own state.
+
+A Mac keeps it: an application's windows reopen at their frames (`NSWindow`'s frame autosave and state restoration), Resume after a login or a restart brings each window back to its Space, minimized ones into the Dock, in their order, and the Spaces are the person's until they remove them.
+
+## Decision
+
+1. **The session keeps where the windows are** (`oxyos_compositor::places`, the session's and the development compositor's).
+   - The record is the person's (`$XDG_STATE_HOME/oxyos/windows`, JSON, mode 0600): how many desktops they have, and every window of an application the session launched (its launch record names it, ADR 0013), back to front: its application, its frame (global, logical; zoomed or full screen, the frame it goes back to), whether it is zoomed, its desktop and whether it is minimized. A client the session did not launch is never kept, nor the login screen's.
+   - It follows the windows as they change (`Scene::launched_windows`) and is written whole beside itself and renamed over it a second after a change ([`WRITE_AFTER`]), never on the turn that changed it (a window dragged writes once, as it stops), and at once as the session ends. A crash loses at most the last second.
+   - An application's windows are kept as they were when its last one went, whether it quit, crashed, was force quit or ended with the session, so they come back the same; their place in the order stays too. A window the person closes while another of its application stays open is forgotten. At most 64 windows are kept ([`MAX_KEPT`]): past it, those of applications not open go, the back-most first.
+2. **A window opens where its application's was.**
+   - The scene offers the program each new toplevel of a launched application once its client is known (`Scene::take_windows_to_place`); its n-th window opened since it had none takes the n-th of its windows as they were kept when its first one opened, however the record follows them meanwhile.
+   - Placed (`Scene::place_window`), it is configured at its frame before it draws anything, so its first frame is there and it is never seen anywhere else. It goes on the display most of it was on, kept inside that display's work area by as little as needed (its top edge below the menu bar, at least 64 points of it across and down, as a window moved by hand), and no larger than the work area; when no display shows any of it (the external display is gone), it opens where a window of its size opens. A zoomed one comes back zoomed, with its frame to go back to.
+3. **What opens at login comes back whole.** The applications the session opens as the person logs in (their login items, ADR 0060; what *Reopen windows* reopens, ADR 0064) take their desktop and their minimized state too, and their order among the windows opened with them: each arriving window goes behind the back-most of those that were in front of it (else in front of the front-most of those behind it), whichever is ready first, and takes the keyboard only if none in front of it is shown on the desktop shown. One minimized goes into the dock without its genie, one on another desktop waits there, and neither takes the keyboard (`Scene::arrive_in_order`).
+   What the person opens later opens at its frame, in front, on the desktop they are on, as a Mac opens an application's windows on the current Space unless it is assigned to one.
+4. **The desktops are the person's.** The session starts with as many desktops as they had (`Scene::restore_desktops`, before any window opens), the first shown; each desktop's wallpaper (ADR 0048) was already kept by its number.
+5. **Reset forgets it** (amends ADR 0061, decision 5): where an application's windows were is its own state, and Reset forgets it with its data (`Places::forget`).
+
+## Tests
+
+- **The scene** (`scene/places.rs`): a frame kept inside the work area by as little as needed (under the menu bar, off either side, below); how much of a frame a display shows.
+- **The part** (`oxyos-compositor`'s `places/tests.rs`, a real scene): a window opens at its application's frame and another application's where windows open; it is told its size as it was made and then the frame kept, before it draws, and is shown only at that frame; the record written a second after a change, never on the turn, mode 0600, kept as the window goes and given back as it opens again; an application's two windows back in their order while the record follows the first, and one the person closes forgotten while Allo's place stays; a frame on a display that is gone, under the menu bar and larger than the work area; a zoomed window back zoomed with its frame to go back to; at login, the desktops back, Inbox ready first and Allo arriving behind it without the keyboard, Chat on the third desktop and Mail minimized, neither shown, and the record never rewritten; ready in their order, they end in it; what the person opens later in front on their desktop, not minimized; a client no launch record names never placed nor kept; Reset forgetting; an unreadable record as none, and nothing written without a file; the order keeping the places of applications not open, and bounded.
+- **Scenarios**: `window-restore` (Inbox opened from the dock at the frame kept; resized by its edge, quit with Super+Q, the record saying its window a second later; opened again exactly where it was, `frame_as`); `window-restore-login` (two desktops back; four applications opened at login, each at its frame, Permission on the second desktop, Crash Probe minimized, Inbox in front with the keyboard, Chat behind it, `windows_of`). `window_states` now says each window's frame and whether it is zoomed.
+
+## Not in this decision
+
+- **An application's own state** (what it showed, its selection, scroll and drafts): a restorable-state API in Bloom and the host, the `NSWindowRestoration` analogue, is its own decision.
+- **Full screen.** A window full screen when it went comes back at the frame it had before; an application asks for full screen itself.
+- **A window identified by the application** (a restoration identifier): an application's windows are matched in the order they open, which suits one window per process, every Bloom application today.
+- **Uninstalling** forgets nothing yet: an application installed again opens where it was.

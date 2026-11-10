@@ -53,6 +53,7 @@ pub mod login;
 pub mod motion;
 pub mod networks;
 pub mod passkeys;
+pub mod places;
 pub mod power;
 pub mod resume;
 pub mod safe_mode;

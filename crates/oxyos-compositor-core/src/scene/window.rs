@@ -296,16 +296,7 @@ impl Scene {
         }
         let current = node.upcoming();
         let (origin, size) = if enabled {
-            let area = self
-                .work_area(node.output)
-                .ok_or(ErrorCode::InvalidGeometry)?;
-            let size = node.limits.clamp(Size::new(area.width, area.height));
-            let size = Size::new(size.width.min(area.width), size.height.min(area.height));
-            let origin = (
-                area.x + ((area.width - size.width) / 2) as i32,
-                area.y + ((area.height - size.height) / 2) as i32,
-            );
-            (origin, size)
+            self.zoomed_frame(key).ok_or(ErrorCode::InvalidGeometry)?
         } else {
             node.unzoomed.unwrap_or(current)
         };
@@ -316,6 +307,20 @@ impl Scene {
         // Its frame goes from where it is to where it is configured, animated (ADR 0016).
         self.appeared(key, super::appearances::Change::Zoomed);
         Ok(())
+    }
+
+    /// The frame a window zoomed fills: its output's work area, or its largest size within
+    /// that, centred on it, if its limits are smaller.
+    pub(super) fn zoomed_frame(&self, key: SurfaceKey) -> Option<((i32, i32), Size)> {
+        let node = self.live(key)?;
+        let area = self.work_area(node.output)?;
+        let size = node.limits.clamp(Size::new(area.width, area.height));
+        let size = Size::new(size.width.min(area.width), size.height.min(area.height));
+        let origin = (
+            area.x + ((area.width - size.width) / 2) as i32,
+            area.y + ((area.height - size.height) / 2) as i32,
+        );
+        Some((origin, size))
     }
 
     /// A window minimizing itself, as the shell minimizes it.

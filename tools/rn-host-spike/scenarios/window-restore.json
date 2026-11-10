@@ -1,0 +1,173 @@
+{
+  "about": "Windows come back where they were (docs/adr/0070-windows-come-back-where-they-were.mdx), as a Mac's do. The person's record in the run's state folder says Inbox's window was at 100, 60, 800 × 520. Inbox, opened from the dock, opens there, configured at that frame before its first frame. The compositor resizes it by its right edge to 600 wide; Super+Q quits it; a second later the record says its window as it was when it quit. Opened again from the dock, it opens exactly where it was when it quit, with the keyboard. Without the session keeping and giving the frame, Inbox opens centred each time and the run fails. At 1 (1280 × 720).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "installed": [
+    {
+      "package": "so.oxy.inbox",
+      "entry": [
+        "X-OxyOS-Pinned=4"
+      ]
+    }
+  ],
+  "applications_launched": [
+    {
+      "id": "so.oxy.inbox",
+      "origin": "installed 1",
+      "settings": false
+    },
+    {
+      "id": "so.oxy.inbox",
+      "origin": "installed 1",
+      "settings": false
+    }
+  ],
+  "home": {
+    "items": {
+      ".local/state/oxyos/windows": "{\"desktops\":1,\"windows\":[{\"application\":\"so.oxy.inbox\",\"x\":100,\"y\":60,\"width\":800,\"height\":520,\"desktop\":0}]}"
+    }
+  },
+  "steps": [
+    {
+      "name": "Inbox from the dock: its window opens where Inbox's was, with the keyboard",
+      "do": [
+        "press_named",
+        "Inbox"
+      ],
+      "until_named": [
+        "Press me",
+        20000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "frame": [
+              100,
+              60,
+              800,
+              520
+            ],
+            "zoomed": false,
+            "workspace": 0,
+            "minimized": false,
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "name": "the compositor resizes it by its right edge, 200 px in",
+      "do": [
+        "drag_paced",
+        [
+          903,
+          300,
+          703,
+          300,
+          50,
+          125
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo"
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "frame": [
+              100,
+              60,
+              600,
+              520
+            ],
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+Q quits Inbox: its window goes",
+      "do": [
+        "key",
+        [
+          125,
+          16
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo"
+          }
+        }
+      }
+    },
+    {
+      "name": "a second later the record keeps Inbox's window as it was when it quit",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "home": {
+          ".local/state/oxyos/windows": "FILL"
+        }
+      }
+    },
+    {
+      "name": "Inbox from the dock again: exactly where its window was when it quit, with the keyboard",
+      "do": [
+        "press_named",
+        "Inbox"
+      ],
+      "until_named": [
+        "Press me",
+        20000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "focused": false
+          },
+          "3": {
+            "app": "so.oxy.inbox",
+            "frame": [
+              100,
+              60,
+              600,
+              520
+            ],
+            "focused": true
+          }
+        },
+        "frame_as": {
+          "3": [
+            2,
+            "2"
+          ]
+        }
+      }
+    }
+  ]
+}

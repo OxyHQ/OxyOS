@@ -3255,7 +3255,7 @@ fn minimize_target_json(compositor: &Compositor) -> String {
 
 /// Each window as the shell is told of it once the step settled, by its number: its application,
 /// its desktop, and whether it is minimized, hidden with its application and active (the dock's
-/// press, ADR 0034's decision 9).
+/// press, ADR 0034's decision 9), its frame as displayed and whether it is zoomed (docs/adr/0070).
 fn window_states_json(compositor: &Compositor) -> String {
     let states: Vec<String> = compositor
         .scene
@@ -3263,14 +3263,19 @@ fn window_states_json(compositor: &Compositor) -> String {
         .iter()
         .map(|w| {
             format!(
-                "\"{}\":{{\"app\":{},\"workspace\":{},\"minimized\":{},\"hidden\":{},\"focused\":{},\"responding\":{}}}",
+                "\"{}\":{{\"app\":{},\"workspace\":{},\"minimized\":{},\"hidden\":{},\"focused\":{},\"responding\":{},\"frame\":[{},{},{},{}],\"zoomed\":{}}}",
                 w.number,
                 json_string(&w.app_id),
                 w.workspace,
                 w.minimized,
                 w.hidden,
                 w.focused,
-                w.responding
+                w.responding,
+                w.frame.x,
+                w.frame.y,
+                w.frame.width,
+                w.frame.height,
+                w.zoomed
             )
         })
         .collect();
@@ -6184,6 +6189,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 )
             }),
         ));
+        // Windows coming back where they were (docs/adr/0070-windows-come-back-where-they-were.mdx):
+        // the record in the run's own state folder, and the desktops it keeps, before any window
+        // opens.
+        let places = oxyos_compositor::places::Places::of_user();
+        places.start(&mut session.compositor.scene);
+        session.places = Some(places);
         // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
         // starts them; none in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
         let open_at_login = session.settings.preferences().open_at_login.clone();
@@ -6194,8 +6205,13 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }
         } else if let Some(launcher) = session.launcher.as_mut() {
             for id in &open_at_login {
-                if let Err(error) = launcher.launch(id) {
-                    eprintln!("[launch] {id} not opened at login: {error}");
+                match launcher.launch(id) {
+                    Ok(_) => {
+                        if let Some(places) = session.places.as_mut() {
+                            places.opened_at_login(id);
+                        }
+                    }
+                    Err(error) => eprintln!("[launch] {id} not opened at login: {error}"),
                 }
             }
         }

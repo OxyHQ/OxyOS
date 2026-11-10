@@ -141,6 +141,16 @@ impl Scene {
         true
     }
 
+    /// The desktops the person had as their last session ended, before any window opens
+    /// (docs/adr/0070-windows-come-back-where-they-were.mdx): there are `count` (at least one, at
+    /// most [`MAX_WORKSPACES`]), the first shown. Never fewer than there are.
+    pub fn restore_desktops(&mut self, count: u32) {
+        let count = count.clamp(1, MAX_WORKSPACES);
+        if count > self.workspaces.count {
+            self.workspaces.count = count;
+        }
+    }
+
     /// Adds a workspace after the others; its number, or none at the limit.
     pub fn add_workspace(&mut self) -> Option<u32> {
         if self.workspaces.count >= MAX_WORKSPACES {
