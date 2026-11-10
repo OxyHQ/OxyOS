@@ -7,8 +7,10 @@
 # tmpfiles file of tools/oxyos-session, tools/oxyos-login and tools/oxyos-accountd is here, every PAM file
 # where its own header says it is installed, the recovery's program, every kernel-install plugin of
 # tools/oxyos-recovery and every polkit rule of config/, each where the image installs it, the backup
-# service's program where its units start it and every unit of tools/oxyos-backupd. A FROM in
-# target/release/ is built there (by its tool's package).
+# service's program where its units start it and every unit of tools/oxyos-backupd, and for quality of service
+# (docs/adr/0066-quality-of-service.mdx) the image's udev rules, systemd generators and drop-ins for the units
+# systemd ships, each where the image installs it. A FROM in target/release/ is built there (by its tool's
+# package).
 # FROM                                                                  TO                                              MODE
 target/release/oxyos-session                                            /usr/bin/oxyos-session                          0755
 target/release/oxyos-login                                              /usr/libexec/oxyos/oxyos-login                  0755
@@ -33,3 +35,7 @@ target/release/oxyos-backupd                                            /usr/lib
 tools/oxyos-backupd/oxyos-backupd.service                               /usr/lib/systemd/system/oxyos-backupd.service   0644
 tools/oxyos-backupd/oxyos-migrate.service                               /usr/lib/systemd/system/oxyos-migrate.service   0644
 tools/oxyos-backupd/oxyos-migrate.socket                                /usr/lib/systemd/system/oxyos-migrate.socket    0644
+config/includes.chroot_after_packages/usr/lib/udev/rules.d/60-oxyos-io-scheduler.rules /usr/lib/udev/rules.d/60-oxyos-io-scheduler.rules 0644
+config/includes.chroot_after_packages/usr/lib/systemd/system-generators/oxyos-efficiency-cores /usr/lib/systemd/system-generators/oxyos-efficiency-cores 0755
+config/includes.chroot_after_packages/usr/lib/systemd/user-generators/oxyos-efficiency-cores /usr/lib/systemd/user-generators/oxyos-efficiency-cores 0755
+config/includes.chroot_after_packages/usr/lib/systemd/system/user@.service.d/50-oxyos-delegate.conf /usr/lib/systemd/system/user@.service.d/50-oxyos-delegate.conf 0644

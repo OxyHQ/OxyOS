@@ -84,6 +84,24 @@ rm -f backup-state.json
 for i in 1 2 3 4 5 6 7 8 9 10; do sudo -n /usr/libexec/oxyos-backupd --client '"status"' > backup-state.json 2>/dev/null && break; sleep 1; done
 [ -s backup-state.json ] || { echo "backups: oxyos-backupd does not answer on its socket"; exit 1; }
 echo "backups: $(restic version | cut -d' ' -f1-2), $(rclone version | head -1), oxyos-backupd active and answering, the migration's socket listening"
+# Background work in the background (docs/adr/0066-quality-of-service.mdx, decision 6), as the image
+# has it: the units' weights came with them above, and the backup service runs restarted onto
+# them; the efficiency cores' drop-ins were written by the generator at the reload above. The udev
+# rule's scheduler is given to the solid-state drives now (a change event: their rules run again,
+# nothing is mounted or probed anew). A user's manager takes the controllers it is now delegated
+# (cpuset, io) and its background.slice's cores at its next start: the person's next login, never
+# here.
+sudo -n udevadm control --reload
+sudo -n udevadm trigger --action=change --subsystem-match=block --property-match=DEVTYPE=disk --attr-match=queue/rotational=0
+sudo -n udevadm settle --timeout=10 || true
+schedulers=$(for q in /sys/block/*/queue; do d=${q%/queue}; d=${d##*/}
+  case $d in loop* | ram* | zram* | dm-*) continue ;; esac
+  [ "$(cat $q/rotational)" = 0 ] && echo "$d $(cat $q/scheduler)"; done)
+echo "$schedulers" | grep -v '\[mq-deadline\]' | grep . && { echo "background: a solid-state drive without mq-deadline"; exit 1; }
+idle=$(cat /sys/fs/cgroup/system.slice/oxyos-backupd.service/cpu.idle 2>/dev/null || echo none)
+[ "$idle" = 1 ] || { echo "background: oxyos-backupd's group is not idle (cpu.idle: $idle)"; exit 1; }
+cores=$(systemctl show -P AllowedCPUs oxyos-backupd)
+echo "background: $(echo "$schedulers" | cut -d' ' -f1 | tr '\n' ' ')on mq-deadline; oxyos-backupd idle (cpu.idle 1), on CPUs ${cores:-all}"
 # One GPU (ADR 0031, decision 14), on the machine itself before the session restarts: the
 # compositor and a painter opened as the session and a Bloom host open them, under strace; any
 # DRM node of a GPU that drives no display (a laptop's sleeping discrete GPU, for one), any NVK

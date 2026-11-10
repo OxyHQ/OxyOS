@@ -1,0 +1,9 @@
+# OxyOS: solid-state drives use mq-deadline, so the disk honours I/O priority classes
+# (docs/adr/0066-quality-of-service.mdx, decision 6). The kernel gives a drive of several hardware
+# queues (every NVMe drive) no scheduler, `none`, which ignores them: the backup service's and the
+# search crawler's reads, in the idle class, would compete with the person's at equal priority.
+# mq-deadline (since Linux 5.14) dispatches the real-time class first, then best effort, then idle,
+# an idle request waiting at most prio_aging_expire (10 s) behind the others, at a cost per request
+# small enough for NVMe. A drive of one queue (a SATA SSD) gets mq-deadline from the kernel already;
+# the rule says so for both. Rotating disks keep the kernel's choice.
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", KERNEL=="nvme[0-9]*n[0-9]*|sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"

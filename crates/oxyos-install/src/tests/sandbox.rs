@@ -15,8 +15,8 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-/// Inside the unit: its standard input back, its uid, and what opening a socket of each family
-/// gives.
+/// Inside the unit: its standard input back, its uid, what opening a socket of each family gives,
+/// its nice value and its control group's CPU weight (the install service's priority, ADR 0066).
 const PROBE: &str = r#"
 import os, socket, sys
 data = sys.stdin.buffer.read()
@@ -31,7 +31,14 @@ for family, kind in ((socket.AF_UNIX, socket.SOCK_STREAM), (socket.AF_INET, sock
         said.append("EPERM")
     except OSError as error:
         said.append("errno %d" % error.errno)
-sys.stdout.buffer.write(data + ("|%d|" % os.getuid()).encode() + ",".join(said).encode())
+nice = open("/proc/self/stat").read().rsplit(")", 1)[1].split()[16]
+group = open("/proc/self/cgroup").read().strip().split("::", 1)[1]
+try:
+    weight = open("/sys/fs/cgroup%s/cpu.weight" % group).read().strip()
+except OSError as error:
+    weight = "unread (errno %d)" % error.errno
+sys.stdout.buffer.write(data + ("|%d|" % os.getuid()).encode() + ",".join(said).encode()
+                        + ("|%s|%s" % (nice, weight)).encode())
 "#;
 
 /// A file of the test's own holding `bytes`, at its start.
@@ -81,13 +88,18 @@ fn the_compilers_sandbox_runs_under_systemd() {
         .read_to_string(&mut said)
         .unwrap();
     let parts: Vec<&str> = said.split('|').collect();
-    assert_eq!(parts.len(), 3, "{said:?}");
+    assert_eq!(parts.len(), 5, "{said:?}");
     assert_eq!(parts[0], "bundle", "its standard input did not reach it");
     let uid: u32 = parts[1].parse().unwrap();
     assert_ne!(uid, 0, "it ran as root");
     assert_eq!(
         parts[2], "EPERM,EPERM,EPERM,EPERM,EPERM",
         "a socket family was left: unix, inet, inet6, netlink, packet"
+    );
+    assert_eq!(
+        (parts[3], parts[4]),
+        ("10", "20"),
+        "the compiler did not run at the install service's priority (nice, CPU weight)"
     );
 
     // The real compiler in the same unit, when the tests have one it can read.

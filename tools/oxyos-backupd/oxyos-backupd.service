@@ -45,9 +45,21 @@ RestrictSUIDSGID=yes
 # A share is reached over the network (rclone's SMB client); udev's monitor is a netlink socket.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
-# What a backup takes is what nothing else wants (ADR 0059, decision 2).
+# What a backup takes is what nothing else wants (ADR 0059, decision 2; ADR 0066, decision 6):
+# - its threads in the scheduler's idle class, which orders them below every other thread of its
+#   own control group only;
+# - the group itself idle (CPUWeight=idle: cpu.idle), so it yields to the rest of system.slice,
+#   and system.slice's weight is not taken from the person's user.slice for it: a SCHED_IDLE task
+#   alone in its group gets its group's whole weight against every sibling group;
+# - its reads in the disk's idle class, which mq-deadline honours (the image's udev rule gives
+#   solid-state drives mq-deadline: `none` ignores the classes); IOWeight is the group's weight
+#   for when the disk's controller weighs groups (io.cost), which OxyOS does not turn on yet;
+# - on a hybrid processor, the efficiency cores alone (AllowedCPUs, written at boot by the
+#   generator oxyos-efficiency-cores, none on a processor of one kind).
 CPUSchedulingPolicy=idle
+CPUWeight=idle
 IOSchedulingClass=idle
+IOWeight=10
 Nice=19
 
 PrivateTmp=yes
