@@ -67,7 +67,7 @@ def main():
     binary = clang_format()
     sources = own_sources()
     with concurrent.futures.ThreadPoolExecutor() as pool:
-        results = dict(zip(sources, pool.map(lambda path: conforms(binary, path), sources)))
+        results = dict(zip(sources, pool.map(lambda path: conforms(binary, path), sources), strict=True))
     failing = [path for path, ok in results.items() if not ok]
 
     if sys.argv[1:] == ["--write-baseline"]:
