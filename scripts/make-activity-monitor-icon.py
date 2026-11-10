@@ -12,6 +12,7 @@ edge over one pixel, composited in premultiplied light and written as an 8-bit R
     python3 scripts/make-activity-monitor-icon.py [OUT]
 """
 
+import itertools
 import math
 import struct
 import sys
@@ -91,7 +92,7 @@ def trace_y(x):
     """The trace's height at x, or None outside it."""
     if x < POINTS[0][0] or x > POINTS[-1][0]:
         return None
-    for (ax, ay), (bx, by) in zip(POINTS, POINTS[1:]):
+    for (ax, ay), (bx, by) in itertools.pairwise(POINTS):
         if ax <= x <= bx:
             return ay + (by - ay) * (x - ax) / (bx - ax)
     return POINTS[-1][1]
@@ -108,7 +109,7 @@ def segment_distance(x, y, a, b):
 def trace_distance(x, y):
     """The distance to the trace's polyline, from the segments near x alone."""
     best = 1e9
-    for a, b in zip(POINTS, POINTS[1:]):
+    for a, b in itertools.pairwise(POINTS):
         if a[0] - 40.0 <= x <= b[0] + 40.0:
             best = min(best, segment_distance(x, y, a, b))
     return best

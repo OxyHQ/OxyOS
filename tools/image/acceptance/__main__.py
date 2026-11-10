@@ -257,12 +257,12 @@ def system(args, run):
         user_failed = machine.run("systemctl --user --failed --no-legend --plain")
         run.check("no failed user unit", not user_failed.strip(), user_failed.strip() or "none")
         active = machine.run("systemctl is-active " + " ".join(units)).split()
-        inactive = [u for u, s in zip(units, active) if s != "active"]
+        inactive = [u for u, s in zip(units, active, strict=False) if s != "active"]
         run.check("the base's services are active", len(active) == len(units) and not inactive,
-                  ", ".join(f"{u} {s}" for u, s in zip(units, active)))
+                  ", ".join(f"{u} {s}" for u, s in zip(units, active, strict=False)))
         user_active = machine.run("systemctl --user is-active " + " ".join(REQUIRED_USER_UNITS)).split()
         run.check("PipeWire listens in the user's session", user_active == ["active"] * len(REQUIRED_USER_UNITS),
-                  ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_USER_UNITS, user_active)))
+                  ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_USER_UNITS, user_active, strict=False)))
         plymouth = machine.run("pidof plymouthd || echo gone")
         run.check("Plymouth has quit", plymouth.strip() == "gone", plymouth.strip())
         sources = machine.run("ls /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | tr '\\n' ' '")

@@ -1924,6 +1924,9 @@ int main(int argc, char** argv) {
     // answers (it registered a handler), and whether it answered quit, which ends the host.
     bool quitHandled = false;
     bool quitAnswered = false;
+    // Sudden Termination (decision 10): JavaScript's holds, and what the compositor was told last.
+    int suddenHolds = 0;
+    std::optional<bool> suddenTold;
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
     // requests, assembled from chunks. A request and an answer cite the latest press or key, as
     // the session requires.
@@ -2001,6 +2004,9 @@ int main(int argc, char** argv) {
     if (!shellMode && window && window->protocolVersion() >= OXYOS_QUIT_REQUESTS_VERSION) {
       services.quit.available = true;
       services.quit.handles = [&quitHandled](bool handles) { quitHandled = handles; };
+      services.quit.holdSuddenTermination = [&suddenHolds](int delta) {
+        suddenHolds = std::max(0, suddenHolds + delta);
+      };
       services.quit.reply = [&window, &quitAnswered](uint32_t serial, bool quit) {
         bool sent = window->replyToQuit(serial, quit);
         oxyos::Report::get().input("quit.replied", 0,
@@ -2245,7 +2251,7 @@ int main(int argc, char** argv) {
       }
       keyboardFocus.prune();
     };
-    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement, ContextMenu };
+    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement, ContextMenu, TextMenu };
     // The view whose context menu the keyboard opens from the focused control: the control, or its
     // nearest ancestor within `scope` that declares React Native's `longpress` accessibility action
     // (Bloom's context menu trigger, TalkBack's long press); -1 for none.
@@ -2269,6 +2275,11 @@ int main(int argc, char** argv) {
       auto scope = navigationScope(event.surface);
       if (scope < 0) return std::nullopt;
       if (event.code == kTab) return heldShift ? NavigationKey::Previous : NavigationKey::Next;
+      bool menuKey = (event.code == kMenu && !heldShift) || (event.code == kF10 && heldShift);
+      // The focused text field's menu is the platform's (docs/adr/0037-text-editing.mdx, decision
+      // 8): the Menu key and Shift+F10 open it at its caret, however the field took focus (a press
+      // or Tab), as a PC's do and a Mac's Control-Return with Full Keyboard Access.
+      if (menuKey && editing.focused() >= 0 && insideOf(editing.focused(), scope)) return NavigationKey::TextMenu;
       // A field the person focused with a press is where Tab goes on from, and keeps its keys.
       auto focused = editing.focused() >= 0 ? editing.focused() : keyboardFocus.focused();
       if (focused < 0 || !insideOf(focused, scope) || oxyos::editableInput(tree, focused) ||
@@ -2286,8 +2297,7 @@ int main(int argc, char** argv) {
       // The Menu key and Shift+F10 open the focused control's context menu, as a PC keyboard's do
       // (a Mac's Control-Return with Full Keyboard Access): one the application declares, else the
       // key is the application's.
-      if (((event.code == kMenu && !heldShift) || (event.code == kF10 && heldShift)) &&
-          contextMenuOf(focused, scope) >= 0) {
+      if (menuKey && contextMenuOf(focused, scope) >= 0) {
         return NavigationKey::ContextMenu;
       }
       if (event.code == kUp || event.code == kDown || event.code == kLeft || event.code == kRight) {
@@ -2407,6 +2417,10 @@ int main(int argc, char** argv) {
         keyboardAfterMount = -1;
         return;
       }
+      if (key == NavigationKey::TextMenu) {
+        editing.contextMenuAtCaret();
+        return;
+      }
       const auto& shadow = tree.views().at(keyboardFocus.focused()).view;
       if (key == NavigationKey::Activate) {
         // As an assistive technology's activation: React Native's click, which Pressability
@@ -2500,6 +2514,20 @@ int main(int argc, char** argv) {
         }
       }
     };
+    // The text input the assistive technology's focus went to as it took focus, while it has it,
+    // and where that focus was before it.
+    facebook::react::Tag fieldFollowed = -1, fieldFollowedFrom = -1;
+    // A text input that takes focus, however it took it, takes the assistive technology's too
+    // (textinput.h, `onFocus`): a field pressed is where the screen reader is, says itself and
+    // echoes its editing (docs/adr/0037-text-editing.mdx, decision 7).
+    editing.onFocus([&](facebook::react::Tag tag) {
+      if (accessibility.focused() != tag) fieldFollowedFrom = accessibility.focused();
+      fieldFollowed = tag;
+      accessibility.focus(tag);
+      dirty = true;
+      popups.changed();
+      shellSurfaces.changed();
+    });
     int idleTurns = 0;  // turns in a row that found nothing to do
     // A key press offered to JavaScript first (Bloom's PlatformKeyboard: the menus' shortcuts, ADR
     // 0021) is answered on JavaScript's thread, which may be busy: the key, and every event of the
@@ -3065,6 +3093,16 @@ int main(int argc, char** argv) {
                                            folly::dynamic::array("OxyOSQuitRequested", told));
           } else if (services.quit.reply) {
             services.quit.reply(asked.code, true);
+          }
+        }
+        // Sudden Termination (docs/adr/0064, decision 10): it may be ended at once, without being
+        // asked, while JavaScript handles no question to quit, holds nothing off and no storage
+        // request is unanswered (a write not yet on the disk); told to the compositor as it changes.
+        if (services.quit.available) {
+          bool clean = !quitHandled && suddenHolds == 0 && (!services.storage || services.storage->outstanding() == 0);
+          if (suddenTold != clean && window->setSuddenTermination(clean)) {
+            suddenTold = clean;
+            oxyos::Report::get().input("sudden.termination", 0, folly::dynamic::object("enabled", clean));
           }
         }
         // Answered quit (here or by JavaScript): it ends now, as for a close request, whatever its
@@ -3688,6 +3726,23 @@ int main(int argc, char** argv) {
           popups.changed();
           shellSurfaces.changed();
           safeAreas.sync(tree);
+        }
+        // A field the assistive technology's focus followed (editing.onFocus) that lost its focus or
+        // went (a rename cancelled, a dialog's field closed with it, a press on a list's row) leaves
+        // that focus with the keyboard's, as VoiceOver's cursor stays with the keyboard's focus: the
+        // control the keys are on again, else where it was before the field took it.
+        if (fieldFollowed >= 0 && accessibility.focused() == fieldFollowed &&
+            (editing.focused() != fieldFollowed || !tree.views().count(fieldFollowed))) {
+          auto back = keyboardFocus.focused() >= 0 ? keyboardFocus.focused() : fieldFollowedFrom;
+          if (back >= 0 && back != fieldFollowed && tree.views().count(back)) {
+            accessibility.focus(back);
+            dirty = true;
+            popups.changed();
+            shellSurfaces.changed();
+          }
+          fieldFollowed = -1;
+        } else if (fieldFollowed >= 0 && accessibility.focused() != fieldFollowed) {
+          fieldFollowed = -1;
         }
         // The new size's layout reaches JavaScript at once (its onLayout, through Fabric's beat, and the
         // dimensions): settled once JavaScript ran all of it and what that set off, its thread idle, and

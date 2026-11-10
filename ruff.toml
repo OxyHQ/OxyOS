@@ -1,0 +1,18 @@
+# Python lint (tools/, scripts/, the test data's generators): ruff, in the required verify job of
+# .github/workflows/native-ci.yml. Lint only: `ruff format` would rewrite 19 of the 26 files, which
+# lands later, file by file, in a quiet window (each pass in .git-blame-ignore-revs).
+target-version = "py311" # tomllib; Debian trixie has 3.13
+extend-include = ["tools/gpu-vm/gpu-vm"]
+extend-exclude = [".worktrees"]
+
+[lint]
+# Pyflakes (undefined and unused names), syntax errors, and bugbear's likely bugs.
+select = ["F", "E9", "B"]
+
+[lint.per-file-ignores]
+# Baseline: findings already on main in files other changes are editing now, kept until each file
+# is cleaned up on its own (counts when this was set). regress.py's F841 (an unused variable) is
+# the one real finding among them.
+"tools/rn-host-spike/regress.py" = ["B905", "B023", "B007", "F841"] # 41, 6, 6, 1
+"tools/rn-host-spike/perf.py" = ["B905"] # 7
+"tools/rn-host-spike/fidelity.py" = ["B023"] # 8

@@ -15,6 +15,7 @@ import {
   moveSelection,
   openingOf,
   revealUrl,
+  locationText,
   rowDetail,
   rowLabel,
   rowPlaces,
@@ -232,6 +233,28 @@ test("a row says its title, kind and location; in grey, where it is, or in Top H
   assert.equal(rowDetail(item("settings:wifi", "settings"), en, true), "System Settings");
   assert.equal(rowDetail(item("application:a", "application"), en, true), "");
   assert.equal(rowLabel(item("application:a", "application", { title: "Allo" }), en), "Allo, Application");
+});
+
+test("a standard folder is named in the person's language, the folders below it as they are", () => {
+  const nested = item("file:///home/ana/Documents/Trabajo/plan.pdf", "pdf", {
+    title: "plan.pdf",
+    location: "Documents › Trabajo",
+    place: { key: "documents", within: ["Trabajo"] },
+  });
+  assert.equal(locationText(nested, es), "Documentos › Trabajo");
+  assert.equal(locationText(nested, en), "Documents › Trabajo");
+  assert.equal(rowDetail(nested, es), "Documentos › Trabajo");
+  assert.equal(rowLabel(nested, es), "plan.pdf, Documento PDF, Documentos › Trabajo");
+  // Pictures under another name on disk (user-dirs.dirs): still the person's word for it.
+  const photo = item("file:///home/ana/Fotos/a.png", "image", { location: "Fotos", place: { key: "pictures", within: [] } });
+  assert.equal(locationText(photo, es), "Imágenes");
+  assert.equal(locationText(photo, en), "Pictures");
+  // Outside the standard folders, or a key this shell does not know: the location as given.
+  assert.equal(locationText(item("file:///home/ana/code/a.txt", "text", { location: "code" }), es), "code");
+  assert.equal(
+    locationText(item("file:///x", "text", { location: "Plantillas", place: { key: "templates", within: [] } }), es),
+    "Plantillas",
+  );
 });
 
 test("without the system's search, the snapshot's applications are found by name", () => {

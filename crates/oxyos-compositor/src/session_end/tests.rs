@@ -13,6 +13,7 @@ use oxyos_protocol::{
 };
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
+use std::time::Instant;
 
 const SHELL: ClientId = 1;
 const APP: ClientId = 2;
@@ -529,8 +530,57 @@ fn log_out_ends_the_session_once_every_application_has_quit() {
     assert!(s.logged_out);
     assert_eq!(s.part.state_name(), "ended");
     assert_eq!(s.logind()["calls"], json!([]));
-    // logind sees the session let the power key go as it ends.
-    assert_eq!(s.logind()["inhibitors"], json!([]));
+    // logind sees the session let the power key go as it ends: the session closes its descriptor
+    // at once, but the bus daemon and the played logind's connection let their copies of it go
+    // on their own threads, after the reply was delivered (a loaded machine sees them late).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while s.logind()["inhibitors"] != json!([]) {
+        assert!(
+            Instant::now() < deadline,
+            "the power key still held after five seconds"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Sudden Termination (decision 10): an application that said it may be ended at once, and whose
+/// process the session started, is handed to the program to end and never asked; the others are
+/// asked; one that said so but is no launch of the session's is asked; the end completes once all
+/// have gone.
+#[test]
+fn an_application_with_nothing_unsaved_is_ended_at_once_never_asked() {
+    let mut s = Session::new("sudden", yes(), false);
+    s.request(APP, Request::SuddenTermination { enabled: true });
+    s.request(OLD, Request::SuddenTermination { enabled: true });
+    assert!(s.compositor.scene.may_end_at_once(APP));
+    // The program started APP alone.
+    s.part.set_endable([APP]);
+    for key in [125, 56, 42, 16] {
+        s.compositor.scene.key(key, true);
+    }
+    s.turn();
+    assert_eq!(s.part.take_ended_at_once(), [APP]);
+    assert!(s.part.take_ended_at_once().is_empty(), "once");
+    // APP was never asked; OLD, no launch of the session's, was not ended at once.
+    let asked = s.asked();
+    assert!(asked.iter().all(|(to, _)| *to != APP), "{asked:?}");
+    // The program ends APP: it goes, and nothing waits on it.
+    s.compositor.scene.disconnect(APP);
+    s.compositor.scene.disconnect(OLD);
+    s.turn();
+    assert!(s.logged_out);
+    // Having said otherwise since, it is asked.
+    let mut s = Session::new("sudden-held", yes(), false);
+    s.request(APP, Request::SuddenTermination { enabled: true });
+    s.request(APP, Request::SuddenTermination { enabled: false });
+    assert!(!s.compositor.scene.may_end_at_once(APP));
+    s.part.set_endable([APP]);
+    for key in [125, 56, 42, 16] {
+        s.compositor.scene.key(key, true);
+    }
+    s.turn();
+    assert!(s.part.take_ended_at_once().is_empty());
+    let _ = s.quit_serial();
 }
 
 #[test]

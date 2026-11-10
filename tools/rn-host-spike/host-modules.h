@@ -323,6 +323,10 @@ struct QuitService {
   bool available = false;
   std::function<void(bool handles)> handles;
   std::function<bool(uint32_t serial, bool quit)> reply;
+  // Sudden Termination (decision 10), as a Mac's `disableSuddenTermination`/`enableSuddenTermination`:
+  // JavaScript holds it off (+1) while it has unsaved work and lets it go (-1); the host tells the
+  // compositor whether it may be ended at once.
+  std::function<void(int delta)> holdSuddenTermination;
 };
 
 // Search (docs/adr/0051-search.mdx): whether the compositor has the search index (protocol version
