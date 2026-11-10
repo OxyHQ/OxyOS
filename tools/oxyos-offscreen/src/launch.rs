@@ -2755,6 +2755,7 @@ fn settle(
         session.serve_launches();
         session.serve_installs();
         session.serve_background();
+        session.serve_naps();
         session.serve_preferences();
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;

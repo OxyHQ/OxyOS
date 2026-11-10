@@ -2,7 +2,8 @@
 //! (docs/adr/0066-quality-of-service.mdx, decisions 4 and 5): as a Mac's window server gives the
 //! frontmost application urgency and naps what is not seen.
 //!
-//! - **Told** (decision 5): each client with an application window is told how the session
+//! - **Told** (decision 5), by the scene itself every turn (`Scene::tell_presences`, whatever
+//!   program runs the compositor): each client with an application window, how the session
 //!   presents it, all its windows together (`AppVisibility`: focused, visible, hidden), as it
 //!   connects with a window and whenever that changes. Hidden, its host stops what the display's
 //!   refresh paces (requestAnimationFrame, Animated's and Reanimated's frames), says React Native's
@@ -21,7 +22,6 @@
 //! the default weight. Only weights change: on an idle machine everything runs as before.
 
 use crate::Compositor;
-use oxyos_compositor_core::ClientId;
 use oxyos_protocol::Visibility;
 use oxyos_scopes::{CpuWeight, Properties, Scopes, Unit};
 use std::collections::{BTreeMap, BTreeSet};
@@ -109,61 +109,45 @@ struct Application {
     applied: Option<Activity>,
 }
 
-/// The applications' states, what each client was told, and the scopes' weights.
+/// The applications' states and their scopes' weights.
 pub struct Naps {
     scopes: Option<Scopes>,
-    told: BTreeMap<ClientId, Visibility>,
     applications: BTreeMap<u32, Application>,
 }
 
 impl Naps {
     /// With `scopes`, the launched applications' scopes are weighed; without (no user manager,
-    /// the development compositor without the benchmark's control group), clients are still told.
+    /// the development compositor without the benchmark's control group), only their states are
+    /// kept (the scene tells the clients either way).
     pub fn new(scopes: Option<Scopes>) -> Self {
         Self {
             scopes,
-            told: BTreeMap::new(),
             applications: BTreeMap::new(),
         }
     }
 
-    /// Each turn: tells each application client how it is presented when that changed, and sets
-    /// the weights of the applications `running` (each process the session launched, by pid, and
-    /// its id) whose state changed. `background` are the pids running only in the background (ADR
-    /// 0060), `busy` those audible or holding an inhibitor.
+    /// Each turn: sets the weights of the applications `running` (each process the session
+    /// launched, by pid, and its id) whose state changed. `background` are the pids running only in
+    /// the background (ADR 0060), `busy` those audible or holding an inhibitor.
     pub fn serve(
         &mut self,
-        compositor: &mut Compositor,
+        compositor: &Compositor,
         running: &[(u32, String)],
         background: &BTreeSet<u32>,
         busy: &BTreeSet<u32>,
         now: Instant,
     ) {
-        let presences = compositor.scene.presences();
-        // A client told before whose toplevels are all gone (closed, its process going on) is
-        // hidden; one gone is forgotten.
-        self.told
-            .retain(|client, _| compositor.peers.contains_key(client));
-        let mut by_client: Vec<(ClientId, Visibility)> = presences.into_iter().collect();
-        for client in self.told.keys() {
-            if !by_client.iter().any(|(told, _)| told == client) {
-                by_client.push((*client, Visibility::Hidden));
-            }
-        }
+        // What the scene told each application client this turn (Scene::tell_presences), by
+        // process: the most shown of its clients'.
         let mut by_pid: BTreeMap<u32, Visibility> = BTreeMap::new();
-        for (client, state) in by_client {
-            if self.told.get(&client) != Some(&state)
-                && compositor.scene.tell_visibility(client, state)
-            {
-                self.told.insert(client, state);
-            }
+        for (client, state) in compositor.scene.presented() {
             if let Some(pid) = compositor
                 .peers
-                .get(&client)
+                .get(client)
                 .and_then(|peer| u32::try_from(peer.pid).ok())
             {
-                let best = by_pid.entry(pid).or_insert(state);
-                *best = (*best).max(state);
+                let best = by_pid.entry(pid).or_insert(*state);
+                *best = (*best).max(*state);
             }
         }
         let changes = self.update(&by_pid, running, background, busy, now);

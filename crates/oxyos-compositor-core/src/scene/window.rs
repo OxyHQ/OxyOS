@@ -418,17 +418,35 @@ impl Scene {
         presences
     }
 
-    /// Tells `client` how it is presented (`AppVisibility`); false, telling nothing, to a client
-    /// of a version before `APP_VISIBILITY_VERSION` or one gone.
-    pub fn tell_visibility(&mut self, client: super::ClientId, state: Visibility) -> bool {
-        if self
-            .version_of(client)
-            .is_none_or(|version| version < APP_VISIBILITY_VERSION)
-        {
-            return false;
+    /// Each application client told how it is presented where that changed since it was last
+    /// told (`AppVisibility`, never to a client of a version before `APP_VISIBILITY_VERSION`): every
+    /// turn, as the scene's events are drained, so whatever program runs the compositor tells it.
+    /// A client told before whose windows are all closed (its process going on, ADR 0060) is
+    /// hidden; one gone is forgotten.
+    pub(super) fn tell_presences(&mut self) {
+        let mut now = self.presences();
+        self.presented
+            .retain(|client, _| self.clients.contains_key(client));
+        for client in self.presented.keys() {
+            now.entry(*client).or_insert(Visibility::Hidden);
         }
-        self.emit(client, Event::AppVisibility { state });
-        true
+        for (client, state) in now {
+            if self.presented.insert(client, state) == Some(state) {
+                continue;
+            }
+            if self
+                .version_of(client)
+                .is_some_and(|version| version >= APP_VISIBILITY_VERSION)
+            {
+                self.emit(client, Event::AppVisibility { state });
+            }
+        }
+    }
+
+    /// How each application client is presented, as last told (whatever its version): what the
+    /// session weighs each application by (naps.rs).
+    pub fn presented(&self) -> &std::collections::BTreeMap<super::ClientId, Visibility> {
+        &self.presented
     }
 
     /// Whether a window is zoomed.

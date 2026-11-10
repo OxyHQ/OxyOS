@@ -1089,7 +1089,7 @@ impl Session {
             .unwrap_or_default();
         let busy = self.compositor.inhibiting.clone();
         self.naps.serve(
-            &mut self.compositor,
+            &self.compositor,
             &running,
             &background,
             &busy,
