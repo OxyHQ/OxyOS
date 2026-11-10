@@ -86,8 +86,10 @@ class Window {
   std::optional<std::pair<float, float>> extent(uint32_t id) const;
   // Presents a canvas drawn at the surface's configured size and scale. Popups use premultiplied
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
-  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
-  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
+  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx). `onlyTurning`:
+  // nothing changed but spinning rings (progress-bar.h), as the report says of the frame.
+  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {},
+               bool onlyTurning = false);
   // Frees the GPU buffers of its surfaces that the compositor released but the one each shows
   // (oxyos_paint_trim; memory.h, once the window is idle): the bytes freed.
   uint64_t trimBuffers();

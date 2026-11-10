@@ -374,6 +374,26 @@ class LaunchToContent(unittest.TestCase):
 
 
 
+class SpinnerFrames(unittest.TestCase):
+    """`progress_frames`: the frames the application presented in the step that turned only spinning
+    rings (its report's `present` lines with `progress_only`), from the step before's end on."""
+
+    def check(self, presents, wanted):
+        report = [{"t": t, "kind": "present", "surface": 1, "sequence": n, **({"progress_only": True} if only else {})}
+                  for n, (t, only) in enumerate(presents)]
+        failures = []
+        step = {"name": "wait", "do": ["wait", 1000], "expect": {"progress_frames": wanted}}
+        regress.check_step(0, step, {"t_settled": 100}, report, 10, failures)
+        return failures
+
+    def test_the_rings_turning_in_the_step(self):
+        self.assertEqual(self.check([(5, True), (20, False), (30, True), (40, True), (120, True)], [2, 2]), [])
+
+    def test_too_few_fail(self):
+        failures = self.check([(20, False), (30, True)], [2, 100])
+        self.assertEqual(failures, ["step 1 (wait): 1 frames turned only a spinner in the step, expected 2 to 100"])
+
+
 class GlidesOnlySlow(unittest.TestCase):
     """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
 

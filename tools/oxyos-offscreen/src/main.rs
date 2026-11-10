@@ -20,6 +20,7 @@ mod passkeys;
 mod pasteboard;
 mod played_network;
 mod png;
+mod progress;
 mod reader;
 mod uinput;
 
@@ -121,6 +122,8 @@ struct Session {
     pasteboard: Option<pasteboard::Pasteboard>,
     /// With `--launch`: the assistive technology the session plays (reader.rs).
     reader: reader::Reader,
+    /// The frames that only turn a spinner, which a step's settling leaves aside (progress.rs).
+    progress: progress::ProgressFrames,
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
     /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
     launcher: Option<oxyos_apps::Launcher>,
@@ -337,6 +340,7 @@ impl Session {
             ime: None,
             pasteboard: None,
             reader: reader::Reader::default(),
+            progress: progress::ProgressFrames::new(launch::CLIENT),
             launcher: None,
             crashes: oxyos_compositor::crashes::Crashes::new(
                 oxyos_compositor::crashes::Reports::of_user(),

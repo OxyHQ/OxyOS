@@ -25,7 +25,7 @@ class WindowDamage {
   // - children drawn in a new order, with their subtrees (children added or removed are new or
   //   gone views; a popup view is drawn elsewhere);
   // - an Image view showing another picture; an expo-image view drawing other layers (a frame of a
-  //   transition or an animation);
+  //   transition or an animation); a ProgressBar spinning (progress-bar.h), each frame;
   // - the text input whose caret, selection or composition moved;
   // - a scroll view's overlay scrollbars appearing, fading, growing or going: the bands along its
   //   right and bottom edges they are drawn in (scrollbars.h);
@@ -40,6 +40,11 @@ class WindowDamage {
   std::optional<std::vector<facebook::react::Rect>> update(const ViewTree& tree, facebook::react::Tag region,
                                                            facebook::react::Point at, const Display& display,
                                                            const TextInputEdit& edit);
+  // Whether what the last update found changed was only ProgressBars spinning (progress-bar.h):
+  // their rings drawn anew and nothing else, the drawing near them that a change there redraws
+  // (a blur reading them, a stretched scroll view holding them) aside. A frame of that is no
+  // change a person waits on (the host's report says so of it: `progress_only`).
+  bool spinningOnly() const { return spinningOnly_; }
 
  private:
   std::optional<std::vector<facebook::react::Rect>> compare(const ViewTree& tree,
@@ -66,6 +71,7 @@ class WindowDamage {
   std::vector<ViewTree::Leaving> leaving_;
   std::map<facebook::react::Tag, facebook::react::Point> stretched_;
   std::map<facebook::react::Tag, ScrollbarShown> scrollbars_;
+  bool spinningOnly_ = false;
 };
 
 }  // namespace oxyos

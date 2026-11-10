@@ -1,6 +1,7 @@
 #include "damage.h"
 
 #include "expo-blur.h"
+#include "progress-bar.h"
 #include "scrollbars.h"
 #include "svg.h"
 
@@ -106,6 +107,9 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
   bool same = display_ && display_->scale == display.scale;
   bool resized = same && (display_->width != display.width || display_->height != display.height);
   std::vector<Rect> damage;
+  // The rings spinning, drawn anew each frame (progress-bar.h), apart from every other change until
+  // the views are compared: whether anything else changed is what spinningOnly() says.
+  std::vector<Rect> spinning;
   // A view and everything under it, as `views` holds them.
   auto subtree = [&](const Views& views, Tag tag, auto& self) -> void {
     auto it = views.find(tag);
@@ -121,9 +125,12 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
         continue;
       }
       const auto& then = old->second;
-      // A new picture changes the view's own drawing, under its children.
+      // A new picture changes the view's own drawing, under its children; a spinning ring draws a
+      // new one each frame (progress-bar.h).
       if (then.picture != seen.picture || then.layers != seen.layers || then.drawing != seen.drawing) {
         damage.push_back(seen.at);
+      } else if (spins(seen.view)) {
+        spinning.push_back(seen.at);
       }
       bool props = !drawsTheSame(then.view, seen.view);
       bool state = then.view.state != seen.view.state;
@@ -181,6 +188,15 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       if (!now.count(tag)) damage.push_back(seen.at);
     }
   }
+  // Whether anything but the rings changed: every change below but what a change redraws around it
+  // (in a stretched scroll view, under a blur) is one.
+  bool others = !damage.empty();
+  damage.insert(damage.end(), spinning.begin(), spinning.end());
+  size_t counted = damage.size();
+  auto noted = [&] {
+    others |= damage.size() > counted;
+    counted = damage.size();
+  };
   std::vector<std::pair<Tag, ModalPresentation>> presented;
   for (Tag modal : modals(tree)) presented.emplace_back(modal, tree.presentation(modal));
   // A modal is laid out at the window's size and a leaving one's frame is the window's: resized,
@@ -189,6 +205,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
                (resized && (!presented.empty() || !tree.leaving().empty())))) {
     damage.push_back(Rect{{0, 0}, {display.width, display.height}});
   }
+  noted();
   presented_ = std::move(presented);
   leaving_ = tree.leaving();
   // A scroll view stretched past its end (overscroll) draws its content anew wherever it is, as the
@@ -206,6 +223,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       }
     }
   }
+  noted();
   // A change inside a stretched scroll view is drawn where the stretch puts it: the whole view.
   if (same) {
     std::vector<Rect> within;
@@ -222,6 +240,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     }
     damage.insert(damage.end(), within.begin(), within.end());
   }
+  counted = damage.size();
   stretched_ = tree.stretches();
   // Overlay scrollbars that changed (appearing, fading, growing, going): the bands along the scroll
   // view's right and bottom edges their tracks take, its drawing beyond its frame included (a
@@ -243,6 +262,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     }
   }
   scrollbars_ = tree.scrollbars();
+  noted();
   if (same) {
     if (!(edit == edit_)) {
       std::vector<Tag> changed{edit_.tag, edit.tag, edit_.dropTag, edit.dropTag};
@@ -285,6 +305,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       }
     }
   }
+  noted();
   if (same) {
     // A blur view with a target (expo-blur.h) reads the target three of its radii around each of
     // its pixels: a change that near it changes it too.
@@ -305,6 +326,7 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
     }
     damage.insert(damage.end(), blurred.begin(), blurred.end());
   }
+  spinningOnly_ = same && !resized && !others && !spinning.empty();
   seen_ = std::move(now);
   Display previous = display_.value_or(display);
   display_ = display;

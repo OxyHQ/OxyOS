@@ -359,7 +359,7 @@ bool Window::disconnected() const {
   return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
 }
 
-void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
+void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage, bool onlyTurning) {
   Surface& target = surfaces_.at(id);
   FrameDiagnostics::Scope presenting(FrameDiagnostics::Part::Present);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
@@ -403,6 +403,9 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   // The frame's sequence, the client's for every surface's frames, which the compositor's
   // feedback names (regress.py: each answered once, in order, none skipped).
   parts["sequence"] = sequence;
+  // A frame that changed nothing but spinning rings, which a scenario's step does not wait on
+  // (tools/oxyos-offscreen/src/progress.rs).
+  if (onlyTurning) parts["progress_only"] = true;
   Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height

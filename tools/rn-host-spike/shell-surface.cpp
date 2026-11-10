@@ -346,6 +346,20 @@ void ShellSurfaceHost::changed() {
   for (auto& [tag, region] : regions_) region.dirty = true;
 }
 
+bool ShellSurfaceHost::spinning() const {
+  return std::any_of(regions_.begin(), regions_.end(), [](const auto& entry) { return entry.second.spins; });
+}
+
+bool ShellSurfaceHost::turn() {
+  bool ready = false;
+  for (auto& [tag, region] : regions_) {
+    if (!region.spins) continue;
+    region.dirty = true;
+    ready |= window_.ready(region.surface);
+  }
+  return ready;
+}
+
 void ShellSurfaceHost::redrawWhole() {
   for (auto& [tag, region] : regions_) region.dirty = region.whole = true;
 }
@@ -415,14 +429,15 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
       }
       accessibility_.publish(region.surface, tag, at);
       region.dirty = false;
+      region.spins = false;
       continue;
     }
     auto stats = damage ? drawRegionDamaged(tree_, tag, at, display, region.canvas, edit, *damage)
                         : drawRegion(tree_, tag, at, display, region.canvas, edit);
     // Its windows shown live, sent with this frame when they changed (ADR 0022), and where windows
     // minimize into (ADR 0011).
-    showWindows(region, stats.windowViews);
-    placeMinimizeTargets(region, stats.minimizeTargets);
+    bool windowsMoved = showWindows(region, stats.windowViews);
+    windowsMoved |= placeMinimizeTargets(region, stats.minimizeTargets);
     double renderMs =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     if (checkDamage && damage) {
@@ -472,7 +487,10 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     if (auto secure = secureFields(tree_, tag, at); window_.setSecureRegions(region.surface, secure)) {
       Report::get().input("secure.regions", region.surface, folly::dynamic::object("rects", toDynamic(secure)));
     }
-    window_.present(region.surface, region.canvas, pixels);
+    // Nothing changed but its rings (damage.h's spinningOnly), and nothing it tells with the frame.
+    bool onlyTurning = damage && region.damage.spinningOnly() && !windowsMoved;
+    window_.present(region.surface, region.canvas, pixels, onlyTurning);
+    region.spins = stats.spinning;
     double area = 0;
     for (const auto& rect : pixels) area += static_cast<double>(rect.width) * rect.height;
     double whole = static_cast<double>(region.canvas.width) * region.canvas.height;
