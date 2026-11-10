@@ -1,0 +1,29 @@
+[package]
+name = "oxyos-priority"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# rtkit (org.freedesktop.RealtimeKit1) on the system bus, and played on a run's own.
+zbus = "5"
+# The system bus as the session keeps its connections (its executor on a thread of its own).
+oxyos-seat = { path = "../oxyos-seat" }
+# sched_getattr and sched_setattr (the scheduler's slice), setpriority on another thread and
+# sched_setscheduler with SCHED_RESET_ON_FORK (the played rtkit), which rustix does not expose.
+libc = "0.2"
+
+[dev-dependencies]
+rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+
+# The workspace forbids `unsafe`. The scheduler's calls rustix lacks are made through libc, so this
+# crate denies it instead and allows it item by item; every unsafe block states why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

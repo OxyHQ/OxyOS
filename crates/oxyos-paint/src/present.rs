@@ -877,30 +877,35 @@ fn present_in(
             chain.buffers.len() - 1
         }
         None => {
-            // Every buffer of this size is the compositor's: the one released first is waited for.
-            let index = chain
-                .buffers
+            // Every buffer of this size is the compositor's: whichever it releases first is
+            // taken. Each buffer has a timeline of its own, so their points say nothing of which
+            // was presented first, and the one holding the frame the compositor shows is released
+            // only once a newer frame replaces it, which only this present can make. Waiting on
+            // the buffer of the lowest point waited on that one whenever it was the least used (a
+            // third buffer, made because the compositor was slow to release the two before, and
+            // presented last): a second lost, then the window drawn on the CPU from then on.
+            let held: Vec<usize> = (0..chain.buffers.len())
+                .filter(|&index| fits(&chain.buffers[index]))
+                .collect();
+            let ready = held
                 .iter()
-                .enumerate()
-                .filter(|(_, buffer)| fits(buffer))
-                .min_by_key(|(_, buffer)| buffer.released_at)
-                .map(|(index, _)| index)
-                .expect("buffers of this size");
-            let buffer = &chain.buffers[index];
-            let ready = client.timeline_eventfd(buffer.timeline, buffer.released_at, false)?;
-            let mut fds = [rustix::event::PollFd::new(
-                &ready,
-                rustix::event::PollFlags::IN,
-            )];
+                .map(|&index| {
+                    let buffer = &chain.buffers[index];
+                    client.timeline_eventfd(buffer.timeline, buffer.released_at, false)
+                })
+                .collect::<std::io::Result<Vec<OwnedFd>>>()?;
+            let mut fds: Vec<rustix::event::PollFd> = ready
+                .iter()
+                .map(|ready| rustix::event::PollFd::new(ready, rustix::event::PollFlags::IN))
+                .collect();
             let second = rustix::event::Timespec {
                 tv_sec: 1,
                 tv_nsec: 0,
             };
             rustix::event::poll(&mut fds, Some(&second)).map_err(std::io::Error::from)?;
-            if !Swapchain::idle(&chain.buffers[index], client) {
-                return Err(Error("no GPU buffer was released within a second".into()));
-            }
-            index
+            held.into_iter()
+                .find(|&index| Swapchain::idle(&chain.buffers[index], client))
+                .ok_or_else(|| Error("no GPU buffer was released within a second".into()))?
         }
     };
     times.release_ms += lap();

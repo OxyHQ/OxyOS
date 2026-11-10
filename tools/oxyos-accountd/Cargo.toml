@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Its unit's watchdog (sd_notify's WATCHDOG=1), without logind's bus.
+oxyos-seat = { path = "../../crates/oxyos-seat", default-features = false }
 oxyos-account = { path = "../../crates/oxyos-account" }
 # The administrator's password that authorizes erasing the machine, checked by PAM and throttled as
 # the lock checks one (src/passwords.rs).
