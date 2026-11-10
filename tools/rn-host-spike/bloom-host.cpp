@@ -439,16 +439,20 @@ class Mounter : public SchedulerDelegate {
 // loop that does not decide in time leaves JavaScript to go on.
 class KeyBurst {
  public:
-  // On JavaScript's thread, once key `key` is answered.
-  void awaitDecision(uint64_t key) {
+  // On JavaScript's thread, once key `key` is answered: whether another key of the burst follows.
+  bool awaitDecision(uint64_t key) {
     std::unique_lock lock(mutex_);
-    changed_.wait_for(lock, kAtMost, [&] { return decided_ >= key; });
+    if (!changed_.wait_for(lock, kAtMost, [&] { return decided_ >= key; })) return false;
+    return decided_ == key && another_;
   }
-  // On the UI thread: what follows key `key` is decided (the next key offered, or none).
-  void decided(uint64_t key) {
+  // On the UI thread: what follows key `key` is decided, `another` key offered or none.
+  void decided(uint64_t key, bool another) {
     {
       std::lock_guard lock(mutex_);
-      decided_ = std::max(decided_, key);
+      if (key >= decided_) {
+        decided_ = key;
+        another_ = another;
+      }
     }
     changed_.notify_all();
   }
@@ -458,6 +462,7 @@ class KeyBurst {
   std::mutex mutex_;
   std::condition_variable changed_;
   uint64_t decided_ = 0;
+  bool another_ = false;
 };
 
 class ToJavaScript {
@@ -2594,16 +2599,23 @@ int main(int argc, char** argv) {
           try {
             auto value = listener->call(*rt, jsi::valueFromDynamic(*rt, offered));
             taken = value.isBool() && value.getBool();
-            // Its microtasks, as React Native's scheduler runs a task's: React schedules the render of
-            // what the key changed from one, which runs after the keys of the burst.
-            rt->drainMicrotasks();
           } catch (const jsi::JSError& error) {
             std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
           }
         }
         answer->store(taken ? 1 : 0);
         oxyos::UiThread::wake();
-        keyBurst->awaitDecision(number);
+        // The burst's last key: the microtasks of its keys, as React Native's scheduler runs a task's
+        // (React schedules the render of what they changed from one, rendered once, after them).
+        if (!keyBurst->awaitDecision(number)) {
+          if (auto* rt = hermesRuntime.load()) {
+            try {
+              rt->drainMicrotasks();
+            } catch (const jsi::JSError& error) {
+              std::cerr << "[host] after the keys: " << error.getMessage() << "\n";
+            }
+          }
+        }
       });
     };
     uint32_t toldRefresh = 0;  // the window's display's refresh, as last told (display-refresh.h)
@@ -2994,7 +3006,7 @@ int main(int argc, char** argv) {
             replaying = nullptr;
           }
           // The next key of the burst is offered, or there is none: JavaScript goes on.
-          keyBurst->decided(key.number);
+          keyBurst->decided(key.number, offeredKey.has_value());
         }
         // The inputs below that hand JavaScript something (an event dispatched to a view, a device
         // event) are answered once it ran this turn's batch, and all it set off.
