@@ -408,8 +408,9 @@ class Watch:
     session's and the applications' pressure, and each load's progress, each stamped on the
     monotonic clock the director's steps are stamped on."""
 
-    def __init__(self, fixture, sampler, progress_files):
+    def __init__(self, fixture, sampler, progress_files, claims=None):
         self.fixture, self.sampler, self.progress_files = fixture, sampler, progress_files
+        self.claims = claims
         self.samples = []
         self.started = time.monotonic()
         # The compositor's pid once seen, and the samples since it went.
@@ -443,6 +444,8 @@ class Watch:
 
     def run(self):
         while not self.stopping.wait(0.1):
+            if self.claims:
+                self.claims.follow()
             pid = self.compositor()
             if pid and self.compositor_pid is None:
                 self.compositor_pid = pid
@@ -721,7 +724,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
         watch = {}
 
         def during(sampler, _out, watch=watch):
-            watch["it"] = Watch(fixture, sampler, loads.progress_files(load))
+            watch["it"] = Watch(fixture, sampler, loads.progress_files(load), getattr(fixture, "claims", None))
 
         before = {"machine": oom_kills(fixture.machine), "session": oom_kills(fixture.session)}
         try:
@@ -845,6 +848,42 @@ class PlayedRtkit:
         os.environ.pop("OXYOS_RTKIT_BUS", None)
 
 
+class MemoryClaims:
+    """The seat's applications' memory claim carried up to the users' slices, as the accounts'
+    service carries it (docs/adr/0066, decision 7: the floors raised for the seat's active user):
+    each time the user manager's `app.slice` says a new claim (its `memory.low`, the sum of its
+    scopes' claims the session sets), the accounts' service's own rule is run on the run's tree
+    (`oxyos-accountd --apply-memory-claim USERS SEAT BYTES`, beside the development compositor,
+    printing each `<group> <bytes>` it wrote). A build without it leaves the floors, as today's
+    machine does. What it wrote, by claim."""
+
+    def __init__(self, offscreen, fixture):
+        self.accountd = pathlib.Path(offscreen).resolve().parent / "oxyos-accountd"
+        self.fixture, self.last, self.written, self.why = fixture, None, {}, None
+
+    def follow(self):
+        """Called by the run's watch every sample: the claim carried up when it changed."""
+        if self.why:
+            return
+        claim = read_bytes(self.fixture.manager / "app.slice" / "memory.low")
+        if claim is None or claim == self.last:
+            return
+        self.last = claim
+        if not self.accountd.exists():
+            self.why = f"no {self.accountd.name} beside the development compositor"
+            return
+        done = subprocess.run([str(self.accountd), "--apply-memory-claim", str(self.fixture.machine / "user.slice"),
+                               "user-seat.slice", str(claim)], capture_output=True, text=True)
+        if done.returncode != 0:
+            self.why = (done.stderr.strip() or done.stdout.strip())[-300:]
+            return
+        self.written[str(claim)] = dict(line.split()[:2] for line in done.stdout.splitlines()
+                                        if len(line.split()) >= 2)
+
+    def record(self):
+        return {"applied": bool(self.written), "why": self.why, "written": self.written}
+
+
 def seat_weights(offscreen, fixture):
     """The users' slices weighted as the machine weighs them (docs/adr/0066, decision 8): the
     accounts' service's own rule (`oxyos-accountd --apply-seat-weights USERS SEAT`, beside the
@@ -878,6 +917,7 @@ def run(options, out, run_scenario, search):
                "kernel": platform.release(), "loads": {}, "what": dict(LOADS)}
     results["played_rtkit"] = rtkit.unit is not None
     results["seat_weights"] = seat_weights(loads.offscreen, fixture)
+    fixture.claims = MemoryClaims(loads.offscreen, fixture)
     results["image_units"] = apply_image_units(fixture, MACHINE_MIB << 20)
     results["memory"] = zswap_state()
     try:
@@ -892,6 +932,7 @@ def run(options, out, run_scenario, search):
                 loads.stop()
     finally:
         rtkit.stop()
+    results["memory_claims"] = fixture.claims.record()
     return results
 
 

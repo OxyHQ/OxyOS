@@ -117,6 +117,45 @@ class ImageMemory(unittest.TestCase):
             self.assertEqual(saturation.told_pressure(log), ["warning", "critical", "normal"])
 
 
+class Claims(unittest.TestCase):
+    def test_a_claim_is_carried_up_by_the_accounts_service_once_it_changes(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            manager = root / "machine/user.slice/user-seat.slice/user@.service"
+            (manager / "app.slice").mkdir(parents=True)
+            fixture = type("Fixture", (), {"machine": root / "machine", "manager": manager})()
+            # accountd's mode played: it prints what it would write, and says its arguments.
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            calls = root / "calls"
+            (bin_dir / "oxyos-accountd").write_text(
+                f"#!/bin/sh\necho \"$@\" >> {calls}\necho user@.service $(( $4 + 134217728 ))\n")
+            (bin_dir / "oxyos-accountd").chmod(0o755)
+            claims = saturation.MemoryClaims(bin_dir / "oxyos-offscreen", fixture)
+            claims.follow()  # no claim yet
+            (manager / "app.slice/memory.low").write_text("300000000\n")
+            claims.follow()
+            claims.follow()  # unchanged: not run again
+            (manager / "app.slice/memory.low").write_text("0\n")
+            claims.follow()
+            said = calls.read_text().splitlines()
+            self.assertEqual(len(said), 2)
+            self.assertTrue(said[0].startswith("--apply-memory-claim ") and said[0].endswith(" user-seat.slice 300000000"))
+            self.assertEqual(claims.record()["written"]["300000000"], {"user@.service": str(300000000 + 134217728)})
+
+    def test_without_the_mode_the_floors_stay(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            manager = root / "machine/user.slice/user-seat.slice/user@.service"
+            (manager / "app.slice").mkdir(parents=True)
+            (manager / "app.slice/memory.low").write_text("5\n")
+            fixture = type("Fixture", (), {"machine": root / "machine", "manager": manager})()
+            claims = saturation.MemoryClaims(root / "nowhere/oxyos-offscreen", fixture)
+            claims.follow()
+            self.assertFalse(claims.record()["applied"])
+            self.assertIn("no oxyos-accountd", claims.record()["why"])
+
+
 class Windows(unittest.TestCase):
     def watch(self, samples):
         watch = saturation.Watch.__new__(saturation.Watch)
