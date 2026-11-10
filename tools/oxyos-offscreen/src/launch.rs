@@ -886,6 +886,53 @@ fn chord(codes: &[u32]) -> String {
         .join("+")
 }
 
+/// A colour the primary output shows at a point, in its pixels (`Settling::until_pixels`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputPixel {
+    pub x: u32,
+    pub y: u32,
+    /// 0xRRGGBB, as the output's frame holds it.
+    pub rgb: u32,
+}
+
+/// `X,Y=#RRGGBB` points joined by `;`, as `--until-pixels` takes them.
+fn output_pixels(text: &str) -> Option<Vec<OutputPixel>> {
+    text.split(';')
+        .map(|point| {
+            let (at, colour) = point.split_once('=')?;
+            let (x, y) = at.split_once(',')?;
+            Some(OutputPixel {
+                x: x.trim().parse().ok()?,
+                y: y.trim().parse().ok()?,
+                rgb: u32::from_str_radix(colour.trim().strip_prefix('#')?, 16)
+                    .ok()
+                    .filter(|_| colour.trim().len() == 7)?,
+            })
+        })
+        .collect()
+}
+
+/// Whether the primary output shows `pixels`, each channel within the tolerance a step's
+/// `output_pixels` is checked with (3).
+fn output_shows(compositor: &Compositor, pixels: &[OutputPixel]) -> bool {
+    let Some(screen) = compositor.screens.first() else {
+        return false;
+    };
+    pixels.iter().all(|pixel| {
+        if pixel.x >= screen.width || pixel.y >= screen.height {
+            return false;
+        }
+        let shown = screen.framebuffer[(pixel.y * screen.width + pixel.x) as usize];
+        (0..3).all(|channel| {
+            let (a, b) = (
+                (shown >> (channel * 8)) & 0xff,
+                (pixel.rgb >> (channel * 8)) & 0xff,
+            );
+            a.abs_diff(b) <= 3
+        })
+    })
+}
+
 /// How a step's answer settles, from the flags before it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Settling {
@@ -903,6 +950,12 @@ pub struct Settling {
     /// set off (a live region it changed, said by the screen reader) is the step's own too, as
     /// everything said on the way is.
     pub until_named: Option<(u64, String)>,
+    /// `--until-pixels MS X,Y=#RRGGBB;...`: its answer is drawn on the application's own clock (an
+    /// image it decodes on a thread of its own, after the frame that laid it out): it settles only
+    /// once the primary output shows each colour at its point (output pixels), within MS, and has
+    /// shown them for the step's stillness. A launched application's frames are not changes (it
+    /// may draw as long as it likes), so nothing else would wait for them.
+    pub until_pixels: Option<(u64, Vec<OutputPixel>)>,
     /// `--until-ended`: its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
@@ -1091,7 +1144,7 @@ pub struct Launch {
     pub login: Option<PathBuf>,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1272,6 +1325,14 @@ impl Launch {
                     let ms = ms.parse().map_err(|_| "--until-named MS NAME")?;
                     let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     settling.until_named = Some((ms, name.to_string()));
+                    continue;
+                }
+                Some("--until-pixels") => {
+                    const ARGS: &str = "--until-pixels MS X,Y=#RRGGBB;...";
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let ms = ms.parse().map_err(|_| ARGS)?;
+                    let pixels = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    settling.until_pixels = Some((ms, output_pixels(pixels).ok_or(ARGS)?));
                     continue;
                 }
                 Some("--launch") => continue,
@@ -2667,6 +2728,7 @@ fn clear_of_minute(
             still: SETTLE,
             sheet: false,
             named: None,
+            pixels: None,
             ended: false,
         },
         Some(window),
@@ -2692,6 +2754,8 @@ struct Wait<'a> {
     still: Duration,
     sheet: bool,
     named: Option<&'a str>,
+    /// The colours the answer shows on the output (`Settling::until_pixels`).
+    pixels: Option<&'a [OutputPixel]>,
     /// The session's end is the answer (`Settling::ended`).
     ended: bool,
 }
@@ -2710,6 +2774,7 @@ fn settle(
         still,
         sheet,
         named,
+        pixels,
         ended,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
@@ -2740,6 +2805,19 @@ fn settle(
     // starts the stillness itself: settling the moment it appeared left what that frame set off
     // (its live region said by the screen reader) to the next step.
     let mut named_since: Option<Instant> = None;
+    // Since when the output has shown the answer's colours (`pixels`).
+    let mut pixels_since: Option<Instant> = None;
+    // A screenshot being written (on the writer's thread, ADR 0024's decision 10) is an answer
+    // still to come: the shell's thumbnail and what the screen reader is told follow it. Its end
+    // starts the stillness, as a change does.
+    let writing = |session: &Session| {
+        session
+            .compositor
+            .screenshots
+            .as_ref()
+            .is_some_and(|writer| writer.writing())
+    };
+    let mut was_writing = writing(session);
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -2776,11 +2854,15 @@ fn settle(
         let order_now = window_order(&session.compositor);
         let order_changed = order_now != order_last;
         order_last = order_now;
+        let writing_now = writing(session);
+        let written = was_writing && !writing_now;
+        was_writing = writing_now;
         let shell_changed = shell_now != shell_last
             || launched_changed
             || companion_changed
             || drawn_changed
-            || order_changed;
+            || order_changed
+            || written;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -2857,6 +2939,18 @@ fn settle(
                 named_since.is_some_and(|since| since.elapsed() >= still)
             }
         };
+        // The answer's colours, once the output shows them.
+        let pixels_shown = match pixels {
+            None => true,
+            Some(pixels) => {
+                if !output_shows(&session.compositor, pixels) {
+                    pixels_since = None;
+                } else if pixels_since.is_none() {
+                    pixels_since = Some(Instant::now());
+                }
+                pixels_since.is_some_and(|since| since.elapsed() >= still)
+            }
+        };
         // The session's end, once every application quit (ADR 0064).
         let ended_now = !ended
             || session
@@ -2865,9 +2959,11 @@ fn settle(
                 .is_some_and(|ending| ending.state_name() == "ended");
         if !changed
             && !shell_changed
+            && !writing_now
             && answered
             && sheet_shown
             && named_shown
+            && pixels_shown
             && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
@@ -6136,6 +6232,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             still: launch.launch_settle,
             sheet: false,
             named: None,
+            pixels: None,
             ended: false,
         },
         login.then_some(primary),
@@ -6579,16 +6676,22 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             *may_stay || matches!(step, Step::Swipe { .. }),
             Wait {
                 deadline: Instant::now()
-                    + settling
-                        .until_named
-                        .as_ref()
-                        .map_or(STEP_DEADLINE, |(ms, _)| {
-                            STEP_DEADLINE.max(Duration::from_millis(*ms))
-                        }),
+                    + [
+                        settling.until_named.as_ref().map(|(ms, _)| *ms),
+                        settling.until_pixels.as_ref().map(|(ms, _)| *ms),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .map(Duration::from_millis)
+                    .fold(STEP_DEADLINE, Duration::max),
                 waiting_for: &what,
                 still: SETTLE,
                 sheet: settling.sheet,
                 named: settling.until_named.as_ref().map(|(_, name)| name.as_str()),
+                pixels: settling
+                    .until_pixels
+                    .as_ref()
+                    .map(|(_, pixels)| pixels.as_slice()),
                 ended: settling.ended,
             },
             Some(window),
@@ -7067,6 +7170,44 @@ mod tests {
             named,
             [None, Some((120000, "Open Inbox".to_string())), None]
         );
+    }
+
+    #[test]
+    fn until_pixels_is_the_step_after_it_alone_and_takes_its_colours() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--until-pixels",
+            "30000",
+            "345,559=#ff9f0a;792,395=#2F6FED",
+            "--key",
+            "15",
+            "--key",
+            "57",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        let pixels: Vec<_> = launch
+            .steps
+            .iter()
+            .map(|(_, s)| s.until_pixels.clone())
+            .collect();
+        let at = |x, y, rgb| OutputPixel { x, y, rgb };
+        assert_eq!(
+            pixels,
+            [
+                Some((30000, vec![at(345, 559, 0xff9f0a), at(792, 395, 0x2f6fed)])),
+                None
+            ]
+        );
+        for wrong in [
+            "345,559",
+            "345,559=ff9f0a",
+            "345=#ff9f0a",
+            "1,2=#fff",
+            "1,2=#gg0000",
+        ] {
+            assert!(output_pixels(wrong).is_none(), "{wrong}");
+        }
     }
 
     #[test]

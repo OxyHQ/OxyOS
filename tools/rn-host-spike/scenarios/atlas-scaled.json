@@ -101,13 +101,17 @@
   ],
   "steps": [
     {
-      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window, once Atlas shows it",
       "do": [
         "press_output",
         [
           680,
           773
         ]
+      ],
+      "until_named": [
+        "Discover",
+        30000
       ],
       "expect": {
         "in_shell": {
