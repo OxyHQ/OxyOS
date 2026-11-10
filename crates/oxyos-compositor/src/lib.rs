@@ -49,6 +49,7 @@ pub mod idle;
 pub mod input_methods;
 pub mod installs;
 pub mod login;
+pub mod memory_pressure;
 pub mod motion;
 pub mod networks;
 pub mod passkeys;

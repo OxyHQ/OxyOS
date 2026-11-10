@@ -213,14 +213,14 @@ def placed(group, command, unit=None):
 
 
 def unit_settings(path):
-    """A unit file's `[Service]` settings that say where and how its processes run, as systemd reads
-    them (the last of a key wins)."""
+    """A unit file's or a drop-in's settings that say where and how its processes run (its
+    `[Service]`, `[Slice]` or `[Scope]` section's), as systemd reads them (the last of a key wins)."""
     settings, section = {}, None
     for line in pathlib.Path(path).read_text().splitlines():
         line = line.strip()
         if line.startswith("["):
             section = line
-        elif section == "[Service]" and "=" in line and not line.startswith("#"):
+        elif section in ("[Service]", "[Slice]", "[Scope]") and "=" in line and not line.startswith("#"):
             key, value = line.split("=", 1)
             settings[key.strip()] = value.strip()
     return settings
@@ -286,6 +286,75 @@ def apply_unit(group, settings, machine_bytes):
     return written
 
 
+# The image's drop-ins for the machine's units and the user manager's (config/; docs/adr/
+# 0066-quality-of-service.mdx, decision 7) and the fixture's control groups each stands for: their
+# memory protections and limits written to the fixture as systemd writes them, so a load measures
+# them. A tree without them (before step 6) writes nothing.
+IMAGE_UNITS = TREE / "config/includes.chroot_after_packages/usr/lib/systemd"
+DROP_INS = [
+    ("system/user.slice.d", lambda f: [f.machine / "user.slice"]),
+    ("system/user-.slice.d", lambda f: [f.session.parent, f.other]),
+    ("system/session-.scope.d", lambda f: [f.session]),
+    ("system/user@.service.d", lambda f: [f.manager]),
+    ("user/session.slice.d", lambda f: [f.manager / "session.slice"]),
+    ("user/background.slice.d", lambda f: [f.manager / "background.slice"]),
+    ("user/app.slice.d", lambda f: [f.manager / "app.slice"]),
+]
+
+
+def apply_image_units(fixture, machine_bytes):
+    """Each of the image's drop-ins applied to the groups it stands for in the fixture: what was
+    written, by group."""
+    written = {}
+    for folder, groups in DROP_INS:
+        for drop_in in sorted((IMAGE_UNITS / folder).glob("*.conf")):
+            settings = unit_settings(drop_in)
+            for group in groups(fixture):
+                done = apply_unit(group, settings, machine_bytes)
+                if done:
+                    written.setdefault(str(group.relative_to(fixture.root)), {}).update(done)
+    return written
+
+
+def zswap_state():
+    """The machine's zswap and MGLRU settings, as the run found them (the device's, never changed by
+    the benchmark)."""
+    def read(path):
+        try:
+            return pathlib.Path(path).read_text().strip()
+        except OSError:
+            return None
+    zswap = "/sys/module/zswap/parameters/"
+    return {"zswap": read(zswap + "enabled"), "compressor": read(zswap + "compressor"),
+            "max_pool_percent": read(zswap + "max_pool_percent"), "shrinker": read(zswap + "shrinker_enabled"),
+            "mglru_min_ttl_ms": read("/sys/kernel/mm/lru_gen/min_ttl_ms")}
+
+
+def oom_kills(group):
+    """The processes the kernel's OOM killer ended in a control group and below (memory.events'
+    `oom_kill`)."""
+    try:
+        for line in (group / "memory.events").read_text().splitlines():
+            key, _, value = line.partition(" ")
+            if key == "oom_kill":
+                return int(value)
+    except OSError:
+        pass
+    return 0
+
+
+def told_pressure(director_log):
+    """The levels the development compositor said the machine's memory pressure moved through in a
+    run (`[session] memory pressure: …`)."""
+    try:
+        text = pathlib.Path(director_log).read_text(errors="replace")
+    except OSError:
+        return []
+    return [line.rsplit(": ", 1)[1].strip().lower() for line in text.splitlines()
+            if line.startswith("[session] memory pressure: ") and line.rsplit(": ", 1)[1].strip() in
+            ("Normal", "Warning", "Critical")]
+
+
 def pressure(group):
     """A control group's pressure stall totals (µs): {cpu, memory, io} of `some`."""
     totals = {}
@@ -320,6 +389,13 @@ def turn_thread(pid):
     return {"nice": int(stat[16]), "policy": int(stat[38]), "slice_ns": slice_ns}
 
 
+def read_bytes(path):
+    try:
+        return int(pathlib.Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def read_progress(path):
     try:
         return json.loads(pathlib.Path(path).read_text())
@@ -332,8 +408,9 @@ class Watch:
     session's and the applications' pressure, and each load's progress, each stamped on the
     monotonic clock the director's steps are stamped on."""
 
-    def __init__(self, fixture, sampler, progress_files):
+    def __init__(self, fixture, sampler, progress_files, claims=None):
         self.fixture, self.sampler, self.progress_files = fixture, sampler, progress_files
+        self.claims = claims
         self.samples = []
         self.started = time.monotonic()
         # The compositor's pid once seen, and the samples since it went.
@@ -367,6 +444,8 @@ class Watch:
 
     def run(self):
         while not self.stopping.wait(0.1):
+            if self.claims:
+                self.claims.follow()
             pid = self.compositor()
             if pid and self.compositor_pid is None:
                 self.compositor_pid = pid
@@ -387,6 +466,9 @@ class Watch:
                 "session": pressure(self.fixture.session),
                 "apps": pressure(self.fixture.manager / "app.slice"),
                 "loads": {name: read_progress(path) for name, path in self.progress_files.items()},
+                # The machine's memory compressed in zswap's pool and written to swap, in bytes.
+                "zswap": read_bytes(self.fixture.machine / "memory.zswap.current"),
+                "swap": read_bytes(self.fixture.machine / "memory.swap.current"),
             })
 
     def stop(self):
@@ -418,6 +500,11 @@ class Watch:
                 loads[name] = {"work_per_s": round((last["work"] - first["work"]) / seconds, 3),
                                "cores": round((last["cpu_ms"] - first["cpu_ms"]) / (seconds * 1000), 2)}
         result["loads"] = loads
+        within = [s for s in self.samples if a["t"] <= s["t"] <= b["t"]]
+        for kind in ("zswap", "swap"):
+            seen = [s[kind] for s in within if s.get(kind) is not None]
+            if seen:
+                result[f"{kind}_mib"] = round(max(seen) / (1 << 20), 1)
         return result
 
 
@@ -617,6 +704,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
     name, source, steps, key, what = interaction
     latencies, compose, js, late, frames = [], [], [], 0, 0
     waits, pressures, progress, failed, turns = [], [], [], [], []
+    kills, levels, swapped = {"machine": 0, "session": 0}, [], []
     for run in range(options.runs):
         scenario = relaxed(scenario_of(source))
         # The application under the hand is one the session launched, with its id (its launch
@@ -636,8 +724,9 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
         watch = {}
 
         def during(sampler, _out, watch=watch):
-            watch["it"] = Watch(fixture, sampler, loads.progress_files(load))
+            watch["it"] = Watch(fixture, sampler, loads.progress_files(load), getattr(fixture, "claims", None))
 
+        before = {"machine": oom_kills(fixture.machine), "session": oom_kills(fixture.session)}
         try:
             summary, report, _, _ = run_scenario(options, path, run_out, during=during, cgroup=fixture.session)
         except SystemExit as failure:
@@ -649,6 +738,11 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
             if "it" in watch:
                 watch["it"].stop()
             fixture.clear()
+            # What the kernel ended for want of memory, the session's own among it; and the levels
+            # the applications were told (docs/adr/0066, decision 7).
+            kills["machine"] += oom_kills(fixture.machine) - before["machine"]
+            kills["session"] += oom_kills(fixture.session) - before["session"]
+            levels.append(told_pressure(run_out / "director.log"))
         measured = [summary["steps"][index - 1] for index in steps]
         start, end = measured[0]["t_inject"], measured[-1]["t_settled"]
         for step in measured:
@@ -672,6 +766,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
         if window.get("turn"):
             turns.append(window["turn"])
         pressures.append({where: window.get(f"{where}_pressure", {}) for where in ("session", "apps")})
+        swapped.append({kind: window.get(f"{kind}_mib") for kind in ("zswap", "swap")})
         progress.append(window.get("loads", {}))
 
     def mean_of(entries, *path):
@@ -700,6 +795,11 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
                      for where in ("session", "apps")},
         "loads": loads_progress,
         "failed": failed,
+        "oom_kills": kills,
+        # The most of the machine's memory in zswap's pool and in swap while the input was measured.
+        "zswap_mib": max((s["zswap"] for s in swapped if s.get("zswap") is not None), default=None),
+        "swap_mib": max((s["swap"] for s in swapped if s.get("swap") is not None), default=None),
+        "memory_pressure_told": levels,
         # The turn thread as the last run left it: its nice, policy and slice.
         "turn": turns[-1] if turns else None,
     }
@@ -748,6 +848,42 @@ class PlayedRtkit:
         os.environ.pop("OXYOS_RTKIT_BUS", None)
 
 
+class MemoryClaims:
+    """The seat's applications' memory claim carried up to the users' slices, as the accounts'
+    service carries it (docs/adr/0066, decision 7: the floors raised for the seat's active user):
+    each time the user manager's `app.slice` says a new claim (its `memory.low`, the sum of its
+    scopes' claims the session sets), the accounts' service's own rule is run on the run's tree
+    (`oxyos-accountd --apply-memory-claim USERS SEAT BYTES`, beside the development compositor,
+    printing each `<group> <bytes>` it wrote). A build without it leaves the floors, as today's
+    machine does. What it wrote, by claim."""
+
+    def __init__(self, offscreen, fixture):
+        self.accountd = pathlib.Path(offscreen).resolve().parent / "oxyos-accountd"
+        self.fixture, self.last, self.written, self.why = fixture, None, {}, None
+
+    def follow(self):
+        """Called by the run's watch every sample: the claim carried up when it changed."""
+        if self.why:
+            return
+        claim = read_bytes(self.fixture.manager / "app.slice" / "memory.low")
+        if claim is None or claim == self.last:
+            return
+        self.last = claim
+        if not self.accountd.exists():
+            self.why = f"no {self.accountd.name} beside the development compositor"
+            return
+        done = subprocess.run([str(self.accountd), "--apply-memory-claim", str(self.fixture.machine / "user.slice"),
+                               "user-seat.slice", str(claim)], capture_output=True, text=True)
+        if done.returncode != 0:
+            self.why = (done.stderr.strip() or done.stdout.strip())[-300:]
+            return
+        self.written[str(claim)] = dict(line.split()[:2] for line in done.stdout.splitlines()
+                                        if len(line.split()) >= 2)
+
+    def record(self):
+        return {"applied": bool(self.written), "why": self.why, "written": self.written}
+
+
 def seat_weights(offscreen, fixture):
     """The users' slices weighted as the machine weighs them (docs/adr/0066, decision 8): the
     accounts' service's own rule (`oxyos-accountd --apply-seat-weights USERS SEAT`, beside the
@@ -772,12 +908,18 @@ def run(options, out, run_scenario, search):
     chosen_loads = [(id, what) for id, what in LOADS if not options.loads or id in options.loads.split(",")]
     chosen = [i for i in INTERACTIONS if not options.interactions or i[0] in options.interactions.split(",")]
     os.environ["OXYOS_CGROUP_FIXTURE"] = str(fixture.manager)
+    # The machine's memory pressure, as the session follows /proc/pressure/memory: the fixture's
+    # machine's (docs/adr/0066, decision 7).
+    os.environ["OXYOS_MEMORY_PRESSURE_FIXTURE"] = str(fixture.machine / "memory.pressure")
     loads = Loads(options, fixture, out / "saturation", search)
     rtkit = PlayedRtkit(loads.offscreen, fixture, out / "saturation" / "rtkit")
     results = {"cpus": fixture.cpus, "cgroup": str(fixture.root), "machine_mib": MACHINE_MIB,
                "kernel": platform.release(), "loads": {}, "what": dict(LOADS)}
     results["played_rtkit"] = rtkit.unit is not None
     results["seat_weights"] = seat_weights(loads.offscreen, fixture)
+    fixture.claims = MemoryClaims(loads.offscreen, fixture)
+    results["image_units"] = apply_image_units(fixture, MACHINE_MIB << 20)
+    results["memory"] = zswap_state()
     try:
         for load, what in chosen_loads:
             print(f"saturation: {load}, {what}", file=sys.stderr, flush=True)
@@ -790,6 +932,7 @@ def run(options, out, run_scenario, search):
                 loads.stop()
     finally:
         rtkit.stop()
+    results["memory_claims"] = fixture.claims.record()
     return results
 
 
@@ -803,6 +946,20 @@ def show(results, table):
             return f"{name}: {work}{p['cores']} cores"
         return ", ".join(each(name, p) for name, p in entry["loads"].items()) or "—"
 
+    def memory(entry):
+        # What the kernel ended for want of memory, and the highest level the applications were told.
+        kills = entry.get("oom_kills") or {}
+        told = {level for run in entry.get("memory_pressure_told") or [] for level in run}
+        highest = next((level for level in ("critical", "warning") if level in told), None)
+        said = []
+        if kills.get("machine"):
+            said.append(f"{kills['machine']} OOM kills ({kills.get('session', 0)} of the session's)")
+        if highest:
+            said.append(f"told {highest}")
+        if entry.get("swap_mib") or entry.get("zswap_mib"):
+            said.append(f"zswap {entry.get('zswap_mib') or 0} MiB, swap {entry.get('swap_mib') or 0} MiB")
+        return ("; " + ", ".join(said)) if said else ""
+
     rows = []
     for load, interactions in results["loads"].items():
         for name, entry in interactions.items():
@@ -814,7 +971,8 @@ def show(results, table):
                          entry["js_ms"]["p95"] if entry["js_ms"] else "—",
                          entry["compositor_wait_us"] if entry["compositor_wait_us"] is not None else "—",
                          " / ".join(str(pressure.get(kind, "—")) for kind in ("cpu", "memory", "io")),
-                         loads(entry) + (f"; {len(entry['failed'])} runs failed" if entry.get("failed") else "")])
+                         loads(entry) + memory(entry)
+                         + (f"; {len(entry['failed'])} runs failed" if entry.get("failed") else "")])
     turn = next((entry["turn"] for interactions in results["loads"].values() for entry in interactions.values()
                  if entry.get("turn")), None)
     said = "" if not turn else (f", the compositor's turn at nice {turn['nice']}, policy {turn['policy']}, "
@@ -822,6 +980,10 @@ def show(results, table):
     seat = results.get("seat_weights") or {}
     users = (", users' slices " + " ".join(f"{k} {v}" for k, v in seat["weights"].items())
              if seat.get("applied") else ", every user's slice at 100")
+    memory = results.get("memory") or {}
+    if memory.get("zswap"):
+        said += (f", zswap {memory['zswap']} ({memory['compressor']}), MGLRU min_ttl_ms {memory['mglru_min_ttl_ms']}"
+                 f"{', the image’s memory protections' if results.get('image_units') else ''}")
     print(f"saturation on {len(results['cpus'])} CPUs ({results['kernel']}){said}"
           f"{', rtkit played' if results.get('played_rtkit') else ''}{users}:")
     print(table(rows, ["load", "interaction", "inputs", "input to present ms p50 / p95 / p99 / max", "late frames",

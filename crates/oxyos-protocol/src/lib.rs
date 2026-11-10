@@ -19,18 +19,19 @@ pub use wire::{
     Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
     BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
     CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
-    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
-    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
-    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd,
-    ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType,
-    TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    GestureOverlay, GesturePhase, Gravity, MemoryPressureLevel, MenuField, MenuFlags, MenuKind,
+    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
+    SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
+    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
+    TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 40;
+pub const VERSION: u16 = 46;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -63,6 +64,10 @@ pub const QUIT_REQUESTS_VERSION: u16 = 38;
 /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10): an older one closes the
 /// connection for it, so a client tells it only to this version or newer.
 pub const SUDDEN_TERMINATION_VERSION: u16 = 40;
+/// The first version whose compositor tells an application how short of memory the machine is
+/// (`MemoryPressure`, docs/adr/0066-quality-of-service.mdx, decision 7): a client of an older one
+/// is never told, and keeps what it holds until it trims itself idle.
+pub const MEMORY_PRESSURE_VERSION: u16 = 46;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";

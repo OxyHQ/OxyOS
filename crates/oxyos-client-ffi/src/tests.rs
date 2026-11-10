@@ -7589,6 +7589,54 @@ fn safe_mode_crosses_the_abi() {
 }
 
 #[test]
+fn memory_pressure_crosses_the_abi() {
+    for (name, value) in [
+        (
+            "OXYOS_EVENT_MEMORY_PRESSURE",
+            i64::from(OXYOS_EVENT_MEMORY_PRESSURE),
+        ),
+        (
+            "OXYOS_MEMORY_PRESSURE_NORMAL",
+            i64::from(OXYOS_MEMORY_PRESSURE_NORMAL),
+        ),
+        (
+            "OXYOS_MEMORY_PRESSURE_WARNING",
+            i64::from(OXYOS_MEMORY_PRESSURE_WARNING),
+        ),
+        (
+            "OXYOS_MEMORY_PRESSURE_CRITICAL",
+            i64::from(OXYOS_MEMORY_PRESSURE_CRITICAL),
+        ),
+        (
+            "OXYOS_MEMORY_PRESSURE_VERSION",
+            i64::from(OXYOS_MEMORY_PRESSURE_VERSION),
+        ),
+    ] {
+        assert_eq!(define(name), value, "{name}");
+    }
+    for (level, detail) in [
+        (
+            oxyos_protocol::MemoryPressureLevel::Normal,
+            OXYOS_MEMORY_PRESSURE_NORMAL,
+        ),
+        (
+            oxyos_protocol::MemoryPressureLevel::Warning,
+            OXYOS_MEMORY_PRESSURE_WARNING,
+        ),
+        (
+            oxyos_protocol::MemoryPressureLevel::Critical,
+            OXYOS_MEMORY_PRESSURE_CRITICAL,
+        ),
+    ] {
+        let told = convert(&Event::MemoryPressure { level }).unwrap();
+        assert_eq!(
+            (told.kind, told.detail),
+            (OXYOS_EVENT_MEMORY_PRESSURE, detail)
+        );
+    }
+}
+
+#[test]
 fn a_request_to_quit_and_its_answer_cross_the_abi() {
     for (name, value) in [
         (

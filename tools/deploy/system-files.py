@@ -8,10 +8,13 @@ PAM services (pam.d/*), sysusers and tmpfiles files; and for Safe Mode on a conv
 at /usr/sbin as its package installs it), each kernel-install plugin its package has and each polkit
 rule the image has, at the paths they have there; and for backups (docs/adr/0059-backups.mdx) the
 backup service's program (tools/oxyos-backupd, at the path its units start it from) and each of its
-units. Each must be in the manifest, from where it is, and a PAM file where its header says it is
+units; and for memory (docs/adr/0066-quality-of-service.mdx, decision 7) every drop-in of the image's
+units (system and user), its tmpfiles and its modules-load files, at the paths they have there.
+Each must be in the manifest, from where it is, and a PAM file where its header says it is
 "Installed as". Every FROM must exist (a target/release binary must be one of those). Prints the cargo
 packages a deploy builds with `--packages`, and the Debian packages it installs with `--apt`: restic
-and rclone, which the backup service runs, each checked to be in the image's manifest.
+and rclone, which the backup service runs, and systemd-oomd, each checked to be in the image's
+manifest.
 """
 import pathlib
 import re
@@ -32,6 +35,13 @@ BACKUPS = ("oxyos-backupd", "target/release/oxyos-backupd", "/usr/libexec/oxyos-
 BACKUP_UNITS = "tools/oxyos-backupd"
 BACKUP_PACKAGES = ("restic", "rclone")
 IMAGE_MANIFEST = "config/package-lists/live.list.chroot"
+# Memory (ADR 0066, decision 7): the image's drop-ins for its units and the user manager's, and its
+# tmpfiles and modules-load files, each deployed where the image installs it; and systemd-oomd, the
+# image's, installed by tools/deploy/remote.sh with apt.
+INCLUDES = "config/includes.chroot_after_packages"
+MEMORY_GLOBS = ("usr/lib/systemd/system/*.d/*.conf", "usr/lib/systemd/user/*.d/*.conf",
+                "usr/lib/tmpfiles.d/*.conf", "usr/lib/modules-load.d/*.conf")
+MEMORY_PACKAGES = ("systemd-oomd",)
 
 
 def manifest():
@@ -67,10 +77,16 @@ def required():
         want[str(path.relative_to(ROOT))] = (f"/usr/lib/kernel/install.d/{path.name}", "0755")
     for path in sorted((ROOT / POLKIT).glob("*.rules")):
         want[str(path.relative_to(ROOT))] = (f"/etc/polkit-1/rules.d/{path.name}", "0644")
+    for path in memory_files():
+        want[str(path.relative_to(ROOT))] = ("/" + str(path.relative_to(ROOT / INCLUDES)), "0644")
     want[BACKUPS[1]] = (BACKUPS[2], "0755")
     for path in backup_units():
         want[str(path.relative_to(ROOT))] = (f"/usr/lib/systemd/system/{path.name}", "0644")
     return want
+
+
+def memory_files():
+    return sorted({path for pattern in MEMORY_GLOBS for path in (ROOT / INCLUDES).glob(pattern)})
 
 
 def backup_units():
@@ -87,7 +103,8 @@ def backup_errors():
             if start != BACKUPS[2]:
                 errors.append(f"{path.relative_to(ROOT)} starts {start}, not {BACKUPS[2]}")
     image = {line.strip() for line in (ROOT / IMAGE_MANIFEST).read_text().splitlines() if not line.startswith("#")}
-    errors += [f"{package} is not in {IMAGE_MANIFEST}" for package in BACKUP_PACKAGES if package not in image]
+    errors += [f"{package} is not in {IMAGE_MANIFEST}" for package in BACKUP_PACKAGES + MEMORY_PACKAGES
+               if package not in image]
     return errors
 
 
@@ -148,6 +165,8 @@ def main():
         print(" ".join(f"-p {package}" for package in (*STACKS, RECOVERY[0], BACKUPS[0])))
     elif sys.argv[1:] == ["--apt"]:
         print(" ".join(BACKUP_PACKAGES))
+    elif sys.argv[1:] == ["--apt-memory"]:
+        print(" ".join(MEMORY_PACKAGES))
     else:
         print(f"tools/deploy/system-files: {len(entries)} files, as the tree has them")
 

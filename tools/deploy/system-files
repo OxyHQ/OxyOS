@@ -2,12 +2,16 @@
 # "Installing on a machine"; docs/adr/0010-lock-screen.mdx; docs/adr/0054-recovery-and-erasing.mdx), and for
 # Safe Mode on a converted machine (ADR 0054, decision 10: the recovery's program, which writes its boot
 # entries, OxyOS's kernel-install plugin and the polkit rule), and for backups (docs/adr/0059-backups.mdx:
-# the backup service and its units, the migration's socket and service), read by tools/deploy/remote.sh.
+# the backup service and its units, the migration's socket and service), and for memory
+# (docs/adr/0066-quality-of-service.mdx, decision 7: zswap and MGLRU set at boot, the session's and
+# the user manager's slices' protections, systemd-oomd on the applications' slice), read by
+# tools/deploy/remote.sh.
 # tools/deploy/system-files.py checks it against the tree: every binary, unit, PAM service, sysusers and
 # tmpfiles file of tools/oxyos-session, tools/oxyos-login and tools/oxyos-accountd is here, every PAM file
 # where its own header says it is installed, the recovery's program, every kernel-install plugin of
 # tools/oxyos-recovery and every polkit rule of config/, each where the image installs it, the backup
-# service's program where its units start it and every unit of tools/oxyos-backupd. A FROM in
+# service's program where its units start it and every unit of tools/oxyos-backupd, and every
+# drop-in, tmpfiles and modules-load file of config/'s, each where the image installs it. A FROM in
 # target/release/ is built there (by its tool's package).
 # FROM                                                                  TO                                              MODE
 target/release/oxyos-session                                            /usr/bin/oxyos-session                          0755
@@ -33,3 +37,12 @@ target/release/oxyos-backupd                                            /usr/lib
 tools/oxyos-backupd/oxyos-backupd.service                               /usr/lib/systemd/system/oxyos-backupd.service   0644
 tools/oxyos-backupd/oxyos-migrate.service                               /usr/lib/systemd/system/oxyos-migrate.service   0644
 tools/oxyos-backupd/oxyos-migrate.socket                                /usr/lib/systemd/system/oxyos-migrate.socket    0644
+config/includes.chroot_after_packages/usr/lib/tmpfiles.d/oxyos-memory.conf /usr/lib/tmpfiles.d/oxyos-memory.conf            0644
+config/includes.chroot_after_packages/usr/lib/modules-load.d/oxyos-zswap.conf /usr/lib/modules-load.d/oxyos-zswap.conf         0644
+config/includes.chroot_after_packages/usr/lib/systemd/system/user.slice.d/50-oxyos-memory.conf /usr/lib/systemd/system/user.slice.d/50-oxyos-memory.conf 0644
+config/includes.chroot_after_packages/usr/lib/systemd/system/user-.slice.d/50-oxyos-memory.conf /usr/lib/systemd/system/user-.slice.d/50-oxyos-memory.conf 0644
+config/includes.chroot_after_packages/usr/lib/systemd/system/session-.scope.d/50-oxyos-memory.conf /usr/lib/systemd/system/session-.scope.d/50-oxyos-memory.conf 0644
+config/includes.chroot_after_packages/usr/lib/systemd/system/user@.service.d/50-oxyos-memory.conf /usr/lib/systemd/system/user@.service.d/50-oxyos-memory.conf 0644
+config/includes.chroot_after_packages/usr/lib/systemd/user/session.slice.d/50-oxyos-memory.conf /usr/lib/systemd/user/session.slice.d/50-oxyos-memory.conf 0644
+config/includes.chroot_after_packages/usr/lib/systemd/user/background.slice.d/50-oxyos-memory.conf /usr/lib/systemd/user/background.slice.d/50-oxyos-memory.conf 0644
+config/includes.chroot_after_packages/usr/lib/systemd/user/app.slice.d/50-oxyos-oomd.conf /usr/lib/systemd/user/app.slice.d/50-oxyos-oomd.conf 0644

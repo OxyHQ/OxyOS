@@ -76,6 +76,86 @@ class Placed(unittest.TestCase):
             self.assertTrue(joined.isdigit())
 
 
+class ImageMemory(unittest.TestCase):
+    """The image's memory protections (docs/adr/0066, decision 7) written to the fixture's groups
+    each drop-in stands for, and what a run records of the kernel's kills and the levels told."""
+
+    def test_each_drop_in_on_the_groups_it_stands_for(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            machine = root / "machine"
+            seat = machine / "user.slice/user-seat.slice"
+            manager = seat / "user@.service"
+            fixture = type("Fixture", (), {"root": root, "machine": machine, "session": seat / "session.scope",
+                                           "other": machine / "user.slice/user-other.slice",
+                                           "manager": manager})()
+            for group in (fixture.session, fixture.other, manager / "session.slice", manager / "background.slice",
+                          manager / "app.slice"):
+                group.mkdir(parents=True)
+            written = saturation.apply_image_units(fixture, 4 << 30)
+            self.assertEqual((fixture.session / "memory.min").read_text(), str(512 << 20))
+            self.assertEqual((seat / "memory.min").read_text(), str(512 << 20))
+            self.assertEqual((fixture.other / "memory.low").read_text(), str(128 << 20))
+            self.assertEqual((machine / "user.slice/memory.min").read_text(), str(1 << 30))
+            self.assertEqual((manager / "memory.low").read_text(), str(128 << 20))
+            self.assertEqual((manager / "session.slice/memory.low").read_text(), str(128 << 20))
+            # A fifth of the machine's memory.
+            self.assertEqual((manager / "background.slice/memory.high").read_text(), str(int((4 << 30) * 0.2)))
+            # oomd's settings are no control group's files: nothing written for app.slice.
+            self.assertNotIn("machine/user.slice/user-seat.slice/user@.service/app.slice", written)
+
+    def test_kills_and_levels_told(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            (root / "memory.events").write_text("low 0\nhigh 3\nmax 0\noom 1\noom_kill 2\noom_group_kill 0\n")
+            self.assertEqual(saturation.oom_kills(root), 2)
+            self.assertEqual(saturation.oom_kills(root / "gone"), 0)
+            log = root / "director.log"
+            log.write_text("[session] memory pressure: Warning\n[launch] x\n[session] memory pressure: Critical\n"
+                           "[session] memory pressure: no trigger \"some\" on /x: refused\n"
+                           "[session] memory pressure: Normal\n")
+            self.assertEqual(saturation.told_pressure(log), ["warning", "critical", "normal"])
+
+
+class Claims(unittest.TestCase):
+    def test_a_claim_is_carried_up_by_the_accounts_service_once_it_changes(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            manager = root / "machine/user.slice/user-seat.slice/user@.service"
+            (manager / "app.slice").mkdir(parents=True)
+            fixture = type("Fixture", (), {"machine": root / "machine", "manager": manager})()
+            # accountd's mode played: it prints what it would write, and says its arguments.
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            calls = root / "calls"
+            (bin_dir / "oxyos-accountd").write_text(
+                f"#!/bin/sh\necho \"$@\" >> {calls}\necho user@.service $(( $4 + 134217728 ))\n")
+            (bin_dir / "oxyos-accountd").chmod(0o755)
+            claims = saturation.MemoryClaims(bin_dir / "oxyos-offscreen", fixture)
+            claims.follow()  # no claim yet
+            (manager / "app.slice/memory.low").write_text("300000000\n")
+            claims.follow()
+            claims.follow()  # unchanged: not run again
+            (manager / "app.slice/memory.low").write_text("0\n")
+            claims.follow()
+            said = calls.read_text().splitlines()
+            self.assertEqual(len(said), 2)
+            self.assertTrue(said[0].startswith("--apply-memory-claim ") and said[0].endswith(" user-seat.slice 300000000"))
+            self.assertEqual(claims.record()["written"]["300000000"], {"user@.service": str(300000000 + 134217728)})
+
+    def test_without_the_mode_the_floors_stay(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            manager = root / "machine/user.slice/user-seat.slice/user@.service"
+            (manager / "app.slice").mkdir(parents=True)
+            (manager / "app.slice/memory.low").write_text("5\n")
+            fixture = type("Fixture", (), {"machine": root / "machine", "manager": manager})()
+            claims = saturation.MemoryClaims(root / "nowhere/oxyos-offscreen", fixture)
+            claims.follow()
+            self.assertFalse(claims.record()["applied"])
+            self.assertIn("no oxyos-accountd", claims.record()["why"])
+
+
 class Windows(unittest.TestCase):
     def watch(self, samples):
         watch = saturation.Watch.__new__(saturation.Watch)

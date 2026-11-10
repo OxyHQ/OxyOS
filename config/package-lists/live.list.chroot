@@ -64,6 +64,10 @@ plymouth
 fontconfig
 
 # System services
+# Memory (docs/adr/0066-quality-of-service.mdx, decision 7): systemd-oomd ends the application whose
+# memory pressure stays too high, acting on the user manager's app.slice alone, before the kernel's
+# OOM killer would pick any process (the compositor's among them).
+systemd-oomd
 network-manager
 pipewire-audio
 upower

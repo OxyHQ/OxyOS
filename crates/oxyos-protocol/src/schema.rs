@@ -6,10 +6,11 @@ use crate::wire::{
     ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind, BackgroundStatus,
     BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock, Control,
     DismissReason, DragActions, DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase,
-    MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut,
-    SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    MemoryPressureLevel, MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome,
+    Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle,
+    PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind,
+    ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints,
+    TextPurpose, TouchKind, WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -819,6 +820,13 @@ messages! {
         // as it took the keyboard (MODIFIER_* bits), as a Mac's `flagsChanged:`: a menu's
         // alternates follow Option the instant it goes down or up.
         169 => Modifiers { surface: u32, modifiers: u8 },
+        // To an application, and at critical to the shell too (version 46,
+        // docs/adr/0066-quality-of-service.mdx, decision 7): how short of memory the machine is, as
+        // the session follows the kernel's pressure stall information, an application whose
+        // windows are all hidden told a warning first; normal again once it eases. It gives back
+        // what it can make again (caches, a collection of its JavaScript's garbage) before the
+        // kernel must take it, as iOS's `didReceiveMemoryWarning` and Android's `onTrimMemory`.
+        175 => MemoryPressure { level: MemoryPressureLevel },
         // GPU buffers (ADR 0031), after Welcome and whenever they change: the composing device's
         // render node (a dev_t; 0, none) and how many GpuFormat follow, each a DRM format and
         // modifier the compositor imports (indices from 0). No formats: no GPU buffers now.

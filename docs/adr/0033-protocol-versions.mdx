@@ -6,7 +6,7 @@ order: 42
 
 # ADR 0033: Protocol versions and compatibility
 
-Status: **accepted; implemented** (versions 2 to 38). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
+Status: **accepted; implemented** (versions 2 to 46; 41 to 45 allocated to other changes). Builds on [ADR 0001](./0001-native-platform-boundaries) (the protocol is the only way an application reaches the compositor) and [ADR 0029](./0029-chromium-on-oxyos) (an application built outside the image, against a pinned client).
 
 ## Problem
 
@@ -16,7 +16,7 @@ A platform cannot break installed applications on every change of its protocol. 
 
 ## Decision
 
-1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 38). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
+1. **The compositor serves a range of versions.** `MIN_VERSION` is the oldest version still served and `VERSION` the current one (today 2 and 46). A client's Hello gives its own range; the compositor answers with the highest version in both (`negotiate`), and refuses only a client with no version in common.
 
 2. **A version only adds.** A new version may:
    - add a message with a new opcode, in either direction;
@@ -76,7 +76,9 @@ A platform cannot break installed applications on every change of its protocol. 
    | 36 | Safe Mode ([ADR 0054](./0054-recovery-and-erasing), decision 10): `SafeMode` (event 166), told by the program running the compositor to the shell and the login screen (a client with the `shell` or the `lock` grant) as each connects, only in a start the person chose Safe Mode for; it carries nothing, and is never sent to a client of version 35 or older, whose reader would refuse it. In the C ABI, `OXYOS_EVENT_SAFE_MODE`. |
    | 37 | A long answer of the session's vocabulary whole ([ADR 0063](./0063-activity-monitor)): `SystemData` (event 167), an answer to a `SystemRequest` (serial 0: told unasked) too long for `SystemText`'s chunks, Activity Monitor's samples, as one sealed memory file of `size` bytes of JSON the event carries, as a keymap is sent (`MAX_SYSTEM_DATA_BYTES`), which the client library reads whole. Never sent to a client of version 36 or older, which is told the same answer in chunks. |
    | 38 | The session asking applications to quit before it ends ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)): `QuitRequested` (event 168, its reason the `SessionEnd` wire enum: log out, restart, shut down), sent to each application as the person logs out, restarts or shuts down, and its answer `QuitReply` (request 168: quit, or cancel the whole end), as a Mac's `applicationShouldTerminate:`. Never sent to a client of version 37 or older, whose windows are each sent `CloseRequested` instead and which cannot refuse; the client library refuses the answer to a compositor of version 37 or older (`QUIT_REQUESTS_VERSION`). And `Modifiers` (event 169): the modifiers held, told to the surface with the keyboard as they change and as it takes the keyboard with some held, as a Mac's `flagsChanged:` (a menu's alternates follow Option at once); never sent to a client of version 37 or older, which reads them from its key and pointer events as before. In the C ABI, `OXYOS_EVENT_QUIT_REQUESTED`, `OXYOS_SESSION_END_*`, `oxyos_client_reply_to_quit`, `OXYOS_QUIT_REQUESTS_VERSION` and `OXYOS_EVENT_MODIFIERS`. |
+   | 39 | A text field telling its text is empty ([ADR 0008](./0008-input-method)): `TextInputEmpty` (request 70), which surrounding chunks of none could not say; the client library says it only to a compositor of version 39 or newer. |
    | 40 | Sudden Termination ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out), decision 10): `SuddenTermination` (request 169), an application telling whether it may be ended at once as the session ends, without being asked; the client library tells it only to a compositor of version 40 or newer, which asks every application that never says so, as an older one does. |
+   | 46 | Memory pressure ([ADR 0066](./0066-quality-of-service), decision 7): `MemoryPressure` (event 175, its level the `MemoryPressureLevel` wire enum: normal, warning, critical), how short of memory the machine is as the session follows the kernel's pressure stall information, told unasked to an application whose windows are all hidden first and at critical to every application and the shell, and normal again once it eases. Never sent to a client of version 45 or older, which keeps what it holds until it trims itself idle (`MEMORY_PRESSURE_VERSION`). In the C ABI, `OXYOS_EVENT_MEMORY_PRESSURE`, `OXYOS_MEMORY_PRESSURE_*` and `OXYOS_MEMORY_PRESSURE_VERSION`. |
 
    A change to the protocol bumps `VERSION` when it adds a field to an existing message or a message an older client must never be sent; a new message only for clients that ask for it (a request, or an event sent only in answer to one) may stay in the current version. The bump adds its row here and its entries in `versions.rs`, with a test that an event of the older version is written and read as that version had it.
 

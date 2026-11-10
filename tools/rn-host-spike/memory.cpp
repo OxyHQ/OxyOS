@@ -21,6 +21,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <utility>
 
 namespace oxyos {
 
@@ -103,6 +104,36 @@ bool Memory::tick(Clock::time_point now) {
   malloc_trim(0);
   if (Report::get().enabled()) Report::get().memory(account());
   return true;
+}
+
+void Memory::relieve(bool critical) {
+  if (trimBuffers_) trimBuffers_();
+  if (GrDirectContext* context = skiaContext(gpuPaint())) {
+    if (critical) {
+      // Every GPU resource it holds, its atlases and caches too, made again as frames need them.
+      context->freeGpuResources();
+    } else {
+      context->purgeUnlockedResources(GrPurgeResourceOptions::kAllResources);
+    }
+  }
+  // Decoded pictures Skia keeps (its resource cache), and at critical its glyphs too.
+  if (critical) {
+    SkGraphics::PurgeAllCaches();
+  } else {
+    SkGraphics::PurgeResourceCache();
+  }
+  // A full collection of each runtime's garbage, whatever its own heuristics wait for.
+  for (const auto& [name, runtime] : runtimes_) {
+    if (facebook::jsi::Runtime* rt = runtime()) rt->instrumentation().collectGarbage("memory pressure");
+  }
+  malloc_trim(0);
+  // Nothing more for an idle trim to give back until the loop works again.
+  trimmed_ = true;
+  if (Report::get().enabled()) {
+    folly::dynamic account = this->account();
+    account["pressure"] = critical ? "critical" : "warning";
+    Report::get().memory(std::move(account));
+  }
 }
 
 folly::dynamic Memory::account() const {

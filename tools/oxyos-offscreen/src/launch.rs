@@ -2858,6 +2858,9 @@ fn serve_session(session: &mut Session) -> Result<()> {
     session.serve_installs();
     session.serve_background();
     session.serve_preferences();
+    if let Some(memory_pressure) = session.memory_pressure.as_mut() {
+        memory_pressure.serve(&mut session.compositor.scene);
+    }
     session.reader.absorb(&mut session.compositor);
     Ok(())
 }
@@ -3065,6 +3068,9 @@ fn settle(
         session.serve_installs();
         session.serve_background();
         session.serve_preferences();
+        if let Some(memory_pressure) = session.memory_pressure.as_mut() {
+            memory_pressure.serve(&mut session.compositor.scene);
+        }
         if let Some(ime) = session.ime.as_mut() {
             ime.serve(&mut session.compositor)?;
         }
@@ -5977,6 +5983,20 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.search_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
         session.compositor.wakers.push(waker);
         session.search = Some(search);
+    }
+    // Memory pressure as the session follows it (docs/adr/0066-quality-of-service.mdx, decision 7),
+    // only where the environment names the machine it stands for (`OXYOS_MEMORY_PRESSURE_FIXTURE`,
+    // the saturation benchmark's), and the applications' under its user manager
+    // (`OXYOS_CGROUP_FIXTURE`): never the developer's or the gate's machine, whose pressure would
+    // have a scenario's applications give back their caches at any moment.
+    if std::env::var_os("OXYOS_MEMORY_PRESSURE_FIXTURE").is_some() {
+        let followed = oxyos_compositor::memory_pressure::MemoryPressure::new(
+            oxyos_compositor::memory_pressure::session_sources(),
+        )?;
+        let waker = followed.wake_fd()?;
+        session.memory_pressure_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
+        session.memory_pressure = Some(followed);
     }
     if let Some(folder) = &launch.screenshots {
         // Written as the session writes them, into the run's own folders; the shutter recorded
