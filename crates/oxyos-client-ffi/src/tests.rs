@@ -6537,6 +6537,15 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
             oxyos_client_manage(client, OXYOS_MANAGE_FORCE_QUIT_APPLICATION, 7, 0),
             0
         );
+        // Hide Others and Show All (ADR 0021).
+        assert_eq!(
+            oxyos_client_manage(client, OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS, 7, 0),
+            0
+        );
+        assert_eq!(
+            oxyos_client_manage(client, OXYOS_MANAGE_SHOW_ALL_APPLICATIONS, 0, 0),
+            0
+        );
         assert_eq!(oxyos_client_empty_trash(client, 43), 0);
         let received = compositor.join().unwrap();
         oxyos_client_close(client);
@@ -6561,6 +6570,8 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
                 text: PreeditText::new("dropsea://trash").unwrap(),
             },
             Request::ForceQuitApplication { window: 7 },
+            Request::HideOtherApplications { window: 7 },
+            Request::ShowAllApplications {},
             Request::EmptyTrash { input: 43 },
         ]
     );

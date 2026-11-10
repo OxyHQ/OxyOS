@@ -14,8 +14,8 @@ use oxyos_client::{
 };
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, CaptureDestination,
-    CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, PanelEdge, Politeness,
-    Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
+    CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, MenuRole, PanelEdge,
+    Politeness, Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
     TextContentType, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
@@ -140,6 +140,10 @@ pub const OXYOS_EVENT_MENU_BAR_TEXT: u32 = 72;
 pub const OXYOS_EVENT_MENU_BAR_COMMITTED: u32 = 73;
 /// To an application: a command of its menus chosen in the shell's bar.
 pub const OXYOS_EVENT_MENU_ITEM_ACTIVATED: u32 = 74;
+/// To the session's shell (version 40): an entry of the menus being told is one of the
+/// application's standard commands (code: the window; detail: the entry; height:
+/// OXYOS_MENU_ROLE_*), after its MENU_BAR_ITEM and before MENU_BAR_COMMITTED.
+pub const OXYOS_EVENT_MENU_BAR_ROLE: u32 = 75;
 /// What a menu entry is (`OxyOSMenuItem.kind`, a MENU_BAR_ITEM's `height`).
 pub const OXYOS_MENU_MENU: u8 = 1;
 pub const OXYOS_MENU_ITEM: u8 = 2;
@@ -154,6 +158,11 @@ pub const OXYOS_MENU_LABEL: u32 = 1;
 pub const OXYOS_MENU_SHORTCUT: u32 = 2;
 /// `parent` of a menu of the bar.
 pub const OXYOS_NO_MENU_PARENT: u32 = u32::MAX;
+/// Which of the application's standard commands an entry is (`OxyOSMenuItem.role`, a
+/// MENU_BAR_ROLE's `height`): none, its About, its Settings….
+pub const OXYOS_MENU_ROLE_NONE: u8 = 0;
+pub const OXYOS_MENU_ROLE_ABOUT: u8 = 1;
+pub const OXYOS_MENU_ROLE_SETTINGS: u8 = 2;
 /// A CONFIGURE's `flag` bits: the window fills its output, or is zoomed to its work area.
 pub const OXYOS_CONFIGURE_FULLSCREEN: u8 = 1;
 pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
@@ -215,6 +224,11 @@ pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
 /// Force-quits the application of the window: the session ends the processes it started for it
 /// (docs/adr/0034-the-dock.mdx). Refused to a compositor of a version before 8.
 pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
+/// Hides every application but the window's (window 0: every one), and shows every application
+/// hidden again (ADR 0021: Hide Others and Show All). Refused to a compositor of a version before
+/// 40.
+pub const OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS: u8 = 11;
+pub const OXYOS_MANAGE_SHOW_ALL_APPLICATIONS: u8 = 12;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
 /// own, which oxyos_client_focus_shell_surface may cite; detail: OXYOS_SHORTCUT_*; code: the
 /// output to show it on; flag: OXYOS_SHORTCUT_INTENT_*, version 25), and how recently a window was active (code: the window; detail: its
@@ -662,6 +676,9 @@ pub struct OxyOSMenuItem {
     pub kind: u8,
     /// OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
     pub flags: u8,
+    /// OXYOS_MENU_ROLE_NONE, or which of the application's standard commands it is
+    /// (OXYOS_MENU_ROLE_ABOUT, _SETTINGS): a command without a check, each role once.
+    pub role: u8,
     /// NUL-terminated UTF-8; NULL for none (a separator).
     pub label: *const c_char,
     /// A command's key chord, NUL-terminated; NULL for none.
@@ -2075,6 +2092,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
+        Event::MenuBarItemRole {
+            window,
+            index,
+            role,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_BAR_ROLE,
+                code: window,
+                detail: index,
+                height: role as u32,
+                ..out
+            }
+        }
         Event::MenuBarCommitted { window } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_MENU_BAR_COMMITTED,
@@ -3222,7 +3252,9 @@ pub unsafe extern "C" fn oxyos_client_name_window(
 
 /// What the session's shell asks of windows and workspaces (ADR 0009, the `shell` grant):
 /// OXYOS_MANAGE_FOCUS, _CLOSE (the application is asked), _MINIMIZE or _MOVE (to `workspace`)
-/// `window`; _ACTIVATE_WORKSPACE, _ADD_WORKSPACE or _REMOVE_WORKSPACE. 0 on success.
+/// `window`; _ACTIVATE_WORKSPACE, _ADD_WORKSPACE or _REMOVE_WORKSPACE; _HIDE_APPLICATION,
+/// _QUIT_APPLICATION, _FORCE_QUIT_APPLICATION or _HIDE_OTHER_APPLICATIONS by `window`;
+/// _SHOW_ALL_APPLICATIONS. 0 on success.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.
@@ -3245,6 +3277,8 @@ pub unsafe extern "C" fn oxyos_client_manage(
         OXYOS_MANAGE_HIDE_APPLICATION => Request::HideApplication { window },
         OXYOS_MANAGE_QUIT_APPLICATION => Request::QuitApplication { window },
         OXYOS_MANAGE_FORCE_QUIT_APPLICATION => Request::ForceQuitApplication { window },
+        OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS => Request::HideOtherApplications { window },
+        OXYOS_MANAGE_SHOW_ALL_APPLICATIONS => Request::ShowAllApplications {},
         _ => return fail("unknown action"),
     };
     // SAFETY: forwarded caller contract.
@@ -3728,8 +3762,9 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility_detailed(
 
 /// Declares a toplevel's menus (ADR 0021), replacing its last: `count` entries in order, each
 /// parent before what it holds, as the commit `serial` (above every earlier one of the window;
-/// a MENU_ITEM_ACTIVATED names it with the chosen entry's index). A label longer than the
-/// protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
+/// a MENU_ITEM_ACTIVATED names it with the chosen entry's index), each entry's role told only to
+/// a compositor of version 40 or newer (an older one's shell shows it where it is declared). A
+/// label longer than the protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
 /// be another. More entries, an unknown kind or flags: OXYOS_ERROR, and nothing is sent. 0 on
 /// success.
 ///
@@ -3763,11 +3798,16 @@ pub unsafe extern "C" fn oxyos_client_set_menus(
     };
     let mut menus = Vec::with_capacity(items.len());
     for item in items {
-        let (Some(kind), Some(flags), Some(label), Some(shortcut)) = (
+        let role = match item.role {
+            OXYOS_MENU_ROLE_NONE => Some(None),
+            role => MenuRole::from_raw(role).map(Some),
+        };
+        let (Some(kind), Some(flags), Some(label), Some(shortcut), Some(role)) = (
             MenuKind::from_raw(item.kind),
             MenuFlags::new(item.flags),
             text(item.label),
             text(item.shortcut),
+            role,
         ) else {
             return fail("invalid menu entry");
         };
@@ -3777,6 +3817,7 @@ pub unsafe extern "C" fn oxyos_client_set_menus(
             flags,
             label,
             shortcut,
+            role,
         });
     }
     // SAFETY: forwarded caller contract.

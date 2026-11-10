@@ -1302,6 +1302,7 @@ int main(int argc, char** argv) {
               items.push_back(OxyOSMenuItem{.parent = entry.parent,
                                             .kind = entry.kind,
                                             .flags = entry.flags,
+                                            .role = entry.role,
                                             .label = entry.label.empty() ? nullptr : entry.label.c_str(),
                                             .shortcut = entry.shortcut.empty() ? nullptr : entry.shortcut.c_str()});
             }

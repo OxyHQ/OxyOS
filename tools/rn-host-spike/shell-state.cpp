@@ -71,7 +71,9 @@ void ShellState::readApplications() {
         "iconBody", app["iconBody"])("pinned", app["pinned"])(
         // The media types it declares it opens (docs/adr/0034-the-dock.mdx): what files dropped
         // on its dock icon it takes.
-        "opens", app.getDefault("opens", folly::dynamic::array())));
+        "opens", app.getDefault("opens", folly::dynamic::array()))(
+        // Its version and build, which the standard About panel shows (docs/adr/0021-menu-bar.mdx).
+        "version", app.getDefault("version", nullptr))("build", app.getDefault("build", nullptr)));
   }
   applications_ = std::move(applications);
 }
@@ -235,6 +237,11 @@ bool ShellState::observe(const OxyOSEvent& event) {
           .append(event.text, strnlen(event.text, sizeof(event.text)));
       return false;
     }
+    // Which entry is the application's About or Settings… (protocol version 40).
+    case OXYOS_EVENT_MENU_BAR_ROLE:
+      if (event.code != receivingMenuBar_.window || event.detail >= receivingMenuBar_.items.size()) return false;
+      receivingMenuBar_.items[event.detail].role = event.height;
+      return false;
     case OXYOS_EVENT_MENU_BAR_COMMITTED:
       if (event.code != receivingMenuBar_.window || receivingMenuBar_.items.size() != receivingMenuBar_.count) {
         return false;
@@ -401,9 +408,13 @@ folly::dynamic ShellState::state() const {
   static const char* kinds[] = {"", "menu", "item", "submenu", "separator"};
   folly::dynamic items = folly::dynamic::array();
   for (const auto& item : menuBar_.items) {
+    folly::dynamic role = item.role == OXYOS_MENU_ROLE_ABOUT      ? folly::dynamic("about")
+                          : item.role == OXYOS_MENU_ROLE_SETTINGS ? folly::dynamic("settings")
+                                                                  : folly::dynamic(nullptr);
     items.push_back(folly::dynamic::object("parent", item.parent)("kind", item.kind <= 4 ? kinds[item.kind] : "")(
         "enabled", (item.flags & OXYOS_MENU_DISABLED) == 0)("checkable", (item.flags & OXYOS_MENU_CHECKABLE) != 0)(
-        "checked", (item.flags & OXYOS_MENU_CHECKED) != 0)("label", item.label)("shortcut", item.shortcut));
+        "checked", (item.flags & OXYOS_MENU_CHECKED) != 0)("label", item.label)("shortcut", item.shortcut)(
+        "role", std::move(role)));
   }
   folly::dynamic notifications = folly::dynamic::array();
   for (const auto& [id, notification] : notifications_) {

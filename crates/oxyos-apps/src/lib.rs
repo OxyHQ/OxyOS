@@ -374,6 +374,11 @@ pub struct Application {
     pub origin: Origin,
     /// The media types it opens (`MimeType`, docs/adr/0028-file-access.mdx, decision 6).
     pub opens: Vec<String>,
+    /// Its version as people read it (`X-OxyOS-Version`, its package's `version`: "1.2.0") and
+    /// its build (`X-OxyOS-Package-Version`, the package's version code), which the standard About
+    /// panel shows (docs/adr/0021-menu-bar.mdx); none where its entry does not say.
+    pub version: Option<String>,
+    pub build: Option<u64>,
 }
 
 /// Where an application's entry comes from (docs/adr/0030-installing-applications.mdx,
@@ -672,6 +677,15 @@ pub fn parse(
         launch,
         pinned,
         origin: Origin::Development,
+        version: keys
+            .get("X-OxyOS-Version")
+            .map(|version| version.trim())
+            .filter(|version| !version.is_empty())
+            .map(str::to_owned),
+        build: keys
+            .get("X-OxyOS-Package-Version")
+            .and_then(|code| code.parse::<u64>().ok())
+            .filter(|&code| code > 0),
         opens: keys
             .get("MimeType")
             .map(|types| {

@@ -19,6 +19,14 @@ import { Shell } from '../../../apps/shell/src/Shell';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
 import { useShellMessages } from '../../../apps/shell/src/useShellMessages';
 import type { ShellMessages } from '../../../apps/shell/src/messages';
+import {
+  appMenuCommand,
+  applicationMenus,
+  applicationName,
+  applicationsShown,
+  desktopMenus,
+  type ToldMenuBar,
+} from '../../../apps/shell/src/app-menu';
 import { useSessionLocale } from './oxyos/locale';
 import { localSignInAfter, type LocalSignIn } from '../../../apps/shell/src/local-sign-in';
 import { sessionUserFrom } from '../../../apps/shell/src/session-user';
@@ -32,8 +40,6 @@ import type {
   ShellAutofill,
   ShellControl,
   ShellLock,
-  ShellMenu,
-  ShellMenuItem,
   ShellNotifications,
   ShellPowerActions,
   ShellScreenshots,
@@ -42,74 +48,6 @@ import type {
 
 /** The clipboard (docs/adr/0007-clipboard.mdx): what a sheet copies, at the person's press. */
 const clipboard = TurboModuleRegistry.get('OxyOSClipboard') as { setString(text: string): Promise<boolean> } | null;
-
-/** The active window's menus as the compositor told them (OxyOSShell's `menuBar`). */
-type MenuBar = {
-  window: number;
-  serial: number;
-  items: {
-    parent: number;
-    kind: 'menu' | 'item' | 'submenu' | 'separator';
-    enabled: boolean;
-    checkable: boolean;
-    checked: boolean;
-    label: string;
-    shortcut: string;
-  }[];
-};
-
-// A chord as OxyOS shows it: `Mod` is Ctrl (docs/adr/0021-menu-bar.mdx), Shift named in the
-// session's language, the rest as declared.
-const chord = (shortcut: string, messages: ShellMessages) =>
-  shortcut
-    .split('+')
-    .map((key) => (key === 'Mod' ? 'Ctrl' : key === 'Shift' ? messages.menus.shift : key))
-    .join('+');
-
-// A command of the window's menus, by the window, the commit and its index there.
-const COMMAND = /^window-menu:(\d+):(\d+):(\d+)$/;
-
-/**
- * The bar for the active window (ADR 0021): its application's own menu, in bold (the registry's
- * name, About, Hide, Quit), then the menus it declared, their checks and chords; none when it
- * declared none, and the shell then shows its own.
- */
-function windowMenus(bar: MenuBar | undefined, name: string, messages: ShellMessages): ShellMenu[] | null {
-  if (!bar || bar.window === 0 || bar.items.length === 0) return null;
-  const children = (parent: number): ShellMenuItem[] =>
-    bar.items.flatMap((item, index): ShellMenuItem[] => {
-      if (item.parent !== parent) return [];
-      const id = `window-menu:${bar.window}:${bar.serial}:${index}`;
-      if (item.kind === 'separator') return [{ kind: 'separator', id }];
-      if (item.kind === 'submenu') {
-        return [{ kind: 'submenu', id, label: item.label, enabled: item.enabled, items: children(index) }];
-      }
-      return [
-        {
-          id,
-          label: item.label,
-          enabled: item.enabled,
-          checked: item.checkable ? item.checked : undefined,
-          shortcut: item.shortcut ? chord(item.shortcut, messages) : undefined,
-        },
-      ];
-    });
-  const own: ShellMenu = {
-    label: name,
-    items: [
-      // No about panel yet: shown, not offered.
-      { id: 'window-app:about', label: messages.menus.aboutApp(name), enabled: false },
-      { kind: 'separator', id: 'window-app:separator' },
-      { id: `window-app:hide:${bar.window}`, label: messages.menus.hideApp(name) },
-      { id: `window-app:quit:${bar.window}`, label: messages.menus.quitApp(name) },
-    ],
-  };
-  const declared = bar.items
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.parent === -1 && item.kind === 'menu')
-    .map(({ item, index }) => ({ label: item.label, items: children(index) }));
-  return [own, ...declared];
-}
 
 const icon = (name: string) => {
   switch (name) {
@@ -153,20 +91,6 @@ const snapshot: ShellSnapshot = {
   menus: [],
 };
 
-/** The shell's own menus, while no window with menus of its own is active (ADR 0021). */
-function shellMenus(messages: ShellMessages): ShellMenu[] {
-  return [
-    { label: 'OxyOS', items: [{ id: 'system.about', label: messages.menus.about, enabled: false }] },
-    {
-      label: messages.menus.view,
-      items: [
-        { id: 'view.overview', label: messages.common.showDesktops },
-        { id: 'view.launcher', label: messages.menus.showApplications },
-      ],
-    },
-  ];
-}
-
 /** The workspaces, as many as there are, named in the session's language. */
 function workspaceNames(count: number, messages: ShellMessages, first = 0): ShellSnapshot['workspaces'] {
   return Array.from({ length: count }, (_, index) => ({
@@ -179,7 +103,11 @@ function workspaceNames(count: number, messages: ShellMessages, first = 0): Shel
 function useFixture(): ShellSnapshot {
   const messages = useShellMessages();
   return React.useMemo(
-    () => ({ ...snapshot, workspaces: workspaceNames(2, messages, 1), menus: shellMenus(messages) }),
+    () => ({
+      ...snapshot,
+      workspaces: workspaceNames(2, messages, 1),
+      menus: desktopMenus(messages, { shown: { others: true, hidden: false } }),
+    }),
     [messages],
   );
 }
@@ -367,6 +295,9 @@ type Registered = {
   pinned: number | null;
   /** The media types its entry declares it opens (ADR 0034, decision 11). */
   opens?: string[];
+  /** Its version and build, where its entry says (the standard About panel's, ADR 0021). */
+  version?: string | null;
+  build?: number | null;
 };
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
@@ -573,6 +504,8 @@ function SessionShell() {
         iconBody: app.iconBody ?? undefined,
         pinned: place !== null,
         opens: app.opens,
+        version: app.version ?? undefined,
+        build: app.build ?? undefined,
       }));
   }, [registry, kept]);
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
@@ -583,16 +516,20 @@ function SessionShell() {
   const trash = React.useMemo(() => (trashItems === null ? undefined : { items: trashItems }), [trashItems]);
   const workspaceCount: number = state?.workspaces ?? 0;
   const workspaces = React.useMemo(() => workspaceNames(workspaceCount, messages), [workspaceCount, messages]);
-  // The active window's menus, after its application's own (ADR 0021); else the shell's.
-  const bar: MenuBar | undefined = state?.menuBar;
+  // The active window's application's own menu, then the menus it declared; the desktop's while
+  // none is active (ADR 0021, apps/shell/src/app-menu.ts).
+  const bar: ToldMenuBar | undefined = state?.menuBar;
   const active = toldWindows.find((window) => window.id === bar?.window);
-  const application = active?.launched ? registry.find((app) => app.id === active.appId) : undefined;
-  const menuName = application?.name || active?.title || active?.appId || '';
-  const menus = React.useMemo(
-    () => windowMenus(bar, menuName, messages) ?? shellMenus(messages),
-    [bar, menuName, messages],
-  );
+  const menuName = applicationName(active, registry);
   const activeAppId = toldWindows.find((window) => window.focused)?.appId;
+  const { others, hidden } = applicationsShown(windows, active?.appId);
+  const menus = React.useMemo(
+    () =>
+      bar && bar.window !== 0
+        ? applicationMenus(bar, menuName, messages, { others, hidden })
+        : desktopMenus(messages, { trashItems: trashItems ?? undefined, shown: { others, hidden } }),
+    [bar, menuName, messages, others, hidden, trashItems],
+  );
   const workspaceId = String(state?.active ?? 0);
   const shown: ShellSnapshot = React.useMemo(
     () => ({
@@ -698,16 +635,34 @@ function SessionShell() {
           actions.activateApp('so.oxy.settings');
           return;
         }
-        const command = COMMAND.exec(id);
-        if (command) {
-          shell.activateMenuItem(Number(command[1]), Number(command[2]), Number(command[3]));
-          return;
+        // The application's own menu and the menus it declared (ADR 0021): a declared command,
+        // its About and Settings… included, runs in the application; Hide hides it and Quit asks
+        // each of its windows to close, as Super+H and Super+Q do (ADR 0024); Hide Others and Show
+        // All are the compositor's; the desktop's Empty Trash… is the session's, which asks first.
+        // The standard About panel is the shell's own (Shell).
+        const command = appMenuCommand(id);
+        switch (command?.kind) {
+          case 'declared':
+            shell.activateMenuItem(command.window, command.serial, command.index);
+            break;
+          case 'hide':
+            shell.hideApplication(command.window);
+            break;
+          case 'hideOthers':
+            shell.hideOtherApplications(command.window);
+            break;
+          case 'showAll':
+            shell.showAllApplications();
+            break;
+          case 'quit':
+            shell.quitApplication(command.window);
+            break;
+          case 'emptyTrash':
+            shell.emptyTrash();
+            break;
+          default:
+            break;
         }
-        // The application's own menu: Hide hides the application, Quit asks each of its windows
-        // to close, as Super+H and Super+Q do (ADR 0024).
-        const own = /^window-app:(hide|quit):(\d+)$/.exec(id);
-        if (own?.[1] === 'hide') shell.hideApplication(Number(own[2]));
-        if (own?.[1] === 'quit') shell.quitApplication(Number(own[2]));
       },
     };
     return actions;

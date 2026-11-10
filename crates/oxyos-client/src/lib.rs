@@ -8,12 +8,13 @@ use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::NotificationField;
 use oxyos_protocol::{
     AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
-    ClientConnection, DragActions, Event, Format, MenuField, MenuFlags, MenuKind, Politeness,
-    PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
-    MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES,
-    MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES, MAX_NOTIFICATION_BODY_BYTES,
-    MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES, MAX_NOTIFICATION_REPLY_BYTES,
-    MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION, VERSION,
+    ClientConnection, DragActions, Event, Format, MenuField, MenuFlags, MenuKind, MenuRole,
+    Politeness, PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES,
+    MAX_ACCESSIBLE_TEXT_BYTES, MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES,
+    MAX_MENU_SHORTCUT_BYTES, MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES,
+    MAX_NOTIFICATION_BODY_BYTES, MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES,
+    MAX_NOTIFICATION_REPLY_BYTES, MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION,
+    VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -1334,6 +1335,16 @@ impl Client {
                     })?;
                 }
             }
+            if let Some(role) = entry.role {
+                let request = Request::MenuItemRole {
+                    surface,
+                    index,
+                    role,
+                };
+                if oxyos_protocol::request_since(&request) <= self.version {
+                    self.send(&request)?;
+                }
+            }
         }
         self.send(&Request::MenusCommit { surface })
     }
@@ -1634,6 +1645,10 @@ pub struct Menu<'a> {
     pub label: &'a str,
     /// A command's key chord (`Mod+N`); empty for none.
     pub shortcut: &'a str,
+    /// Which of the application's standard commands it is (its About, its Settings…), which a
+    /// compositor of version 40 or newer tells the shell; an older one is told nothing of it, and
+    /// its shell shows the command where it is declared.
+    pub role: Option<MenuRole>,
 }
 
 /// Custom action labels within the protocol's limit, whole lines only: a label cut short would

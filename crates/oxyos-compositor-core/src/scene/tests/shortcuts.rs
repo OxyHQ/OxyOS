@@ -1327,3 +1327,100 @@ fn super_space_opens_spotlight_and_super_return_reveals_once_and_reach_nobody() 
     chord(&mut h, &[ENTER]);
     assert!(shortcuts_to(&logged(&mut h), SHELL).is_empty());
 }
+
+#[test]
+fn alt_super_h_hides_the_other_applications_and_the_shell_shows_them_all_again() {
+    const ALT: u32 = 56;
+    const THIRD: ClientId = 8;
+    let mut h = Harness::new();
+    dock(&mut h);
+    h.scene.connect(THIRD, Grants::default()).unwrap();
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let third = h.toplevel(THIRD, 1, 400, 300);
+    let first = h.toplevel(APP, 1, 400, 300);
+    let second = h.toplevel(APP, 2, 400, 300);
+    let minimized = h.toplevel(OTHER, 2, 400, 300);
+    h.scene.minimize(minimized);
+    h.activate(first);
+    h.scene.take_appearances();
+    logged(&mut h);
+    // Alt+Super+H, as a Mac's ⌥⌘H: the other applications' shown windows leave the screen, the
+    // active window's application stays, and so does the keyboard.
+    chord(&mut h, &[ALT, H]);
+    let events = logged(&mut h);
+    assert!(h.rendered(first) && h.rendered(second));
+    assert!(!h.rendered(other) && !h.rendered(third) && !h.rendered(minimized));
+    assert_eq!(h.scene.focus(), Some(first));
+    assert_eq!(h.scene.active_window(), Some(first));
+    let number = |h: &Harness, window| h.scene.window_number(window).unwrap();
+    for window in [other, third] {
+        assert!(to(&events, SHELL).contains(&Event::WindowUse {
+            window: number(&h, window),
+            used: h.scene.window_use(window).0,
+            hidden: true,
+        }));
+        assert!(h.scene.window_use(window).1);
+    }
+    // The minimized window stays in the dock, not hidden with its application.
+    assert!(!h.scene.window_use(minimized).1);
+    // Nothing reached any application but its windows leaving.
+    for client in [APP, OTHER, THIRD] {
+        assert_eq!(input_to(&events, client), []);
+    }
+    let gone: Vec<AppearanceChange> = h
+        .scene
+        .take_appearances()
+        .iter()
+        .map(|appearance| appearance.change)
+        .collect();
+    assert_eq!(gone, [AppearanceChange::Gone, AppearanceChange::Gone]);
+    // The shell's Show All: every application hidden comes back where it was, the active
+    // window stays the active one, with the keyboard; the minimized window stays minimized.
+    h.request(SHELL, Request::ShowAllApplications {}).unwrap();
+    let events = logged(&mut h);
+    assert!(h.rendered(other) && h.rendered(third) && !h.rendered(minimized));
+    assert_eq!(h.scene.focus(), Some(first));
+    assert_eq!(h.scene.active_window(), Some(first));
+    for window in [other, third] {
+        assert!(!h.scene.window_use(window).1);
+        assert!(to(&events, SHELL).iter().any(|event| matches!(
+            event,
+            Event::WindowUse { window: w, hidden: false, .. } if *w == number(&h, window)
+        )));
+    }
+    // The shell's Hide Others by a window: every application but that window's.
+    h.request(
+        SHELL,
+        Request::HideOtherApplications {
+            window: number(&h, third),
+        },
+    )
+    .unwrap();
+    assert!(h.rendered(third));
+    assert!(!h.rendered(first) && !h.rendered(second) && !h.rendered(other));
+    assert_eq!(h.scene.focus(), Some(third));
+    h.request(SHELL, Request::ShowAllApplications {}).unwrap();
+    // Window 0: every application, as Alt+Super+H with no window active; the keyboard leaves
+    // them all.
+    h.request(SHELL, Request::HideOtherApplications { window: 0 })
+        .unwrap();
+    assert!(!h.rendered(first) && !h.rendered(second) && !h.rendered(other) && !h.rendered(third));
+    assert_eq!(h.scene.active_window(), None);
+    // Show All with none active leaves none active.
+    h.request(SHELL, Request::ShowAllApplications {}).unwrap();
+    assert!(h.rendered(first) && h.rendered(second) && h.rendered(other) && h.rendered(third));
+    assert_eq!(h.scene.active_window(), None);
+    // Only the shell; and nothing while locked.
+    for request in [
+        Request::HideOtherApplications { window: 1 },
+        Request::ShowAllApplications {},
+    ] {
+        assert_eq!(h.request(APP, request), Err(ErrorCode::Unauthorized));
+    }
+    h.activate(first);
+    h.scene.lock();
+    h.request(SHELL, Request::HideOtherApplications { window: 0 })
+        .unwrap();
+    h.scene.unlock();
+    assert!(h.rendered(first) && h.rendered(other) && h.rendered(third));
+}

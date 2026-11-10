@@ -46,6 +46,12 @@ export interface ShellIntents {
   hideApplication(window: number): void;
   /** Quits the application of the window `window`. */
   quitApplication(window: number): void;
+  /** Hides every application but the one of the window `window` (0: every one), as a Mac's
+      Hide Others (docs/adr/0021-menu-bar.mdx). */
+  hideOtherApplications(window: number): void;
+  /** Shows every hidden application again, the active window staying the active one, as a
+      Mac's Show All. */
+  showAllApplications(): void;
   /** Has the session end the application of the window `window` (ADR 0034). */
   forceQuitApplication(window: number): boolean;
   /** Moves the window `window` to the workspace `workspace`. */
@@ -127,6 +133,8 @@ const INTENTS: readonly (keyof ShellIntents)[] = [
   'minimizeWindow',
   'hideApplication',
   'quitApplication',
+  'hideOtherApplications',
+  'showAllApplications',
   'forceQuitApplication',
   'moveWindowToWorkspace',
   'activateWorkspace',

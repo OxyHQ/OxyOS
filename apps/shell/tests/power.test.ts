@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shellMessages } from "../src/messages.ts";
-import { chordLabel, systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
+import { systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
+import { chordLabel } from "../src/chord.ts";
 import { sheetView, startsOnAnswer } from "../src/sheet.ts";
 
 const en = shellMessages("en-US");

@@ -83,7 +83,11 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 38, the session asking applications to quit before it ends (`QuitRequested`,
 /// `QuitReply`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), both ways, and the
 /// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
-/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008).
+/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
+/// version 40, the application's own menu (ADR 0021): which commands of a window's menus are its
+/// About and its Settings… (`MenuItemRole`, `MenuBarItemRole`), both ways, the shell told them
+/// with the menus, and the shell hiding the other applications and showing every one
+/// (`HideOtherApplications`, `ShowAllApplications`).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -107,6 +111,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
+    (40, 75..=75),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -131,6 +136,8 @@ const REQUESTS_ADDED: Added = &[
     (33, 165..=165),
     (38, 168..=168),
     (39, 70..=70),
+    (40, 85..=85),
+    (40, 113..=114),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

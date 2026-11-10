@@ -4,6 +4,7 @@
  * alternates Option (Alt) shows while it is held. Pure, so its order, words and chords are tested
  * without drawing it.
  */
+import { chordLabel } from "./chord.ts";
 import type { ShellMessages } from "./messages";
 
 /** What a row asks: the shell's own views and Settings, or the session's ends. */
@@ -28,12 +29,6 @@ export type SystemMenuRow =
       confirm?: boolean;
     }
   | { kind: "separator"; id: string };
-
-/** A chord as the shell's menus show one: its keys joined by "+", Shift in the catalogue's word
-    (Mayús in Spanish), Ctrl, Alt and Super as the keys are labelled. */
-export function chordLabel(keys: readonly string[], messages: ShellMessages): string {
-  return keys.map((key) => (key === "Shift" ? messages.menus.shift : key)).join("+");
-}
 
 /**
  * The Oxy menu's rows: System Settings, Applications and Show Desktops; then, where the platform

@@ -7,6 +7,7 @@
 //! The compositor acts on windows itself, so those work whatever the shell is doing:
 //! Super+W closes the active window (its close request), Super+Q quits its application (a close
 //! request to each of its windows), Super+M minimizes it, Super+H hides its application,
+//! Alt+Super+H hides every other application (a Mac's ⌥⌘H; every one with no window active),
 //! Super+` (Shift: backwards) moves to its application's next window and Super+Ctrl+F toggles
 //! full screen. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
@@ -306,6 +307,13 @@ impl Scene {
             self.session_key(super::SessionKey::LogOut { confirm: !alt });
             return;
         }
+        // Hide Others, as a Mac's ⌥⌘H: every application but the active window's (every one
+        // with none active). A menu open closes first.
+        if key == H && alt && !ctrl && !shift && !self.capturing() {
+            self.hide_other_applications(self.active.filter(|active| self.live(*active).is_some()));
+            self.dismiss_grab(DismissReason::OutsidePress);
+            return;
+        }
         if alt {
             return;
         }
@@ -592,6 +600,51 @@ impl Scene {
                 self.conceal(window, appearances::Change::Gone);
             }
         }
+    }
+
+    /// Hides every application but `keep`'s (all of them when `keep` is none), as a Mac's Hide
+    /// Others (⌥⌘H): each one's shown windows leave the screen, as Hide does to one. The active
+    /// window, if it is `keep`'s, stays the active one.
+    pub(super) fn hide_other_applications(&mut self, keep: Option<SurfaceKey>) {
+        if self.locked {
+            return;
+        }
+        let kept = keep.map(|key| self.application_identity(key));
+        let mut hidden = Vec::new();
+        let windows: Vec<SurfaceKey> = self
+            .nodes
+            .iter()
+            .filter(|(window, node)| {
+                node.role == Role::Toplevel
+                    && !node.dismissed
+                    && node.mapped
+                    && !node.hidden
+                    && self.window_number(**window).is_some()
+            })
+            .map(|(window, _)| *window)
+            .collect();
+        for window in windows {
+            let identity = self.application_identity(window);
+            if Some(&identity) == kept.as_ref() || hidden.contains(&identity) {
+                continue;
+            }
+            hidden.push(identity);
+            self.hide_application(window);
+        }
+    }
+
+    /// Shows every application hidden, as a Mac's Show All: each one's windows come back where
+    /// they were in the stack, and the active window stays the active one (none becomes active
+    /// when none was).
+    pub(super) fn show_all_applications(&mut self) {
+        if self.locked {
+            return;
+        }
+        let hidden: Vec<SurfaceKey> = self.applications.hidden.iter().copied().collect();
+        for window in hidden {
+            self.reveal_application(window);
+        }
+        self.refresh_pointer_focus();
     }
 
     /// Whether `key` is hidden with its application.

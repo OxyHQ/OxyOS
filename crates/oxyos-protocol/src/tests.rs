@@ -328,8 +328,15 @@ fn requests() -> Vec<Request> {
             serial: 3,
             index: 1,
         },
+        Request::MenuItemRole {
+            surface: 1,
+            index: 1,
+            role: MenuRole::Settings,
+        },
         Request::HideApplication { window: 7 },
         Request::QuitApplication { window: 8 },
+        Request::HideOtherApplications { window: 7 },
+        Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
             serial: 41,
@@ -1135,6 +1142,11 @@ fn events() -> Vec<Event> {
             index: 0,
             field: MenuField::Label,
             text: TextChunk::new("Archivo").unwrap(),
+        },
+        Event::MenuBarItemRole {
+            window: 7,
+            index: 1,
+            role: MenuRole::About,
         },
         Event::MenuBarCommitted { window: 7 },
         Event::MenuItemActivated {

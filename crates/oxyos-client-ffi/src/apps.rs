@@ -134,7 +134,9 @@ pub unsafe extern "C" fn oxyos_applications_watch_changed(
 /// share of the icon's picture its own body takes when the picture is its own shape, which the
 /// shell draws as it is; null for any other, which it puts in the icon grid's body), "pinned" (its
 /// place in the dock from 1, or null), "opens" (the media types its entry declares it opens, its
-/// `MimeType`: what files dropped on its dock icon it takes, docs/adr/0034-the-dock.mdx)}]`, sorted
+/// `MimeType`: what files dropped on its dock icon it takes, docs/adr/0034-the-dock.mdx), "version"
+/// and "build" (its version as people read it and its package's version code, or null: the standard
+/// About panel's, docs/adr/0021-menu-bar.mdx)}]`, sorted
 /// by name, in the session's language: `Intl`'s
 /// default locale, which the host keeps the session's (docs/adr/0040-language-and-region.mdx).
 pub fn applications_json() -> String {
@@ -144,7 +146,7 @@ pub fn applications_json() -> String {
         .iter()
         .map(|app| {
             format!(
-                "{{\"id\":{},\"name\":{},\"icon\":{},\"iconBody\":{},\"pinned\":{},\"opens\":[{}]}}",
+                "{{\"id\":{},\"name\":{},\"icon\":{},\"iconBody\":{},\"pinned\":{},\"opens\":[{}],\"version\":{},\"build\":{}}}",
                 json_string(&app.id),
                 json_string(&app.name),
                 app.icon
@@ -159,7 +161,11 @@ pub fn applications_json() -> String {
                     .iter()
                     .map(|media| json_string(media))
                     .collect::<Vec<_>>()
-                    .join(",")
+                    .join(","),
+                app.version
+                    .as_deref()
+                    .map_or("null".into(), json_string),
+                app.build.map_or("null".into(), |build| build.to_string()),
             )
         })
         .collect();

@@ -1,0 +1,564 @@
+{
+  "about": "Every application has its own menu in the bar, as on a Mac, even one that declares no menus (docs/adr/0021-menu-bar.mdx): Allo (GenieProbe, which declares none) and Inbox (PressProbe, the `companion`) with the session's shell, in Spanish. With Allo active the bar shows its name in bold and nothing else of the desktop's; its menu has Acerca de Allo, Ajustes… (Ctrl+,, not offered: Allo declares none), Ocultar Allo (Super+H), Ocultar otros (Alt+Super+H), Mostrar todo and Salir de Allo (Super+Q), the chords in OxyOS's one notation. Acerca de Allo opens the system's standard About panel (Allo's icon, name and version, 0.1.0 (1), from its package's entry), which takes the keyboard; Escape closes it and gives the keyboard back to Allo's window. Alt+Super+H hides every other application (Inbox) and the menu's Mostrar todo shows it again, Allo staying active; Ocultar otros from the menu hides it again; Ocultar Allo hides Allo, no window is active, and the bar is the desktop's own menu (Escritorio) and Ver, whose Mostrar todo shows both again. Each step checks every window's state as the shell is told it, the compositor's focus, what each window is delivered (focus moving, never a key of the system's) and that neither application's React tree hears anything.",
+  "locale": "es_ES.UTF-8",
+  "module": "GenieProbe",
+  "window": [
+    800,
+    500
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      300,
+      200
+    ],
+    "at": [
+      40,
+      60
+    ],
+    "app": "so.oxy.inbox"
+  },
+  "steps": [
+    {
+      "name": "Allo's window takes a press: Allo is active, and the bar shows its own menu, its name in bold, though it declares no menus",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Allo"
+          ],
+          "absent": [
+            "Escritorio",
+            "Ver",
+            "Inbox"
+          ]
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        }
+      }
+    },
+    {
+      "name": "its menu: About, Settings… (not offered), Hide, Hide Others, Show All and Quit, each chord as OxyOS writes it",
+      "do": [
+        "press_output",
+        [
+          64,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de Allo",
+            "Ajustes…",
+            "Ctrl+,",
+            "Ocultar Allo",
+            "Super+H",
+            "Ocultar otros",
+            "Alt+Super+H",
+            "Mostrar todo",
+            "Salir de Allo",
+            "Super+Q"
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Settings… is not offered: pressed, nothing runs and the menu stays",
+      "do": [
+        "press_named",
+        "Ajustes…"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de Allo",
+            "Salir de Allo"
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "About Allo: the system's standard About panel, Allo's icon, name and version, with the keyboard",
+      "do": [
+        "press_named",
+        "Acerca de Allo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Versión 0.1.0 (1)"
+          ],
+          "absent": [
+            "Salir de Allo"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "name": "Cerrar"
+            }
+          ]
+        },
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Escape closes it and gives the keyboard back to Allo's window, which is told no key",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Versión 0.1.0 (1)"
+          ]
+        },
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Alt+Super+H hides every other application: Inbox goes, Allo stays active with the keyboard, and no key reaches either",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          35
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "1": {},
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "the menu again: Show All is offered now, Hide Others is not (no other application is shown)",
+      "do": [
+        "press_output",
+        [
+          64,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de Allo",
+            "Ajustes…",
+            "Ctrl+,",
+            "Ocultar Allo",
+            "Super+H",
+            "Ocultar otros",
+            "Alt+Super+H",
+            "Mostrar todo",
+            "Salir de Allo",
+            "Super+Q"
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Show All: Inbox comes back where it was, Allo stays active and has the keyboard again",
+      "do": [
+        "press_named",
+        "Mostrar todo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "the menu's Hide Others hides Inbox again",
+      "do": [
+        "press_output",
+        [
+          64,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de Allo",
+            "Ajustes…",
+            "Ctrl+,",
+            "Ocultar Allo",
+            "Super+H",
+            "Ocultar otros",
+            "Alt+Super+H",
+            "Mostrar todo",
+            "Salir de Allo",
+            "Super+Q"
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "chosen: Inbox hidden, Allo active with the keyboard",
+      "do": [
+        "press_named",
+        "Ocultar otros"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Hide Allo: no window is active, and the bar is the desktop's own menu and View",
+      "do": [
+        "press_output",
+        [
+          64,
+          14
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Ocultar Allo"
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "1": {
+            "focus.out": 1
+          },
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "chosen: Allo hides, nothing is active",
+      "do": [
+        "press_named",
+        "Ocultar Allo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "focus_surface": null,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": true,
+            "hidden": true,
+            "focused": false
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Escritorio",
+            "Ver"
+          ],
+          "absent": [
+            "Allo"
+          ]
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "the desktop's menu: Hide Others and Show All",
+      "do": [
+        "press_named",
+        "Escritorio"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Ocultar otros",
+            "Alt+Super+H",
+            "Mostrar todo"
+          ],
+          "absent": [
+            "Acerca de Allo"
+          ]
+        },
+        "react": {},
+        "delivered": {
+          "companion": {}
+        }
+      }
+    },
+    {
+      "name": "Show All: both come back, neither active",
+      "do": [
+        "press_named",
+        "Mostrar todo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": true,
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.inbox",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "in_shell": {
+          "texts": [
+            "Escritorio",
+            "Ver"
+          ]
+        },
+        "react": {},
+        "in_companion": {
+          "react": {}
+        },
+        "delivered": {
+          "companion": {}
+        }
+      }
+    }
+  ]
+}
