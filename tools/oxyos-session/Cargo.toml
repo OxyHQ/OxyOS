@@ -31,6 +31,8 @@ oxyos-auth = { path = "../../crates/oxyos-auth" }
 # (docs/adr/0020-oxy-account-login.mdx). Its sockets only, not its HTTP client.
 oxyos-account = { path = "../../crates/oxyos-account", default-features = false }
 oxyos-apps = { path = "../../crates/oxyos-apps" }
+# Each application in a scope of its own, and its weights (docs/adr/0066-quality-of-service.mdx).
+oxyos-scopes = { path = "../../crates/oxyos-scopes" }
 # Where the user's Desktop and Documents are, for screenshots (xdg-user-dirs).
 oxyos-preferences = { path = "../../crates/oxyos-preferences" }
 # Holding, and noting, the installed versions it runs (docs/adr/0030-installing-applications.mdx).

@@ -1,0 +1,16 @@
+[package]
+name = "oxyos-scopes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The person's user manager (systemd) over the user bus, in safe Rust; the played one of the tests
+# serves the same interface on a bus of its own.
+zbus = "5"
+# Waiting on the bus with its own block_on, never async-io's (`Scopes`).
+futures-lite = "2"
+
+[lints]
+workspace = true

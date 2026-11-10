@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Checks tools/deploy/system-files against the tree (docs/developing.mdx, "Deploying to a test machine").
 
-What must be installed is the tree's: each binary of tools/oxyos-session, tools/oxyos-login and
-tools/oxyos-accountd (src/main.rs, the package's own, and every src/bin/*.rs), their systemd units,
+What must be installed is the tree's: each binary of tools/oxyos-session, tools/oxyos-scope (the
+program that puts each application in a scope of its own, docs/adr/0066-quality-of-service.mdx),
+tools/oxyos-login and tools/oxyos-accountd (src/main.rs, the package's own, and every src/bin/*.rs), their systemd units,
 PAM services (pam.d/*), sysusers and tmpfiles files; and for Safe Mode on a converted machine
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10) the recovery's program (tools/oxyos-recovery,
 at /usr/sbin as its package installs it), each kernel-install plugin its package has and each polkit
@@ -21,7 +22,7 @@ import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-STACKS = ("oxyos-session", "oxyos-login", "oxyos-accountd")
+STACKS = ("oxyos-session", "oxyos-scope", "oxyos-login", "oxyos-accountd")
 # Safe Mode's parts on a converted machine (ADR 0054, decision 10): the recovery's program, built from
 # its package (tools/oxyos-recovery is `oxyos-recovery-tool`), where tools/image/programs installs it;
 # its package's kernel-install plugins; and the image's polkit rules, each at its place in the image.

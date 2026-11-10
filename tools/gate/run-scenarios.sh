@@ -75,7 +75,7 @@ step() { log=$R/$1; shift; build "$@" > "$log" 2>&1 || { tail -30 "$log"; fail "
 
 phase "OxyOS $(git -C "$TREE" rev-parse --short HEAD), Bloom $(git -C "$BLOOM_DIR" rev-parse --short HEAD), Dropsea $(git -C "$DROPSEA_DIR" rev-parse --short HEAD), Atlas $(git -C "$ATLAS_DIR" rev-parse --short HEAD); run $R"
 cd "$TREE"
-step cargo.log cargo build --release --locked -p oxyos-client-ffi -p oxyos-offscreen -p oxyos-reader -p oxyos-pack \
+step cargo.log cargo build --release --locked -p oxyos-client-ffi -p oxyos-offscreen -p oxyos-scope -p oxyos-reader -p oxyos-pack \
   -p oxyos-login -p oxyos-installd -p oxyos-accountd -p oxyos-gpu-client -p oxyos-networks -p oxyos-backupd
 phase "native parts built"
 

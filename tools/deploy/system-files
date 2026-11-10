@@ -1,4 +1,5 @@
-# What a deploy installs, root-owned, for the login, the accounts and the PIN (docs/adr/0020-oxy-account-login.mdx,
+# What a deploy installs, root-owned, for the session (and the program that puts each application in a
+# scope of its own, docs/adr/0066-quality-of-service.mdx), the login, the accounts and the PIN (docs/adr/0020-oxy-account-login.mdx,
 # "Installing on a machine"; docs/adr/0010-lock-screen.mdx; docs/adr/0054-recovery-and-erasing.mdx), and for
 # Safe Mode on a converted machine (ADR 0054, decision 10: the recovery's program, which writes its boot
 # entries, OxyOS's kernel-install plugin and the polkit rule), and for backups (docs/adr/0059-backups.mdx:
@@ -15,6 +16,7 @@
 # target/release/ is built there (by its tool's package).
 # FROM                                                                  TO                                              MODE
 target/release/oxyos-session                                            /usr/bin/oxyos-session                          0755
+target/release/oxyos-scope                                              /usr/libexec/oxyos/oxyos-scope                  0755
 target/release/oxyos-login                                              /usr/libexec/oxyos/oxyos-login                  0755
 target/release/oxyos-accountd                                           /usr/libexec/oxyos-accountd                     0755
 target/release/oxyos-pin-check                                          /usr/libexec/oxyos/oxyos-pin-check              0755
