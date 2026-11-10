@@ -716,7 +716,7 @@ std::shared_ptr<TurboModule> createHostModule(
       ready(rt);
       return jsi::valueFromDynamic(rt, services.shell.state());
     });
-    auto number = [](jsi::Runtime& rt, const jsi::Value* args, size_t count, size_t at) {
+    auto number = [](jsi::Runtime&, const jsi::Value* args, size_t count, size_t at) {
       return count > at && args[at].isNumber() ? static_cast<uint32_t>(args[at].asNumber()) : 0u;
     };
     for (auto [method, action, withWindow] : std::initializer_list<std::tuple<const char*, uint8_t, bool>>{
@@ -1449,7 +1449,7 @@ std::shared_ptr<TurboModule> createHostModule(
       }
       return resolved(rt, jsi::valueFromDynamic(rt, found));
     });
-    module->method("abortRequest", [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+    module->method("abortRequest", [&services](jsi::Runtime&, const jsi::Value* args, size_t count) {
       if (services.images && count > 0 && args[0].isNumber()) {
         services.images->abort(static_cast<int64_t>(args[0].getNumber()));
       }

@@ -87,7 +87,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field",
           "never": [
@@ -109,7 +109,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field"
         }
@@ -129,7 +129,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field"
         }
@@ -149,7 +149,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field"
         }
@@ -207,7 +207,7 @@
           ],
           "absent": [
             "Ada Lovelace",
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ]
         }
       }
@@ -275,11 +275,11 @@
         },
         "in_shell": {
           "texts": [
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ],
           "absent": [
             "Vuelve a intentarlo en",
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ]
         }
       }

@@ -22,7 +22,21 @@ const en = {
   inspect: "Inspect",
   inspectProcess: "Inspect Process",
   view: "View",
-  needsAdministrator: "Quitting another user's process needs an administrator.",
+  /** The Edit menu, as a Mac's: its editing commands act on the focused field (ADR 0021); Find…
+      takes the search field. */
+  edit: {
+    title: "Edit",
+    undo: "Undo",
+    redo: "Redo",
+    cut: "Cut",
+    copy: "Copy",
+    paste: "Paste",
+    pasteAndMatchStyle: "Paste and Match Style",
+    delete: "Delete",
+    selectAll: "Select All",
+    find: "Find…",
+  },
+  needsAdministrator: "Quitting another user’s process needs an administrator.",
   /** The table's columns. */
   columns: {
     name: "Process Name",
@@ -58,8 +72,8 @@ const en = {
   noProcesses: "No Processes",
   noMatches: "No Results",
   noInterfaces: "No Network Interfaces",
-  unavailable: "Activity Monitor can't read this computer's activity here.",
-  perAppNetwork: "Network use is shown for each interface; per-app network use isn't available.",
+  unavailable: "Activity Monitor can’t read this computer’s activity here.",
+  perAppNetwork: "Network use is shown for each interface; per-app network use isn’t available.",
   expand: (name: string) => `Show the processes of ${name}`,
   collapse: (name: string) => `Hide the processes of ${name}`,
   app: "Application",
@@ -113,7 +127,7 @@ const en = {
     /** What the session answered when it did not quit it, shown under the table for a moment. */
     failed: "The process could not be quit.",
     notFound: "The process is no longer running.",
-    notPermitted: "You don't have permission to quit this process.",
+    notPermitted: "You don’t have permission to quit this process.",
     needsInput: "Choose Quit again to quit the process.",
   },
   /** The inspector's sheet. */
@@ -142,7 +156,7 @@ const en = {
     ports: "Ports",
     noFiles: "No open files.",
     noPorts: "No open ports.",
-    restricted: "Details of another user's process need an administrator.",
+    restricted: "Details of another user’s process need an administrator.",
     notFound: "The process is no longer running.",
     loading: "Reading the process…",
     refresh: "Refresh",
@@ -161,6 +175,18 @@ const es: Messages = {
   inspect: "Inspeccionar",
   inspectProcess: "Inspeccionar proceso",
   view: "Visualización",
+  edit: {
+    title: "Edición",
+    undo: "Deshacer",
+    redo: "Rehacer",
+    cut: "Cortar",
+    copy: "Copiar",
+    paste: "Pegar",
+    pasteAndMatchStyle: "Pegar y adaptar estilo",
+    delete: "Eliminar",
+    selectAll: "Seleccionar todo",
+    find: "Buscar…",
+  },
   needsAdministrator: "Salir de los procesos de otro usuario requiere un administrador.",
   columns: {
     name: "Nombre del proceso",

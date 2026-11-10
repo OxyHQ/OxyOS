@@ -54,6 +54,7 @@ pub mod motion;
 pub mod networks;
 pub mod passkeys;
 pub mod power;
+pub mod resume;
 pub mod safe_mode;
 pub mod search;
 pub mod session_end;
