@@ -372,6 +372,124 @@ pub fn compose_cpu_damaged(
     }
 }
 
+/// Composes `layers` as `compose_cpu` does, with `materials` (docs/adr/0069-the-platforms-material.mdx):
+/// each pair a layer's index and one of its material areas, under which what the layers before it
+/// compose is blurred and saturated (`material`) before that layer is drawn.
+pub fn compose_cpu_with_material(
+    width: u32,
+    height: u32,
+    background: u32,
+    layers: &[Layer<'_>],
+    materials: &[(usize, material::MaterialArea)],
+) -> Vec<u32> {
+    let mut out = vec![background; width as usize * height as usize];
+    let whole = Rect {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    };
+    let mut blurs = Blurs::default();
+    draw_layers_cpu(
+        &mut out, width, height, background, layers, materials, whole, &mut blurs,
+    );
+    out
+}
+
+/// `compose_cpu_damaged` with `materials`, as `compose_cpu_with_material` composes them: each
+/// pixel of `damage` is what it makes of it. A region's pixels depend on what is beneath it within
+/// its reach (`material::reach`), which the caller damages when that changes.
+pub fn compose_cpu_damaged_with_material(
+    out: &mut [u32],
+    width: u32,
+    height: u32,
+    background: u32,
+    layers: &[Layer<'_>],
+    materials: &[(usize, material::MaterialArea)],
+    damage: &[Rect],
+) {
+    let output = Rect {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    };
+    let mut blurs = Blurs::default();
+    for rect in disjoint(damage, &output) {
+        for y in rect.y as usize..rect.bottom() as usize {
+            let row = y * width as usize;
+            out[row + rect.x as usize..row + rect.right() as usize].fill(background);
+        }
+        draw_layers_cpu(
+            out, width, height, background, layers, materials, rect, &mut blurs,
+        );
+    }
+}
+
+/// Each material area's blurred backdrop, made once a frame whatever the rectangles it is drawn
+/// in, by its index in the frame's list.
+#[derive(Default)]
+struct Blurs {
+    made: Vec<(usize, Option<(Rect, Vec<u32>)>)>,
+    backdrop: Vec<u32>,
+}
+
+/// Draws `layers` onto `out` within `within`, each with the material areas `materials` gives it
+/// beneath it first.
+#[allow(clippy::too_many_arguments)]
+fn draw_layers_cpu(
+    out: &mut [u32],
+    width: u32,
+    height: u32,
+    background: u32,
+    layers: &[Layer<'_>],
+    materials: &[(usize, material::MaterialArea)],
+    within: Rect,
+    blurs: &mut Blurs,
+) {
+    for (index, layer) in layers.iter().enumerate() {
+        for (number, (_, area)) in materials
+            .iter()
+            .enumerate()
+            .filter(|(_, (at, _))| *at == index)
+        {
+            if area.rect.intersect(&within).is_none() {
+                continue;
+            }
+            if !blurs.made.iter().any(|(made, _)| *made == number) {
+                // The backdrop: the layers before this one, composed afresh over the area's source.
+                let blurred = material::source(area, width, height).and_then(|source| {
+                    if blurs.backdrop.len() != width as usize * height as usize {
+                        blurs.backdrop = vec![background; width as usize * height as usize];
+                    }
+                    for y in source.y as usize..source.bottom() as usize {
+                        let row = y * width as usize;
+                        blurs.backdrop[row + source.x as usize..row + source.right() as usize]
+                            .fill(background);
+                    }
+                    for below in layers[..index].iter().filter(|below| below.valid()) {
+                        if let Some(below) = below.on_cpu() {
+                            draw_cpu(&mut blurs.backdrop, width, height, &below, source);
+                        }
+                    }
+                    material::blurred(&blurs.backdrop, width, height, area)
+                });
+                blurs.made.push((number, blurred));
+            }
+            if let Some((_, Some((shown, pixels)))) =
+                blurs.made.iter().find(|(made, _)| *made == number)
+            {
+                material::draw(out, width, area, *shown, pixels, within);
+            }
+        }
+        if layer.valid() {
+            if let Some(layer) = layer.on_cpu() {
+                draw_cpu(out, width, height, &layer, within);
+            }
+        }
+    }
+}
+
 /// Draws `layer` onto `out` (`width` × `height`) within `within`.
 fn draw_cpu(out: &mut [u32], width: u32, height: u32, layer: &Layer<'_>, within: Rect) {
     if let Some(warp) = layer.warp {
@@ -628,6 +746,7 @@ fn beneath(x: u32, y: u32, shadow: &Shadow) -> u32 {
 
 pub mod filter;
 pub mod frame_file;
+pub mod material;
 pub mod shape;
 pub mod warp;
 pub use shape::{ShadowProfile, MAX_SHADOW_SCALE};
