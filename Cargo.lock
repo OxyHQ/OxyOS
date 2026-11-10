@@ -3106,6 +3106,7 @@ dependencies = [
  "oxyos-networks",
  "oxyos-power",
  "oxyos-preferences",
+ "oxyos-priority",
  "oxyos-protocol",
  "oxyos-search",
  "oxyos-seat",
@@ -3174,6 +3175,16 @@ dependencies = [
 [[package]]
 name = "oxyos-preferences"
 version = "0.1.0"
+
+[[package]]
+name = "oxyos-priority"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "oxyos-seat",
+ "rustix",
+ "zbus",
+]
 
 [[package]]
 name = "oxyos-protocol"
@@ -3263,6 +3274,7 @@ dependencies = [
  "oxyos-kms",
  "oxyos-power",
  "oxyos-preferences",
+ "oxyos-priority",
  "oxyos-protocol",
  "oxyos-search",
  "oxyos-seat",
