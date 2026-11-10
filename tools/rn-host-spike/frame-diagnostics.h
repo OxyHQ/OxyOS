@@ -3,16 +3,25 @@
 // cheap enough to leave on in every session, so that a machine that feels slow says why without
 // anyone running a profiler on it (docs/performance.mdx, "Reading the session's log").
 //
-// The host's loop (bloom-host.cpp) charges every moment of a turn to one part (Part): handling the
-// compositor's events, JavaScript (React's handlers, render and commits with their Yoga layout, the
-// timers' and requestAnimationFrame's callbacks), animation (Animated's native driver, worklets and
-// Reanimated, a fling, gesture handlers), mounting, drawing, presenting, or anything else; and the time it slept while a frame waited for the compositor's
-// answer to the one before. A frame's work is the parts of the turns since the frame before (a turn
-// that sleeps with nothing to draw ends the work without a frame). Each part is measured twice
-// (thread-clock.h): by the wall clock, what a person waits for, and by the loop thread's own CPU
-// clock, what the work cost however loaded the machine, with the rest of its wall time told apart
-// as the thread blocked (waiting for another thread, a lock, a file: never hidden) or preempted
-// (runnable while another thread had its CPU). Each frame:
+// The host has two threads (docs/adr/0067-the-ui-thread.mdx), each measured on its own clocks
+// (thread-clock.h): by the wall clock, what a person waits for, and by the thread's own CPU clock,
+// what the work cost however loaded the machine, with the rest of its wall time told apart as the
+// thread blocked (waiting for another thread, a lock, a file: never hidden) or preempted (runnable
+// while another thread had its CPU).
+//
+// The UI thread, the host's loop (bloom-host.cpp), makes the window's frames. It charges every moment
+// of a turn to one part (Part): handling the compositor's events, laying the window out (a commit
+// made on the UI thread: a new size), animation (Animated's native driver, worklets and Reanimated, a
+// fling, gesture handlers, requestAnimationFrame's frame begun), mounting what JavaScript committed,
+// drawing, presenting, or anything else; and the time it slept while a frame waited for the
+// compositor's answer to the one before. A frame's work is the parts of the turns since the frame
+// before (a turn that sleeps with nothing to draw ends the work without a frame).
+//
+// JavaScript's thread (js-thread.h) runs React's handlers, renders and commits with their Yoga layout,
+// the timers' and requestAnimationFrame's callbacks, in stretches: from taking work up idle to being
+// idle again. Its work never holds a frame up; what it costs a person is the time from an input to
+// the frame showing JavaScript's answer, which each frame says (`latency`), and each stretch longer
+// than a refresh is said as JavaScript's (`javascriptWorked`). Each frame:
 //
 //   - is slow when its work (by the wall clock), plus any wait for the compositor beyond one refresh, takes longer than a
 //     refresh of its display (display-refresh.h); the refreshes it missed are its dropped frames.
@@ -21,7 +30,13 @@
 //     slow frames went unsaid since the last;
 //   - goes into a summary written every 10 s while the window draws (nothing while it is idle): its
 //     frames, their work's median, 95th percentile and most, the latency from an input (its
-//     device's time) to the frame presented after it, and the slow and dropped frames.
+//     device's time) to the frame showing its answer, the slow and dropped frames, and JavaScript's
+//     work on its thread (its stretches, the slow ones, the longest).
+//
+// An input's answer is the first frame showing what JavaScript committed as it ran the batch the
+// input's turn handed it (its events, through Fabric's beat; js-thread.h), or the first frame after
+// JavaScript ran that batch and went idle; an input whose turn handed JavaScript nothing (a scroll the
+// loop moved itself) is answered by the next frame.
 //
 // A frame the compositor holds is not a slow frame. The compositor answers a shown window's frame
 // at its display's next refresh; it withholds the answer while the window is not shown or the
@@ -46,8 +61,10 @@
 #include "thread-clock.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -59,7 +76,7 @@ class FrameDiagnostics {
   using Clock = std::chrono::steady_clock;
 
   // Where a moment of the loop went: each is charged to exactly one part.
-  enum class Part : uint8_t { Other, Events, JavaScript, Animation, Mount, Draw, Present, Count };
+  enum class Part : uint8_t { Other, Events, Layout, Animation, Mount, Draw, Present, Count };
 
   static FrameDiagnostics& get();
 
@@ -68,7 +85,10 @@ class FrameDiagnostics {
   void start(const std::string& application);
   bool started() const { return started_; }
   // A refresh of the window's display, in milliseconds.
-  void setRefresh(double periodMs) { periodMs_ = periodMs; }
+  void setRefresh(double periodMs) {
+    periodMs_ = periodMs;
+    jsPeriodMs_ = periodMs;
+  }
 
   // A turn of the host's loop. `waitingForCompositor`: a frame is ready to draw but the one before
   // is not answered yet, so what the loop sleeps next is the compositor's. `sleeping`: the loop
@@ -90,11 +110,6 @@ class FrameDiagnostics {
     Part previous_;
   };
 
-  // The loop waited, in the current part, for work another thread did (JavaScript's, on its own
-  // thread, js-thread.h): the wait is charged as that thread's time, measured there (`span`: its
-  // time on its CPU and preempted), the rest of the wait blocked.
-  void ranElsewhere(const ThreadSpan& span);
-
   // What started the work: the first of a frame's names it, unless something of a higher `rank`
   // follows: 0 for JavaScript running (an input or a timer may be behind it), 1 for the pointer
   // moving and other compositor events (a press comes after the motion to its place), 2 for
@@ -102,6 +117,26 @@ class FrameDiagnostics {
   // 0 when unknown): the frame's latency is from the earliest.
   void trigger(const char* what, int rank = 2);
   void input(uint32_t kind, uint32_t detail, uint64_t timeNs);
+  // What started the work of the frame now being made, for what the loop queues for JavaScript
+  // (js-thread.h's Cause): "" before anything did.
+  const std::string& currentTrigger() const { return trigger_; }
+  int currentRank() const { return triggerRank_; }
+  // The inputs of the turn are handed to JavaScript, if `handed` (an event dispatched to a view, a
+  // device event), in its thread's batch `batch` (js-thread.h): they are answered by the first frame
+  // presented once JavaScript has run that batch and the loop applied what it committed
+  // (javascriptApplied). Inputs that handed it nothing are answered by the next frame.
+  void handedToJavaScript(bool handed, uint64_t batch);
+  // The loop is about to apply what JavaScript handed over: the last batch it had run by then.
+  void javascriptApplied(uint64_t done);
+  // Whether an input waits for JavaScript to run what it was handed: the loop is then woken as
+  // JavaScript's thread settles, to time it, or to forget it if its answer drew nothing.
+  bool awaitingJavaScript() const;
+
+  // A stretch of JavaScript's work on its thread (js-thread.h), called there: begun at `started`,
+  // started by `cause`, `tasks` of React Native's tasks. One longer than a refresh is said (at most
+  // one line a second, as the frames'), with the frames the window presented meanwhile; each is in the
+  // report (`js_timing`) and in the next frame's line and the summary.
+  void javascriptWorked(const ThreadSpan& span, Clock::time_point started, const std::string& cause, int tasks);
 
   // A transaction mounted: its commit's time, its layout's (Yoga) and its text measuring's.
   void committed(double commitMs, double layoutMs, double textMs);
@@ -150,11 +185,37 @@ class FrameDiagnostics {
   void summarize(Clock::time_point now);
   void endResizeRun();
   void log(const std::string& line);
-  std::string partsText() const;
+  std::string partsText(const ThreadSpan& javascript) const;
 
-  bool started_ = false;
+  // Set once by the loop; read by JavaScript's thread too (javascriptWorked), as is the refresh.
+  std::atomic<bool> started_ = false;
   std::string application_;
   double periodMs_ = 1000.0 / 60;
+  std::atomic<double> jsPeriodMs_ = 1000.0 / 60;
+
+  // An input not yet answered by a frame: its device's time (CLOCK_MONOTONIC nanoseconds), its name,
+  // and the JavaScript tasks that must have run before the frame answering it (0 for none; unset
+  // until its turn handed it over).
+  struct Input {
+    uint64_t ns = 0;
+    std::string name;
+    std::optional<uint64_t> javascript;
+  };
+  // JavaScript's work on its thread, shared with it (jsMutex_): since the last frame, for the
+  // summary, the frames presented lately (when, and how many refreshes each dropped) for a stretch's
+  // line, and the slow lines' pace.
+  struct JavaScript {
+    ThreadSpan sinceFrame;
+    int stretchesSinceFrame = 0;
+    std::vector<double> work;
+    int slow = 0;
+    std::vector<std::pair<Clock::time_point, int>> frames;
+    std::optional<Clock::time_point> slowLogged;
+    int slowSkipped = 0;
+  };
+  mutable std::mutex jsMutex_;
+  JavaScript js_;
+  uint64_t javascriptApplied_ = 0;
 
   // The current turn and the work since the last frame.
   Part current_ = Part::Other;
@@ -169,9 +230,8 @@ class FrameDiagnostics {
   bool gpu_ = false, presentedThisTurn_ = false, first_ = true;
   std::string trigger_;
   int triggerRank_ = -1;
-  // The inputs' device times since the last frame (CLOCK_MONOTONIC nanoseconds): the frame's
-  // latency is from the earliest.
-  std::vector<uint64_t> inputsNs_;
+  // The inputs not yet answered: a frame's latency is from the earliest it answers.
+  std::vector<Input> inputs_;
   // Since when the loop waits for the compositor's answer to the window's frame, without a turn
   // between that did not wait; and the hold that wait became, if it did.
   std::optional<Clock::time_point> waitingSince_;

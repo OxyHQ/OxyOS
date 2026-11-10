@@ -1,10 +1,11 @@
 #include "js-thread.h"
 
 #include "scheduling.h"
+#include "ui-thread.h"
 
 #include <algorithm>
 #include <csignal>
-#include <iostream>
+#include <exception>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -20,10 +21,24 @@ namespace {
 constexpr size_t kStackSize = 8 * 1024 * 1024;
 
 thread_local bool tJsThread = false;
+// What started the stretch the thread is in: a task it queues itself (a promise's continuation, a
+// timer it set) is part of it.
+thread_local JsThread::Cause tCause;
+// What another thread's tasks are for while a CausedBy lives there.
+thread_local std::optional<JsThread::Cause> tQueuedFor;
 
 }  // namespace
 
-JsThread::JsThread() {
+JsThread::CausedBy::CausedBy(Cause cause) : previous_(std::exchange(tQueuedFor, std::move(cause))) {}
+
+JsThread::CausedBy::~CausedBy() { tQueuedFor = std::move(previous_); }
+
+JsThread::JsThread(std::function<Cause()> cause, std::function<void(const Stretch&)> worked, std::function<void()> idle,
+                   std::function<void(bool)> settled)
+    : cause_(std::move(cause)),
+      worked_(std::move(worked)),
+      idleHook_(std::move(idle)),
+      settledHook_(std::move(settled)) {
   pthread_attr_t attributes;
   pthread_attr_init(&attributes);
   pthread_attr_setstacksize(&attributes, kStackSize);
@@ -53,40 +68,40 @@ void* JsThread::main(void* self) {
 
 bool JsThread::isCurrent() const { return tJsThread; }
 
-void JsThread::serve() {
-  std::unique_lock lock(mutex_);
-  while (true) {
-    asked_.wait(lock, [this] { return quit_ || job_; });
-    if (quit_) return;
-    auto job = std::move(job_);
-    job_ = nullptr;
-    lock.unlock();
-    std::exception_ptr failed;
-    try {
-      job();
-    } catch (...) {
-      failed = std::current_exception();
-    }
-    lock.lock();
-    jobFailed_ = failed;
-    jobDone_ = true;
-    done_.notify_all();
-  }
-}
-
-void JsThread::perform(std::function<void()> job) {
-  std::unique_lock lock(mutex_);
-  if (quit_) return;
-  job_ = std::move(job);
-  jobDone_ = false;
-  asked_.notify_one();
-  done_.wait(lock, [this] { return jobDone_; });
-  if (auto failed = std::exchange(jobFailed_, nullptr)) std::rethrow_exception(failed);
-}
-
 void JsThread::runOnQueue(std::function<void()>&& task) {
-  std::lock_guard lock(mutex_);
-  tasks_.push_back(std::move(task));
+  Cause cause = tJsThread ? tCause : tQueuedFor ? *tQueuedFor : cause_ ? cause_() : Cause{};
+  bool staged = UiThread::isCurrent();
+  {
+    std::lock_guard lock(mutex_);
+    (staged ? staged_ : tasks_).push_back(Task{std::move(task), std::move(cause)});
+  }
+  if (!staged) wake_.notify_one();
+}
+
+void JsThread::runOnQueueFirst(std::function<void()>&& task) {
+  Cause cause = tQueuedFor ? *tQueuedFor : cause_ ? cause_() : Cause{};
+  {
+    std::lock_guard lock(mutex_);
+    tasks_.push_front(Task{std::move(task), std::move(cause)});
+  }
+  wake_.notify_one();
+}
+
+bool JsThread::handOver() {
+  {
+    std::lock_guard lock(mutex_);
+    if (staged_.empty() || running_ || !tasks_.empty()) return false;
+    handOverLocked();
+  }
+  wake_.notify_one();
+  return true;
+}
+
+void JsThread::handOverLocked() {
+  if (staged_.empty()) return;
+  for (auto& task : staged_) tasks_.push_back(std::move(task));
+  staged_.clear();
+  handed_ = batch_.fetch_add(1);
 }
 
 void JsThread::runOnQueueSync(std::function<void()>&& task) {
@@ -94,27 +109,139 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
     task();
     return;
   }
-  perform(std::move(task));
+  std::mutex done;
+  std::condition_variable doneChanged;
+  bool finished = false;
+  std::exception_ptr failed;
+  {
+    // Run whatever the thread is doing: it is waited for, the loop's work queued before it included.
+    std::lock_guard lock(mutex_);
+    handOverLocked();
+    tasks_.push_back(Task{[&] {
+                            try {
+                              task();
+                            } catch (...) {
+                              failed = std::current_exception();
+                            }
+                            std::lock_guard lock(done);
+                            finished = true;
+                            doneChanged.notify_all();
+                          },
+                          Cause{}});
+  }
+  wake_.notify_one();
+  {
+    UiThread::Unlocked unlocked;
+    std::unique_lock lock(done);
+    doneChanged.wait(lock, [&] { return finished; });
+  }
+  if (failed) std::rethrow_exception(failed);
 }
 
-JsThread::Work JsThread::drain() {
-  Work work;
-  perform([this, &work] {
+bool JsThread::idle() const {
+  std::lock_guard lock(mutex_);
+  // What the loop queued and has not handed over yet is the loop's: JavaScript is idle without it.
+  if (running_ || !tasks_.empty()) return false;
+  auto due = timers_ ? timers_->next() : std::nullopt;
+  return !due || *due > Clock::now();
+}
+
+int JsThread::stagedRank() const {
+  std::lock_guard lock(mutex_);
+  int rank = -1;
+  for (const auto& task : staged_) rank = std::max(rank, task.cause.rank);
+  return rank;
+}
+
+bool JsThread::waitIdle(Clock::time_point deadline) {
+  UiThread::Unlocked unlocked;
+  std::unique_lock lock(mutex_);
+  // What the loop queued runs too.
+  handOverLocked();
+  wake_.notify_one();
+  return settled_.wait_until(lock, deadline, [this] { return quit_ || (!running_ && tasks_.empty()); });
+}
+
+bool JsThread::next(Task& task, std::unique_lock<std::mutex>& lock) {
+  while (true) {
+    if (quit_) return false;
+    if (!tasks_.empty()) {
+      task = std::move(tasks_.front());
+      tasks_.pop_front();
+      return true;
+    }
+    // A timer due fires: its callback is queued (TimerManager::callTimer, through React Native's
+    // scheduler, which queues here), so the lock is let go meanwhile.
+    if (timers_ && timerManager_) {
+      auto due = timers_->due(Clock::now());
+      if (!due.empty()) {
+        // Their callbacks are this stretch's when it runs one already, else a timer's.
+        if (!running_) tCause = Cause{"a timer", 2};
+        lock.unlock();
+        for (auto id : due) timerManager_->callTimer(static_cast<facebook::react::TimerHandle>(id));
+        lock.lock();
+        continue;
+      }
+    }
+    if (running_) return false;  // the stretch ends
+    auto wakeAt = timers_ ? timers_->next() : std::nullopt;
+    if (wakeAt) {
+      wake_.wait_until(lock, *wakeAt);
+    } else {
+      wake_.wait(lock);
+    }
+  }
+}
+
+void JsThread::serve() {
+  std::unique_lock lock(mutex_);
+  while (true) {
+    Task task;
+    if (!next(task, lock)) {
+      if (quit_) return;
+      continue;
+    }
+    // A stretch of work begins: it lasts until the thread is idle again.
+    running_ = true;
+    Stretch stretch;
+    if (task.cause.rank > tCause.rank || tCause.what.empty()) tCause = task.cause;
+    lock.unlock();
     auto started = ThreadSample::now();
     while (true) {
-      std::function<void()> task;
-      {
-        std::lock_guard lock(mutex_);
-        if (tasks_.empty()) break;
-        task = std::move(tasks_.front());
-        tasks_.pop_front();
+      task.run();
+      task.run = nullptr;
+      ++stretch.tasks;
+      lock.lock();
+      bool more = next(task, lock);
+      if (!more && !quit_ && idleHook_) {
+        // About to be idle: what the commits dispatched meanwhile (Fabric's event beat) may queue
+        // more, which this stretch runs.
+        lock.unlock();
+        idleHook_();
+        lock.lock();
+        more = next(task, lock);
       }
-      task();
-      work.ran = true;
+      if (!more) break;
+      if (task.cause.rank > tCause.rank) tCause = task.cause;
+      lock.unlock();
     }
-    work.span = ThreadSpan::between(started, ThreadSample::now());
-  });
-  return work;
+    lock.unlock();
+    stretch.span = ThreadSpan::between(started, ThreadSample::now());
+    stretch.cause = std::exchange(tCause, Cause{});
+    if (worked_) worked_(stretch);
+    lock.lock();
+    running_ = false;
+    // Idle: every batch handed over has been run, with all it set off.
+    if (tasks_.empty()) done_ = handed_.load();
+    settled_.notify_all();
+    if (quit_) return;
+    if (settledHook_ && tasks_.empty()) {
+      bool waiting = !staged_.empty();
+      lock.unlock();
+      settledHook_(waiting);
+      lock.lock();
+    }
+  }
 }
 
 void JsThread::quitSynchronous() {
@@ -123,20 +250,39 @@ void JsThread::quitSynchronous() {
     if (joined_) return;
     quit_ = true;
     joined_ = true;
-    asked_.notify_all();
   }
+  wake_.notify_all();
+  settled_.notify_all();
   if (isCurrent()) {
     // Asked from a task: the thread ends as that task returns, and is never joined by itself.
     pthread_detach(thread_);
     return;
   }
+  UiThread::Unlocked unlocked;
   pthread_join(thread_, nullptr);
+}
+
+std::unique_ptr<JsThread::Timers> JsThread::makeTimers() {
+  auto timers = std::make_unique<Timers>(*this);
+  std::lock_guard lock(mutex_);
+  timers_ = timers.get();
+  return timers;
+}
+
+void JsThread::fireTimersThrough(facebook::react::TimerManager& manager) {
+  std::lock_guard lock(mutex_);
+  timerManager_ = &manager;
 }
 
 void JsThread::Timers::add(uint32_t id, double delayMs, bool repeat) {
   auto every = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double, std::milli>(delayMs));
-  std::lock_guard lock(mutex_);
-  timers_[id] = Timer{Clock::now() + every, every, repeat};
+  {
+    std::lock_guard lock(mutex_);
+    timers_[id] = Timer{Clock::now() + every, every, repeat};
+  }
+  // Set on the thread itself, by JavaScript: its wait is reckoned again as the task ends. From
+  // anywhere else, it is woken to reckon it.
+  if (!thread_.isCurrent()) thread_.wake_.notify_one();
 }
 
 void JsThread::Timers::deleteTimer(uint32_t id) {
@@ -144,28 +290,23 @@ void JsThread::Timers::deleteTimer(uint32_t id) {
   timers_.erase(id);
 }
 
-bool JsThread::Timers::fire(facebook::react::TimerManager& manager) {
+std::vector<uint32_t> JsThread::Timers::due(Clock::time_point now) {
+  std::lock_guard lock(mutex_);
   std::vector<uint32_t> due;
-  {
-    std::lock_guard lock(mutex_);
-    auto now = Clock::now();
-    for (auto it = timers_.begin(); it != timers_.end();) {
-      if (it->second.at > now) {
-        ++it;
-        continue;
-      }
-      due.push_back(it->first);
-      if (it->second.repeat) {
-        it->second.at = now + it->second.every;
-        ++it;
-      } else {
-        it = timers_.erase(it);
-      }
+  for (auto it = timers_.begin(); it != timers_.end();) {
+    if (it->second.at > now) {
+      ++it;
+      continue;
+    }
+    due.push_back(it->first);
+    if (it->second.repeat) {
+      it->second.at = now + it->second.every;
+      ++it;
+    } else {
+      it = timers_.erase(it);
     }
   }
-  // Each queues its callback (TimerManager::callTimer), which runs with the queue's next drain.
-  for (auto id : due) manager.callTimer(static_cast<facebook::react::TimerHandle>(id));
-  return !due.empty();
+  return due;
 }
 
 std::optional<JsThread::Clock::time_point> JsThread::Timers::next() const {
