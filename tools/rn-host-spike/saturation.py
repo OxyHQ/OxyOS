@@ -30,7 +30,7 @@ them. Each load starts `LEAD_MS` before the input, and its progress is recorded:
 is not starved.
 """
 
-import ctypes
+import itertools
 import json
 import os
 import pathlib
@@ -635,7 +635,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
                 file.unlink(missing_ok=True)
         watch = {}
 
-        def during(sampler, _out):
+        def during(sampler, _out, watch=watch):
             watch["it"] = Watch(fixture, sampler, loads.progress_files(load))
 
         try:
@@ -660,7 +660,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
                 span = paced[-2] / paced[-1] * 1000 + REFRESH_MS
                 composed = [frame for frame in composed if frame[0] <= span]
             if key == "drag":
-                gaps = [b[0] - a[0] for a, b in zip(composed, composed[1:])]
+                gaps = [b[0] - a[0] for a, b in itertools.pairwise(composed)]
                 late += sum(1 for gap in gaps if gap > 1.5 * REFRESH_MS)
             frames += len(composed)
             compose += [frame[1] for frame in composed]
