@@ -42,6 +42,7 @@ The official website is [oxy.so/os](https://oxy.so/os), served by the [OxyHQ/web
 20. [Developing OxyOS](./developing): a machine from nothing (`tools/dev/bootstrap`), building and running a scenario, the scenario gate that main requires, deploying to a test machine, and the gate's machine.
 21. [Desktop interaction coverage](./desktop-interaction-coverage): which regressions check input methods, text editing, menus from the keyboard, popups following their windows, scrolling and accessibility, what each asserts, and the gaps.
 22. [macOS parity](./macos-parity): what macOS does to feel unsaturated, unbreakable, fluid and compact, where OxyOS stands, one ranked roadmap and who owns each item.
+23. [Wording](./wording): the one glossary the system's words follow in English and Spanish, and why.
 
 ## Checks
 
@@ -50,6 +51,7 @@ cargo fmt --all --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 python3 scripts/check-native-boundary.py
+python3 scripts/check-cpp-format.py  # clang-format 19.1.7 (CLANG_FORMAT); the host's -Wall -Wextra -Werror is its build's
 cargo run --locked -p oxyos-platform-probe
 python3 scripts/check-image-config.py
 ```

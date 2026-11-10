@@ -108,7 +108,7 @@ test("the view says why it has no list: no daemon, the switch, off, nothing foun
   assert.equal(wifiEmptyText(state({}, { available: false }), ES), "El servicio de red no responde.");
   assert.equal(
     wifiEmptyText(state({ enabled: false, hardwareBlocked: true }), ES),
-    "Wi-Fi está desactivada con el interruptor del ordenador.",
+    "La Wi-Fi está desactivada con el interruptor del ordenador.",
   );
   assert.equal(wifiEmptyText(state({ enabled: false, state: "off" }), ES), "Wi-Fi desactivada");
   assert.equal(wifiEmptyText(state({ networks: [] }), ES), "Buscando redes…");

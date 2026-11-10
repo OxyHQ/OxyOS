@@ -53,7 +53,7 @@
       "expect": {
         "texts": [
           "Abrir al iniciar sesión",
-          "Ningún ítem",
+          "No hay ítems",
           "Actividad de las apps en segundo plano",
           "Ninguna app realiza tareas en segundo plano."
         ],
@@ -117,12 +117,12 @@
           "Aplicación"
         ],
         "absent": [
-          "Ningún ítem"
+          "No hay ítems"
         ],
         "in_shell": {
           "texts": [
             "Ítems en segundo plano añadidos",
-            "«Chat» ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
+            "“Chat” ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
           ]
         },
         "notifications": [
@@ -333,7 +333,7 @@
       "name": "Turned off by the person: ended at once",
       "do": [
         "press_named",
-        "Permitir Chat en segundo plano"
+        "Permitir a Chat funcionar en segundo plano"
       ],
       "allow_unchanged": true,
       "expect": {
@@ -372,7 +372,7 @@
       ],
       "expect": {
         "texts": [
-          "Ningún ítem"
+          "No hay ítems"
         ],
         "preferences_file": {
           "open_at_login": null
@@ -510,7 +510,7 @@
           "Elige una app que se abra automáticamente al iniciar sesión."
         ],
         "texts": [
-          "Ningún ítem"
+          "No hay ítems"
         ],
         "preferences_file": {
           "open_at_login": null

@@ -5,7 +5,9 @@ Each test gives `check_input_delivery` the development compositor's record of wh
 decides about an ordering is decided the same way every time, whatever the machine's load."""
 
 import importlib.util
+import os
 import pathlib
+import secrets
 import subprocess
 import sys
 import unittest
@@ -262,19 +264,38 @@ class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
             {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"},
         ]))
 
-# A run's processes as its /proc shows them: those whose command is `sleep 7.31` (a twin's).
+# A twin: a run that starts `sleep MARKER`, says "ready" once the kernel shows that command, and
+# on "count" says how many processes its /proc shows with exactly that command, then on "end"
+# ends its sleep. The test tells both twins to count only once both are ready, and to end only
+# once both have counted, so each counts while both sleeps run, however loaded the machine; and
+# MARKER is this test's own, so a test run beside it (another checkout's, another agent's) never
+# shows a sleep of the same command.
 TWIN = """
-import os, subprocess, time
-twin = subprocess.Popen(["sleep", "7.31"])
-time.sleep(1.5)
+import os, subprocess, sys
+marker = sys.argv[1]
+command = b"sleep\\0" + marker.encode() + b"\\0"
+twin = subprocess.Popen(["sleep", marker])
+# The kernel names a process before it lays out its arguments: ready once they are there.
+while True:
+    if twin.poll() is not None:
+        sys.exit(f"sleep {marker} ended at once")
+    try:
+        if open(f"/proc/{twin.pid}/cmdline", "rb").read() == command:
+            break
+    except OSError:
+        pass
+print("ready", flush=True)
+sys.stdin.readline()
 seen = 0
 for entry in os.listdir("/proc"):
     try:
-        seen += open(f"/proc/{entry}/cmdline", "rb").read() == b"sleep\\x007.31\\x00"
+        seen += open(f"/proc/{entry}/cmdline", "rb").read() == command
     except OSError:
         pass
+print(seen, flush=True)
+sys.stdin.readline()
 twin.kill()
-print(seen)
+twin.wait()
 """
 
 
@@ -289,10 +310,31 @@ class ARunSeesOnlyItsOwnProcesses(unittest.TestCase):
             raise unittest.SkipTest(f"this machine gives no PID namespace of a run's own: {refused}")
 
     def twins(self, isolated):
-        command = [sys.executable, "-c", TWIN]
+        """What each of two twins at once counted of their two sleeps."""
+        # Seconds sleep takes, unique to this test (a day, and this process's id and a nonce as
+        # its fraction).
+        marker = f"86400.{os.getpid()}{secrets.randbelow(10**9):09d}"
+        command = [sys.executable, "-c", TWIN, marker]
         runs = [subprocess.Popen(regress.pid_namespace_command(command) if isolated else command,
-                                 stdout=subprocess.PIPE, text=True) for _ in range(2)]
-        return [int(run.communicate(timeout=30)[0]) for run in runs]
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) for _ in range(2)]
+        try:
+            for run in runs:
+                self.assertEqual(run.stdout.readline(), "ready\n")
+            for run in runs:
+                run.stdin.write("count\n")
+                run.stdin.flush()
+            counts = [int(run.stdout.readline()) for run in runs]
+            for run in runs:
+                run.stdin.write("end\n")
+                run.stdin.flush()
+            for run in runs:
+                self.assertEqual(run.wait(timeout=30), 0)
+            return counts
+        finally:
+            for run in runs:
+                if run.poll() is None:
+                    run.kill()
+                    run.wait()
 
     def test_two_runs_at_once_each_see_only_their_own(self):
         self.assertEqual(self.twins(isolated=False), [2, 2], "without namespaces each sees both")
@@ -508,6 +550,18 @@ class GlidesMeetInput(unittest.TestCase):
     def test_anything_after_its_momentum_ended_fails(self):
         lines, offset, ended, line = self.glide()
         self.assertTrue(self.check({}, lines + [line(ended + 20, "scroll", offset + 5)]))
+
+
+class SignalSteps(unittest.TestCase):
+    def test_a_part_is_sent_a_signal_that_ends_it(self):
+        self.assertEqual(regress.director_args({"do": ["signal", ["SEGV", "reader"]]}, None),
+                         ["--signal", "SEGV", "reader"])
+        self.assertIn("signal", regress.STEP_KEYS)
+
+    def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
+        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+            with self.assertRaises(ValueError):
+                regress.director_args({"do": ["signal", value]}, None)
 
 
 if __name__ == "__main__":

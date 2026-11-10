@@ -329,6 +329,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   motions at a rate, no button held, the compositor serving the application between them, as a
   hand moves across a list): "presented_min", the fewest frames the window showed;
   "latency_max_ms", the longest from a motion to the frame that followed it;
+- typed: for a `type_paced` step (text typed key by key at a rate, each key carrying its time, the
+  compositor serving the application between them): "presented_min", the fewest frames the window
+  showed. Each paced step's record has `device_latency_ms`, every input's latency from its device's
+  time to the frame answering it (perf.py saturation's measure);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - transactions: the text-input transactions the application was given in the step (ADR 0008),
@@ -538,6 +542,12 @@ service writes (`oxyos-pack entry`, beside the offscreen compositor) with the li
 account's decisions on its capabilities; the development compositor takes it as the service's
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
+
+A scenario with `last_session` "problem" runs a login screen (`login`) the login program told the last
+session ended because of a problem, and `session_ended` ("signal 11 3600 1762790000": how, the seconds it
+ran, when) a session the login program told how the person's last one ended (docs/adr/0065-the-session-
+ending-because-of-a-problem.mdx). Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
+reopen file are `home.items` of the run's state folder, as the last session left them.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
@@ -821,9 +831,9 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
+             "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -1173,6 +1183,9 @@ def director_args(step, out):
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
+    if kind == "type_paced":
+        # Text typed key by key at a person's pace into the focused field: [text, keys a second].
+        return args + ["--type-paced", str(value[1]), value[0]]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
@@ -1224,6 +1237,13 @@ def director_args(step, out):
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]
+    if kind == "signal":
+        # A part of the session ended as a crash or a `kill` would, [SIGNAL, PART] ("SEGV",
+        # "reader"): the session then does what it does when that part ends on its own.
+        signal, part = value
+        if signal not in ("SEGV", "ABRT", "KILL", "TERM") or part not in ("reader",):
+            raise ValueError(f"signal: {value}: a signal of SEGV, ABRT, KILL or TERM to the reader")
+        return args + ["--signal", signal, part]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
     if kind == "expect-popup":
@@ -5309,6 +5329,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if scrolled.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {scrolled.get('presented', 0)} frames in the scroll, expected at least "
                  f"{wanted['presented_min']}")
+    if "typed" in expect:
+        # Paced typing (`type_paced`): the frames the window showed while the keys came.
+        typed, wanted = result.get("typed") or {}, expect["typed"]
+        if typed.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {typed.get('presented', 0)} frames as the keys were typed, expected at least "
+                 f"{wanted['presented_min']}")
     if "moved" in expect:
         # A paced pointer motion (`move_paced`): the frames the window showed while the mouse
         # moved over it, and how soon each followed its motion.
@@ -6330,6 +6356,38 @@ def power_services(spec, out, offscreen):
     return ["--power-bus", address], stop
 
 
+def desktop_quoted(word):
+    """`word` as an `Exec` key holds one word (oxyos-apps' `exec`): quoted, a backslash and a quote
+    escaped, `%` doubled."""
+    escaped = str(word).replace(BACKSLASH, BACKSLASH * 2).replace('"', BACKSLASH + '"').replace("%", "%%")
+    return f'"{escaped}"'
+
+
+BACKSLASH = chr(92)
+
+
+def also_launch_registry(apps, into, machine, offscreen):
+    """The development registry of a scenario's `also_launch` in `into`: each {"id", "name"} with
+    "exec" (a program and its arguments, "{offscreen}" in them the development compositor, whose
+    `--load` is the benchmark's loads) or "module" (a Bloom module of the packages or the probes,
+    run with its runtime), and "minimized" for one whose window is minimized once shown."""
+    target = into / "oxyos" / "applications"
+    shutil.rmtree(into, ignore_errors=True)
+    target.mkdir(parents=True)
+    for app in apps:
+        lines = ["[Desktop Entry]", "Type=Application", f"Name={app.get('name', app['id'])}"]
+        if "exec" in app:
+            program = str(pathlib.Path(offscreen).resolve())
+            lines.append("Exec=" + " ".join(desktop_quoted(str(word).replace("{offscreen}", program))
+                                            for word in app["exec"]))
+        else:
+            host, bundle, _ = machine.run(app["module"])
+            lines += [f"X-OxyOS-Bloom-Module={app['module']}", f"X-OxyOS-Bloom-Bundle={bundle}",
+                      f"X-OxyOS-Runtime={host.parent.name}"]
+        (target / f"{app['id']}.desktop").write_text("\n".join(lines) + "\n")
+    return into
+
+
 def install_arguments(scenario, out, machine=None, offscreen=None):
     """System grants (`grants`: {ID: [GRANT, ...]}) as the image's policy gives them, and the
     install service the session asks (`installd`: null for a socket no service is at, or
@@ -6694,6 +6752,15 @@ def main():
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's, each packaged one from its package.
         env["XDG_DATA_DIRS"] = str(machine.registry(out / "registry", options.offscreen))
+    if scenario.get("also_launch"):
+        # Applications the session starts once the window is shown, through its launcher as the
+        # dock starts them (`--also-launch`): the saturation benchmark's loads (perf.py), each a
+        # development entry of the run's own, in front of the registry.
+        also = also_launch_registry(scenario["also_launch"], out / "also-registry", machine, options.offscreen)
+        env["XDG_DATA_DIRS"] = os.pathsep.join([str(also)] + ([env["XDG_DATA_DIRS"]] if scenario.get("shell") else []))
+        command[2:2] = ["--also-launch", ",".join(app["id"] + (":minimized" if app.get("minimized") else "")
+                                                   for app in scenario["also_launch"]),
+                        "--also-launch-lead", str(scenario.get("also_launch_lead_ms", 0))]
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
@@ -6758,6 +6825,13 @@ def main():
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
+    # How the last session ended, as the login program tells the session (docs/adr/0065): at a login
+    # screen, `last_session` "problem" (it ended because of one); in a session,
+    # `session_ended` ("signal 11 3600 1762790000": how, the seconds it ran, when).
+    if scenario.get("last_session") == "problem":
+        env["OXYOS_LAST_SESSION_ENDED"] = "problem"
+    if scenario.get("session_ended"):
+        env["OXYOS_SESSION_ENDED"] = scenario["session_ended"]
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
         if scenario["store"].get("offline_when_shown"):

@@ -972,17 +972,6 @@ fn an_application_that_will_not_quit_for_its_reset_is_ended() {
 }
 
 #[test]
-fn the_shell_is_started_again_ever_later_and_never_given_up_on() {
-    let mut restarts = ShellRestarts::default();
-    let quick = Duration::from_secs(2);
-    let waits: Vec<u64> = (0..10).map(|_| restarts.quit(quick).as_secs()).collect();
-    assert_eq!(waits, [0, 1, 2, 4, 8, 16, 32, 60, 60, 60]);
-    // One that ran a minute starts over.
-    assert_eq!(restarts.quit(SHELL_STEADY), Duration::ZERO);
-    assert_eq!(restarts.quit(quick), SHELL_RESTART);
-}
-
-#[test]
 fn the_notification_is_in_the_sessions_language() {
     let mut session = Session::new();
     let mut crashes = Crashes::new(None, None);

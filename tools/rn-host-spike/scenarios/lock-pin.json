@@ -49,7 +49,7 @@
         "in_shell": {
           "texts": [
             "Ada Lovelace",
-            "Introduce el PIN",
+            "Introducir PIN",
             "Usar contraseña"
           ],
           "focus_input": "shell-lock-pin-password",
@@ -95,7 +95,7 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "PIN incorrecto"
+            "PIN incorrecto. Vuelve a intentarlo."
           ],
           "focus_input": "shell-lock-pin-password",
           "never": [
@@ -156,7 +156,7 @@
         },
         "in_shell": {
           "texts": [
-            "Introduce el PIN"
+            "Introducir PIN"
           ],
           "focus_input": "shell-lock-pin-password"
         }
@@ -175,11 +175,11 @@
         },
         "in_shell": {
           "texts": [
-            "Introduce la contraseña",
+            "Introducir contraseña",
             "Usar PIN"
           ],
           "absent": [
-            "Introduce el PIN"
+            "Introducir PIN"
           ],
           "focus_input": "shell-lock-password"
         }
@@ -198,7 +198,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "never": [
             "482916"
