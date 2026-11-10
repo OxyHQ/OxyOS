@@ -45,6 +45,8 @@ pub const MAX_REPORTS_PER_APPLICATION: usize = 10;
 pub const NOTIFICATION: &str = "oxyos.quit-unexpectedly";
 /// A report's file name ends so.
 const EXTENSION: &str = ".crash";
+/// `YYYY-MM-DD-HHMMSS`, when a report's application ended, in its name.
+const STAMP_LENGTH: usize = "1970-01-01-000000".len();
 
 /// Each application's unexpected quits in the last [`REPEATED`].
 #[derive(Debug, Default)]
@@ -269,24 +271,39 @@ impl Reports {
         Ok(path)
     }
 
-    /// The reports kept, oldest first, each with the application it is of.
+    /// The reports kept, oldest first, each with the application it is of. Oldest by when each
+    /// was written; written at the same time as far as the file system tells (its timestamps are
+    /// the kernel's coarse clock, a few milliseconds, in which many are written), by the time its
+    /// name says it ended and then its number at that second, never by the application's id.
     pub fn list(&self) -> Vec<(PathBuf, String)> {
         let Ok(entries) = std::fs::read_dir(&self.directory) else {
             return Vec::new();
         };
-        let mut reports: Vec<(std::time::SystemTime, PathBuf, String)> = entries
+        let mut reports: Vec<(std::time::SystemTime, String, u32, PathBuf, String)> = entries
             .flatten()
             .filter_map(|entry| {
                 let name = entry.file_name().into_string().ok()?;
-                let (id, _) = name.strip_suffix(EXTENSION)?.rsplit_once('_')?;
+                let (id, when) = name.strip_suffix(EXTENSION)?.rsplit_once('_')?;
                 let metadata = entry.metadata().ok().filter(|m| m.is_file())?;
-                Some((metadata.modified().ok()?, entry.path(), id.to_string()))
+                // `<stamp>` or `<stamp>-<n>`: the stamp's own dashes come before its time.
+                let (stamp, number) = when
+                    .rsplit_once('-')
+                    .filter(|(stamp, _)| stamp.len() == STAMP_LENGTH)
+                    .and_then(|(stamp, n)| Some((stamp, n.parse().ok()?)))
+                    .unwrap_or((when, 1));
+                Some((
+                    metadata.modified().ok()?,
+                    stamp.to_string(),
+                    number,
+                    entry.path(),
+                    id.to_string(),
+                ))
             })
             .collect();
         reports.sort();
         reports
             .into_iter()
-            .map(|(_, path, id)| (path, id))
+            .map(|(_, _, _, path, id)| (path, id))
             .collect()
     }
 
