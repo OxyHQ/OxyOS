@@ -1,0 +1,467 @@
+{
+  "about": "Window tiling, as macOS 15's (docs/adr/0016-windows.mdx, decision 12): WindowProbe dragged by its title area (a held `grab_hold`) to the display's edges shows the tile it would take beneath it before the release (`tile_preview`, exact), and takes it once released, told its new size once (`window_configures`); the menu bar fills, the left and right edges are the halves, their ends and the top edge's the quarters, the bottom edge's middle (the dock's) nothing; with Alt held, a tile anywhere; dragged away, a tiled window takes back its size. Super+Alt with an arrow, F, C and R tile, fill, centre and return it, the keyboard staying in the window and no key reaching it. At 1280 × 720 with no shell: the work area is the whole display.",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "steps": [
+    {
+      "name": "The window is the active one",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          190,
+          60,
+          900,
+          600
+        ],
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "tile_preview": null,
+        "window_configures": 0
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Grabbed by its title area and dragged to the left edge, held: the left half previewed beneath it, the window as it was and told nothing",
+      "do": [
+        "grab_hold",
+        [
+          150,
+          30,
+          -340,
+          270
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "window_rect": [
+          -150,
+          330,
+          900,
+          600
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "Released there: the window takes the left half, told its size once; still the active window",
+      "do": [
+        "release_output",
+        [
+          0,
+          360
+        ]
+      ],
+      "expect": {
+        "tile_preview": null,
+        "window_rect": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "Dragged away from its tile, held: its own size again under the pointer, told once; no tile in the middle of the display",
+      "do": [
+        "grab_hold",
+        [
+          150,
+          30,
+          300,
+          200
+        ]
+      ],
+      "expect": {
+        "tile_preview": null,
+        "window_configures": 1
+      }
+    },
+    {
+      "name": "To the top edge (over the menu bar): Fill previewed",
+      "do": [
+        "move_output",
+        [
+          640,
+          0
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          8,
+          8,
+          1264,
+          704
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "At the top edge's left end: the top-left quarter previewed",
+      "do": [
+        "move_output",
+        [
+          100,
+          0
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          8,
+          8,
+          628,
+          348
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "Back to the middle: nothing previewed",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "expect": {
+        "tile_preview": null,
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "Alt held in the middle: Fill previewed anywhere",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          8,
+          8,
+          1264,
+          704
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "With Alt, toward the bottom right: its quarter",
+      "do": [
+        "move_output",
+        [
+          1100,
+          660
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          644,
+          364,
+          628,
+          348
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "Alt released: nothing previewed away from the edges",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "expect": {
+        "tile_preview": null,
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "At the right edge's lower end: the bottom-right quarter",
+      "do": [
+        "move_output",
+        [
+          1279,
+          700
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          644,
+          364,
+          628,
+          348
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "At the right edge's middle: the right half",
+      "do": [
+        "move_output",
+        [
+          1279,
+          400
+        ]
+      ],
+      "expect": {
+        "tile_preview": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "At the bottom edge's middle, the dock's: nothing",
+      "do": [
+        "move_output",
+        [
+          640,
+          719
+        ]
+      ],
+      "expect": {
+        "tile_preview": null,
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "Released at the right edge: the right half, told once",
+      "do": [
+        "release_output",
+        [
+          1279,
+          400
+        ]
+      ],
+      "expect": {
+        "tile_preview": null,
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "Super+Alt+Left: the left half, told once; the keys reach the application not at all",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          105
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "tile_preview": null
+      }
+    },
+    {
+      "name": "Super+Alt+Up: the top half, told once; the keys reach the application not at all",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          103
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          348
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "tile_preview": null
+      }
+    },
+    {
+      "name": "Super+Alt+Down: the bottom half, told once; the keys reach the application not at all",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          108
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          364,
+          1264,
+          348
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "tile_preview": null
+      }
+    },
+    {
+      "name": "Super+Alt+Right: the right half, told once; the keys reach the application not at all",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          106
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "tile_preview": null
+      }
+    },
+    {
+      "name": "Super+Alt+F: Fill, told once; the keys reach the application not at all",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          33
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          704
+        ],
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "tile_preview": null
+      }
+    },
+    {
+      "name": "Super+Alt+F again: already there, told nothing",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          33
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          704
+        ],
+        "window_configures": 0
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "Super+Alt+C: centred at its size",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          46
+        ]
+      ],
+      "expect": {
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "Super+Alt+R: the size it had before it was first tiled",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          19
+        ]
+      ],
+      "expect": {
+        "window_configures": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "Super+Alt+R again: nothing to return to",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          19
+        ]
+      ],
+      "expect": {
+        "window_configures": 0
+      },
+      "allow_unchanged": true
+    }
+  ]
+}

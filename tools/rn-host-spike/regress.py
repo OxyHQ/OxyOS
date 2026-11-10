@@ -214,6 +214,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - window_states: every window as the shell is told of it once the step settled, by its number,
   exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
   matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+- tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
+  (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
+  exactly how many configures the director's window was sent in the step (a window tiled is told
+  its new size once); companion_rect, where the companion's window is once the step settled;
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
@@ -440,6 +444,10 @@ what it composes (ADR 0041: twelve, five a page, which the session's shell draws
 `strokes` keys reach it as the keymap types them, the arrows moving the highlight along the list
 and turning the page across it, a digit choosing that candidate of the page, Space the highlighted
 one, Escape cancelling; the shell's presses choose one or turn the page.
+
+A `grab_hold` step ([x, y, dx, dy]) is a `grab` whose button stays held: the window goes on
+moving with the pointer into the steps after it (`move_output`, `key_down`), until a
+`release_output` releases it, where a tile it previews is taken (ADR 0016, decision 12).
 
 A `drag_hold` step ([x0, y0, x1, y1, motions, hz]) is a `drag_paced` whose button stays held: the
 drag goes on into the steps after it, each step's frame showing it midway (`move_output` moves it,
@@ -815,7 +823,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
@@ -1151,6 +1159,10 @@ def director_args(step, out):
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
+    if kind == "grab_hold":
+        # The same, its button still held: the move goes on into the next steps (`move_output`,
+        # `key_down`, `release_output`), a window dragged to a display's edge showing its tile.
+        return args + ["--grab-hold", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
     if kind in ("keyboard", "compose_keys"):
@@ -5475,6 +5487,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
+    # Tiling (docs/adr/0016-windows.mdx, decision 12).
+    if "tile_preview" in expect and result.get("tile_preview") != expect["tile_preview"]:
+        fail(f"the tile previewed is {result.get('tile_preview')}, expected {expect['tile_preview']}")
+    if "window_configures" in expect and result.get("window_configures") != expect["window_configures"]:
+        fail(f"the window was sent {result.get('window_configures')} configures, expected {expect['window_configures']}")
+    if "companion_rect" in expect and result.get("companion_rect") != expect["companion_rect"]:
+        fail(f"the companion's window is at {result.get('companion_rect')}, expected {expect['companion_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
         fail(f"popups at {result.get('popups')}, expected [{expect['popup_rect']}]")
     if "popup_rects" in expect and result.get("popups", []) != expect["popup_rects"]:

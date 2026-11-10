@@ -1,0 +1,152 @@
+{
+  "about": "Arranging two windows, as a Mac's Window › Move & Resize › Arrange and Fn-Control-Shift with an arrow (docs/adr/0016-windows.mdx, decision 12): Allo's two windows (EditingProbe, its line focused, and the PressProbe companion behind it); Super+Alt+Shift with each arrow puts the active window in the first tile and the one behind it in the other, exactly, within 8 px margins at 1280 × 720, each told its size once, the active window keeping the keyboard and no key reaching either.",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      460,
+      300
+    ],
+    "at": [
+      780,
+      80
+    ],
+    "app": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's first window is the active one",
+      "do": [
+        "press",
+        [
+          300,
+          42
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_configures": 0
+      }
+    },
+    {
+      "name": "Super+Alt+Shift+Left: Left & Right: the active window takes the first tile, the window behind it the other; each told once, the keyboard staying in the active one",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          42,
+          105
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "companion_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 1,
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "Super+Alt+Shift+Right: Right & Left: the active window takes the first tile, the window behind it the other; each told once, the keyboard staying in the active one",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          42,
+          106
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "companion_rect": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "window_configures": 1,
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "Super+Alt+Shift+Up: Top & Bottom: the active window takes the first tile, the window behind it the other; each told once, the keyboard staying in the active one",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          42,
+          103
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          348
+        ],
+        "companion_rect": [
+          8,
+          364,
+          1264,
+          348
+        ],
+        "window_configures": 1,
+        "focus_input": "line"
+      }
+    },
+    {
+      "name": "Super+Alt+Shift+Down: Bottom & Top: the active window takes the first tile, the window behind it the other; each told once, the keyboard staying in the active one",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          42,
+          108
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          8,
+          364,
+          1264,
+          348
+        ],
+        "companion_rect": [
+          8,
+          8,
+          1264,
+          348
+        ],
+        "window_configures": 1,
+        "focus_input": "line"
+      }
+    }
+  ]
+}
