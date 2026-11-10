@@ -92,6 +92,17 @@ class Windows(unittest.TestCase):
         self.assertEqual(window["loads"]["spin"], {"work_per_s": 20.0, "cores": 0.2})
 
 
+class Relaxed(unittest.TestCase):
+    def test_frame_counts_are_measured_not_required(self):
+        scenario = saturation.relaxed(saturation.scenario_of("perf-window-drag.json"))
+        drag = scenario["steps"][1]["expect"]["drag"]
+        self.assertNotIn("composed_min", drag)
+        self.assertEqual(drag["bytes_read_max"], 0)
+        typing = saturation.relaxed(saturation.scenario_of(saturation.TYPING_SCENARIO))
+        self.assertEqual(typing["steps"][1]["expect"]["typed"], {})
+        self.assertIn("presented_min", saturation.TYPING_SCENARIO["steps"][1]["expect"]["typed"])
+
+
 class PassRule(unittest.TestCase):
     def entry(self, p95, late=None):
         return {"latency_ms": {"n": 10, "p50": 1, "p95": p95, "p99": p95, "max": p95}, "late_frames": late,

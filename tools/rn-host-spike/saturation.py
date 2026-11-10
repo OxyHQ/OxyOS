@@ -526,8 +526,24 @@ class Loads:
 
 def scenario_of(interaction):
     if isinstance(interaction, dict):
-        return dict(interaction)
+        return json.loads(json.dumps(interaction))
     return json.loads((SCENARIOS / interaction).read_text())
+
+
+# What a paced step's expectations count of its frames: the numbers this benchmark measures, which a
+# load is expected to change, never a reason to drop a run (what the steps do is still checked).
+COUNTED = {"scrolled": ("presented_min",), "moved": ("presented_min", "latency_max_ms"),
+           "typed": ("presented_min",), "drag": ("composed_min",)}
+
+
+def relaxed(scenario):
+    """`scenario` with its paced steps' frame counts left to the measure."""
+    for step in scenario["steps"]:
+        expect = step.get("expect", {})
+        for key, counts in COUNTED.items():
+            for count in counts:
+                expect.get(key, {}).pop(count, None)
+    return scenario
 
 
 def measure(options, out, run_scenario, fixture, loads, load, interaction):
@@ -537,7 +553,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
     latencies, compose, js, late, frames = [], [], [], 0, 0
     waits, pressures, progress, failed, turns = [], [], [], [], []
     for run in range(options.runs):
-        scenario = scenario_of(source)
+        scenario = relaxed(scenario_of(source))
         # The application under the hand is one the session launched, with its id (its launch
         # record), wherever the session puts what it launches.
         scenario.setdefault("app", {"id": f"so.oxy.perf.{name}", "title": name.capitalize()})
