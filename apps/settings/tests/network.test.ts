@@ -219,7 +219,7 @@ test("a reset's confirmation lists what goes and what stays, and why", () => {
     "Wi-Fi: LukeSkyRouter, Vecinos",
     "VPN: Work VPN",
     "Kept, as only an administrator can remove them: Office.",
-    "Kept: Office static, Ethernet's configuration, which NetworkManager would not set up again by itself.",
+    "Kept: Office static, the Ethernet configuration, which this computer wouldn’t set up again by itself.",
   ]);
   assert.deepEqual(resetLines({ removed: [], kept: [] }, messagesFor("es").network, list), [
     "No hay redes guardadas que eliminar.",
@@ -291,7 +291,7 @@ test("diagnostics: a row a check, its verdict and what was measured, nothing els
     ).map((row) => [row.title, row.value, row.detail]),
     [
       ["Router", "Not checked", ""],
-      ["Internet", "Sign-in required", "A sign-in page blocks the internet."],
+      ["Internet", "Asks to sign in", "The network asks you to sign in on a web page before it reaches the internet."],
       ["DNS", "Not checked", "No servers"],
     ],
   );
@@ -301,7 +301,7 @@ test("diagnostics: a row a check, its verdict and what was measured, nothing els
     en.wifi.diagnostics,
     "en",
   );
-  assert.equal(silent[1].detail, "0 of 3 answered · It answers for its address, but not to pings.");
+  assert.equal(silent[1].detail, "0 of 3 answered · It’s on the network, but doesn’t answer when it’s checked.");
   const es = messagesFor("es");
   const spanish = diagnosticRows(
     { ...found, link: { ...found.link!, band: "2.4", channel: 6, width: null, txRate: null } },

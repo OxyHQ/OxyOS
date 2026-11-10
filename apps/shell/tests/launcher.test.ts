@@ -65,7 +65,7 @@ test("the arrows move the highlight through the icons and across pages", () => {
 
 test("a search's results are said by their number, one and none in their own words", () => {
   const es = shellMessages("es-ES").launchpad;
-  assert.equal(es.results(0), "Ningún resultado");
+  assert.equal(es.results(0), "No hay resultados");
   assert.equal(es.results(1), "1 resultado");
   assert.equal(es.results(3), "3 resultados");
   const en = shellMessages("en-US").launchpad;

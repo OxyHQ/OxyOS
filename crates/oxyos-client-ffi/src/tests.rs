@@ -1053,9 +1053,11 @@ fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
     // SAFETY: as above.
     let again = unsafe { oxyos_websockets_connect(sockets, &request) };
     assert_eq!(again, OXYOS_ERROR);
+    // SAFETY: live sockets.
+    let readable = unsafe { oxyos_websockets_fd(sockets) };
+    let deadline = std::time::Instant::now() + HANG;
     let mut got = Vec::new();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
+    loop {
         let mut event = OxyOSWebSocketEvent::default();
         // SAFETY: live sockets and a writable event.
         match unsafe { oxyos_websockets_event(sockets, &mut event) } {
@@ -1097,7 +1099,11 @@ fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
                     _ => {}
                 }
             }
-            _ => std::thread::sleep(std::time::Duration::from_millis(5)),
+            OXYOS_WEBSOCKET_EMPTY => assert!(
+                wait_readable(readable, deadline),
+                "no close in {HANG:?}: {got:?}"
+            ),
+            other => panic!("event failed: {other}"),
         }
     }
     assert_eq!(
@@ -1113,6 +1119,31 @@ fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
     unsafe {
         oxyos_websockets_free(sockets);
         oxyos_net_free(network);
+    }
+}
+
+/// How long a test waits on another thread's work before it fails: far beyond any stall of the
+/// runner's, so only a real hang reaches it, and fails with what had arrived instead of a stuck job.
+/// CI's arm runners stall the whole test process for seconds at a time (11 s seen), and a 5 s
+/// deadline turned such a stall into a failure: the test woke past it before the request's thread
+/// had run at all.
+const HANG: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Waits until `fd` is readable or `deadline` comes; false once it has passed.
+fn wait_readable(fd: c_int, deadline: std::time::Instant) -> bool {
+    let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+        return false;
+    };
+    // SAFETY: a descriptor of a live network or sockets, for the call.
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+    let mut readable = [rustix::event::PollFd::new(
+        &fd,
+        rustix::event::PollFlags::IN,
+    )];
+    let left = rustix::event::Timespec::try_from(left).expect("a deadline in range");
+    match rustix::event::poll(&mut readable, Some(&left)) {
+        Ok(_) | Err(rustix::io::Errno::INTR) => true,
+        Err(error) => panic!("poll: {error}"),
     }
 }
 
@@ -1206,7 +1237,8 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
         header_count: 1,
         body: std::ptr::null(),
         body_length: 0,
-        timeout_ms: 5000,
+        // None of its own: the test's bound is HANG's.
+        timeout_ms: 0,
         has_body: 1,
         with_credentials: 1,
         incremental: 0,
@@ -1217,9 +1249,11 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
     // SAFETY: a live network, and a request whose pointers outlive the call.
     assert_eq!(unsafe { oxyos_net_send(network, &request) }, 0);
 
+    // SAFETY: a live network.
+    let readable = unsafe { oxyos_net_fd(network) };
+    let deadline = std::time::Instant::now() + HANG;
     let (mut got, mut sent) = (Vec::new(), Vec::new());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
+    loop {
         let mut answer = OxyOSNetAnswer::default();
         // SAFETY: a live network and a writable answer.
         match unsafe { oxyos_net_answer(network, &mut answer) } {
@@ -1250,14 +1284,17 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
                     break;
                 }
             }
-            OXYOS_NET_EMPTY => std::thread::sleep(std::time::Duration::from_millis(5)),
+            OXYOS_NET_EMPTY => assert!(
+                wait_readable(readable, deadline),
+                "no completion in {HANG:?}: sent {sent:?}, answered {got:?}"
+            ),
             other => panic!("answer failed: {other}"),
         }
     }
     // SAFETY: a network from oxyos_net_new, freed once.
     unsafe { oxyos_net_free(network) };
 
-    assert_eq!(sent.last(), Some(&(4, 4)), "{sent:?}");
+    assert_eq!(sent.last(), Some(&(4, 4)), "{sent:?} {got:?}");
     assert_eq!(got.len(), 3, "{got:?}");
     assert_eq!((got[0].0, got[0].1), (OXYOS_NET_RESPONSE, 201));
     assert!(got[0]

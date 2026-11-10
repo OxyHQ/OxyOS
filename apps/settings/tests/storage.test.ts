@@ -173,7 +173,7 @@ test("Storage speaks English and Spanish, and Empty Trash Automatically is the s
   assert.equal(PREFERENCE_KEYS.emptyTrashAutomatically, "empty_trash_automatically");
   assert.equal(messagesFor("en").pages.storage, "Storage");
   assert.equal(messagesFor("es").pages.storage, "Almacenamiento");
-  assert.equal(messagesFor("en").storage.unusedAppsDescription(1, "3 GB"), "An app you haven't opened in 3 months uses 3 GB.");
+  assert.equal(messagesFor("en").storage.unusedAppsDescription(1, "3 GB"), "An app you haven’t opened in 3 months uses 3 GB.");
   assert.equal(
     messagesFor("es").storage.unusedAppsDescription(2, "3 GB"),
     "2 apps que no has abierto en 3 meses ocupan 3 GB.",
@@ -193,6 +193,6 @@ test("a reset's answer: done, cancelled in the system's sheet, or failed; never 
   const es = messagesFor("es").storage;
   assert.equal(en.resetApp, "Reset…");
   assert.equal(es.resetApp, "Restablecer…");
-  assert.equal(en.resetFailed("Mention"), "Mention couldn't be reset.");
+  assert.equal(en.resetFailed("Mention"), "Mention couldn’t be reset.");
   assert.equal(es.resetDone("Mention"), "Mention restablecida");
 });

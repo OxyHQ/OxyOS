@@ -182,7 +182,7 @@
      "Wi-Fi: LukeSkyRouter, Vecinos",
      "VPN: Work VPN",
      "Kept, as only an administrator can remove them: Oficina.",
-     "Kept: Office static, Ethernet's configuration"
+     "Kept: Office static, the Ethernet configuration"
     ],
     "absent": [
      "Wired connection 1"

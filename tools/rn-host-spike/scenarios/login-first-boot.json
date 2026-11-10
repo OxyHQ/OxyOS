@@ -35,7 +35,7 @@
           ],
           "absent": [
             "Atrás",
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ]
         }
       }
@@ -81,7 +81,7 @@
             "Paso 2 de 6"
           ],
           "absent": [
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ]
         }
       }
@@ -125,7 +125,7 @@
             "Reintentar"
           ],
           "absent": [
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ]
         }
       }
