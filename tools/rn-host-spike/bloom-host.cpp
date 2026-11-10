@@ -3910,6 +3910,11 @@ int main(int argc, char** argv) {
         // gone idle without one (an application that draws nothing), never shows an empty window
         // before JavaScript had its turn.
         if (!firstShown && (mounter.transactions > 0 || (bundleRan && js->idle()))) firstShown = true;
+        // A window closed to run on in the background (docs/adr/0060-login-items-and-background-activity.mdx)
+        // is never drawn again: what changed in its tree waits for no frame. Left set, `dirty`
+        // counted every turn as work, so the memory trim due a second after the last work was
+        // armed again at each wake and woke the idle application once a second, for good.
+        if (window->toplevelClosed()) dirty = false;
         if (dirty && !settling && firstShown && window->ready(oxyos::Window::kToplevel)) {
           Scope drawing(Part::Draw);
           auto started = Clock::now();

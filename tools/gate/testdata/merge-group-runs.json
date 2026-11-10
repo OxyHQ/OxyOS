@@ -1,0 +1,184 @@
+{
+ "workflow_runs": [
+  {
+   "id": 42825428164,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "30d99f4619eeccda1b3c81081f90982ced211103",
+   "head_branch": "gh-readonly-queue/main/pr-558-70e994f49a8fbd2d61b9a196150a731e133b576f",
+   "created_at": "2026-11-10T13:32:22Z"
+  },
+  {
+   "id": 42825428162,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "30d99f4619eeccda1b3c81081f90982ced211103",
+   "head_branch": "gh-readonly-queue/main/pr-558-70e994f49a8fbd2d61b9a196150a731e133b576f",
+   "created_at": "2026-11-10T13:32:22Z"
+  },
+  {
+   "id": 42825424318,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "70e994f49a8fbd2d61b9a196150a731e133b576f",
+   "head_branch": "gh-readonly-queue/main/pr-555-04274b8132af49a3256fb034777d7a68ef519c3e",
+   "created_at": "2026-11-10T13:32:21Z"
+  },
+  {
+   "id": 42825424152,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "70e994f49a8fbd2d61b9a196150a731e133b576f",
+   "head_branch": "gh-readonly-queue/main/pr-555-04274b8132af49a3256fb034777d7a68ef519c3e",
+   "created_at": "2026-11-10T13:32:20Z"
+  },
+  {
+   "id": 42825418048,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "04274b8132af49a3256fb034777d7a68ef519c3e",
+   "head_branch": "gh-readonly-queue/main/pr-515-12e236315f8b3302843045ba9839993d222de08a",
+   "created_at": "2026-11-10T13:32:18Z"
+  },
+  {
+   "id": 42825418203,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "04274b8132af49a3256fb034777d7a68ef519c3e",
+   "head_branch": "gh-readonly-queue/main/pr-515-12e236315f8b3302843045ba9839993d222de08a",
+   "created_at": "2026-11-10T13:32:18Z"
+  },
+  {
+   "id": 42825415734,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "12e236315f8b3302843045ba9839993d222de08a",
+   "head_branch": "gh-readonly-queue/main/pr-551-a90d943178d517ae51f002da7686719ac4305bba",
+   "created_at": "2026-11-10T13:32:17Z"
+  },
+  {
+   "id": 42825415769,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "12e236315f8b3302843045ba9839993d222de08a",
+   "head_branch": "gh-readonly-queue/main/pr-551-a90d943178d517ae51f002da7686719ac4305bba",
+   "created_at": "2026-11-10T13:32:17Z"
+  },
+  {
+   "id": 42825413621,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "a90d943178d517ae51f002da7686719ac4305bba",
+   "head_branch": "gh-readonly-queue/main/pr-538-f2f00cedae991591bcaf013d76f371ba1bce72f2",
+   "created_at": "2026-11-10T13:32:16Z"
+  },
+  {
+   "id": 42825413631,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "a90d943178d517ae51f002da7686719ac4305bba",
+   "head_branch": "gh-readonly-queue/main/pr-538-f2f00cedae991591bcaf013d76f371ba1bce72f2",
+   "created_at": "2026-11-10T13:32:16Z"
+  },
+  {
+   "id": 42817364768,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "de65207a0ab086678fb8cea7c40813c4f5a5694d",
+   "head_branch": "gh-readonly-queue/main/pr-555-23e5ace5f2abf7d5ce3647e854499dd656bea55b",
+   "created_at": "2026-11-10T12:37:39Z"
+  },
+  {
+   "id": 42817364461,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "de65207a0ab086678fb8cea7c40813c4f5a5694d",
+   "head_branch": "gh-readonly-queue/main/pr-555-23e5ace5f2abf7d5ce3647e854499dd656bea55b",
+   "created_at": "2026-11-10T12:37:39Z"
+  },
+  {
+   "id": 42817362073,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "23e5ace5f2abf7d5ce3647e854499dd656bea55b",
+   "head_branch": "gh-readonly-queue/main/pr-515-f22e273de025630637fd9dba8b30490460b46f5c",
+   "created_at": "2026-11-10T12:37:38Z"
+  },
+  {
+   "id": 42817362036,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "23e5ace5f2abf7d5ce3647e854499dd656bea55b",
+   "head_branch": "gh-readonly-queue/main/pr-515-f22e273de025630637fd9dba8b30490460b46f5c",
+   "created_at": "2026-11-10T12:37:38Z"
+  },
+  {
+   "id": 42817360770,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "f22e273de025630637fd9dba8b30490460b46f5c",
+   "head_branch": "gh-readonly-queue/main/pr-551-337d27766d6db536b10ace4e4e7d37af0a95ff11",
+   "created_at": "2026-11-10T12:37:37Z"
+  },
+  {
+   "id": 42817360795,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "f22e273de025630637fd9dba8b30490460b46f5c",
+   "head_branch": "gh-readonly-queue/main/pr-551-337d27766d6db536b10ace4e4e7d37af0a95ff11",
+   "created_at": "2026-11-10T12:37:37Z"
+  },
+  {
+   "id": 42817357606,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "337d27766d6db536b10ace4e4e7d37af0a95ff11",
+   "head_branch": "gh-readonly-queue/main/pr-538-6ee4c51a1812442faa7e6e76fbbd44d0ff8670f1",
+   "created_at": "2026-11-10T12:37:36Z"
+  },
+  {
+   "id": 42817357622,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "in_progress",
+   "head_sha": "337d27766d6db536b10ace4e4e7d37af0a95ff11",
+   "head_branch": "gh-readonly-queue/main/pr-538-6ee4c51a1812442faa7e6e76fbbd44d0ff8670f1",
+   "created_at": "2026-11-10T12:37:36Z"
+  },
+  {
+   "id": 42817354052,
+   "name": "Native foundation",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "6ee4c51a1812442faa7e6e76fbbd44d0ff8670f1",
+   "head_branch": "gh-readonly-queue/main/pr-548-f2f00cedae991591bcaf013d76f371ba1bce72f2",
+   "created_at": "2026-11-10T12:37:35Z"
+  },
+  {
+   "id": 42817354191,
+   "name": "Scenarios",
+   "event": "merge_group",
+   "status": "completed",
+   "head_sha": "6ee4c51a1812442faa7e6e76fbbd44d0ff8670f1",
+   "head_branch": "gh-readonly-queue/main/pr-548-f2f00cedae991591bcaf013d76f371ba1bce72f2",
+   "created_at": "2026-11-10T12:37:35Z"
+  }
+ ]
+}

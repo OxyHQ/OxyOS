@@ -228,6 +228,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - window_states: every window as the shell is told of it once the step settled, by its number,
   exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
   matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+- tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
+  (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
+  exactly how many configures the director's window was sent in the step (a window tiled is told
+  its new size once); companion_rect, where the companion's window is once the step settled;
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
@@ -437,6 +441,9 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a
+thread of its own after the frame that laid it out, in a window the shell launched, whose frames
+are not a step's changes): it settles only once the output shows its `output_pixels`, within `ms`.
 
 A `strokes` step types keys as a person does on the session's keyboard (a list of codes or chords,
 [40, 18] being ´ then e on the Spanish layout): through the session's keymap (the scenario's
@@ -476,6 +483,10 @@ what it composes (ADR 0041: twelve, five a page, which the session's shell draws
 `strokes` keys reach it as the keymap types them, the arrows moving the highlight along the list
 and turning the page across it, a digit choosing that candidate of the page, Space the highlighted
 one, Escape cancelling; the shell's presses choose one or turn the page.
+
+A `grab_hold` step ([x, y, dx, dy]) is a `grab` whose button stays held: the window goes on
+moving with the pointer into the steps after it (`move_output`, `key_down`), until a
+`release_output` releases it, where a tile it previews is taken (ADR 0016, decision 12).
 
 A `drag_hold` step ([x0, y0, x1, y1, motions, hz]) is a `drag_paced` whose button stays held: the
 drag goes on into the steps after it, each step's frame showing it midway (`move_output` moves it,
@@ -578,7 +589,9 @@ where its entry came from (`system`, `installed N`, `development`) and whether i
 A scenario with `last_session` "problem" runs a login screen (`login`) the login program told the last
 session ended because of a problem, and `session_ended` ("signal 11 3600 1762790000": how, the seconds it
 ran, when) a session the login program told how the person's last one ended (docs/adr/0065-the-session-
-ending-because-of-a-problem.mdx). Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
+ending-because-of-a-problem.mdx). A scenario with `panics` ({NAME: TEXT}) runs a session after the
+computer restarted because of a kernel panic, those its accounts as oxyos-recovery wrote them
+(docs/adr/0068-crash-evidence-and-kernel-panics.mdx); every run's folder of them is its own. Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
 reopen file are `home.items` of the run's state folder, as the last session left them.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
@@ -863,7 +876,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
@@ -1190,6 +1203,11 @@ def director_args(step, out):
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
+    if step.get("until_output_pixels"):
+        # Its answer is drawn on the application's own clock: it settles once the output shows the
+        # step's `output_pixels` (those it expects of a colour, not "!" those it must not show).
+        shown = {at: colour for at, colour in step["expect"]["output_pixels"].items() if not colour.startswith("!")}
+        args += ["--until-pixels", str(step["until_output_pixels"]), ";".join(f"{at}={colour}" for at, colour in shown.items())]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
@@ -1298,6 +1316,10 @@ def director_args(step, out):
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
+    if kind == "grab_hold":
+        # The same, its button still held: the move goes on into the next steps (`move_output`,
+        # `key_down`, `release_output`), a window dragged to a display's edge showing its tile.
+        return args + ["--grab-hold", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
     if kind in ("keyboard", "compose_keys"):
@@ -5770,6 +5792,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
+    # Tiling (docs/adr/0016-windows.mdx, decision 12).
+    if "tile_preview" in expect and result.get("tile_preview") != expect["tile_preview"]:
+        fail(f"the tile previewed is {result.get('tile_preview')}, expected {expect['tile_preview']}")
+    if "window_configures" in expect and result.get("window_configures") != expect["window_configures"]:
+        fail(f"the window was sent {result.get('window_configures')} configures, expected {expect['window_configures']}")
+    if "companion_rect" in expect and result.get("companion_rect") != expect["companion_rect"]:
+        fail(f"the companion's window is at {result.get('companion_rect')}, expected {expect['companion_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
         fail(f"popups at {result.get('popups')}, expected [{expect['popup_rect']}]")
     if "popup_rects" in expect and result.get("popups", []) != expect["popup_rects"]:
@@ -7066,6 +7095,15 @@ def main():
         env["OXYOS_LAST_SESSION_ENDED"] = "problem"
     if scenario.get("session_ended"):
         env["OXYOS_SESSION_ENDED"] = scenario["session_ended"]
+    # The accounts of kernel panics oxyos-recovery wrote after a restart (docs/adr/0068): `panics`
+    # ({NAME: TEXT}), written into a folder of the run's own, never the machine's.
+    problems = out / "problems"
+    shutil.rmtree(problems, ignore_errors=True)
+    if scenario.get("panics"):
+        problems.mkdir(parents=True)
+        for name, text in scenario["panics"].items():
+            (problems / name).write_text(text)
+    env["OXYOS_PROBLEMS"] = str(problems.resolve())
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
         if scenario["store"].get("offline_when_shown"):

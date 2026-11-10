@@ -171,8 +171,15 @@ pub enum Step {
     DragOutput { from: (i32, i32), to: (i32, i32) },
     /// A press at a window-local point held while the application answers it (a window's drag
     /// region asks the compositor to move the window, ADR 0016), then a drag by `by` in eight even
-    /// steps and the release, as a hand grabs a window by its toolbar.
-    Grab { from: (i32, i32), by: (i32, i32) },
+    /// steps and the release, as a hand grabs a window by its toolbar. `held`: no release, the
+    /// drag going on into the next steps (`move_output`, `key_down`, `release_output`), as a
+    /// window dragged to a display's edge shows its tile before the release (ADR 0016,
+    /// decision 12).
+    Grab {
+        from: (i32, i32),
+        by: (i32, i32),
+        held: bool,
+    },
     /// A press on the output held and moved to `to` in `motions` even steps, `hz` of them a
     /// second, the compositor serving the application between them, then the release: a hand
     /// dragging (a window's edge) at a mouse's pace. What the window showed meanwhile is measured
@@ -455,7 +462,10 @@ impl Step {
             ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::DragOutput { from, to } => format!("drag from {from:?} to {to:?} on the output"),
-            Step::Grab { from, by } => format!("grab at {from:?}, moved by {by:?}"),
+            Step::Grab { from, by, held } => format!(
+                "grab at {from:?}, moved by {by:?}{}",
+                if *held { ", held" } else { "" }
+            ),
             Step::DragPaced {
                 from,
                 to,
@@ -694,9 +704,14 @@ impl Step {
             Step::DragOutput { from, to } => {
                 format!("\"drag_output\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
-            Step::Grab { from, by } => {
-                format!("\"grab\":[{},{},{},{}]", from.0, from.1, by.0, by.1)
-            }
+            Step::Grab { from, by, held } => format!(
+                "\"{}\":[{},{},{},{}]",
+                if *held { "grab_hold" } else { "grab" },
+                from.0,
+                from.1,
+                by.0,
+                by.1
+            ),
             Step::DragPaced {
                 from,
                 to,
@@ -906,6 +921,53 @@ fn chord(codes: &[u32]) -> String {
         .join("+")
 }
 
+/// A colour the primary output shows at a point, in its pixels (`Settling::until_pixels`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputPixel {
+    pub x: u32,
+    pub y: u32,
+    /// 0xRRGGBB, as the output's frame holds it.
+    pub rgb: u32,
+}
+
+/// `X,Y=#RRGGBB` points joined by `;`, as `--until-pixels` takes them.
+fn output_pixels(text: &str) -> Option<Vec<OutputPixel>> {
+    text.split(';')
+        .map(|point| {
+            let (at, colour) = point.split_once('=')?;
+            let (x, y) = at.split_once(',')?;
+            Some(OutputPixel {
+                x: x.trim().parse().ok()?,
+                y: y.trim().parse().ok()?,
+                rgb: u32::from_str_radix(colour.trim().strip_prefix('#')?, 16)
+                    .ok()
+                    .filter(|_| colour.trim().len() == 7)?,
+            })
+        })
+        .collect()
+}
+
+/// Whether the primary output shows `pixels`, each channel within the tolerance a step's
+/// `output_pixels` is checked with (3).
+fn output_shows(compositor: &Compositor, pixels: &[OutputPixel]) -> bool {
+    let Some(screen) = compositor.screens.first() else {
+        return false;
+    };
+    pixels.iter().all(|pixel| {
+        if pixel.x >= screen.width || pixel.y >= screen.height {
+            return false;
+        }
+        let shown = screen.framebuffer[(pixel.y * screen.width + pixel.x) as usize];
+        (0..3).all(|channel| {
+            let (a, b) = (
+                (shown >> (channel * 8)) & 0xff,
+                (pixel.rgb >> (channel * 8)) & 0xff,
+            );
+            a.abs_diff(b) <= 3
+        })
+    })
+}
+
 /// How a step's answer settles, from the flags before it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Settling {
@@ -923,6 +985,12 @@ pub struct Settling {
     /// set off (a live region it changed, said by the screen reader) is the step's own too, as
     /// everything said on the way is.
     pub until_named: Option<(u64, String)>,
+    /// `--until-pixels MS X,Y=#RRGGBB;...`: its answer is drawn on the application's own clock (an
+    /// image it decodes on a thread of its own, after the frame that laid it out): it settles only
+    /// once the primary output shows each colour at its point (output pixels), within MS, and has
+    /// shown them for the step's stillness. A launched application's frames are not changes (it
+    /// may draw as long as it likes), so nothing else would wait for them.
+    pub until_pixels: Option<(u64, Vec<OutputPixel>)>,
     /// `--until-ended`: its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
@@ -1121,7 +1189,7 @@ pub struct Launch {
     pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1304,6 +1372,14 @@ impl Launch {
                     let ms = ms.parse().map_err(|_| "--until-named MS NAME")?;
                     let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     settling.until_named = Some((ms, name.to_string()));
+                    continue;
+                }
+                Some("--until-pixels") => {
+                    const ARGS: &str = "--until-pixels MS X,Y=#RRGGBB;...";
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let ms = ms.parse().map_err(|_| ARGS)?;
+                    let pixels = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    settling.until_pixels = Some((ms, output_pixels(pixels).ok_or(ARGS)?));
                     continue;
                 }
                 Some("--launch") => continue,
@@ -1777,11 +1853,12 @@ impl Launch {
                         to: (n[2], n[3]),
                     }
                 }
-                Some("--grab") => {
+                Some(flag @ ("--grab" | "--grab-hold")) => {
                     let n = numbers(args.next(), 4)?;
                     Step::Grab {
                         from: (n[0], n[1]),
                         by: (n[2], n[3]),
+                        held: flag == "--grab-hold",
                     }
                 }
                 Some(flag @ ("--drag-paced" | "--drag-hold")) => {
@@ -2984,6 +3061,7 @@ fn clear_of_minute(
             still: SETTLE,
             sheet: false,
             named: None,
+            pixels: None,
             ended: false,
         },
         Some(window),
@@ -3009,6 +3087,8 @@ struct Wait<'a> {
     still: Duration,
     sheet: bool,
     named: Option<&'a str>,
+    /// The colours the answer shows on the output (`Settling::until_pixels`).
+    pixels: Option<&'a [OutputPixel]>,
     /// The session's end is the answer (`Settling::ended`).
     ended: bool,
 }
@@ -3027,6 +3107,7 @@ fn settle(
         still,
         sheet,
         named,
+        pixels,
         ended,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
@@ -3061,6 +3142,19 @@ fn settle(
     // starts the stillness itself: settling the moment it appeared left what that frame set off
     // (its live region said by the screen reader) to the next step.
     let mut named_since: Option<Instant> = None;
+    // Since when the output has shown the answer's colours (`pixels`).
+    let mut pixels_since: Option<Instant> = None;
+    // A screenshot being written (on the writer's thread, ADR 0024's decision 10) is an answer
+    // still to come: the shell's thumbnail and what the screen reader is told follow it. Its end
+    // starts the stillness, as a change does.
+    let writing = |session: &Session| {
+        session
+            .compositor
+            .screenshots
+            .as_ref()
+            .is_some_and(|writer| writer.writing())
+    };
+    let mut was_writing = writing(session);
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -3101,11 +3195,15 @@ fn settle(
         let order_now = window_order(&session.compositor);
         let order_changed = order_now != order_last;
         order_last = order_now;
+        let writing_now = writing(session);
+        let written = was_writing && !writing_now;
+        was_writing = writing_now;
         let shell_changed = shell_now != shell_last
             || launched_changed
             || companion_changed
             || drawn_changed
-            || order_changed;
+            || order_changed
+            || written;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -3182,6 +3280,18 @@ fn settle(
                 named_since.is_some_and(|since| since.elapsed() >= still)
             }
         };
+        // The answer's colours, once the output shows them.
+        let pixels_shown = match pixels {
+            None => true,
+            Some(pixels) => {
+                if !output_shows(&session.compositor, pixels) {
+                    pixels_since = None;
+                } else if pixels_since.is_none() {
+                    pixels_since = Some(Instant::now());
+                }
+                pixels_since.is_some_and(|since| since.elapsed() >= still)
+            }
+        };
         // The session's end, once every application quit (ADR 0064).
         let ended_now = !ended
             || session
@@ -3190,9 +3300,11 @@ fn settle(
                 .is_some_and(|ending| ending.state_name() == "ended");
         if !changed
             && !shell_changed
+            && !writing_now
             && answered
             && sheet_shown
             && named_shown
+            && pixels_shown
             && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
@@ -4756,8 +4868,15 @@ fn composed(compositor: &Compositor) -> Vec<u32> {
 /// Injects one step's input into the scene.
 /// A grab (`Step::Grab`): the press, then the compositor serving the application until it is
 /// moving the window or two seconds have passed (it never asked: the drag then moves nothing),
-/// then the drag and the release. On the scene, with or without the virtual devices.
-fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -> Result<()> {
+/// then the drag and the release (none when `held`). On the scene, with or without the virtual
+/// devices.
+fn grab(
+    session: &mut Session,
+    window: Rect,
+    from: (i32, i32),
+    by: (i32, i32),
+    held: bool,
+) -> Result<()> {
     let start = (window.x + from.0, window.y + from.1);
     if !window.contains_point(start.0, start.1) {
         return Err(format!("({}, {}) is outside {window:?}", from.0, from.1).into());
@@ -4772,7 +4891,9 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
     for (x, y) in drag_points(start, (start.0 + by.0, start.1 + by.1)) {
         session.compositor.scene.pointer_motion(x, y);
     }
-    session.compositor.scene.pointer_button(BUTTON, false);
+    if !held {
+        session.compositor.scene.pointer_button(BUTTON, false);
+    }
     Ok(())
 }
 
@@ -6544,6 +6665,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .crashes
                 .session_ended(&mut session.compositor.scene, &ended, reopened);
         }
+        // A kernel panic's account (docs/adr/0068): the scenario's own folder of them.
+        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
+            session
+                .crashes
+                .restarted(&mut session.compositor.scene, &problems, &told);
+        }
     }
     // The screen reader before the application, as a session that runs one starts it; off, only
     // its socket, for Super+F5 to start it on.
@@ -6614,6 +6741,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             still: launch.launch_settle,
             sheet: false,
             named: None,
+            pixels: None,
             ended: false,
         },
         login.then_some(primary),
@@ -6658,6 +6786,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     };
     dump(&session.compositor, 1)?;
     let mut answered = Vec::new();
+    // The configures the director's window was sent before the step (`window_configures`).
+    let mut configures_sent = session.compositor.scene.configures_sent(SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    });
 
     session.compositor.log_input = true;
     for (index, (step, settling)) in launch.steps.iter().enumerate() {
@@ -6708,6 +6841,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             continue;
         }
         let before = shown(&session.compositor);
+        // The tile a window being dragged would take (ADR 0016, decision 12), before the step.
+        let preview_before = session.compositor.scene.tile_preview();
         // What a step's transitions are is what the step started.
         transitions_json(&mut session.compositor);
         // What the reader says in a step is what the step made it say.
@@ -6858,8 +6993,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
             _ if matches!(step, Step::Grab { .. }) => {
-                if let Step::Grab { from, by } = step {
-                    grab(&mut session, window, *from, *by)?;
+                if let Step::Grab { from, by, held } = step {
+                    grab(&mut session, window, *from, *by, *held)?;
                 }
                 0
             }
@@ -7065,25 +7200,34 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         screen_reader.toggle(&mut session)?;
         screen_reader.keep(&mut session)?;
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
+        // The tile previewed changed as the input arrived (Alt pressed mid-drag): the compositor
+        // draws it at once, no client's frame, so it is the step's answer already.
+        let previewed = session.compositor.scene.tile_preview() != preview_before;
         let answer = settle(
             &mut session,
             &mut children,
             &before,
             // A swipe answers as it is paced, the compositor drawing the windows as the fingers
             // go: what settles is that nothing moves any more.
-            *may_stay || matches!(step, Step::Swipe { .. }),
+            *may_stay || matches!(step, Step::Swipe { .. }) || previewed,
             Wait {
                 deadline: Instant::now()
-                    + settling
-                        .until_named
-                        .as_ref()
-                        .map_or(STEP_DEADLINE, |(ms, _)| {
-                            STEP_DEADLINE.max(Duration::from_millis(*ms))
-                        }),
+                    + [
+                        settling.until_named.as_ref().map(|(ms, _)| *ms),
+                        settling.until_pixels.as_ref().map(|(ms, _)| *ms),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .map(Duration::from_millis)
+                    .fold(STEP_DEADLINE, Duration::max),
                 waiting_for: &what,
                 still: SETTLE,
                 sheet: settling.sheet,
                 named: settling.until_named.as_ref().map(|(_, name)| name.as_str()),
+                pixels: settling
+                    .until_pixels
+                    .as_ref()
+                    .map(|(_, pixels)| pixels.as_slice()),
                 ended: settling.ended,
             },
             Some(window),
@@ -7176,6 +7320,32 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ));
         // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
         // added to the step's result as one more field.
+        // Tiling (ADR 0016, decision 12): the tile a drag previews, how many configures the window
+        // was sent in the step, and where the companion's window is.
+        if let Some(step) = answered.last_mut() {
+            let director = SurfaceKey {
+                client: CLIENT,
+                id: WINDOW,
+            };
+            let sent = session.compositor.scene.configures_sent(director);
+            let rect = |r: Option<Rect>| {
+                r.map_or("null".to_string(), |r| {
+                    format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)
+                })
+            };
+            let companion = companion_window(&session)
+                .and_then(|key| session.compositor.scene.global_rect(key));
+            step.insert_str(
+                step.len() - 1,
+                &format!(
+                    ",\"tile_preview\":{},\"window_configures\":{},\"companion_rect\":{}",
+                    rect(session.compositor.scene.tile_preview()),
+                    sent - configures_sent,
+                    rect(companion)
+                ),
+            );
+            configures_sent = sent;
+        }
         if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
             if step.ends_with('}') {
                 step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
@@ -7563,6 +7733,44 @@ mod tests {
             named,
             [None, Some((120000, "Open Inbox".to_string())), None]
         );
+    }
+
+    #[test]
+    fn until_pixels_is_the_step_after_it_alone_and_takes_its_colours() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--until-pixels",
+            "30000",
+            "345,559=#ff9f0a;792,395=#2F6FED",
+            "--key",
+            "15",
+            "--key",
+            "57",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        let pixels: Vec<_> = launch
+            .steps
+            .iter()
+            .map(|(_, s)| s.until_pixels.clone())
+            .collect();
+        let at = |x, y, rgb| OutputPixel { x, y, rgb };
+        assert_eq!(
+            pixels,
+            [
+                Some((30000, vec![at(345, 559, 0xff9f0a), at(792, 395, 0x2f6fed)])),
+                None
+            ]
+        );
+        for wrong in [
+            "345,559",
+            "345,559=ff9f0a",
+            "345=#ff9f0a",
+            "1,2=#fff",
+            "1,2=#gg0000",
+        ] {
+            assert!(output_pixels(wrong).is_none(), "{wrong}");
+        }
     }
 
     #[test]
