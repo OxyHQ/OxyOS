@@ -516,6 +516,21 @@ class ExpoImageRefHandle : public jsi::HostObject {
 }  // namespace
 
 // A promise resolved with `value`.
+jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method) {
+  if (!method.isObject() || !method.getObject(rt).isFunction(rt)) return method;
+  auto inner = std::make_shared<jsi::Function>(method.getObject(rt).getFunction(rt));
+  return jsi::Function::createFromHostFunction(
+      rt, name, 0, [inner](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+        HostCall call;
+        return inner->call(rt, args, count);
+      });
+}
+
+std::function<void()>& hostCallBarrier() {
+  static std::function<void()> barrier;
+  return barrier;
+}
+
 jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
   return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
 }
@@ -1318,7 +1333,6 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
         throw jsi::JSError(rt, "OxyOSKeyboard.setListener: a function");
       }
-      services.keyboard.runtime = &rt;
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });

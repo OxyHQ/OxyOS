@@ -2,6 +2,7 @@
 #include "trace.h"
 
 #include "host-modules.h"
+#include "ui-thread.h"
 #include "worklets-host.h"
 
 #include <reanimated/NativeModules/ReanimatedModuleProxy.h>
@@ -40,7 +41,7 @@ ReanimatedHost::ReanimatedHost(
       scheduler_(std::move(scheduler)),
       refresh_(refresh),
       reducedMotion_(std::move(reducedMotion)),
-      renders_(std::make_shared<std::vector<std::function<void(double)>>>()) {}
+      renders_(std::make_shared<Renders>()) {}
 
 ReanimatedHost::~ReanimatedHost() = default;
 
@@ -55,7 +56,12 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
     auto renders = renders_;
     reanimated::PlatformDepMethodsHolder platform{
         .requestRender = [renders](std::function<void(const double)> callback) {
-          renders->push_back(std::move(callback));
+          {
+            std::lock_guard lock(renders->mutex);
+            renders->callbacks.push_back(std::move(callback));
+          }
+          // Asked on JavaScript's thread (a worklet run there at once): the loop may be asleep.
+          if (!UiThread::isCurrent()) UiThread::wake();
         },
         .synchronouslyUpdateUIPropsFunction = nullptr,  // disabled by Reanimated's static flags
         .getAnimationTimestamp = [] { return nowMs(); },
@@ -84,7 +90,8 @@ std::shared_ptr<react::TurboModule> ReanimatedHost::module(
     auto* scheduler = scheduler_();
     proxy_->initializeFabric(scheduler->getUIManager());
     // As Reanimated's iOS module does: every Fabric event reaches its worklet event handlers
-    // (useAnimatedScrollHandler, ...) first. The host's one thread is the UI thread.
+    // (useAnimatedScrollHandler, ...) first, on the thread that dispatches it: the UI thread's input,
+    // a scroll, a gesture.
     std::weak_ptr<reanimated::ReanimatedModuleProxy> weak = proxy_;
     scheduler->addEventListener(std::make_shared<react::EventListener>([weak](const react::RawEvent& event) {
       auto proxy = weak.lock();
@@ -109,21 +116,29 @@ void ReanimatedHost::event(const std::string& name, int tag, const folly::dynami
 
 bool ReanimatedHost::tick() {
   double now = nowMs();
-  if (!proxy_ || (!wanted_ && renders_->empty()) || now - lastFrame_ < refresh_.periodMs()) return false;
+  std::vector<std::function<void(double)>> callbacks;
+  {
+    std::lock_guard lock(renders_->mutex);
+    if (!proxy_ || (!wanted_ && renders_->callbacks.empty()) || now - lastFrame_ < refresh_.periodMs()) return false;
+    callbacks.swap(renders_->callbacks);
+  }
   lastFrame_ = now;
   wanted_ = false;
   // As Android's frame callback does: run requested render callbacks, then always let Reanimated
   // perform its operations, which also resumes React commits it paused.
-  bool rendered = !renders_->empty();
-  auto callbacks = std::move(*renders_);
-  renders_->clear();
+  bool rendered = !callbacks.empty();
   for (auto& callback : callbacks) callback(now);
   proxy_->performOperations();
   return rendered;
 }
 
 std::optional<std::chrono::steady_clock::time_point> ReanimatedHost::nextFrame() const {
-  if (!proxy_ || (!wanted_ && renders_->empty())) return std::nullopt;
+  bool asked;
+  {
+    std::lock_guard lock(renders_->mutex);
+    asked = !renders_->callbacks.empty();
+  }
+  if (!proxy_ || (!wanted_ && !asked)) return std::nullopt;
   double wait = std::max(0.0, lastFrame_ + refresh_.periodMs() - nowMs());
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));

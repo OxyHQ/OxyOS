@@ -96,7 +96,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 SCENARIOS = HERE / "scenarios"
 sys.path.insert(0, str(HERE))
-from regress import animated_values, content_shown_ms, display_hz  # noqa: E402  (beside this file)
+from regress import animated_values, content_shown_ms, display_hz, measure_stall, stall_held  # noqa: E402  (beside this file)
 
 
 def refresh_ms(scenario):
@@ -136,6 +136,10 @@ REFRESH = [
     ("windows at 60 Hz", "refresh-60-windows.json"),
     ("animations at 120 Hz", "refresh-120-animations.json"),
 ]
+
+# JavaScript held 500 ms while something moves (docs/adr/0067-the-ui-thread.mdx): perf-stall.json's
+# steps that hold it, each motion's frames through the block.
+STALL = "perf-stall.json"
 
 # The genie (docs/adr/0043-the-genie.mdx): (name, scenario, the steps measured (1-based), what
 # happens): the steps whose window goes into the dock or comes out of it on the compositor's own
@@ -445,11 +449,12 @@ def measure_steps(scenario, summary, report, shell):
         end = result["t_settled"]
         expect = step.get("expect", {})
         for host, wanted, lines in (("app", expect, report), ("shell", expect.get("in_shell", {}), shell)):
-            work = [line for line in lines if line["kind"] == "timing" and start <= line["t"] <= end]
-            for budget, measure in (("js_ms_max", "cpu"), ("js_blocked_ms_max", "blocked"), ("js_wall_ms_max", "parts")):
+            # Each stretch of JavaScript's work on its thread (js-thread.h), as regress.py holds it.
+            work = [line for line in lines if line["kind"] == "js_timing" and start <= line["t"] <= end]
+            for budget, measure in (("js_ms_max", "cpu_ms"), ("js_blocked_ms_max", "blocked_ms"),
+                                    ("js_wall_ms_max", "work_ms")):
                 if budget in wanted.get("js_work", {}):
-                    measured[(index, host, budget)] = max(
-                        (line.get(measure, line["parts"]).get("javascript", 0) for line in work), default=0.0)
+                    measured[(index, host, budget)] = max((line[measure] for line in work), default=0.0)
             resize = wanted.get("resize_work", {})
             if resize:
                 begun = result.get("t_inject") or start
@@ -565,6 +570,35 @@ def refresh(options, name, scenario, out):
         summary, report, _, _ = run_scenario(options, SCENARIOS / scenario, out / f"{slug(name)}-{run + 1}")
         runs.append(rate_claims(json.loads((SCENARIOS / scenario).read_text()), summary, report))
     return judged(scenario, runs)
+
+
+def stall(options, out):
+    """Each step of perf-stall.json holding JavaScript (its `stall`): in each run, the window's frames
+    through the block and its motion's own (regress.py's measure_stall), and the gaps between the
+    frames in refreshes."""
+    scenario = json.loads((SCENARIOS / STALL).read_text())
+    hz = display_hz(scenario)
+    steps = {}
+    for run in range(options.runs):
+        summary, report, _, _ = run_scenario(options, SCENARIOS / STALL, out / f"stall-{run + 1}")
+        start = summary["t_launch"]
+        for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
+            wanted = step.get("expect", {}).get("stall")
+            if wanted:
+                measured = measure_stall(wanted, report, start, result["t_settled"], hz)
+                entry = steps.setdefault(index, {"step": index + 1, "motion": wanted["motion"], "runs": []})
+                if measured and measured["gaps_ms"]:
+                    held, p95 = stall_held(measured, strict=True)
+                    refresh = measured["refresh_ms"]
+                    entry["runs"].append({"block_ms": round(measured["block_ms"], 1), "frames": measured["frames"],
+                                          "motion": measured["motion"], "refreshes": round(measured["refreshes"], 1),
+                                          "gap_p50": round(statistics.median(measured["gaps_ms"]) / refresh, 2),
+                                          "gap_p95": round(p95 / refresh, 2),
+                                          "gap_max": round(measured["gaps_ms"][-1] / refresh, 2), "held": held})
+                else:
+                    entry["runs"].append(None)
+            start = result["t_settled"]
+    return list(steps.values())
 
 
 def genie(options, name, scenario, steps, what, out):
@@ -691,8 +725,8 @@ def responses(options, name, scenario, out):
 
 def shell_responses(options, name, scenario, out):
     """Each step of `scenario` that holds the shell to a `js_work` budget, over every run: the most
-    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `timing`
-    lines, frames and work that drew none), as regress.py holds it to the budget, that piece's
+    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `js_timing`
+    lines, each stretch of work on JavaScript's thread), as regress.py holds it to the budget, that piece's
     JavaScript by the wall clock and blocked, and the frames the shell presented."""
     path = SCENARIOS / scenario
     steps = json.loads(path.read_text())["steps"]
@@ -701,18 +735,21 @@ def shell_responses(options, name, scenario, out):
         summary, _, shell, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}")
         start = summary["t_launch"]
         for index, (step, result) in enumerate(zip(steps, summary["steps"])):
-            # From the step before's end, as regress.py checks it: the input and what followed.
-            work = [line for line in shell if line["kind"] == "timing" and start <= line["t"] <= result["t_settled"]]
+            # From the step before's end, as regress.py checks it: the input and what followed. Each
+            # stretch of JavaScript's work on its thread (js-thread.h), and the frames presented.
+            work = [line for line in shell if line["kind"] == "js_timing" and start <= line["t"] <= result["t_settled"]]
+            frames = [line for line in shell if line["kind"] == "timing" and line["presented"]
+                      and start <= line["t"] <= result["t_settled"]]
             start = result["t_settled"]
             budget = step["expect"].get("in_shell", {}).get("js_work", {}).get("js_ms_max")
             if budget is None:
                 continue
             entry = measured.setdefault(index, {"name": step["name"], "budget_ms": budget, "js": [], "wall": [],
                                                 "blocked": [], "frames": []})
-            costly = max(work, key=lambda line: line["cpu"].get("javascript", 0), default=None)
-            for key, measure in (("js", "cpu"), ("wall", "parts"), ("blocked", "blocked")):
-                entry[key].append(costly[measure].get("javascript", 0) if costly else 0.0)
-            entry["frames"].append(sum(1 for line in work if line["presented"]))
+            costly = max(work, key=lambda line: line["cpu_ms"], default=None)
+            for key, measure in (("js", "cpu_ms"), ("wall", "work_ms"), ("blocked", "blocked_ms")):
+                entry[key].append(costly[measure] if costly else 0.0)
+            entry["frames"].append(len(frames))
     return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "js_ms": percentiles(entry["js"]),
              "js_wall_ms": percentiles(entry["wall"]), "js_blocked_ms": percentiles(entry["blocked"]),
              "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
@@ -1320,6 +1357,16 @@ def show(results):
                            "threads that woke (a second)"]))
     elif "session" in results:
         print("session idle: no oxyos-session of this user is running")
+    if "stall" in results:
+        rows = []
+        for entry in results["stall"]:
+            for run, r in enumerate(entry["runs"], 1):
+                rows.append([entry["step"], entry["motion"], run, "—" if not r else r["block_ms"],
+                             "—" if not r else f"{r['frames']} / {r['refreshes']}", "—" if not r else r["motion"],
+                             "—" if not r else f"{r['gap_p50']} / {r['gap_p95']} / {r['gap_max']}",
+                             "yes" if r and r["held"] else "NO"])
+        print(table(rows, ["step", "what moves", "run", "JavaScript held ms", "frames / refreshes in it",
+                           "its own lines", "gaps in refreshes p50 / p95 / max", "a frame each refresh"]))
     if "search" in results:
         show_search(results["search"])
 
@@ -1403,6 +1450,13 @@ def check(results):
             if not e["held"]:
                 over.append(f"{name} step {e['step']}: {e['claim']} {e['measured']}, the median of the runs "
                             f"{e['runs']}, outside {e['least']} to {e['most']}")
+    # JavaScript held while something moves: a frame each refresh in every run (regress.py's stall_held).
+    for entry in results.get("stall", []):
+        for run, r in enumerate(entry["runs"], 1):
+            if not r or not r["held"]:
+                over.append(f"{STALL} step {entry['step']} ({entry['motion']}) run {run}: "
+                            f"{'no block measured' if not r else r} (a frame each refresh: gaps p95 within 1.5 "
+                            f"refreshes, none over 2, 90 % of the block's refreshes drawn)")
     for who, m in results.get("memory", {}).items():
         for key, limit in MEMORY_BUDGETS.get(who, {}).items():
             if m[key] > limit:
@@ -1419,7 +1473,7 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, memory, refresh, genie (all "
+                        help="interactions, responses, shell, cold-start, idle, memory, refresh, genie, stall (all "
                              "by default), search (the search service, only when named, needs --offscreen "
                              "alone) and session (the running session idle, only when named)")
     parser.add_argument("--offscreen")
@@ -1432,7 +1486,7 @@ def main():
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
+    every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie", "stall"]
     parts = options.parts or every
     if not set(parts) <= set(every) | {"session", "search"}:
         parser.error(f"unknown parts {parts}")
@@ -1465,6 +1519,8 @@ def main():
     if "genie" in parts:
         results["genie"] = {name: genie(options, name, scenario, steps, what, out)
                             for name, scenario, steps, what in GENIE}
+    if "stall" in parts:
+        results["stall"] = stall(options, out)
     if "session" in parts:
         results["session"] = session_idle(SESSION_WINDOW_S)
     if "search" in parts:

@@ -21,6 +21,7 @@
 #include "images.h"
 #include "input.h"
 #include "js-thread.h"
+#include "ui-thread.h"
 #include "android-view-props.h"
 #include "overscroll.h"
 #include "intl.h"
@@ -49,6 +50,7 @@
 #include "worklets-host.h"
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -75,13 +77,16 @@
 #include <react/renderer/scheduler/Scheduler.h>
 #include <react/renderer/scheduler/SchedulerDelegate.h>
 #include <react/renderer/scheduler/SchedulerToolbox.h>
+#include <react/renderer/runtimescheduler/RuntimeScheduler.h>
 #include <react/renderer/scheduler/SurfaceHandler.h>
 #include <react/runtime/JSRuntimeFactory.h>
 #include <react/runtime/ReactInstance.h>
 #include <react/runtime/TimerManager.h>
 #include <react/utils/ContextContainer.h>
 
+#include <atomic>
 #include <chrono>
+#include <deque>
 #include <filesystem>
 #include <optional>
 #include <poll.h>
@@ -91,6 +96,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <set>
 #include <queue>
 #include <sstream>
@@ -119,92 +125,175 @@ class Flags : public ReactNativeFeatureFlagsDefaults {
   bool cxxNativeAnimatedEnabled() override { return true; }
 };
 
-// Fabric's event beat: the host loop ticks every live beat, as Android's Choreographer does, so
-// queued events (onLayout, ...) reach JavaScript.
+// Fabric's event beat: what the host dispatched to views (input, layout, a scroll) reaches JavaScript
+// when a beat is induced, as Android's Choreographer induces them. The loop induces them once it
+// handled the compositor's events, JavaScript's thread as it is about to sleep (what its commits
+// dispatched: onLayout): either queues the beat's callback on JavaScript's thread.
 class Beat : public EventBeat {
  public:
   Beat(std::shared_ptr<OwnerBox> owner, RuntimeScheduler& scheduler)
       : EventBeat(std::move(owner), scheduler) {
+    // Called by induce() when the beat was asked for: something was dispatched.
+    unstable_setInduceCallback([] { tInduced = true; });
+    std::lock_guard lock(mutex());
     live().insert(this);
   }
-  ~Beat() override { live().erase(this); }
-
-  static void tickAll() {
-    for (auto* beat : live()) beat->induce();
+  ~Beat() override {
+    std::lock_guard lock(mutex());
+    live().erase(this);
   }
 
+  // Induces every beat asked for; whether any was, which queues its callback on JavaScript's thread.
+  static bool tickAll() {
+    std::lock_guard lock(mutex());
+    tInduced = false;
+    for (auto* beat : live()) beat->induce();
+    return tInduced;
+  }
+  // Something was dispatched to a view (an event, a state update) since the last call.
+  void request() const override {
+    EventBeat::request();
+    requested() = true;
+  }
+  static bool takeRequested() { return requested().exchange(false); }
+  static bool pendingRequest() { return requested().load(); }
+
  private:
+  static inline thread_local bool tInduced = false;
+  static std::atomic<bool>& requested() {
+    static std::atomic<bool> any = false;
+    return any;
+  }
+  static std::mutex& mutex() {
+    static std::mutex mutex;
+    return mutex;
+  }
   static std::set<Beat*>& live() {
     static std::set<Beat*> beats;
     return beats;
   }
 };
 
+// Fabric's mounting layer (docs/adr/0067-the-ui-thread.mdx), as Android's: a commit's transaction is
+// pulled on the thread that made it, once it is to be rendered (on JavaScript's thread at the end of
+// the task that committed, so a layout effect's commit is shown with the commit before it; on the UI
+// thread at once, for a commit made there: a window laid out at a new size, Reanimated's frame, a
+// scroll view's offset), and handed to the UI thread, which applies it to the host's view tree. An
+// accessibility event (AccessibilityInfo.sendAccessibilityEvent) goes into the same queue, behind the
+// commits made before it, as Android's mounting layer runs its SendAccessibilityEventMountItem behind
+// the mount items queued before it: the scheduler hands an accessibility event over at once, while it
+// hands a commit over only at the end of its task, so an effect React flushes with its commit would
+// otherwise be handled against the tree before that commit (docs/adr/0039-keyboard-access.mdx,
+// decision 26: the menu bar's title focused by the same commit that asks for the keyboard). A view
+// command (a text input's focus or blur, a scroll view's scrollTo) runs before the transactions
+// waiting, as Android's MountItemDispatcher runs view commands first: JavaScript queued it against
+// the views as they are, which the transactions after may remove (a focused field blurred as its
+// popover closes). One for a view not mounted yet runs again once they are applied, as Android
+// retries it. Everything is applied by the loop, in order.
 class Mounter : public SchedulerDelegate {
  public:
   explicit Mounter(oxyos::ViewTree& tree) : tree_(tree) {}
   void attach(const Scheduler* scheduler) { scheduler_ = scheduler; }
   int transactions = 0;
   void schedulerDidFinishTransaction(const std::shared_ptr<const MountingCoordinator>& coordinator) override {
+    std::lock_guard lock(mutex_);
     coordinators_[coordinator->getSurfaceId()] = coordinator;
-    unmounted_ = true;
+    unpulled_ = true;
   }
   void schedulerShouldRenderTransactions(
       const std::shared_ptr<const MountingCoordinator>& coordinator) override {
-    coordinators_[coordinator->getSurfaceId()] = coordinator;
-    if (mountAtFrame) return;
-    pull();
+    {
+      std::lock_guard lock(mutex_);
+      coordinators_[coordinator->getSurfaceId()] = coordinator;
+      pullLocked();
+    }
+    // Made on the UI thread: applied at once, unless a scenario applies everything at the frame.
+    if (oxyos::UiThread::isCurrent()) {
+      if (!mountAtFrame) apply();
+      return;
+    }
+    oxyos::UiThread::wake();
   }
-  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): commits mount only at the
-  // host's frame, after everything JavaScript runs in the turn, so what an effect sends in the same
-  // turn as its commit (React flushing passive effects synchronously) comes before the mount.
+  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): a commit made on the UI thread is
+  // applied only at the loop's frame too.
   bool mountAtFrame = false;
-  // The host's frame: pull whatever each surface committed since the last frame.
-  bool pull() {
-    bool mounted = false;
-    for (auto& [surface, coordinator] : coordinators_) {
-      // Reanimated's layout-animation proxy overrides every pull, so an empty transaction is
-      // returned even when nothing was committed.
-      auto transaction = coordinator->pullTransaction();
-      if (transaction && !transaction->getMutations().empty()) {
-        oxyos::FrameDiagnostics::Scope mounting(oxyos::FrameDiagnostics::Part::Mount);
-        // Where its commit's time went (Fabric's telemetry): the commit, its layout (Yoga) and
-        // the text measured in that layout.
-        const auto& telemetry = transaction->getTelemetry();
-        auto since = [](auto from, auto to) {
-          return std::max(0.0, std::chrono::duration<double, std::milli>(to - from).count());
-        };
-        oxyos::FrameDiagnostics::get().committed(
-            since(telemetry.getCommitStartTime(), telemetry.getCommitEndTime()),
-            since(telemetry.getLayoutStartTime(), telemetry.getLayoutEndTime()),
-            std::chrono::duration<double, std::milli>(telemetry.getTextMeasureTime()).count());
-        if (beforeApply) beforeApply(transaction->getMutations());
-        oxyos::Report::get().committed(transaction->getMutations());
-        tree_.apply(transaction->getMutations());
-        ++transactions;
-        // As each platform's mounting layer does: report the mount, which runs the UIManager's
-        // mount hooks. Reanimated resumes its own commits there.
-        if (scheduler_) scheduler_->reportMount(surface);
-        mounted = true;
-        changed_ = true;
+  // Whether anything waits to be applied, and since when (the oldest).
+  bool pending() {
+    std::lock_guard lock(mutex_);
+    return !queue_.empty() || !commands_.empty();
+  }
+  std::optional<std::chrono::steady_clock::time_point> waitingSince() {
+    std::lock_guard lock(mutex_);
+    if (queue_.empty() && commands_.empty()) return std::nullopt;
+    return queuedAt_;
+  }
+  // Applies what was handed over, in order: the UI thread, or JavaScript's as it calls into the host
+  // (host-modules.h's HostCall), the UI thread's state held either way. True if it mounted or handled
+  // anything.
+  bool apply() {
+    std::deque<Item> items, commands;
+    {
+      std::lock_guard lock(mutex_);
+      items.swap(queue_);
+      commands.swap(commands_);
+    }
+    bool did = false;
+    std::set<SurfaceId> mounted;
+    // View commands first; one for a view not mounted yet once the transactions are (Android's retry).
+    std::vector<Item> retried;
+    for (auto& command : commands) {
+      did = true;
+      if (!tree_.views().count(command.view.tag)) {
+        retried.push_back(std::move(command));
+      } else if (onCommand) {
+        onCommand(command.view, command.name, command.args);
       }
     }
-    unmounted_ = false;
-    // JavaScript's accessibility events that came while a commit before them was still to be
-    // mounted, now that it is (schedulerDidSendAccessibilityEvent).
-    bool delivered = !accessibilityEvents_.empty();
-    for (auto& [view, type] : std::exchange(accessibilityEvents_, {})) {
-      if (onAccessibilityEvent) onAccessibilityEvent(view, type);
+    for (auto& item : items) {
+      did = true;
+      switch (item.kind) {
+        case Item::Kind::Transaction:
+          mount(item.surface, *item.transaction);
+          mounted.insert(item.surface);
+          appliedBatch_ = std::max(appliedBatch_, item.batch);
+          break;
+        case Item::Kind::Command:  // in commands_, run above
+          break;
+        case Item::Kind::AccessibilityEvent:
+          if (onAccessibilityEvent) onAccessibilityEvent(item.view, item.name);
+          break;
+        case Item::Kind::Announcement:
+          if (onAnnouncement) onAnnouncement(item.name);
+          break;
+      }
     }
-    return mounted || delivered;
+    for (auto& command : retried) {
+      if (tree_.views().count(command.view.tag) && onCommand) onCommand(command.view, command.name, command.args);
+    }
+    // Pulled to be applied later, a surface's transactions count as pending (hasPendingTransactions,
+    // which IntersectionObserver's first paint waits on) until the last handed over is applied.
+    if (!mounted.empty()) {
+      std::lock_guard lock(mutex_);
+      for (auto surface : mounted) {
+        bool more = std::any_of(queue_.begin(), queue_.end(), [&](const Item& item) {
+          return item.kind == Item::Kind::Transaction && item.surface == surface;
+        });
+        auto coordinator = coordinators_.find(surface);
+        if (!more && coordinator != coordinators_.end()) coordinator->second->didPerformAsyncTransactions();
+      }
+    }
+    return did;
   }
-  // Whether the tree changed since the last call, whether the mount came from the host's loop or
-  // from the Scheduler's own callback.
-  bool takeChanged() {
-    bool changed = changed_;
-    changed_ = false;
-    return changed;
-  }
+  // Whether the tree changed since the last call: a mount, or Animated's native driver.
+  bool takeChanged() { return std::exchange(changed_, false); }
+  // The batch of the loop's work JavaScript was running (js-thread.h) when it made the commits applied
+  // so far, the latest: the frame showing them answers the inputs of that batch.
+  uint64_t appliedBatch() const { return appliedBatch_; }
+  // What JavaScript's thread runs now, as it pulls a commit.
+  std::function<uint64_t()> runningBatch;
+  // Raised as something is handed over, which the loop applies once JavaScript is idle: JavaScript's
+  // thread then wakes the loop as it settles, whenever that is.
+  std::atomic<bool>* wakeWhenIdle = nullptr;
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
   // A transaction about to be applied, its views still in the tree (a modal's last frame).
@@ -212,29 +301,33 @@ class Mounter : public SchedulerDelegate {
   // View commands from JavaScript (a text input's focus, blur, ...), for the host's native side.
   std::function<void(const ShadowView&, const std::string&, const folly::dynamic&)> onCommand;
   void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
-    if (onCommand) onCommand(view, name, args);
+    {
+      std::lock_guard lock(mutex_);
+      queued();
+      commands_.push_back(Item{.kind = Item::Kind::Command, .view = view, .name = name, .args = args});
+    }
+    if (!oxyos::UiThread::isCurrent()) oxyos::UiThread::wake();
   }
-  // Accessibility events from JavaScript (AccessibilityInfo.sendAccessibilityEvent): moving
-  // accessibility focus, for the host's accessibility state. They are handled in order with the
-  // mounting of the commits made before them, as Android's mounting layer runs its
-  // SendAccessibilityEventMountItem behind the mount items queued before it and as React Native's
-  // own Scheduler orders view commands: the Scheduler hands them over at once, while it mounts a
-  // commit only at the end of the JavaScript task, so an effect React flushes with its commit (a
-  // re-render from a layout effect flushes the passive effects before it) would otherwise be
-  // handled against the tree before that commit (docs/adr/0039-keyboard-access.mdx, decision 26:
-  // the menu bar's title focused by the same commit that asks for the keyboard).
+  // Accessibility events from JavaScript: moving accessibility focus, for the host's accessibility
+  // state.
   std::function<void(const ShadowView&, const std::string&)> onAccessibilityEvent;
   void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
-    if (unmounted_) {
-      accessibilityEvents_.emplace_back(view, type);
-      oxyos::Report::get().input("a11y.event.queued", 0);
-      return;
-    }
-    if (onAccessibilityEvent) onAccessibilityEvent(view, type);
+    queue(Item{.kind = Item::Kind::AccessibilityEvent, .view = view, .name = type});
+  }
+  // An announcement JavaScript makes (AccessibilityInfo.announceForAccessibility) while what it did in
+  // an earlier batch is held back (holdsEarlierThan): behind that work, said after the focus it moved.
+  std::function<void(const std::string&)> onAnnouncement;
+  void announce(const std::string& text) { queue(Item{.kind = Item::Kind::Announcement, .name = text}); }
+  // Whether the queue holds what JavaScript did in a batch before `batch` (js-thread.h's): work the
+  // loop has not applied yet, handing JavaScript what came for it first (decision 2 of ADR 0067).
+  bool holdsEarlierThan(uint64_t batch) {
+    std::lock_guard lock(mutex_);
+    return std::any_of(queue_.begin(), queue_.end(),
+                       [batch](const Item& item) { return item.batch != 0 && item.batch < batch; });
   }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
-  // Animated's native driver setting a view's props between commits (native-animated.h), as
-  // Android's mounting layer updates a native view: the tree changed, as with a mount.
+  // Animated's native driver setting a view's props between commits (native-animated.h), on the UI
+  // thread as Android's mounting layer updates a native view: the tree changed, as with a mount.
   void schedulerShouldSynchronouslyUpdateViewOnUIThread(Tag tag, const folly::dynamic& props) override {
     if (scheduler_ && oxyos::updateViewProps(tree_, *scheduler_, tag, props)) changed_ = true;
   }
@@ -244,14 +337,250 @@ class Mounter : public SchedulerDelegate {
   void schedulerDidClearPendingSnapshots() override {}
 
  private:
+  struct Item {
+    enum class Kind { Transaction, Command, AccessibilityEvent, Announcement } kind;
+    SurfaceId surface = 0;
+    // Pulled or sent on JavaScript's thread: the batch it ran (0 for the UI thread's).
+    uint64_t batch = 0;
+    std::shared_ptr<const MountingTransaction> transaction;
+    ShadowView view;
+    std::string name;
+    folly::dynamic args = nullptr;
+  };
+  void queued() {
+    if (queue_.empty() && commands_.empty()) queuedAt_ = std::chrono::steady_clock::now();
+    if (wakeWhenIdle) *wakeWhenIdle = true;
+  }
+  // Pulls every surface's transaction into the queue, then what waited for it.
+  void pullLocked() {
+    for (auto& [surface, coordinator] : coordinators_) {
+      // Reanimated's layout-animation proxy overrides a pull off the UI thread, so an empty
+      // transaction is returned even when nothing was committed.
+      auto transaction = coordinator->pullTransaction(/* willPerformAsynchronously */ true);
+      if (transaction && !transaction->getMutations().empty()) {
+        queued();
+        queue_.push_back(Item{.kind = Item::Kind::Transaction,
+                              .surface = surface,
+                              .batch = !oxyos::UiThread::isCurrent() && runningBatch ? runningBatch() : 0,
+                              .transaction = std::make_shared<const MountingTransaction>(std::move(*transaction))});
+      }
+    }
+    unpulled_ = false;
+    if (!waiting_.empty()) queued();
+    for (auto& item : waiting_) queue_.push_back(std::move(item));
+    waiting_.clear();
+  }
+  void queue(Item item) {
+    if (!oxyos::UiThread::isCurrent() && runningBatch) item.batch = runningBatch();
+    {
+      std::lock_guard lock(mutex_);
+      // Behind a commit made before it: one not yet handed over, which it waits for, or one handed
+      // over and not yet applied, which it follows in the queue.
+      bool behind = unpulled_ || std::any_of(queue_.begin(), queue_.end(), [](const Item& queued) {
+        return queued.kind == Item::Kind::Transaction;
+      });
+      if (behind && item.kind == Item::Kind::AccessibilityEvent) oxyos::Report::get().input("a11y.event.queued", 0);
+      if (unpulled_) {
+        waiting_.push_back(std::move(item));
+      } else {
+        queued();
+        queue_.push_back(std::move(item));
+      }
+    }
+    if (!oxyos::UiThread::isCurrent()) oxyos::UiThread::wake();
+  }
+  void mount(SurfaceId surface, const MountingTransaction& transaction) {
+    oxyos::FrameDiagnostics::Scope mounting(oxyos::FrameDiagnostics::Part::Mount);
+    // Where its commit's time went (Fabric's telemetry): the commit, its layout (Yoga) and the text
+    // measured in that layout.
+    const auto& telemetry = transaction.getTelemetry();
+    auto since = [](auto from, auto to) {
+      return std::max(0.0, std::chrono::duration<double, std::milli>(to - from).count());
+    };
+    oxyos::FrameDiagnostics::get().committed(
+        since(telemetry.getCommitStartTime(), telemetry.getCommitEndTime()),
+        since(telemetry.getLayoutStartTime(), telemetry.getLayoutEndTime()),
+        std::chrono::duration<double, std::milli>(telemetry.getTextMeasureTime()).count());
+    if (beforeApply) beforeApply(transaction.getMutations());
+    oxyos::Report::get().committed(transaction.getMutations());
+    tree_.apply(transaction.getMutations());
+    ++transactions;
+    // As each platform's mounting layer does: report the mount, which runs the UIManager's mount
+    // hooks. Reanimated resumes its own commits there.
+    if (scheduler_) scheduler_->reportMount(surface);
+    changed_ = true;
+  }
   oxyos::ViewTree& tree_;
   const Scheduler* scheduler_ = nullptr;
+  // The UI thread's state's, as the tree is.
   bool changed_ = false;
-  // A commit is still to be mounted, and the accessibility events that came after it.
-  bool unmounted_ = false;
-  std::vector<std::pair<ShadowView, std::string>> accessibilityEvents_;
+  uint64_t appliedBatch_ = 0;
+  // Shared with the threads that commit and send. A pull holds it, so the queue has transactions in
+  // the order the coordinators gave them.
+  std::mutex mutex_;
+  bool unpulled_ = false;
+  std::deque<Item> queue_;
+  // View commands, run before the queue (apply).
+  std::deque<Item> commands_;
+  std::chrono::steady_clock::time_point queuedAt_{};  // when the queue last stopped being empty
+  std::vector<Item> waiting_;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
+
+// What the UI thread hands JavaScript (docs/adr/0067-the-ui-thread.mdx, decision 5): device events,
+// a frame's callbacks, a key to answer, a module's answer, Fabric's beat. Each is a task of the loop's
+// turn on JavaScript's thread (JsThread::runOnQueue), which reaches React Native's scheduler there:
+// what came while JavaScript worked is handed over together once it is idle, and React batches what
+// it changes into one render, as when the loop and JavaScript took turns. From any other thread (a
+// worklet's runOnJS on JavaScript's own, a decoder's) it goes to React Native at once.
+// Keys typed together answered back to back (docs/adr/0067-the-ui-thread.mdx, decision 6): an offer's
+// task, once its key is answered, waits for the loop to offer the next key of the same burst (the
+// events held behind it) or to find none, so that JavaScript renders what the keys changed once,
+// after the last, as when the loop asked JavaScript for each key's answer in its turn. Bounded: a
+// loop that does not decide in time leaves JavaScript to go on.
+class KeyBurst {
+ public:
+  // On JavaScript's thread, once key `key` is answered: whether another key of the burst follows.
+  bool awaitDecision(uint64_t key) {
+    std::unique_lock lock(mutex_);
+    if (!changed_.wait_for(lock, kAtMost, [&] { return decided_ >= key; })) return false;
+    return decided_ == key && another_;
+  }
+  // On the UI thread: what follows key `key` is decided, `another` key offered or none.
+  void decided(uint64_t key, bool another) {
+    {
+      std::lock_guard lock(mutex_);
+      if (key >= decided_) {
+        decided_ = key;
+        another_ = another;
+      }
+    }
+    changed_.notify_all();
+  }
+
+ private:
+  static constexpr auto kAtMost = std::chrono::milliseconds(50);
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  uint64_t decided_ = 0;
+  bool another_ = false;
+};
+
+class ToJavaScript {
+ public:
+  ToJavaScript(ReactInstance& instance, oxyos::JsThread& thread) : instance_(instance), thread_(thread) {}
+
+  void callFunctionOnModule(const std::string& module, const std::string& method, folly::dynamic args) {
+    run([&instance = instance_, module, method, args = std::move(args)]() mutable {
+      instance.callFunctionOnModule(module, method, std::move(args));
+    });
+  }
+  // A state JavaScript is told whole (`RCTDeviceEventEmitter`'s `event` with `payload`: the session's
+  // preferences, the displays, the window's size, a "read again" signal): one not yet delivered is
+  // replaced by the newer, keeping its place, as Fabric coalesces a unique event (a scroll's). A
+  // state that changes several times while JavaScript works reaches it once, as it is then.
+  void tellState(const std::string& event, folly::dynamic payload) {
+    if (!oxyos::UiThread::isCurrent()) {
+      instance_.callFunctionOnModule("RCTDeviceEventEmitter", "emit", told(event, std::move(payload)));
+      return;
+    }
+    {
+      std::lock_guard lock(statesMutex_);
+      auto [it, added] = states_.insert_or_assign(event, std::move(payload));
+      if (!added) return;
+    }
+    run([this, event] {
+      folly::dynamic payload;
+      {
+        std::lock_guard lock(statesMutex_);
+        auto it = states_.find(event);
+        if (it == states_.end()) return;
+        payload = std::move(it->second);
+        states_.erase(it);
+      }
+      instance_.callFunctionOnModule("RCTDeviceEventEmitter", "emit", told(event, std::move(payload)));
+    });
+  }
+  // A task of React Native's scheduler, at `priority`.
+  void schedule(SchedulerPriority priority, std::function<void(jsi::Runtime&)> task) {
+    run([scheduler = instance_.getRuntimeScheduler(), priority, task = std::move(task)]() mutable {
+      scheduler->scheduleTask(priority, std::move(task));
+    });
+  }
+  // A runtime executor (React Native's buffered one) whose work, queued by the loop, is the loop's.
+  RuntimeExecutor executor(RuntimeExecutor inner) {
+    return [this, inner](std::function<void(jsi::Runtime&)>&& callback) {
+      run([inner, callback = std::move(callback)]() mutable { inner(std::move(callback)); });
+    };
+  }
+  // A call invoker (the modules', worklets' and Reanimated's) whose async calls, made by the loop,
+  // are the loop's.
+  std::shared_ptr<CallInvoker> invoker(std::shared_ptr<CallInvoker> inner) {
+    return std::make_shared<Invoker>(*this, std::move(inner));
+  }
+  // Fabric's beat asked for by what the loop dispatched to views: induced on JavaScript's thread (it
+  // queues the beat's callback there), handed over with the rest. Whether any was asked for.
+  bool beat();
+  // A key offered (Bloom's PlatformKeyboard listener, its answer awaited by the loop's input behind
+  // it): run as soon as JavaScript's thread is free, before anything queued there (React's render
+  // of what the key before changed among it), as the loop asked JavaScript for each key's answer in
+  // its turn (docs/adr/0067-the-ui-thread.mdx, decision 6).
+  void offerKey(std::function<void()> task) {
+    handed_ = true;
+    thread_.runOnQueueFirst(std::move(task));
+  }
+  // The loop's turn ends (or the offscreen settle's): what it handed over runs, once JavaScript is
+  // idle.
+  void handOver() { thread_.handOver(); }
+  // Whether the loop queued anything for JavaScript since the last call.
+  bool handed() { return std::exchange(handed_, false); }
+
+ private:
+  class Invoker : public CallInvoker {
+   public:
+    Invoker(ToJavaScript& to, std::shared_ptr<CallInvoker> inner) : to_(to), inner_(std::move(inner)) {}
+    using CallInvoker::invokeAsync;
+    using CallInvoker::invokeSync;
+    void invokeAsync(CallFunc&& func) noexcept override {
+      to_.run([inner = inner_, func = std::move(func)]() mutable { inner->invokeAsync(std::move(func)); });
+    }
+    void invokeAsync(SchedulerPriority priority, CallFunc&& func) noexcept override {
+      to_.run([inner = inner_, priority, func = std::move(func)]() mutable {
+        inner->invokeAsync(priority, std::move(func));
+      });
+    }
+    void invokeSync(CallFunc&& func) override { inner_->invokeSync(std::move(func)); }
+
+   private:
+    ToJavaScript& to_;
+    std::shared_ptr<CallInvoker> inner_;
+  };
+  void run(std::function<void()> task) {
+    if (oxyos::UiThread::isCurrent()) {
+      handed_ = true;
+      thread_.runOnQueue(std::move(task));
+    } else {
+      task();
+    }
+  }
+  bool handed_ = false;
+  static folly::dynamic told(const std::string& event, folly::dynamic payload) {
+    auto args = folly::dynamic::array(event);
+    if (!payload.isNull()) args.push_back(std::move(payload));
+    return args;
+  }
+  // The states told and not yet delivered, by event.
+  std::mutex statesMutex_;
+  std::map<std::string, folly::dynamic> states_;
+  ReactInstance& instance_;
+  oxyos::JsThread& thread_;
+};
+
+bool ToJavaScript::beat() {
+  if (!Beat::takeRequested()) return false;
+  run([] { Beat::tickAll(); });
+  return true;
+}
 
 // A fatal signal's report in the session's log, and in the report file the session gave
 // (crash-report.h): the signal and, for a bad access, the address it touched; the thread it hit (by
@@ -470,24 +799,56 @@ int main(int argc, char** argv) {
     if (std::ifstream(path).good()) oxyos::TextEngine::shared().addFallback(path);
   }
   ReactNativeFeatureFlags::override(std::make_unique<Flags>());
-  // JavaScript's thread (js-thread.h): React Native's queue, and the timers the loop fires.
+  // This thread is the UI thread (ui-thread.h), and holds the host's state from now on but while it
+  // waits: JavaScript's thread, started next, reaches that state only between.
+  oxyos::UiThread::adopt();
+  oxyos::UiThread::wholeLogLines();
+  oxyos::UiThread::Lock uiState;
+  // Set while the loop waits for JavaScript to settle (a resize's layout): its thread wakes the loop
+  // once it is idle.
+  std::atomic<bool> wakeUiWhenIdle{false};
+  // JavaScript's thread (js-thread.h): React Native's queue and its timers. Each stretch of its work
+  // is said by the frame diagnostics and the report, named by what the loop's turn queued it for.
+  // Fabric's beat is induced only by the loop, at the end of a turn: what one turn of the
+  // compositor's set off (its events, read whole) reaches JavaScript in one batch, never split
+  // between two of its stretches.
   std::shared_ptr<oxyos::JsThread> js;
   try {
-    js = std::make_shared<oxyos::JsThread>();
+    js = std::make_shared<oxyos::JsThread>(
+        [] {
+          if (!oxyos::UiThread::isCurrent()) return oxyos::JsThread::Cause{};
+          auto& diagnostics = oxyos::FrameDiagnostics::get();
+          // A turn that mounted JavaScript's commit hands it what the mount set off (a layout's
+          // events, an image loaded).
+          if (diagnostics.currentRank() == 0) return oxyos::JsThread::Cause{"its commit", 0};
+          return oxyos::JsThread::Cause{diagnostics.currentTrigger(), diagnostics.currentRank()};
+        },
+        [](const oxyos::JsThread::Stretch& stretch) {
+          auto started = Clock::now() - std::chrono::duration_cast<Clock::duration>(
+                                            std::chrono::duration<double, std::milli>(stretch.span.wallMs));
+          oxyos::FrameDiagnostics::get().javascriptWorked(stretch.span, started, stretch.cause.what, stretch.tasks);
+          oxyos::Report::get().javascript(stretch.span, /* onItsThread */ true);
+        },
+        nullptr,
+        // The loop is woken as JavaScript settles while it waits for that, or to hand over what came
+        // meanwhile (events dispatched as what JavaScript did was applied among it).
+        [&wakeUiWhenIdle](bool waiting) {
+          if (waiting || wakeUiWhenIdle || Beat::pendingRequest()) oxyos::UiThread::wake();
+        });
   } catch (const std::exception& error) {
     std::cerr << "[host] " << error.what() << "\n";
     return 1;
   }
-  auto timerRegistry = std::make_unique<oxyos::JsThread::Timers>();
+  auto timerRegistry = js->makeTimers();
   auto* timers = timerRegistry.get();
   // The instance holds the only reference to its timer manager, as Android's JReactInstance gives
   // it (its timer executor keeps a weak one): the timers JavaScript leaves pending hold the
   // runtime's values, so they must go with the instance, before its runtime. Kept here past it,
   // they were destroyed after the runtime freed what they point into, and the host jumped through
-  // freed memory as it exited. The loop below fires them through `timerManager` while the
-  // instance lives.
+  // freed memory as it exited. JavaScript's thread fires them through it while the instance lives.
   auto ownedTimerManager = std::make_shared<TimerManager>(std::move(timerRegistry));
   TimerManager& timerManager = *ownedTimerManager;
+  js->fireTimersThrough(timerManager);
   // OXYOS_HOST_JS_PROFILE=FILE: Hermes' sampling profiler records the application's JavaScript
   // (at OXYOS_HOST_JS_PROFILE_HZ samples a second, 1000 unless set) and the profile is written to
   // FILE as the host ends (docs/performance.mdx). A directory (a path ending in `/`, or one that
@@ -534,7 +895,11 @@ int main(int argc, char** argv) {
   std::unique_ptr<JSIRuntimeHolder> runtime;
   js->runOnQueueSync(
       [&] { runtime = std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(runtimeConfig.build())); });
-  int jsErrors = 0;
+  // Counted on JavaScript's thread.
+  std::atomic<int> jsErrors = 0;
+  // React Native's runtime, once its bundle is loading, and whether the bundle ran: set on its thread.
+  std::atomic<jsi::Runtime*> hermesRuntime = nullptr;
+  std::atomic<bool> bundleRan = false;
   auto instance = std::make_unique<ReactInstance>(
       std::move(runtime), js, std::move(ownedTimerManager),
       [&](jsi::Runtime&, const JsErrorHandler::ProcessedError& error) noexcept {
@@ -550,22 +915,23 @@ int main(int argc, char** argv) {
         std::cerr << "JS error: " << said.str();
       });
   stage("instance created");
+  // What the loop hands JavaScript, handed over a turn at a time.
+  ToJavaScript toJavaScript(*instance, *js);
   timerManager.setRuntimeExecutor(instance->getBufferedRuntimeExecutor());
   // The display's refresh, as the compositor tells it for the window (display-refresh.h): every
   // frame below is paced by it.
   oxyos::DisplayRefresh refresh;
   // requestAnimationFrame, once a frame (animation-frames.h); made after the instance, so its
   // callbacks go before the runtime does.
-  oxyos::AnimationFrames animationFrames(instance->getBufferedRuntimeExecutor(), refresh);
-  js->drain();
+  oxyos::AnimationFrames animationFrames(toJavaScript.executor(instance->getBufferedRuntimeExecutor()), refresh);
 
   oxyos::Display display{width, height, 1.0f};
-  auto invoker = instance->createJSCallInvoker();
+  auto invoker = toJavaScript.invoker(instance->createJSCallInvoker());
   // Blobs and the network (network.h): answers reach JavaScript as RCTDeviceEventEmitter events,
   // from the loop below, each with its arguments as one array, as Android emits them.
   oxyos::BlobStore blobs;
-  oxyos::Networking networking(blobs, [&instance](const std::string& event, folly::dynamic args) {
-    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
+  oxyos::Networking networking(blobs, [&toJavaScript](const std::string& event, folly::dynamic args) {
+    toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(args)));
   });
   // The user's files (files.h, docs/adr/0028-file-access.mdx), for an application's window: the
   // application's own folders are its data and cache directories (application.h, ADR 0030), only
@@ -581,15 +947,15 @@ int main(int argc, char** argv) {
       shellMode && !bundleError ? oxyos::Application::package(bundleFile) : oxyos::Application{};
   const bool shellFiles = package.id == oxyos::kShellPackage;
   oxyos::Files files(
-      [&instance](const std::string& event, folly::dynamic payload) {
-        instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+      [&toJavaScript](const std::string& event, folly::dynamic payload) {
+        toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                        folly::dynamic::array(event, std::move(payload)));
       },
       shellFiles ? package : application, bundleError ? std::string() : bundleFile.parent_path().string());
   // WebSockets (websocket.h), their events emitted from the loop below as Android emits them, one
   // map each; destroyed with the runtime, which closes the sockets still open (1001).
-  oxyos::WebSockets webSockets(networking, blobs, [&instance](const std::string& event, folly::dynamic body) {
-    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
+  oxyos::WebSockets webSockets(networking, blobs, [&toJavaScript](const std::string& event, folly::dynamic body) {
+    toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
   });
   oxyos::HostServices services{blobs, networking};
   services.webSockets = &webSockets;
@@ -602,14 +968,16 @@ int main(int argc, char** argv) {
     services.accountSession = std::make_unique<oxyos::AccountSession>();
     services.accountSession->follow();
   }
-  services.emit = [&instance](const std::string& event, folly::dynamic body) {
-    instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
+  services.emit = [&toJavaScript](const std::string& event, folly::dynamic body) {
+    toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(event, std::move(body)));
   };
   RuntimeFacts runtimeOf;
   try {
     runtimeOf = runtimeFacts();
   } catch (const std::exception& error) {
     std::cerr << "[host] " << error.what() << "\n";
+    // Nothing of JavaScript's runs past what main destroys as it returns.
+    js->quitSynchronous();
     return 1;
   }
   services.runtime = {runtimeOf.abi, runtimeOf.api, runtimeOf.frameworkURL};
@@ -648,6 +1016,9 @@ int main(int argc, char** argv) {
     TurboModuleBinding::install(
         rt, oxyos::cachedTurboModules(
                 [&, invoker](jsi::Runtime& runtime, const std::string& name) -> std::shared_ptr<TurboModule> {
+                  // Made from the host's state, the UI thread's (ui-thread.h): held meanwhile, as each
+                  // of the host's modules holds it while its methods run (host-modules.h).
+                  oxyos::UiThread::Lock uiState;
                   if (name == "WorkletsModule") return worklets.module(runtime, invoker);
                   if (name == "ReanimatedModule") return reanimated.module(runtime, invoker);
                   if (name == "NativeAnimatedModule") return animated.module(invoker);
@@ -667,6 +1038,8 @@ int main(int argc, char** argv) {
   context->insert(oxyos::kModalScreenKey, modalScreen);
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
+  // Fabric's own (a surface started or stopped, React Native's bindings installed), in order with
+  // what the instance schedules itself as it starts (its runtime initialized, the bundle loaded).
   toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
   // Fabric's bindings (`nativeFabricUIManager`) are installed before the bundle runs, as iOS
   // installs them: code that runs as the bundle loads can then reach them, as Animated's native
@@ -725,8 +1098,8 @@ int main(int argc, char** argv) {
   gestures = std::make_unique<oxyos::GestureHandlerHost>(
       tree, oxyos::GestureHandlerHost::Delivery{
                 .deviceEvent =
-                    [&instance](const std::string& name, folly::dynamic payload) {
-                      instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                    [&toJavaScript](const std::string& name, folly::dynamic payload) {
+                      toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                                      folly::dynamic::array(name, std::move(payload)));
                     },
                 .reanimatedEvent = [&reanimated](const std::string& name, int view,
@@ -742,7 +1115,22 @@ int main(int argc, char** argv) {
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
+  mounter.runningBatch = [thread = js.get()] { return thread->running(); };
+  mounter.wakeWhenIdle = &wakeUiWhenIdle;
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
+  // A call JavaScript makes into the host that reads the tree (applyCommitsBeforeCall) sees it with
+  // what JavaScript committed before the call, as when each task's commits were mounted as it ended:
+  // a drag's image is of the item its press just selected. Unless a scenario applies everything at
+  // the frame. What the mount draws there (a modal's last frame) is drawn on the CPU: the GPU's
+  // painter is the UI thread's.
+  oxyos::hostCallBarrier() = [&mounter] {
+    if (oxyos::UiThread::isCurrent() || mounter.mountAtFrame) return;
+    oxyos::CpuPaintScope cpu;
+    mounter.apply();
+  };
+  struct BarrierLifted {
+    ~BarrierLifted() { oxyos::hostCallBarrier() = nullptr; }
+  } barrierLifted;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -758,6 +1146,16 @@ int main(int argc, char** argv) {
   std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> settingsApplications{
       nullptr, oxyos_applications_watch_free};
   bool settingsApplicationsAsked = false;
+  // The registry's listing as Settings was last told to read it (oxyos_applications' JSON).
+  std::string toldApplications;
+  auto applicationsListing = [] {
+    int64_t length = oxyos_applications(nullptr, 0);
+    if (length < 0) return std::string();
+    std::string json(static_cast<size_t>(length) + 1, '\0');
+    oxyos_applications(json.data(), json.size());
+    json.resize(static_cast<size_t>(length));
+    return json;
+  };
   if (windowed) {
     // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
     // shell's and the login screen's, by their package's id (the manifest beside the bundle).
@@ -771,8 +1169,10 @@ int main(int argc, char** argv) {
       while (!window->configured()) {
         if (!window->dispatch([&shellState](const OxyOSEvent& event) { shellState.observe(event); })) {
           std::cerr << "[host] the compositor closed the connection before configuring the window\n";
+          js->quitSynchronous();
           return 1;
         }
+        oxyos::UiThread::Unlocked waiting;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       // The painter is started now, beside the runtime and the application loading.
@@ -877,10 +1277,15 @@ int main(int argc, char** argv) {
       };
     } catch (const std::exception& error) {
       std::cerr << "[host] " << error.what() << "\n";
+      js->quitSynchronous();
       return 1;
     }
   }
 
+  // What React Native's runtime holds, read on its thread (memory.h).
+  oxyos::Memory::get().addRuntime(
+      "hermes", [&hermesRuntime] { return hermesRuntime.load(); },
+      [thread = js.get()](std::function<void()> task) { thread->runOnQueue(std::move(task)); });
   stage("load script");
   // The framework and the application's bundle are mapped from their files, never copied: the
   // framework's pages are the same for every application running on this runtime. The framework
@@ -889,21 +1294,21 @@ int main(int argc, char** argv) {
   std::shared_ptr<const jsi::Buffer> framework = JSBigFileString::fromPath(runtimeOf.framework);
   instance->loadScript(
       JSBigFileString::fromPath(bundlePath), bundlePath,
-      [framework, url = runtimeOf.frameworkURL](jsi::Runtime& runtime) {
+      [framework, url = runtimeOf.frameworkURL, &hermesRuntime](jsi::Runtime& runtime) {
         // The application's runtime lives as long as the instance, which outlives the loop.
-        oxyos::Memory::get().addRuntime("hermes", [at = &runtime] { return at; });
+        hermesRuntime = &runtime;
         stage("framework");
         runtime.evaluateJavaScript(framework, url);
         stage("bundle");
       },
-      nullptr);
+      [&bundleRan](jsi::Runtime&) { bundleRan = true; });
 
   stage("surface");
   SurfaceHandler surface(moduleName, 1);
   scheduler->registerSurface(surface);
   auto layOut = [&] {
     Size size{display.width, display.height};
-    modalScreen->size = size;
+    modalScreen->set(size);
     surface.constraintLayout(LayoutConstraints{.minimumSize = size, .maximumSize = size},
                              LayoutContext{.pointScaleFactor = display.scale});
   };
@@ -1006,14 +1411,14 @@ int main(int argc, char** argv) {
     // A scroll no scroll view took, to the OxyOSScrollTarget around the pointer (the dock's icons,
     // docs/adr/0045-app-expose.mdx), with the number JavaScript gave it: { target, dx, dy, finger,
     // end } in logical pixels, `end` once a touchpad's fingers lift.
-    pointer.scrollsTargets([&tree, &instance](facebook::react::Tag view, float dx, float dy, bool finger, bool end) {
+    pointer.scrollsTargets([&tree, &toJavaScript](facebook::react::Tag view, float dx, float dy, bool finger, bool end) {
       auto props = std::dynamic_pointer_cast<const facebook::react::OxyOSScrollTargetProps>(
           tree.views().at(view).view.props);
       if (!props) return;
       folly::dynamic payload =
           folly::dynamic::object("target", props->target)("dx", dx)("dy", dy)("finger", finger)("end", end);
       oxyos::Report::get().input("scroll.target", 0, payload);
-      instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+      toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                      folly::dynamic::array("OxyOSScrollTarget", payload));
     });
     // The touch also goes to gesture handlers; one activating takes it from React Native and from
@@ -1115,6 +1520,8 @@ int main(int argc, char** argv) {
                                       std::function<void(std::optional<std::string>)> done,
                                       std::function<void(const std::string&)> cancelled) {
       auto vanish = options.isObject() ? options.getDefault("vanish", false) : folly::dynamic(false);
+      // Its image is of the view as JavaScript left it before the call (the item its press selected).
+      oxyos::applyCommitsBeforeCall();
       dragDrop.start(data, actions, preview, count, vanish.isBool() && vanish.asBool(), std::move(done),
                      std::move(cancelled));
     };
@@ -1152,7 +1559,16 @@ int main(int argc, char** argv) {
     auto announcer = [&shellSurfaces] { return shellSurfaces.lockSurface().value_or(oxyos::Window::kToplevel); };
     // An announcement is what the application says now: it interrupts what is being said, as
     // an announcement event does TalkBack's queue.
-    services.announce = [&window, announcer](const std::string& text) {
+    // Said at once, as the one thread said it before the frame showing what JavaScript just did; but
+    // while what JavaScript did in an earlier batch is held back (the input that came for it handed
+    // first), behind that work (Mounter::announce), and out once the frame showing it published its
+    // accessibility (announceAfterFrame): a focus moved by a press is said before what JavaScript
+    // announces as the session answers it.
+    services.announce = [&window, &mounter, &js, announcer](const std::string& text) {
+      if (!oxyos::UiThread::isCurrent() && mounter.holdsEarlierThan(js->running())) {
+        mounter.announce(text);
+        return;
+      }
       window->announce(announcer(), OXYOS_ASSERTIVE, text);
       oxyos::Report::get().input("announce", announcer(), folly::dynamic::object("text", text));
     };
@@ -1602,8 +2018,8 @@ int main(int argc, char** argv) {
         return sent;
       };
     }
-    window->onClipboardChanged([&instance, &window] {
-      instance->callFunctionOnModule(
+    window->onClipboardChanged([&toJavaScript, &window] {
+      toJavaScript.callFunctionOnModule(
           "RCTDeviceEventEmitter", "emit",
           folly::dynamic::array("OxyOSClipboardChanged", folly::dynamic::object("text", window->clipboardHasText())));
     });
@@ -2046,6 +2462,9 @@ int main(int argc, char** argv) {
     std::vector<OxyOSEvent> keyboardHeld;
     // Accessibility focus, as Android's accessibility focus (separate from input focus): the
     // view a screen reader would be on, which the tree marks and the screen reader follows.
+    // JavaScript's announcements applied, waiting for the frame that publishes what came before them.
+    std::vector<std::string> announceAfterFrame;
+    mounter.onAnnouncement = [&announceAfterFrame](const std::string& text) { announceAfterFrame.push_back(text); };
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
       if (waitsForGrant(view, type)) {
         if (heldForGrant.empty()) oxyos::Report::get().input("test.focus.held", *shellSurfaces.surfaceOf(view.tag));
@@ -2113,17 +2532,156 @@ int main(int argc, char** argv) {
       shellSurfaces.changed();
     });
     int idleTurns = 0;  // turns in a row that found nothing to do
+    // A key press offered to JavaScript first (Bloom's PlatformKeyboard: the menus' shortcuts, ADR
+    // 0021) is answered on JavaScript's thread, which may be busy: the key, and every event of the
+    // compositor's after it, wait for the answer in the order they came, as a browser holds key
+    // events behind the one its page has not answered, while the loop goes on animating, scrolling
+    // and drawing (docs/adr/0067-the-ui-thread.mdx). `answer` is -1 until it comes, then whether
+    // JavaScript took the key.
+    // Each with the number the report received it as (Report::received), the cause of what its handling
+    // delivers.
+    struct OfferedKey {
+      OxyOSEvent event;
+      uint64_t seq;
+      std::shared_ptr<std::atomic<int>> answer;
+      folly::dynamic offered;
+      uint64_t number;  // in the order offered (KeyBurst)
+    };
+    // Shared with the offers' tasks, which may outlive the loop by their wait.
+    auto keyBurst = std::make_shared<KeyBurst>();
+    // The assistive technology is told what a turn of the compositor's did once all of it is
+    // handled: while a key of it waits for JavaScript's answer, the window's accessibility waits with
+    // it (an input method's commit and the Space it gave back said as one: "한", never "한" then
+    // "espacio"), at most as long as Android holds a window's content changes (100 ms).
+    std::optional<Clock::time_point> keyOfferedAt;
+    bool accessibilityHeld = false;
+    constexpr auto kAccessibilityHeldAtMost = std::chrono::milliseconds(100);
+    auto publishWindowAccessibility = [&] {
+      if (keyOfferedAt && Clock::now() - *keyOfferedAt < kAccessibilityHeldAtMost) {
+        accessibilityHeld = true;
+        return;
+      }
+      accessibility.publish(oxyos::Window::kToplevel, tree.root());
+      accessibilityHeld = false;
+    };
+    uint64_t keysOffered = 0;
+    std::optional<OfferedKey> offeredKey;
+    // An event held behind it keeps what the connection says of it beyond the event itself, which
+    // the library keeps only until it reads the next event: a text input's transaction and
+    // AutoFill's fill, a long answer, the input method's candidates. Read as it is received, and
+    // handled from that (`replaying`).
+    struct Payload {
+      bool transaction = false, filled = false;
+      OxyOSTextTransaction change{};
+      OxyOSTextFill fill{};
+      std::string commit, preedit, fillText, pairedText;
+      std::vector<OxyOSPreeditSegment> segments;
+      std::optional<std::string> systemData;
+      std::optional<oxyos::Window::Candidates> candidates;
+      // The transaction and the fill, pointing into what is kept here.
+      OxyOSTextTransaction kept() const {
+        auto out = change;
+        out.commit = commit.data();
+        out.preedit = preedit.data();
+        out.segments = segments.data();
+        return out;
+      }
+      OxyOSTextFill keptFill() const {
+        auto out = fill;
+        out.fill = fillText.data();
+        out.paired_fill = pairedText.data();
+        return out;
+      }
+      // A fill is a credential: gone from memory as the payload goes.
+      ~Payload() {
+        std::fill(fillText.begin(), fillText.end(), '\0');
+        std::fill(pairedText.begin(), pairedText.end(), '\0');
+      }
+    };
+    struct Held {
+      OxyOSEvent event;
+      uint64_t seq;
+      std::shared_ptr<const Payload> payload;
+    };
+    std::deque<Held> heldBehindKey;
+    const Payload* replaying = nullptr;
+    auto payloadOf = [&](const OxyOSEvent& event) -> std::shared_ptr<const Payload> {
+      auto payload = std::make_shared<Payload>();
+      if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
+        OxyOSTextTransaction change{};
+        if (window->transaction(change)) {
+          payload->transaction = true;
+          payload->change = change;
+          payload->commit.assign(change.commit ? change.commit : "", change.commit_length);
+          payload->preedit.assign(change.preedit ? change.preedit : "", change.preedit_length);
+          if (change.segments) payload->segments.assign(change.segments, change.segments + change.segment_count);
+          OxyOSTextFill fill{};
+          if (window->fill(fill)) {
+            payload->filled = true;
+            payload->fill = fill;
+            if (fill.fill) payload->fillText.assign(fill.fill, fill.fill_length);
+            if (fill.paired_fill) payload->pairedText.assign(fill.paired_fill, fill.paired_fill_length);
+          }
+        }
+      } else if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
+        payload->systemData = window->systemData();
+      } else if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
+        payload->candidates = window->inputCandidates();
+      } else {
+        return nullptr;
+      }
+      return payload;
+    };
+    // The number of the event being handled, as received.
+    uint64_t handlingSeq = 0;
+    auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
+      auto answer = std::make_shared<std::atomic<int>>(-1);
+      uint64_t number = ++keysOffered;
+      offeredKey = OfferedKey{event, handlingSeq, answer, offered, number};
+      if (!keyOfferedAt) keyOfferedAt = Clock::now();
+      toJavaScript.offerKey([listener = services.keyboard.listener, offered = std::move(offered), answer, number,
+                             keyBurst, &hermesRuntime] {
+        bool taken = false;
+        if (auto* rt = hermesRuntime.load()) {
+          try {
+            auto value = listener->call(*rt, jsi::valueFromDynamic(*rt, offered));
+            taken = value.isBool() && value.getBool();
+          } catch (const jsi::JSError& error) {
+            std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
+          }
+        }
+        answer->store(taken ? 1 : 0);
+        oxyos::UiThread::wake();
+        // The burst's last key: the microtasks of its keys, as React Native's scheduler runs a task's
+        // (React schedules the render of what they changed from one, rendered once, after them).
+        if (!keyBurst->awaitDecision(number)) {
+          if (auto* rt = hermesRuntime.load()) {
+            try {
+              rt->drainMicrotasks();
+            } catch (const jsi::JSError& error) {
+              std::cerr << "[host] after the keys: " << error.getMessage() << "\n";
+            }
+          }
+        }
+      });
+    };
     uint32_t toldRefresh = 0;  // the window's display's refresh, as last told (display-refresh.h)
     // A window that changes size answers its configure with a frame JavaScript laid out at that
     // size, as AppKit lays a window out during a live resize before the frame is shown: the new
     // size's layout reaches JavaScript (onLayout, the dimensions), whose commits can size the
     // tree again (an app shell measuring its room, then a panel group measuring its own). Until
-    // JavaScript is quiet, or a frame of the display has passed (display-refresh.h: 16.7 ms at
-    // 60 Hz, 8.3 at 120) so that a slow app never stalls the resize past its next refresh, the
-    // window presents nothing and popups are not placed again.
+    // JavaScript is quiet the window presents nothing and popups are not placed again: a resize's
+    // first frame (a zoom, a window's size set, a live resize's start) carries the new layout,
+    // waiting for JavaScript as long as it takes (at most a second, as long as a hold); the frames of
+    // a live resize after it, at most a frame of the display (display-refresh.h: 16.7 ms at 60 Hz,
+    // 8.3 at 120), so that a slow app never stalls the resize past its next refresh.
     std::optional<Clock::time_point> settleBy;
     Clock::time_point settleFrom;
-    int quietTurns = 0;  // turns in a row in which JavaScript ran nothing and nothing mounted
+    // Whether the resize under way has presented its first frame, and when its last configure came.
+    bool resizeShown = true;
+    std::optional<Clock::time_point> lastResized;
+    uint64_t settleAfter = 0;  // what JavaScript was handed for the new size: settled once it ran
+    bool firstShown = false;  // the window's first frame may be drawn (below)
     int settleTurns = 0;
     try {
       // Where the turn's time goes, for the session's log (frame-diagnostics.h).
@@ -2140,31 +2698,36 @@ int main(int argc, char** argv) {
         return ran;
       };
       while (true) {
+        oxyos::UiThread::woken();
         oxyos::Report::get().beginTurn();
         diagnostics.beginTurn();
-        {
-          Scope beat(Part::JavaScript);
-          Beat::tickAll();
-        }
-        // JavaScript's tasks, run on its thread while the loop waits: timed there (js-thread.h).
-        bool ranJs = false;
-        {
-          Scope scope(Part::JavaScript);
-          auto work = js->drain();
-          diagnostics.ranElsewhere(work.span);
-          if (oxyos::Report::get().enabled()) oxyos::Report::get().javascript(work.span);
-          ranJs = work.ran;
-        }
-        // A drop delivered last turn had its onDrop run now: the window's drag it ended is told.
-        dragDrop.ranJavaScript();
-        bool pulled = mounter.pull();
-        bool busy = ranJs || pulled;
+        // What JavaScript handed over since the last turn (Mounter): its commits mounted, its view
+        // commands and accessibility events handled, in order. JavaScript itself runs on its thread
+        // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
+        // What JavaScript handed over is applied as one transaction once JavaScript is idle, after all
+        // it ran with its commits (a layout effect's, an effect's, what a press set off), as Core
+        // Animation commits what a run loop's turn changed at its end: a frame shows the whole of what
+        // JavaScript did, never a step of it, as when the two took turns. What the UI thread moves
+        // meanwhile (an animation, a scroll) goes on being drawn. (A commit made on the UI thread
+        // applies the queue at once, being behind it.) The person's input that came while it worked
+        // is part of that work: handed to it first, the frame showing the answer to all of it (a
+        // quick Super+Tab never flashes the switcher it opened and closed), unless what JavaScript
+        // did has waited a refresh (input that never stops is shown answered a refresh at a time).
+        // Keys typed together are, until JavaScript has answered the last (the events held behind a
+        // key): eight arrows typed at once move the selection once, said once, as when the loop
+        // asked JavaScript for each key's answer in its turn and mounted what it did after.
+        auto applyWaited = mounter.waitingSince();
+        bool waitedARefresh = applyWaited && Clock::now() - *applyWaited >=
+                                                 std::chrono::duration<double, std::milli>(refresh.periodMs());
+        bool keysAnswering = offeredKey.has_value() || !heldBehindKey.empty();
+        // (What the compositor tells counts: a burst of an input method's candidates is shown as its
+        // last.)
+        bool pulled = js->idle() && !keysAnswering && (js->stagedRank() < 1 || waitedARefresh) && mounter.apply();
+        // What JavaScript has answered: the batches it ran through, and that whose commits the frame
+        // shows now.
+        diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
+        bool busy = pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
-        // A timer's callback, a requestAnimationFrame's, runs on the next drain.
-        if (timers->fire(timerManager)) {
-          diagnostics.trigger("a timer");
-          busy = true;
-        }
         bool uiFrame = false;
         {
           Scope animation(Part::Animation);
@@ -2174,7 +2737,10 @@ int main(int argc, char** argv) {
           uiFrame = javascript(Part::Animation, [&] { return worklets.tick(); });
           animating |= javascript(Part::Animation, [&] { return reanimated.tick(); });
           animating |= animated.tick();
-          animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
+          {
+            oxyos::JsThread::CausedBy frame({"an animation frame", 0});
+            animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
+          }
           animating |= pointer.tick(window->ready(oxyos::Window::kToplevel));
           // expo-image views' transitions and animated pictures: a frame drawn again.
           if (images.tick(window->ready(oxyos::Window::kToplevel))) {
@@ -2220,6 +2786,86 @@ int main(int argc, char** argv) {
         // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
         std::optional<uint8_t> modifiersHeld;
         Part handling = diagnostics.enter(Part::Events);
+        // The rest of an event's handling, once a key offered to JavaScript first is answered (whether
+        // it took it: `keyTaken`); every other event goes straight on to it.
+        auto finishEvent = [&](const OxyOSEvent& event, bool keyTaken, const std::optional<NavigationKey>& platformKey,
+                               bool withheld) {
+              if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
+                  (event.kind == OXYOS_EVENT_KEY && event.flag) ||
+                  // An assistive technology's action, as the compositor counts it: any but moving
+                  // its focus (a custom action, the desktop's Move to Trash, ADR 0047, cites it).
+                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail != OXYOS_ACTION_FOCUS) ||
+                  // A choice in the shell's bar is the person's input: Edit > Paste may cite it.
+                  event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED ||
+                  // So is a system shortcut the shell shows: the search's field may cite it.
+                  event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ||
+                  // And the screenshot interface opened or changed by the keyboard.
+                  event.kind == OXYOS_EVENT_CAPTURE_MODE ||
+                  // And a notification the person pressed (ADR 0026): its response may copy.
+                  event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE ||
+                  // And a drop (ADR 0035): the dock's Trash cites it to put the files in the Trash.
+                  event.kind == OXYOS_EVENT_DRAG_DROP ||
+                  // And, in the shell, a scroll (a dock icon's opens App Exposé, which takes the
+                  // keyboard citing it, docs/adr/0045-app-expose.mdx); an application's scroll
+                  // authorizes nothing.
+                  (asShell && event.kind == OXYOS_EVENT_SCROLL)) {
+                lastPress = event.serial;
+              }
+              report(event);
+              if (keyTaken) return;
+              if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
+              // An assistive technology's action; a focus move needs new snapshots.
+              if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
+                dirty = true;
+                popups.changed();
+                shellSurfaces.changed();
+              }
+              if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
+              // Full Keyboard Access: the key the platform took acts now, its press recorded.
+              if (platformKey) {
+                navigate(event, *platformKey);
+                return;
+              }
+              // Scrolling from the keyboard (keyScroll): a key a scroll view takes, and its release,
+              // go no further.
+              if (keyScroll(event)) {
+                keyChords.taken(event.code);
+                return;
+              }
+              // Escape is the desktop's back: the topmost modal is asked to close, as Android's
+              // back asks a modal's window.
+              constexpr uint32_t kEscape = 1;
+              if (event.kind == OXYOS_EVENT_KEY && event.flag && event.code == kEscape &&
+                  event.surface == oxyos::Window::kToplevel) {
+                modalHost.requestClose();
+              }
+              if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
+                OxyOSTextTransaction change{};
+                bool transacted = replaying ? replaying->transaction : window->transaction(change);
+                if (replaying && transacted) change = replaying->kept();
+                if (transacted) {
+                  auto& r = oxyos::Report::get();
+                  if (r.enabled()) {
+                    r.input("text_input", event.surface,
+                            folly::dynamic::object("commit", editing.logged({change.commit, change.commit_length}))(
+                                "preedit", editing.logged({change.preedit, change.preedit_length}))(
+                                "delete", folly::dynamic::array(change.delete_before, change.delete_after)));
+                  }
+                  auto told = toldSerials.find(change.surface);
+                  editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
+                  // AutoFill's fill, the person's pick (docs/adr/0050-keychain-autofill-and-passkeys.mdx):
+                  // the field and its pair replaced whole; its text is never reported.
+                  OxyOSTextFill filled{};
+                  bool fills = replaying ? replaying->filled : window->fill(filled);
+                  if (replaying && fills) filled = replaying->keptFill();
+                  if (fills) editing.fill(filled);
+                }
+              }
+              if (withheld) return;
+              dragDrop.observe(event);
+              pointer.handle(event);
+              editing.handle(event);
+        };
         auto handleEvent = [&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
               busy = true;
@@ -2235,7 +2881,9 @@ int main(int argc, char** argv) {
               }
               // A long answer whole (ADR 0063), handed to JavaScript as text.
               if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
-                if (auto text = window->systemData()) systemData.emplace_back(event.code, std::move(*text));
+                if (auto text = replaying ? replaying->systemData : window->systemData()) {
+                  systemData.emplace_back(event.code, std::move(*text));
+                }
               }
               if (event.kind == OXYOS_EVENT_SEARCH_TEXT) {
                 if (auto text = searchTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
@@ -2261,7 +2909,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
-                if (auto list = window->inputCandidates()) candidates = std::move(*list);
+                if (auto list = replaying ? replaying->candidates : window->inputCandidates()) candidates = std::move(*list);
               }
               if (event.kind == OXYOS_EVENT_CAPTURE_MODE || event.kind == OXYOS_EVENT_CAPTURE_TARGET) {
                 captures.push_back(event);
@@ -2364,95 +3012,13 @@ int main(int argc, char** argv) {
                 if (keyChords.swallow(event)) {
                   keyTaken = true;
                 } else if (auto offered = keyChords.press(event)) {
-                  // Called on JavaScript's thread, the loop waiting for its answer.
-                  js->runOnQueueSync([&] {
-                    jsi::Runtime& rt = *services.keyboard.runtime;
-                    try {
-                      auto answer = services.keyboard.listener->call(rt, jsi::valueFromDynamic(rt, *offered));
-                      rt.drainMicrotasks();
-                      keyTaken = answer.isBool() && answer.getBool();
-                    } catch (const jsi::JSError& error) {
-                      std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
-                    }
-                  });
-                  if (keyTaken) {
-                    keyChords.taken(event.code);
-                    oxyos::Report::get().deliver("shortcut", event.surface, shellMode ? "shell" : "menu-bar",
-                                                 *offered);
-                  }
+                  // Answered on JavaScript's thread: this key, and every event after it, wait for the
+                  // answer (resumeAfterKey), while the loop goes on drawing.
+                  offerKey(event, std::move(*offered));
+                  return;
                 }
               }
-              if ((event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) ||
-                  (event.kind == OXYOS_EVENT_KEY && event.flag) ||
-                  // An assistive technology's action, as the compositor counts it: any but moving
-                  // its focus (a custom action, the desktop's Move to Trash, ADR 0047, cites it).
-                  (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && event.detail != OXYOS_ACTION_FOCUS) ||
-                  // A choice in the shell's bar is the person's input: Edit > Paste may cite it.
-                  event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED ||
-                  // So is a system shortcut the shell shows: the search's field may cite it.
-                  event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ||
-                  // And the screenshot interface opened or changed by the keyboard.
-                  event.kind == OXYOS_EVENT_CAPTURE_MODE ||
-                  // And a notification the person pressed (ADR 0026): its response may copy.
-                  event.kind == OXYOS_EVENT_NOTIFICATION_RESPONSE ||
-                  // And a drop (ADR 0035): the dock's Trash cites it to put the files in the Trash.
-                  event.kind == OXYOS_EVENT_DRAG_DROP ||
-                  // And, in the shell, a scroll (a dock icon's opens App Exposé, which takes the
-                  // keyboard citing it, docs/adr/0045-app-expose.mdx); an application's scroll
-                  // authorizes nothing.
-                  (asShell && event.kind == OXYOS_EVENT_SCROLL)) {
-                lastPress = event.serial;
-              }
-              report(event);
-              if (keyTaken) return;
-              if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
-              // An assistive technology's action; a focus move needs new snapshots.
-              if (event.kind == OXYOS_EVENT_ACCESSIBILITY_ACTION && accessibility.act(event)) {
-                dirty = true;
-                popups.changed();
-                shellSurfaces.changed();
-              }
-              if (event.kind == OXYOS_EVENT_KEY || event.kind == OXYOS_EVENT_TEXT) popups.key(event);
-              // Full Keyboard Access: the key the platform took acts now, its press recorded.
-              if (platformKey) {
-                navigate(event, *platformKey);
-                return;
-              }
-              // Scrolling from the keyboard (keyScroll): a key a scroll view takes, and its release,
-              // go no further.
-              if (keyScroll(event)) {
-                keyChords.taken(event.code);
-                return;
-              }
-              // Escape is the desktop's back: the topmost modal is asked to close, as Android's
-              // back asks a modal's window.
-              constexpr uint32_t kEscape = 1;
-              if (event.kind == OXYOS_EVENT_KEY && event.flag && event.code == kEscape &&
-                  event.surface == oxyos::Window::kToplevel) {
-                modalHost.requestClose();
-              }
-              if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
-                OxyOSTextTransaction change{};
-                if (window->transaction(change)) {
-                  auto& r = oxyos::Report::get();
-                  if (r.enabled()) {
-                    r.input("text_input", event.surface,
-                            folly::dynamic::object("commit", editing.logged({change.commit, change.commit_length}))(
-                                "preedit", editing.logged({change.preedit, change.preedit_length}))(
-                                "delete", folly::dynamic::array(change.delete_before, change.delete_after)));
-                  }
-                  auto told = toldSerials.find(change.surface);
-                  editing.transaction(change, told != toldSerials.end() && told->second == change.commit_serial);
-                  // AutoFill's fill, the person's pick (docs/adr/0050-keychain-autofill-and-passkeys.mdx):
-                  // the field and its pair replaced whole; its text is never reported.
-                  OxyOSTextFill filled{};
-                  if (window->fill(filled)) editing.fill(filled);
-                }
-              }
-              if (withheld) return;
-              dragDrop.observe(event);
-              pointer.handle(event);
-              editing.handle(event);
+              finishEvent(event, keyTaken, platformKey, withheld);
             };
         // A scenario's "popup-focus-first" order: the keyboard's moves held for a menu's focus,
         // handled now that it has it (or is gone), before what came since.
@@ -2462,13 +3028,61 @@ int main(int argc, char** argv) {
           keyboardHeldFor = 0;
           for (const auto& held : std::exchange(keyboardHeld, {})) handleEvent(held);
         }
-        bool connected = window->dispatch([&](const OxyOSEvent& event) {
+        auto dispatched = [&](const OxyOSEvent& event) {
           if (keyboardHeldFor != 0 && event.kind == OXYOS_EVENT_FOCUS) {
             keyboardHeld.push_back(event);
             return;
           }
           handleEvent(event);
+        };
+        // A key JavaScript answered: its handling ends, then the events that waited behind it go on, in
+        // order, until one is another key offered to JavaScript.
+        while (offeredKey && offeredKey->answer->load() >= 0) {
+          auto key = std::move(*offeredKey);
+          offeredKey.reset();
+          busy = true;
+          oxyos::Report::Handling keyHandling(key.event, key.seq);
+          bool taken = key.answer->load() == 1;
+          if (taken) {
+            keyChords.taken(key.event.code);
+            oxyos::Report::get().deliver("shortcut", key.event.surface, shellMode ? "shell" : "menu-bar", key.offered);
+          }
+          finishEvent(key.event, taken, std::nullopt, false);
+          while (!offeredKey && !heldBehindKey.empty()) {
+            auto held = std::move(heldBehindKey.front());
+            heldBehindKey.pop_front();
+            oxyos::Report::Handling heldHandling(held.event, held.seq);
+            handlingSeq = held.seq;
+            replaying = held.payload.get();
+            dispatched(held.event);
+            replaying = nullptr;
+          }
+          // The next key of the burst is offered, or there is none: JavaScript goes on.
+          keyBurst->decided(key.number, offeredKey.has_value());
+        }
+        // Every key answered and the events behind them handled: what was held is published.
+        if (!offeredKey && keyOfferedAt) {
+          keyOfferedAt.reset();
+          if (accessibilityHeld) dirty = true;
+        } else if (accessibilityHeld && keyOfferedAt && Clock::now() - *keyOfferedAt >= kAccessibilityHeldAtMost) {
+          dirty = true;
+        }
+        // The inputs below that hand JavaScript something (an event dispatched to a view, a device
+        // event) are answered once it ran this turn's batch, and all it set off.
+        toJavaScript.handed();
+        bool connected = window->dispatch([&](const OxyOSEvent& event) {
+          // Window::dispatch reported it received just before.
+          handlingSeq = oxyos::Report::get().receivedSeq();
+          if (offeredKey || !heldBehindKey.empty()) {
+            heldBehindKey.push_back(Held{event, handlingSeq, payloadOf(event)});
+            return;
+          }
+          dispatched(event);
         });
+        // What the events dispatched to views reaches JavaScript now (Fabric's beat), and the inputs are
+        // its to answer.
+        bool handed = toJavaScript.beat();
+        diagnostics.handedToJavaScript(handed || toJavaScript.handed(), js->batch());
         diagnostics.leave(handling);
         // A drag that left this client's last surface in those events has left the window.
         dragDrop.observed();
@@ -2487,7 +3101,7 @@ int main(int argc, char** argv) {
         if (modifiersHeld) {
           uint8_t held = *modifiersHeld;
           oxyos::Report::get().input("modifiers.changed", 0, folly::dynamic::object("modifiers", static_cast<int>(held)));
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSModifiersChanged",
                                     folly::dynamic::object("altKey", (held & OXYOS_MODIFIER_ALT) != 0)(
@@ -2506,7 +3120,7 @@ int main(int argc, char** argv) {
           folly::dynamic told = folly::dynamic::object("serial", asked.code)("reason", reason);
           oxyos::Report::get().input("quit.requested", 0, told);
           if (quitHandled) {
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSQuitRequested", told));
           } else if (services.quit.reply) {
             services.quit.reply(asked.code, true);
@@ -2539,7 +3153,7 @@ int main(int argc, char** argv) {
           closeAsked = false;
           window->closeToplevel();
           services.appState = "background";
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("appStateDidChange", folly::dynamic::object("app_state", "background")));
           oxyos::Report::get().input("background.entered", 0, folly::dynamic::object());
@@ -2551,7 +3165,7 @@ int main(int argc, char** argv) {
         if (window && toldDrawing && !(*toldDrawing == window->drawing())) {
           const auto& now = window->drawing();
           auto emit = [&](const char* name, folly::dynamic payload) {
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(name, payload));
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit", folly::dynamic::array(name, payload));
           };
           if (now.dark != toldDrawing->dark) {
             emit("appearanceChanged", folly::dynamic::object("colorScheme", now.dark ? "dark" : "light"));
@@ -2570,28 +3184,31 @@ int main(int argc, char** argv) {
             painterChanged = true;
             dirty = true;
           }
-          emit("OxyOSPreferencesChanged", services.settings.drawing());
+          toJavaScript.tellState("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;
         }
         if (window && window->preferences() != toldPreferences) {
           toldPreferences = window->preferences();
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
+          toJavaScript.tellState("OxyOSSettingsChanged", services.settings.values());
         }
         // Settings' applications (`getApplications`): told to read them again as the registry
-        // changes, and once as the watch begins, for a change before it.
+        // changes, and once as the watch begins, for a change before it. The watch says they may
+        // have changed (a file of its directories written): told only when the listing did, so a
+        // preference written beside them re-renders nothing.
         if (window && !shellMode && !settingsApplicationsAsked && window->settingsGranted()) {
           settingsApplicationsAsked = true;
           settingsApplications.reset(oxyos_applications_watch_new());
           if (!settingsApplications) {
             std::cerr << "[host] Settings' applications are not followed: " << oxyos_last_error() << "\n";
           }
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+          toldApplications = applicationsListing();
+          toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
         } else if (settingsApplications && oxyos_applications_watch_changed(settingsApplications.get())) {
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+          if (auto listing = applicationsListing(); listing != toldApplications) {
+            toldApplications = std::move(listing);
+            toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
+          }
         }
         // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
         // Intl's default is already the new one (the window set it); JavaScript is told, and
@@ -2601,10 +3218,9 @@ int main(int argc, char** argv) {
           // The shell's applications by their names in the new language, and Settings'.
           if (shellMode) shellState.relocalize();
           if (settingsApplications) {
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                           folly::dynamic::array("OxyOSApplicationsChanged"));
+            toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
           }
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSLocaleChanged",
                                                                folly::dynamic::object("locale", toldLocale)));
           oxyos::Report::get().input("locale", oxyos::Window::kToplevel, folly::dynamic::object("locale", toldLocale));
@@ -2614,8 +3230,7 @@ int main(int argc, char** argv) {
           auto displays = services.settings.displays();
           if (displays != toldDisplays) {
             toldDisplays = displays;
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                           folly::dynamic::array("OxyOSDisplaysChanged", displays));
+            toJavaScript.tellState("OxyOSDisplaysChanged", displays);
             if (!displays.isNull()) oxyos::Report::get().input("displays", oxyos::Window::kToplevel, displays);
           }
         }
@@ -2623,7 +3238,7 @@ int main(int argc, char** argv) {
         // capability results; a capability granted holds for this process from now on.
         for (const auto& [serial, text] : systemAnswers) {
           auto answer = folly::parseJson(text);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSystemAnswer",
                                                                folly::dynamic::object("serial", serial)("answer", answer)));
           oxyos::Report::get().input("system", oxyos::Window::kToplevel,
@@ -2634,7 +3249,7 @@ int main(int argc, char** argv) {
         // itself (oxyos/system.js): Hermes' JSON.parse, never a folly::dynamic made into thousands
         // of JSI values; the report records its size, not its text.
         for (const auto& [serial, text] : systemData) {
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSystemAnswer",
                                                                folly::dynamic::object("serial", serial)("text", text)));
           oxyos::Report::get().input("system", oxyos::Window::kToplevel,
@@ -2643,7 +3258,7 @@ int main(int argc, char** argv) {
         // Search (docs/adr/0051-search.mdx): the index's answers as it wrote them, JSON text the
         // window's search client reads (the platform's `search`).
         for (const auto& [serial, text] : searchAnswers) {
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSearchText",
                                                                folly::dynamic::object("serial", serial)("text", text)));
           oxyos::Report::get().input("search", oxyos::Window::kToplevel,
@@ -2651,7 +3266,7 @@ int main(int argc, char** argv) {
         }
         for (const auto& [sheet, text] : sheets) {
           auto described = folly::parseJson(text);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSheet",
                                                                folly::dynamic::object("sheet", sheet)("text", text)));
           oxyos::Report::get().input("sheet", oxyos::Window::kToplevel,
@@ -2666,14 +3281,14 @@ int main(int argc, char** argv) {
               if (uri.isString()) files.give(uri.getString());
             }
           }
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSFilesChosen",
                                                                folly::dynamic::object("serial", serial)("answer", answer)));
           oxyos::Report::get().input("files_chosen", oxyos::Window::kToplevel,
                                      folly::dynamic::object("serial", serial)("answer", answer));
         }
         for (const auto& gone : sheetsGone) {
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSSheetDismissed",
                                                                folly::dynamic::object("sheet", gone.code)));
         }
@@ -2689,7 +3304,7 @@ int main(int argc, char** argv) {
                                                                                   : "notRegistered";
           folly::dynamic told = folly::dynamic::object("serial", state.code)(
               "kind", background ? "background" : "loginItem")("status", status);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSBackgroundItemState", told));
           oxyos::Report::get().input("background.state", 0, told);
         }
@@ -2702,12 +3317,12 @@ int main(int argc, char** argv) {
             if (capability == "files") files.grantThePersonsFiles();
           }
           folly::dynamic told = folly::dynamic::object("serial", result.code)("granted", result.flag != 0)("capability", capability);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSCapabilityResult", told));
           oxyos::Report::get().input("capability", oxyos::Window::kToplevel, told);
         }
         for (const auto& result : preferenceResults) {
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSSettingsResult",
                                     folly::dynamic::object("serial", result.code)("accepted", result.flag != 0)));
@@ -2718,7 +3333,7 @@ int main(int argc, char** argv) {
           auto state = services.window.state();
           if (state != toldWindowState) {
             toldWindowState = state;
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSWindowChanged", state));
           }
         }
@@ -2726,24 +3341,24 @@ int main(int argc, char** argv) {
           auto state = shellState.state();
           if (state != toldShellState) {
             toldShellState = state;
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSShellChanged", std::move(state)));
           }
         }
         // An application's notifications (ADR 0026): what came of its posts, those no longer kept,
         // and that responses wait (JavaScript takes them, each once).
         for (const auto& result : notificationResults) {
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSNotificationResult", oxyos::notificationResult(result)));
         }
         for (const auto& removed : notificationsRemoved) {
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSNotificationRemoved", folly::dynamic::object("notification", removed.code)));
         }
         if (responded) {
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSNotificationResponse", folly::dynamic::object()));
         }
         // Whether the applications the shell asked for were started (ADR 0013).
@@ -2761,7 +3376,7 @@ int main(int argc, char** argv) {
             }
             continue;
           }
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSShellLaunch",
                                     folly::dynamic::object("serial", result.code)("launched", result.flag != 0)));
@@ -2773,7 +3388,7 @@ int main(int argc, char** argv) {
           folly::dynamic payload = folly::dynamic::object("serial", choice.code)("index", choice.detail);
           oxyos::Report::get().input("menu.activated", choice.surface, payload);
           oxyos::Report::get().deliver("menuActivated", choice.surface, "menu-bar", payload);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSMenuActivated", payload));
         }
         // The system shortcuts the shell shows (docs/adr/0024-system-shortcuts.mdx): the
@@ -2804,11 +3419,12 @@ int main(int argc, char** argv) {
           folly::dynamic payload =
               folly::dynamic::object("action", action)("output", shortcut.code)("intent", intent);
           oxyos::Report::get().input("shortcut.system", 0, payload);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellShortcut", payload));
         }
         // The candidates to show, or none (docs/adr/0041-input-methods.mdx): { candidates, aux,
-        // highlighted (-1: none), previous, next, vertical }.
+        // highlighted (-1: none), previous, next, vertical }. A whole state: those not yet delivered
+        // give way to the newer.
         if (candidates) {
           folly::dynamic texts = folly::dynamic::array();
           for (const auto& text : candidates->candidates) texts.push_back(text);
@@ -2816,8 +3432,7 @@ int main(int argc, char** argv) {
               "highlighted", candidates->highlighted)("previous", candidates->previous)("next", candidates->next)(
               "vertical", candidates->vertical);
           oxyos::Report::get().input("candidates", 0, payload);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSShellCandidates", payload));
+          toJavaScript.tellState("OxyOSShellCandidates", std::move(payload));
         }
         // The screenshot interface (docs/adr/0024-system-shortcuts.mdx, decision 10): its changes
         // and the window under the pointer, to JavaScript in order; then the screenshots saved.
@@ -2828,13 +3443,13 @@ int main(int argc, char** argv) {
             folly::dynamic payload = folly::dynamic::object("mode", mode)("serial", static_cast<double>(capture.serial))(
                 "output", capture.code);
             oxyos::Report::get().input("capture.mode", 0, payload);
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSShellCapture", payload));
           } else {
             folly::dynamic payload = folly::dynamic::object("window", capture.code)("x", capture.x)("y", capture.y)(
                 "width", capture.width)("height", capture.height);
             oxyos::Report::get().input("capture.target", 0, payload);
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSShellCaptureTarget", payload));
           }
         }
@@ -2842,7 +3457,7 @@ int main(int argc, char** argv) {
           folly::dynamic payload = folly::dynamic::object("id", saved.code)("output", saved.x)("width", saved.width)(
               "height", saved.height)("path", path);
           oxyos::Report::get().input("screenshot.saved", 0, payload);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellScreenshot", payload));
         }
         // A hardware key's level for the shell's bezel (docs/adr/0025-hardware-keys-and-control-center.mdx),
@@ -2853,7 +3468,7 @@ int main(int argc, char** argv) {
           folly::dynamic payload = folly::dynamic::object("control", control)("level", bezel.code / 65536.0)(
               "muted", (bezel.flag & OXYOS_CONTROL_MUTED) != 0);
           oxyos::Report::get().input("control.bezel", 0, payload);
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSShellBezel", payload));
         }
         // A text field JavaScript focused in one of the shell's regions (the launcher's search)
@@ -2936,7 +3551,7 @@ int main(int argc, char** argv) {
             regionHeldKeyboard = false;
             releaseFocus(wanted);
             oxyos::Report::get().input("keyboard.lost", wanted);
-            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                            folly::dynamic::array("OxyOSShellKeyboardLost", folly::dynamic::object()));
           }
         }
@@ -2946,7 +3561,7 @@ int main(int argc, char** argv) {
           const char* outcome = authenticated->detail <= OXYOS_AUTH_THROTTLED ? outcomes[authenticated->detail] : "";
           oxyos::Report::get().input("lock.authentication", authenticated->surface,
                                      folly::dynamic::object("outcome", outcome)("wait", authenticated->code));
-          instance->callFunctionOnModule(
+          toJavaScript.callFunctionOnModule(
               "RCTDeviceEventEmitter", "emit",
               folly::dynamic::array("OxyOSShellAuthentication",
                                     folly::dynamic::object("outcome", outcome)("wait", authenticated->code)));
@@ -2989,8 +3604,7 @@ int main(int argc, char** argv) {
               auto payload = responderState();
               oxyos::Report::get().input("editing.responder", 0,
                                          folly::dynamic::object("state", payload));
-              instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                             folly::dynamic::array("OxyOSEditingChanged", payload));
+              toJavaScript.tellState("OxyOSEditingChanged", payload);
             }
           }
         }
@@ -3103,11 +3717,10 @@ int main(int argc, char** argv) {
           pointer.setScale(display.scale);
           // useWindowDimensions and Dimensions follow the window (a resize, the output's scale or
           // size changed in Settings), as Android tells them on a configuration change.
-          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("didUpdateDimensions", oxyos::deviceDimensions(display)));
+          toJavaScript.tellState("didUpdateDimensions", oxyos::deviceDimensions(display));
           auto laying = Clock::now();
           {
-            Scope fabric(Part::JavaScript);
+            Scope fabric(Part::Layout);
             layOut();
           }
           double laidOutMs = std::chrono::duration<double, std::milli>(Clock::now() - laying).count();
@@ -3162,24 +3775,34 @@ int main(int argc, char** argv) {
         } else if (fieldFollowed >= 0 && accessibility.focused() != fieldFollowed) {
           fieldFollowed = -1;
         }
-        // Two quiet turns: what one turn's layout queues (onLayout) reaches JavaScript on the next.
+        // The new size's layout reaches JavaScript at once (its onLayout, through Fabric's beat, and the
+        // dimensions): settled once JavaScript ran all of it and what that set off, its thread idle, and
+        // the loop applied what it committed; or, but for a resize's first frame, once a refresh
+        // passed. JavaScript's thread wakes the loop as it settles.
         if (resized) {
+          toJavaScript.beat();
           settleFrom = Clock::now();
-          settleBy = settleFrom + refresh.period();
-          quietTurns = settleTurns = 0;
+          // A resize after a pause in configures (a live resize's come a frame apart) begins anew.
+          constexpr auto kResizeBegins = std::chrono::milliseconds(500);
+          if (!lastResized || settleFrom - *lastResized >= kResizeBegins) resizeShown = false;
+          lastResized = settleFrom;
+          settleBy = settleFrom + (resizeShown ? std::chrono::duration_cast<Clock::duration>(refresh.period())
+                                               : std::chrono::duration_cast<Clock::duration>(std::chrono::seconds(1)));
+          settleAfter = js->batch();
+          settleTurns = 0;
         } else if (settleBy) {
           ++settleTurns;
-          quietTurns = ranJs || pulled || mounted ? 0 : quietTurns + 1;
-          bool timedOut = Clock::now() >= *settleBy;
-          if (quietTurns >= 2 || timedOut) {
+          bool quiet = js->done() >= settleAfter && js->idle() && !mounter.pending();
+          bool timedOut = !quiet && Clock::now() >= *settleBy;
+          if (quiet || timedOut) {
             settleBy.reset();
+            resizeShown = true;
             double settledMs = std::chrono::duration<double, std::milli>(Clock::now() - settleFrom).count();
-            diagnostics.settled(settledMs, timedOut && quietTurns < 2);
-            oxyos::Report::get().settled(settledMs, settleTurns, timedOut && quietTurns < 2);
+            diagnostics.settled(settledMs, timedOut);
+            oxyos::Report::get().settled(settledMs, settleTurns, timedOut);
           }
         }
         bool settling = settleBy.has_value();
-        if (settling) busy = true;
         // Images load at the size they are drawn; a picture arriving draws its view again.
         if (resized || mounted) images.sync(display.scale);
         if (images.deliver()) {
@@ -3239,7 +3862,12 @@ int main(int argc, char** argv) {
         }
         // Every configure is answered with a frame, even one that changes nothing it shows.
         if (!window->answered(oxyos::Window::kToplevel)) dirty = true;
-        if (dirty && !settling && window->ready(oxyos::Window::kToplevel)) {
+        // The window's first frame shows what the application first mounted, as the single thread's
+        // did: it waits for JavaScript's first commit, or for JavaScript to have run its bundle and
+        // gone idle without one (an application that draws nothing), never shows an empty window
+        // before JavaScript had its turn.
+        if (!firstShown && (mounter.transactions > 0 || (bundleRan && js->idle()))) firstShown = true;
+        if (dirty && !settling && firstShown && window->ready(oxyos::Window::kToplevel)) {
           Scope drawing(Part::Draw);
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
@@ -3250,7 +3878,7 @@ int main(int argc, char** argv) {
             // The report still learns the focus, with the texts of the frame shown.
             oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, 0, shownTexts,
                                      focusName(), 0, false);
-            accessibility.publish(oxyos::Window::kToplevel, tree.root());
+            publishWindowAccessibility();
             dirty = false;
           } else {
             auto stats = damage ? oxyos::drawDamaged(tree, display, windowCanvas, drawn, *damage)
@@ -3314,7 +3942,7 @@ int main(int argc, char** argv) {
             double damaged = pixels.empty() ? 1.0 : std::min(1.0, area / std::max(whole, 1.0));
             oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, renderMs,
                                      stats.textContent, focusName(), damaged);
-            accessibility.publish(oxyos::Window::kToplevel, tree.root());
+            publishWindowAccessibility();
             dirty = false;
             busy = true;
           }
@@ -3325,21 +3953,36 @@ int main(int argc, char** argv) {
           dragDrop.present();
           shellSurfaces.present(drawn, focusName());
         }
+        // JavaScript's announcements, once what it did before them is published (the frame above):
+        // a focus its work moved is said before them.
+        if (!dirty) {
+          for (const auto& text : std::exchange(announceAfterFrame, {})) services.announce(text);
+        }
         // What the turn did may change what worklets' and Reanimated's next frames act on
         // (Reanimated's mappers, the updates it commits): they get one.
         if (busy) worklets.wantFrame();
         if (busy || uiFrame) reanimated.wantFrame();
         busy |= uiFrame;
+        // What the turn dispatched to views after its events (a glide's scroll, an image loaded)
+        // reaches JavaScript now; a drop delivered in it has had its onDrop queued, so the window's
+        // drag it ended is told after it.
+        toJavaScript.beat();
+        dragDrop.ranJavaScript();
+        // What the turn queued for JavaScript runs, together, once JavaScript is idle.
+        toJavaScript.handOver();
+        // While the window waits for JavaScript to settle (a resize), or an input for its answer,
+        // JavaScript's thread wakes the loop as it goes idle.
+        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending() ||
+                         offeredKey.has_value();
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
-        // image decoder, a paste's pipe; or until the next time something is due: a timer of
-        // JavaScript's or a gesture handler's, a paste running out of time, the wallpaper's next
-        // frame, or the next frame wanted for worklets' or Reanimated's callbacks, Animated's
-        // native driver or requestAnimationFrame (the compositor's answer to the window's frame
-        // wakes it for that too). Nothing else wakes it: an application doing nothing never turns.
-        // It waits only after a second idle turn, since what one turn dispatches (an event for
-        // Fabric's beat) is delivered on the next.
+        // image decoder, a paste's pipe, JavaScript's thread handing it a commit; or until the next
+        // time something is due: a gesture handler's timer, a paste running out of time, the
+        // wallpaper's next frame, the end of a resize's wait for JavaScript, or the next frame wanted
+        // for worklets' or Reanimated's callbacks, Animated's native driver or requestAnimationFrame
+        // (the compositor's answer to the window's frame wakes it for that too). Nothing else wakes
+        // it: an application doing nothing never turns. It waits only after a second idle turn.
         idleTurns = busy ? 0 : idleTurns + 1;
         // What an idle window does not need is given back once it has been idle a while (memory.h).
         if (busy || dirty) {
@@ -3351,7 +3994,9 @@ int main(int argc, char** argv) {
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
-          for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
+          std::optional<Clock::time_point> accessibilityDue;
+          if (accessibilityHeld && keyOfferedAt) accessibilityDue = *keyOfferedAt + kAccessibilityHeldAtMost;
+          for (auto due : {settleBy, accessibilityDue, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
                            dragDrop.nextDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
@@ -3363,6 +4008,8 @@ int main(int argc, char** argv) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;
           }
           std::vector<pollfd> fds;
+          // Another thread with work for the loop (ui-thread.h): JavaScript's commit, a worklet's job.
+          fds.push_back({oxyos::UiThread::wakeFd(), POLLIN, 0});
           for (int fd : window->fds()) fds.push_back({fd, POLLIN, 0});
           for (int fd : dragDrop.fds()) fds.push_back({fd, POLLIN, 0});
           // The file service's is -1 until an application asks it something: poll ignores it.
@@ -3374,6 +4021,8 @@ int main(int argc, char** argv) {
           if (settingsApplications) {
             fds.push_back({oxyos_applications_watch_fd(settingsApplications.get()), POLLIN, 0});
           }
+          // Asleep, the loop holds none of the host's state: JavaScript's calls into it go on.
+          oxyos::UiThread::Unlocked asleep;
           if (!deadline) {
             ppoll(fds.data(), fds.size(), nullptr, nullptr);
           } else if (auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(*deadline - Clock::now()).count();
@@ -3404,7 +4053,10 @@ int main(int argc, char** argv) {
     // the accessibility bridge, the popups and the drag hold it: none may find it destroyed.
     surface.stop();
     scheduler->unregisterSurface(surface);
-    js->drain();
+    // JavaScript runs what that queued (its calls into the host meanwhile hold its state), and its
+    // thread ends: nothing of JavaScript's runs past the scheduler and the window.
+    js->waitIdle(Clock::now() + std::chrono::seconds(2));
+    js->quitSynchronous();
     scheduler.reset();
     window.reset();
     oxyos::FrameDiagnostics::get().ended();
@@ -3415,15 +4067,21 @@ int main(int argc, char** argv) {
   // deadline passes.
   auto deadline = Clock::now() + std::chrono::seconds(10);
   auto quietSince = Clock::now();
+  // JavaScript's thread wakes the loop each time it is idle.
+  wakeUiWhenIdle = true;
   while (Clock::now() < deadline) {
-    Beat::tickAll();
-    bool busy = js->drain().ran;
-    busy |= mounter.pull();
-    busy |= timers->fire(timerManager);
+    oxyos::UiThread::woken();
+    bool busy = !js->idle();
+    if (!busy) busy |= mounter.apply();
+    toJavaScript.beat();
+    toJavaScript.handOver();
     worklets.tick();
     busy |= reanimated.tick();
     busy |= animated.tick();
-    busy |= animationFrames.tick(true);
+    {
+      oxyos::JsThread::CausedBy frame({"an animation frame", 0});
+      busy |= animationFrames.tick(true);
+    }
     if (busy) images.sync(display.scale);
     busy |= images.deliver();
     // A transition moves on while the render settles; an animated picture never keeps it busy.
@@ -3436,7 +4094,11 @@ int main(int argc, char** argv) {
     } else if (Clock::now() - quietSince > std::chrono::milliseconds(500)) {
       break;
     }
-    if (!busy) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    if (!busy) {
+      oxyos::UiThread::Unlocked asleep;
+      pollfd woken{oxyos::UiThread::wakeFd(), POLLIN, 0};
+      ppoll(&woken, 1, std::array<timespec, 1>{timespec{0, 2'000'000}}.data(), nullptr);
+    }
   }
 
   writeJsProfile();
@@ -3450,7 +4112,8 @@ int main(int argc, char** argv) {
 
   surface.stop();
   scheduler->unregisterSurface(surface);
-  js->drain();
+  js->waitIdle(Clock::now() + std::chrono::seconds(2));
+  js->quitSynchronous();
   scheduler.reset();
   return jsErrors == 0 && mounter.transactions > 0 && stats.written ? 0 : 1;
 }
