@@ -104,7 +104,9 @@ a run that passes leaves nothing there.
 
 A pull request is merged by putting it in the merge queue: `gh pr merge N --auto` (or the merge
 button), once its fast checks pass: the **Native foundation** jobs (`verify` and `passwd-tools`, on
-x86-64 and AArch64, required). The queue then runs the gate, the **Scenarios** check
+x86-64 and AArch64) and the **Applications** job (`apps-tests`, `.github/workflows/apps.yml`: the
+applications' and the platform API's type check and unit tests, and the browser preview's build),
+all required and run on every pull request, whatever it touches. The queue then runs the gate, the **Scenarios** check
 (`.github/workflows/scenarios.yml`), on each entry's combined tree: main with the pull requests
 ahead of it and its own, so pull requests merged separately cannot break main together. A run that
 passes merges the entry (a merge commit); one that fails takes the pull request out of the queue, its

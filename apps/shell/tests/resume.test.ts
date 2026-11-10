@@ -15,7 +15,7 @@ test("the question to reopen again, its apps listed, the keyboard on Reopen", ()
   assert.equal(view.body, "Do you want to try to reopen them again?");
   assert.deepEqual(view.lines, [{ label: "Allo" }, { label: "Inbox" }]);
   assert.equal(view.accept, "Reopen");
-  assert.equal(view.refuse, "Don't Reopen");
+  assert.equal(view.refuse, "Don’t Reopen");
   assert.equal(view.destructive, false);
   assert.ok(startsOnAnswer(sheet));
   const spanish = sheetView(sheet, es);
