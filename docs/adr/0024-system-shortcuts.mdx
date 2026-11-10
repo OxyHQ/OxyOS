@@ -8,6 +8,8 @@ order: 33
 
 Status: **accepted; implemented** (the scene, the protocol, the C ABI, the Bloom host and the shell; screenshots, decision 10, in the compositor, the session and the development compositor too). Builds on [ADR 0009](./0009-session-shell) (the shell and its `shortcuts` grant), [ADR 0010](./0010-lock-screen) (the lock and Ctrl+Super+Q), [ADR 0014](./0014-screen-reader) (keys taken before everything else), [ADR 0016](./0016-windows) (windows: minimize, zoom, the close request, the active window), [ADR 0018](./0018-several-displays) (a shell per display) and [ADR 0021](./0021-menu-bar) (applications' own shortcuts).
 
+**10 November 2026 ([ADR 0016](./0016-windows), decision 12):** tiling's keys are a Mac's Fn-Control ones with Super+Alt for Fn-Control: Super+Alt+F fills, Super+Alt+C centres, Super+Alt+R returns to the previous size, Super+Alt with an arrow tiles the active window to that half, and Super+Alt+Shift with an arrow arranges it with the window behind it. The compositor's own, as its other window actions (decision 4); they never repeat.
+
 **9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** Super+Shift+Q logs out after the session's question and Super+Alt+Shift+Q at once, as a Mac's ⇧⌘Q and ⌥⇧⌘Q: taken by the compositor as system shortcuts, reaching no application, handed to the session (`take_session_keys`); locked, nothing, as every system shortcut.
 
 **8 November 2026 ([ADR 0051](./0051-search)):** **Super+Space opens Spotlight**, OxyOS's ⌘Space, at the owner's request: the system's search of applications, files, settings and what applications give it, shown by the shell (`SystemShortcut::Spotlight`, protocol version 31, never sent to an older shell). It acts once and never repeats, closes a menu open in a window first, and nothing of it reaches the application. **Super+Return** reveals what Spotlight has chosen where it is, as a Mac's ⌘Return (`SystemShortcut::Reveal`, version 31), and leaves what the shell shows open. The input sources move off Super+Space and keep a Mac's Control-Space habit on **Super+Alt+Space** (the input source used before; each further Space while Super and Alt are held, the one before that), with the next in the list on **Super+Alt+Shift+Space**; Control+Super+Space stays emoji. Super pressed and released alone stays the launcher's search. The rest stands as written.
@@ -47,6 +49,7 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
    | Alt+Super+H | Hides every other application, as a Mac's ⌥⌘H (every one with no window active); the active window stays active. Its menu's Show All brings them back ([ADR 0021](./0021-menu-bar), step 5; protocol version 43). | Compositor |
    | Super+\` (Super+Shift+\`) | The active application's next (previous) window on this workspace. Forwards, the active one goes behind the others, so presses go through them all. | Compositor |
    | Super+Ctrl+F | Full screen on and off for the active window. | Compositor |
+   | Super+Alt+F, C, R; Super+Alt+← → ↑ ↓; Super+Alt+Shift+← → ↑ ↓ | Tiling, as a Mac's Fn-Control with the same keys ([ADR 0016](./0016-windows), decision 12): Fill, Center, Return to Previous Size; the left, right, top and bottom halves; Left & Right, Right & Left, Top & Bottom, Bottom & Top. | Compositor |
    | Super pressed and released alone | The launcher with its search focused; again, it closes ([ADR 0041](./0041-input-methods)). | Shell (`Search`) |
    | Super+Space | Spotlight, as a Mac's ⌘Space ([ADR 0051](./0051-search); protocol version 31). | Shell (`Spotlight`) |
    | Super+Return | Reveals what Spotlight has chosen where it is, as a Mac's ⌘Return ([ADR 0051](./0051-search); protocol version 31). | Shell (`Reveal`) |
@@ -62,7 +65,7 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
 
    Screenshots, Super+Shift+3, 4 and 5, are decision 10's.
 
-   **Not in this decision:** Super+Alt+H (hide the others), Super+Alt+M (minimize all), Super+Alt+Esc (force quit), Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)), tiling, and a window's own minimize-all or close-all variants.
+   **Not in this decision:** Super+Alt+M (minimize all), Super+Alt+Esc (force quit), Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)), and a window's own minimize-all or close-all variants. (Alt+Super+H, hide the others, came with [ADR 0021](./0021-menu-bar), step 5.)
 
 3. **Keys by their place.** The scene has no keymap: keys are Linux key codes and are matched by place, named as on the US layout, as Bloom matches applications' chords (ADR 0021). So the two can never meet on any layout, and \` is the key above Tab, left of 1 (º on the Spanish layout), as a Mac's ⌘\` is on most ISO keyboards. On a layout that moves letters (AZERTY), Super+W is the key where W is on a US keyboard; when the compositor's keymap reaches the scene, system shortcuts and Bloom's chords move to the layout's characters together.
 

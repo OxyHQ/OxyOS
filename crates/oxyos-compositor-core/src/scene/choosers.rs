@@ -460,6 +460,7 @@ impl Scene {
                 surface: window,
                 pointer: self.pointer,
                 origin: node.origin,
+                moved: false,
             });
             self.set_pointer_focus(None);
         }

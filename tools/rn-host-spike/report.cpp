@@ -193,6 +193,7 @@ void Report::beginTurn() {
   if (!file_) return;
   turn_ = std::chrono::steady_clock::now();
   turning_ = true;
+  ++turns_;
 }
 
 void Report::endTurn() {
@@ -390,6 +391,7 @@ void Report::deliver(const std::string& event, uint32_t surface, const std::stri
   line["event"] = event;
   line["surface"] = surface;
   line["target"] = target;
+  line["turn"] = turns_;
   if (handlingKind_) {
     line["input_serial"] = handlingSerial_;
     line["input_seq"] = handlingSeq_;
