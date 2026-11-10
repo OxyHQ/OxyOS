@@ -3315,6 +3315,49 @@ GLIDE_INPUTS = {
 }
 
 
+def measure_stall(wanted, report, start, end, refresh_hz):
+    """What a step holding JavaScript (its `stall`, below) drew through the block: None without a block,
+    else the block's length, what started it, the window's frames presented in it, the lines of its
+    motion in it, the block's refreshes and the gaps between the frames (with the last before it and
+    the first after), sorted, in ms. perf.py measures with it too."""
+    refresh = 1000.0 / refresh_hz
+    blocks = [line for line in report if line["kind"] == "js_timing" and start <= line["t"] <= end
+              and line["work_ms"] >= wanted.get("block_ms_min", 450)]
+    if not blocks:
+        return None
+    block = max(blocks, key=lambda line: line["work_ms"])
+    until = block["t"] / 1e6
+    since = until - block["work_ms"]
+    frames = [line["t"] / 1e6 for line in report if line["kind"] == "frame" and line.get("surface") == 1
+              and line.get("presented", True)]
+    before = [t for t in frames if t < since]
+    after = [t for t in frames if t > until]
+    inside = [t for t in frames if since <= t <= until]
+    edges = before[-1:] + inside + after[:1]
+    kind, _, target = wanted["motion"].partition(":")
+    motion = inside if kind == "frames" else [
+        line["t"] / 1e6 for line in report if line["kind"] == kind and line.get("target") == target
+        and since <= line["t"] / 1e6 <= until]
+    return {"block_ms": block["work_ms"], "trigger": block["trigger"], "frames": len(inside), "motion": len(motion),
+            "refreshes": block["work_ms"] / refresh, "refresh_ms": refresh,
+            "gaps_ms": sorted(b - a for a, b in zip(edges, edges[1:]))}
+
+
+def stall_held(measured, strict):
+    """Whether a stall's measure (measure_stall) holds what every run holds (half the block's
+    refreshes drawn, and of its motion, no gap of 6 refreshes) or, `strict`, a frame each refresh (the
+    gaps' 95th percentile within 1.5 refreshes, none over 2, 90 % of the block's refreshes drawn),
+    and the 95th percentile of its gaps."""
+    gaps, refresh, refreshes = measured["gaps_ms"], measured["refresh_ms"], measured["refreshes"]
+    if not gaps:
+        return False, None
+    p95 = gaps[min(len(gaps) - 1, round(0.95 * (len(gaps) - 1)))]
+    least = 0.9 if strict else 0.5
+    held = measured["frames"] >= least * refreshes and measured["motion"] >= least * refreshes
+    held = held and (p95 <= 1.5 * refresh and gaps[-1] <= 2 * refresh if strict else gaps[-1] < 6 * refresh)
+    return held, p95
+
+
 def check_stall(wanted, report, start, end, fail, refresh_hz):
     """The step's `stall`: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx).
     The block is the step's longest stretch of JavaScript's work on its thread (`js_timing`), at least
@@ -3327,40 +3370,25 @@ def check_stall(wanted, report, start, end, fail, refresh_hz):
     (the timing phase, alone on reserved cores), one frame each refresh: the gaps' 95th percentile
     within 1.5 refreshes, none over 2, and 90 % of the block's refreshes presented, and of its
     motion's lines."""
-    refresh = 1000.0 / refresh_hz
-    blocks = [line for line in report if line["kind"] == "js_timing" and start <= line["t"] <= end
-              and line["work_ms"] >= wanted.get("block_ms_min", 450)]
-    if not blocks:
+    measured = measure_stall(wanted, report, start, end, refresh_hz)
+    if measured is None:
         fail(f"JavaScript was not held {wanted.get('block_ms_min', 450)} ms in the step")
         return
-    block = max(blocks, key=lambda line: line["work_ms"])
-    until = block["t"] / 1e6
-    since = until - block["work_ms"]
-    frames = [line["t"] / 1e6 for line in report if line["kind"] == "frame" and line.get("surface") == 1
-              and line.get("presented", True)]
-    before = [t for t in frames if t < since]
-    after = [t for t in frames if t > until]
-    inside = [t for t in frames if since <= t <= until]
-    edges = before[-1:] + inside + after[:1]
-    gaps = sorted(b - a for a, b in zip(edges, edges[1:]))
-    kind, _, target = wanted["motion"].partition(":")
-    motion = inside if kind == "frames" else [
-        line["t"] / 1e6 for line in report if line["kind"] == kind and line.get("target") == target
-        and since <= line["t"] / 1e6 <= until]
-    refreshes = block["work_ms"] / refresh
-    said = (f"JavaScript held {block['work_ms']:.0f} ms ({block['trigger']}): {len(inside)} frames presented, "
-            f"{len(motion)} of {wanted['motion']}, gaps {[round(g, 1) for g in gaps[-3:]]} ms at most")
-    if not gaps:
+    said = (f"JavaScript held {measured['block_ms']:.0f} ms ({measured['trigger']}): {measured['frames']} frames "
+            f"presented, {measured['motion']} of {wanted['motion']}, gaps {[round(g, 1) for g in measured['gaps_ms'][-3:]]} "
+            f"ms at most")
+    if not measured["gaps_ms"]:
         fail(f"{said}; no frame around it")
         return
-    p95 = gaps[min(len(gaps) - 1, round(0.95 * (len(gaps) - 1)))]
-    if len(inside) < 0.5 * refreshes or len(motion) < 0.5 * refreshes or gaps[-1] >= 6 * refresh:
-        fail(f"{said}: what moves was held up with JavaScript (expected half the block's {refreshes:.0f} refreshes "
-             f"drawn, no gap of 6 refreshes)")
-    elif SPEED_BUDGETS and (p95 > 1.5 * refresh or gaps[-1] > 2 * refresh or len(inside) < 0.9 * refreshes
-                            or len(motion) < 0.9 * refreshes):
-        fail(f"{said}, the 95th percentile {p95:.1f}: expected a frame each refresh ({refresh:.1f} ms; 95th "
-             f"percentile within 1.5, none over 2, 90 % of the block's {refreshes:.0f} drawn)")
+    held, p95 = stall_held(measured, strict=False)
+    if not held:
+        fail(f"{said}: what moves was held up with JavaScript (expected half the block's "
+             f"{measured['refreshes']:.0f} refreshes drawn, no gap of 6 refreshes)")
+        return
+    held, p95 = stall_held(measured, strict=True)
+    if SPEED_BUDGETS and not held:
+        fail(f"{said}, the 95th percentile {p95:.1f}: expected a frame each refresh ({measured['refresh_ms']:.1f} ms; "
+             f"95th percentile within 1.5, none over 2, 90 % of the block's {measured['refreshes']:.0f} drawn)")
 
 
 def check_glide(wanted, report, start, end, fail):
