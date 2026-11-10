@@ -21,7 +21,9 @@
 //!   services), offline, with their own throttle and lockout.
 //! - The person at the seat ([`seat`], [ADR 0066](../../../docs/adr/0066-quality-of-service.mdx),
 //!   decision 8): the user slice of seat0's active session weighs 400 against every other user's
-//!   100, set through systemd as logind's seat changes, on a thread of its own.
+//!   100, set through systemd as logind's seat changes, on a thread of its own; the memory its
+//!   session's applications claim (told on the session socket) is carried up its user manager,
+//!   its slice and the users' slice while it holds the seat.
 //!
 //! The first account set up on a machine is its administrator (a member of `sudo`); at its start
 //! the service makes the enrolled account with the lowest uid one where accounts are enrolled and
@@ -54,6 +56,9 @@
 //! systemd's the seat's weights ([`seat::apply_to_tree`]): SEAT, a directory of USER_SLICES,
 //! the seat's holder's, every other `*.slice` there the default, each printed with its weight.
 //! The saturation benchmark's (`perf.py saturation`, S7) weighs its users so; it needs no root.
+//! `oxyos-accountd --apply-memory-claim USER_SLICES SEAT BYTES` gives such a tree the protections
+//! a claim of BYTES carries up ([`seat::apply_memory_claim_to_tree`]: `memory.low` of
+//! SEAT/user@.service, SEAT and USER_SLICES), each printed with its bytes (S6).
 //!
 //! It logs what each request came to (the account's user, the reason it was refused) on standard
 //! error, the journal's; never a password, a secret, a code or a token.
@@ -409,10 +414,12 @@ fn run() -> Result<(), String> {
     // last one read is shown.
     let pictures = Arc::clone(&platform);
     std::thread::spawn(move || pictures.refresh_pictures());
-    // The person at the seat above other users, followed on a thread of its own.
+    // The person at the seat above other users, followed on a thread of its own, with the memory
+    // the sessions' applications claim (told on the session socket, below).
+    let (claimed, claims) = async_channel::unbounded();
     std::thread::Builder::new()
         .name("oxyos-accountd-seat".into())
-        .spawn(|| seat::run(|line| eprintln!("oxyos-accountd: {line}")))
+        .spawn(move || seat::run(claims, |line| eprintln!("oxyos-accountd: {line}")))
         .map_err(|error| format!("following the seat: {error}"))?;
     let listener = Listener::bind(&options.socket)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;
@@ -443,7 +450,8 @@ fn run() -> Result<(), String> {
             verified.display()
         );
     }
-    let session_service = Arc::new(Sessions::new(
+    let session_service = Arc::new(
+        Sessions::new(
         platform.clone(),
         Registrars::new(
             options.session_program.clone(),
@@ -454,7 +462,12 @@ fn run() -> Result<(), String> {
             Box::new(Systemctl::new()),
             Box::new(passwords::PamPasswords::new()),
         ),
-    ));
+        )
+        .with_memory_claims(Box::new(move |claim| {
+            // Unbounded: the seat's thread takes them as they come.
+            let _ = claimed.try_send(claim);
+        })),
+    );
     std::thread::Builder::new()
         .name("oxyos-accountd-sessions".into())
         .spawn(move || sessions(session_listener, session_service))
@@ -507,6 +520,30 @@ fn run() -> Result<(), String> {
     }
 }
 
+/// `--apply-memory-claim USER_SLICES SEAT BYTES` (the module's doc).
+fn apply_memory_claim(arguments: &[String]) -> ExitCode {
+    let [user_slices, seat, bytes] = arguments else {
+        eprintln!("usage: oxyos-accountd --apply-memory-claim USER_SLICES SEAT BYTES");
+        return ExitCode::from(2);
+    };
+    let Ok(bytes) = bytes.parse::<u64>() else {
+        eprintln!("oxyos-accountd: {bytes}: not a number of bytes");
+        return ExitCode::from(2);
+    };
+    match seat::apply_memory_claim_to_tree(Path::new(user_slices), seat, bytes) {
+        Ok(applied) => {
+            for (group, low) in applied {
+                println!("{group} {low}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("oxyos-accountd: {user_slices}: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// `--apply-seat-weights USER_SLICES SEAT` (the module's doc).
 fn apply_seat_weights(arguments: &[String]) -> ExitCode {
     let [user_slices, seat] = arguments else {
@@ -529,8 +566,10 @@ fn apply_seat_weights(arguments: &[String]) -> ExitCode {
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    if arguments.first().map(String::as_str) == Some("--apply-seat-weights") {
-        return apply_seat_weights(&arguments[1..]);
+    match arguments.first().map(String::as_str) {
+        Some("--apply-seat-weights") => return apply_seat_weights(&arguments[1..]),
+        Some("--apply-memory-claim") => return apply_memory_claim(&arguments[1..]),
+        _ => {}
     }
     match run() {
         Ok(()) => ExitCode::SUCCESS,

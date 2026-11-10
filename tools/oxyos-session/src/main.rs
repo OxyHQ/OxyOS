@@ -868,7 +868,14 @@ fn main() -> Result<()> {
                     })
                     .ok()
             });
-        oxyos_compositor::naps::Naps::new(scopes)
+        // The claim of the applications' slice carried up by the accounts' service while the
+        // session holds the seat (decision 8): its ancestors are system units only root sets.
+        // Told over the registrar's connection, never waiting.
+        oxyos_compositor::naps::Naps::new(scopes).with_claim_listener(Box::new(|bytes| {
+            if let Some(registrar) = REGISTRAR.get() {
+                registrar.memory_claim(bytes);
+            }
+        }))
     });
     // Applications that quit unexpectedly, and resetting one (docs/adr/0061-crashes-and-resetting-
     // an-application.mdx): the person's reports (none at the login screen, whose user is no one),
