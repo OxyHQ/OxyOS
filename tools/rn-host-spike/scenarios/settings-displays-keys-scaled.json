@@ -616,7 +616,7 @@
         },
         "spoken": [
           {
-            "text": "¿Mantener esta configuración de pantalla?, diálogo",
+            "text": "¿Mantener estos ajustes de pantalla?, diálogo",
             "interrupting": true
           },
           {
@@ -633,7 +633,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             },
             {
               "role": "Button",
@@ -699,7 +699,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             }
           ]
         },
@@ -779,7 +779,7 @@
         },
         "spoken": [
           {
-            "text": "¿Mantener esta configuración de pantalla?, diálogo",
+            "text": "¿Mantener estos ajustes de pantalla?, diálogo",
             "interrupting": true
           },
           {
@@ -796,7 +796,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             },
             {
               "role": "Button",
@@ -862,7 +862,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             }
           ]
         },
@@ -942,7 +942,7 @@
         },
         "spoken": [
           {
-            "text": "¿Mantener esta configuración de pantalla?, diálogo",
+            "text": "¿Mantener estos ajustes de pantalla?, diálogo",
             "interrupting": true
           },
           {
@@ -959,7 +959,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             },
             {
               "role": "Button",
@@ -1010,7 +1010,7 @@
             "interrupting": true
           },
           {
-            "text": "La pantalla ha vuelto a su configuración anterior.",
+            "text": "La pantalla ha vuelto a sus ajustes anteriores.",
             "interrupting": true
           },
           {
@@ -1029,7 +1029,7 @@
           },
           {
             "politeness": "assertive",
-            "text": "La pantalla ha vuelto a su configuración anterior."
+            "text": "La pantalla ha vuelto a sus ajustes anteriores."
           }
         ],
         "at": {
@@ -1048,7 +1048,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             }
           ]
         },
@@ -1128,7 +1128,7 @@
         },
         "spoken": [
           {
-            "text": "¿Mantener esta configuración de pantalla?, diálogo",
+            "text": "¿Mantener estos ajustes de pantalla?, diálogo",
             "interrupting": true
           },
           {
@@ -1145,7 +1145,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             },
             {
               "role": "Button",
@@ -1235,7 +1235,7 @@
           "window": [
             {
               "role": "Dialog",
-              "name": "¿Mantener esta configuración de pantalla?"
+              "name": "¿Mantener estos ajustes de pantalla?"
             },
             {
               "name": "Saved"

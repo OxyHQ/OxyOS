@@ -80,7 +80,7 @@
           "AL",
           "And its files, apps and settings on this computer",
           "Signed out of this computer",
-          "Wi-Fi networks and this computer's settings",
+          "Wi-Fi networks and this computer’s settings",
           "OxyOS stays installed; the computer restarts into setup, as new.",
           "Continue",
           "Cancel"
@@ -128,7 +128,7 @@
       ],
       "expect": {
         "texts": [
-          "Incorrect password.",
+          "Incorrect password. Try again.",
           "Enter the password for Ada Lovelace to erase this computer."
         ],
         "absent": [
@@ -148,7 +148,7 @@
       "allow_unchanged": true,
       "expect": {
         "absent": [
-          "Incorrect password."
+          "Incorrect password. Try again."
         ],
         "account_session": []
       }
