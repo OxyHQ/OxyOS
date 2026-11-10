@@ -261,6 +261,9 @@ class Mounter : public SchedulerDelegate {
         case Item::Kind::AccessibilityEvent:
           if (onAccessibilityEvent) onAccessibilityEvent(item.view, item.name);
           break;
+        case Item::Kind::Announcement:
+          if (onAnnouncement) onAnnouncement(item.name);
+          break;
       }
     }
     for (auto& command : retried) {
@@ -310,6 +313,10 @@ class Mounter : public SchedulerDelegate {
   void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
     queue(Item{.kind = Item::Kind::AccessibilityEvent, .view = view, .name = type});
   }
+  // An announcement JavaScript makes (AccessibilityInfo.announceForAccessibility), behind what it
+  // did before it as its accessibility events are: said after the focus that work moved.
+  std::function<void(const std::string&)> onAnnouncement;
+  void announce(const std::string& text) { queue(Item{.kind = Item::Kind::Announcement, .name = text}); }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
   // Animated's native driver setting a view's props between commits (native-animated.h), on the UI
   // thread as Android's mounting layer updates a native view: the tree changed, as with a mount.
@@ -323,7 +330,7 @@ class Mounter : public SchedulerDelegate {
 
  private:
   struct Item {
-    enum class Kind { Transaction, Command, AccessibilityEvent } kind;
+    enum class Kind { Transaction, Command, AccessibilityEvent, Announcement } kind;
     SurfaceId surface = 0;
     // A transaction pulled on JavaScript's thread: the batch it ran (0 for a commit of the UI thread's).
     uint64_t batch = 0;
@@ -1536,7 +1543,13 @@ int main(int argc, char** argv) {
     auto announcer = [&shellSurfaces] { return shellSurfaces.lockSurface().value_or(oxyos::Window::kToplevel); };
     // An announcement is what the application says now: it interrupts what is being said, as
     // an announcement event does TalkBack's queue.
-    services.announce = [&window, announcer](const std::string& text) {
+    // From JavaScript's thread it goes behind what JavaScript did before it (Mounter::announce), and
+    // out once the frame showing that work published its accessibility (announceAfterFrame).
+    services.announce = [&window, &mounter, announcer](const std::string& text) {
+      if (!oxyos::UiThread::isCurrent()) {
+        mounter.announce(text);
+        return;
+      }
       window->announce(announcer(), OXYOS_ASSERTIVE, text);
       oxyos::Report::get().input("announce", announcer(), folly::dynamic::object("text", text));
     };
@@ -2416,6 +2429,9 @@ int main(int argc, char** argv) {
     std::vector<OxyOSEvent> keyboardHeld;
     // Accessibility focus, as Android's accessibility focus (separate from input focus): the
     // view a screen reader would be on, which the tree marks and the screen reader follows.
+    // JavaScript's announcements applied, waiting for the frame that publishes what came before them.
+    std::vector<std::string> announceAfterFrame;
+    mounter.onAnnouncement = [&announceAfterFrame](const std::string& text) { announceAfterFrame.push_back(text); };
     mounter.onAccessibilityEvent = [&](const ShadowView& view, const std::string& type) {
       if (waitsForGrant(view, type)) {
         if (heldForGrant.empty()) oxyos::Report::get().input("test.focus.held", *shellSurfaces.surfaceOf(view.tag));
@@ -2629,9 +2645,9 @@ int main(int argc, char** argv) {
         bool waitedARefresh = applyWaited && Clock::now() - *applyWaited >=
                                                  std::chrono::duration<double, std::milli>(refresh.periodMs());
         bool keysAnswering = offeredKey.has_value() || !heldBehindKey.empty();
-        // (The person's own input: what started its work ranks 2, FrameDiagnostics::trigger's; the
-        // compositor telling something, a session's state, is told after.)
-        bool pulled = js->idle() && !keysAnswering && (js->stagedRank() < 2 || waitedARefresh) && mounter.apply();
+        // (What the compositor tells counts: a burst of an input method's candidates is shown as its
+        // last.)
+        bool pulled = js->idle() && !keysAnswering && (js->stagedRank() < 1 || waitedARefresh) && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
@@ -3821,6 +3837,11 @@ int main(int argc, char** argv) {
           popups.present(drawn, focusName());
           dragDrop.present();
           shellSurfaces.present(drawn, focusName());
+        }
+        // JavaScript's announcements, once what it did before them is published (the frame above):
+        // a focus its work moved is said before them.
+        if (!dirty) {
+          for (const auto& text : std::exchange(announceAfterFrame, {})) services.announce(text);
         }
         // What the turn did may change what worklets' and Reanimated's next frames act on
         // (Reanimated's mappers, the updates it commits): they get one.
