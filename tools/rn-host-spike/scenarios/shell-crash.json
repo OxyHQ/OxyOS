@@ -1,5 +1,5 @@
 {
-  "about": "The shell crashing (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6), as a Mac's Dock relaunches: Allo has the keyboard; the shell ends on SIGSEGV. The session starts it again at once, its panels come back as they were, Allo keeps the keyboard and receives nothing, and the shell's report is written (OxyOS quit unexpectedly, SIGSEGV), the person told nothing. Without the development compositor keeping its shells as the session does, the run ends with the shell. At 1 (1280 × 720).",
+  "about": "The shell crashing (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6), as a Mac's Dock relaunches: Allo has the keyboard; the shell ends on SIGSEGV. The session starts it again at once, its panels come back as they were, Allo keeps the keyboard and receives nothing, and the shell's report is written (OxyOS quit unexpectedly: the Bloom host's handler writes the fatal signal and ends with status 139), the person told nothing. Without the development compositor keeping its shells as the session does, the run ends with the shell. At 1 (1280 × 720).",
   "locale": "en_US.UTF-8",
   "module": "EditingProbe",
   "window": [
@@ -116,7 +116,8 @@
             "contains": [
               "OxyOS quit unexpectedly.",
               "Identifier:   so.oxy.shell",
-              "Reason:       signal 11 (SIGSEGV)"
+              "Reason:       exit status 139",
+              "[host] fatal signal 11"
             ]
           }
         ]
