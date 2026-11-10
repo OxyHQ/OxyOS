@@ -160,7 +160,10 @@ fn cpu_ms(started: &[u32]) -> u64 {
     if !started.is_empty() {
         for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
             let name = entry.file_name();
-            let Some(pid) = name.to_str().filter(|n| n.bytes().all(|b| b.is_ascii_digit())) else {
+            let Some(pid) = name
+                .to_str()
+                .filter(|n| n.bytes().all(|b| b.is_ascii_digit()))
+            else {
                 continue;
             };
             if let Some((used, group)) = ticks(pid) {
@@ -277,7 +280,10 @@ fn repeat(
         }
         // What the run left in its group (a build's jobs), ended before the next.
         end_group(group);
-        children.lock().map_err(|_| "poisoned")?.retain(|pid| *pid != group);
+        children
+            .lock()
+            .map_err(|_| "poisoned")?
+            .retain(|pid| *pid != group);
     }
     Ok(())
 }

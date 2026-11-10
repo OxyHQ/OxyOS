@@ -1349,7 +1349,9 @@ impl Launch {
                         also_launch.push(match item.split_once(':') {
                             Some((id, "minimized")) => (id.to_string(), true),
                             Some(_) => {
-                                return Err(format!("--also-launch {item}: ID or ID:minimized").into())
+                                return Err(
+                                    format!("--also-launch {item}: ID or ID:minimized").into()
+                                )
                             }
                             None => (item.to_string(), false),
                         });
@@ -1358,7 +1360,8 @@ impl Launch {
                 }
                 Some("--also-launch-lead") => {
                     let n = numbers(args.next(), 1)?;
-                    also_launch_lead = Duration::from_millis(u64::try_from(n[0]).map_err(|_| USAGE)?);
+                    also_launch_lead =
+                        Duration::from_millis(u64::try_from(n[0]).map_err(|_| USAGE)?);
                     continue;
                 }
                 Some("--reader") => {
@@ -2613,7 +2616,7 @@ fn device_latencies(
                 false => Duration::MAX,
             };
             let answer = shown.iter().find(|&&s| s >= at && s < next)?;
-            Some((answer.saturating_sub(due)).as_secs_f64() * 1e3)
+            Some(answer.saturating_sub(due).as_secs_f64() * 1e3)
         })
         .collect()
 }
