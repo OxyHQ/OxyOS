@@ -171,6 +171,7 @@ function MenuRows({
               </ContextMenuItem>
             );
         }
+        return null;
       })}
     </>
   );
