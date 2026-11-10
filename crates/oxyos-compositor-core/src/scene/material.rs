@@ -105,9 +105,17 @@ impl Scene {
     }
 
     /// The material regions of the frame `key` displays, in its buffer pixels: none for a surface
-    /// unknown, without a frame displayed or that never told any. What lies outside the frame's
-    /// extent is the compositor's to clip.
+    /// unknown, without a frame displayed or that never told any, and none at all while the user
+    /// reduces transparency (docs/adr/0019-settings.mdx), when every material is drawn opaque.
+    /// What lies outside the frame's extent is the compositor's to clip.
     pub fn material_regions(&self, key: SurfaceKey) -> &[MaterialRegion] {
+        if self
+            .preferences
+            .drawing
+            .is_some_and(|drawing| drawing.reduce_transparency)
+        {
+            return &[];
+        }
         let Some(node) = self.nodes.get(&key) else {
             return &[];
         };

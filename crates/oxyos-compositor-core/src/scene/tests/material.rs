@@ -32,8 +32,14 @@ fn a_list_holds_from_its_frame_displayed() {
     assert_eq!(
         h.scene.material_regions(window),
         &[
-            MaterialRegion { rect: MENU, radius: 12 },
-            MaterialRegion { rect: TIP, radius: 6 },
+            MaterialRegion {
+                rect: MENU,
+                radius: 12
+            },
+            MaterialRegion {
+                rect: TIP,
+                radius: 6
+            },
         ]
     );
     // A later frame with no list told keeps it.
@@ -48,7 +54,8 @@ fn an_empty_list_removes_them() {
     h.request(APP, region(1, 0, true, MENU, 12)).unwrap();
     h.present(window);
     assert_eq!(h.scene.material_regions(window).len(), 1);
-    h.request(APP, region(1, 0, true, Rect::new(0, 0, 0, 0), 0)).unwrap();
+    h.request(APP, region(1, 0, true, Rect::new(0, 0, 0, 0), 0))
+        .unwrap();
     h.present(window);
     assert!(h.scene.material_regions(window).is_empty());
 }
@@ -64,12 +71,18 @@ fn a_list_waits_for_its_frame_while_an_older_one_shows() {
     // Submitted, not yet displayed: the frame on screen keeps its own list.
     assert_eq!(
         h.scene.material_regions(window),
-        &[MaterialRegion { rect: MENU, radius: 12 }]
+        &[MaterialRegion {
+            rect: MENU,
+            radius: 12
+        }]
     );
     h.frame();
     assert_eq!(
         h.scene.material_regions(window),
-        &[MaterialRegion { rect: TIP, radius: 6 }]
+        &[MaterialRegion {
+            rect: TIP,
+            radius: 6
+        }]
     );
 }
 
@@ -96,7 +109,8 @@ fn regions_out_of_order_beyond_the_limit_or_misshapen_are_refused() {
         "none is a list's one region"
     );
     for index in 0..MAX_MATERIAL_REGIONS {
-        h.request(APP, region(1, index as u8, false, TIP, 0)).unwrap();
+        h.request(APP, region(1, index as u8, false, TIP, 0))
+            .unwrap();
     }
     assert_eq!(
         h.request(APP, region(1, MAX_MATERIAL_REGIONS as u8, true, TIP, 0)),
@@ -109,4 +123,20 @@ fn regions_out_of_order_beyond_the_limit_or_misshapen_are_refused() {
     // Nothing refused reached the frame.
     h.present(window);
     assert!(h.scene.material_regions(window).is_empty());
+}
+
+#[test]
+fn reduced_transparency_draws_no_material() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(APP, region(1, 0, true, MENU, 12)).unwrap();
+    h.present(window);
+    assert_eq!(h.scene.material_regions(window).len(), 1);
+    let mut preferences = drawing(false, "blue");
+    preferences.reduce_transparency = true;
+    h.scene.set_preferences(preferences, &[]);
+    assert!(h.scene.material_regions(window).is_empty());
+    preferences.reduce_transparency = false;
+    h.scene.set_preferences(preferences, &[]);
+    assert_eq!(h.scene.material_regions(window).len(), 1);
 }
