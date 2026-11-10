@@ -30,12 +30,12 @@
 //!
 //! The service logs on standard error, the journal's.
 
+use oxyos_backup::daemon::Arguments as Service;
 use oxyos_backup::disks;
 use oxyos_backup::engine::Engine;
 use oxyos_backup::ipc;
 use oxyos_backup::migrate::{self, Migration};
 use oxyos_backup::restore::Restorer;
-use oxyos_backup::daemon::Arguments as Service;
 use oxyos_install::socket::{Connection, Listener};
 use std::os::fd::AsFd;
 use std::path::{Path, PathBuf};
