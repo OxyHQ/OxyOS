@@ -782,6 +782,11 @@ const en = {
     memory: "Memory",
     display: "Display",
   },
+  /** About This Computer (the Oxy menu's first row, a Mac's About This Mac): its window's button,
+      which opens Settings › About, as a Mac's More Info… opens General › About. */
+  aboutThisComputer: {
+    moreInfo: "More Info…",
+  },
   wifi: {
     wifi: "Wi-Fi",
     off: "Wi-Fi is turned off. Turn it on to see the networks nearby.",
@@ -1840,6 +1845,9 @@ const es: Messages = {
     processor: "Procesador",
     memory: "Memoria",
     display: "Pantalla",
+  },
+  aboutThisComputer: {
+    moreInfo: "Más información…",
   },
   wifi: {
     wifi: "Wi-Fi",

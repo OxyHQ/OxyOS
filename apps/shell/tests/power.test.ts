@@ -15,9 +15,9 @@ function read(rows: SystemMenuRow[]): string[] {
 test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in order", () => {
   const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate Isern" });
   assert.deepEqual(read(rows), [
-    "System Settings",
-    "Applications",
-    "Show Desktops",
+    "About This Computer",
+    "—",
+    "System Settings…",
     "—",
     "Sleep",
     "Restart…",
@@ -30,8 +30,35 @@ test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in ord
   assert.ok(rows.every((row) => row.kind === "separator" || row.confirm !== false));
 });
 
+test("About This Computer first, then System Settings… and the App Store where it is installed, as a Mac's", () => {
+  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate", store: "Atlas" });
+  assert.deepEqual(read(rows).slice(0, 5), ["About This Computer", "—", "System Settings…", "Atlas…", "—"]);
+  assert.deepEqual(
+    rows.slice(0, 4).map((row) => row.id),
+    ["system.aboutThisComputer", "system.separator", "system.settings", "system.store"],
+  );
+  // Launchpad and Mission Control are the dock's, their keys' and the desktop's View menu's, never
+  // the Oxy menu's, as a Mac's Apple menu has neither.
+  for (const option of [false, true]) {
+    const labels = read(systemMenuRows(en, { canLock: true, power: true, store: "Atlas", option }));
+    assert.ok(!labels.includes("Applications") && !labels.includes("Show Desktops"));
+  }
+  assert.deepEqual(read(systemMenuRows(es, { canLock: true, power: true, name: "Nate", store: "Atlas" })).slice(0, 4), [
+    "Acerca de este ordenador",
+    "—",
+    "Ajustes del sistema…",
+    "Atlas…",
+  ]);
+  // Option changes none of them.
+  assert.deepEqual(
+    read(systemMenuRows(en, { canLock: true, power: true, store: "Atlas", option: true })).slice(0, 4),
+    ["About This Computer", "—", "System Settings…", "Atlas…"],
+  );
+});
+
 test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear pantalla, Cerrar sesión de…", () => {
   const rows = systemMenuRows(es, { canLock: true, power: true, name: "Nate Isern" });
+  assert.deepEqual(read(rows).slice(0, 4), ["Acerca de este ordenador", "—", "Ajustes del sistema…", "—"]);
   assert.deepEqual(read(rows).slice(4), [
     "Reposo",
     "Reiniciar…",
@@ -85,14 +112,14 @@ test("Log Out always names the person, as a Mac's: an account with no name is th
 
 test("without the session's power or lock the menu offers neither, and no stray separator", () => {
   assert.deepEqual(read(systemMenuRows(en, { canLock: false, power: false })), [
-    "System Settings",
-    "Applications",
-    "Show Desktops",
+    "About This Computer",
+    "—",
+    "System Settings…",
   ]);
   assert.deepEqual(read(systemMenuRows(en, { canLock: true, power: false })), [
-    "System Settings",
-    "Applications",
-    "Show Desktops",
+    "About This Computer",
+    "—",
+    "System Settings…",
     "—",
     "Lock Screen Ctrl+Super+Q",
   ]);

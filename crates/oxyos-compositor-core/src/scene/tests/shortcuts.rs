@@ -229,6 +229,159 @@ fn super_m_minimizes_the_active_window_into_the_dock() {
     assert_eq!(input_to(&events, APP), []);
 }
 
+/// Super+Alt+W, a Mac's ⌥⌘W: every window of the active application, on any workspace, shown or
+/// minimized, asked to close as Super+W asks one; another application's window never; and the
+/// application is not quitting (its background activity goes on).
+#[test]
+fn super_alt_w_asks_every_window_of_the_active_application_to_close() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let first = h.toplevel(APP, 1, 400, 300);
+    let second = h.toplevel(APP, 2, 400, 300);
+    let away = h.toplevel(APP, 3, 400, 300);
+    // One minimized, one on another workspace.
+    h.scene.minimize(second);
+    h.scene.add_workspace();
+    let number = h.scene.window_number(away).unwrap();
+    h.request(
+        SHELL,
+        Request::MoveWindowToWorkspace {
+            window: number,
+            workspace: 1,
+        },
+    )
+    .unwrap();
+    h.activate(first);
+    h.scene.take_quits();
+    logged(&mut h);
+    keys(&mut h, &[SUPER, ALT, W]);
+    let events = logged(&mut h);
+    let mut asked = close_requests(&events);
+    asked.sort();
+    assert_eq!(asked, [first, second, away]);
+    assert_eq!(input_to(&events, APP), []);
+    assert_eq!(input_to(&events, OTHER), []);
+    assert_eq!(
+        h.scene.take_quits(),
+        [],
+        "closing every window is not quitting"
+    );
+    // The windows are the application's to close: they stay until they go.
+    assert_eq!(h.scene.active_window(), Some(first));
+    for id in 1..=3 {
+        h.request(APP, Request::Destroy { surface: id }).unwrap();
+    }
+    assert_eq!(h.scene.active_window(), Some(other));
+    // Super+W alone still asks the active window alone; Super+Alt with another key, nothing.
+    logged(&mut h);
+    keys(&mut h, &[SUPER, ALT, KEY_A]);
+    keys(&mut h, &[SUPER, ALT, CTRL, W]);
+    let events = logged(&mut h);
+    assert!(close_requests(&events).is_empty());
+    assert_eq!(input_to(&events, OTHER), []);
+}
+
+/// Super+Alt+M, a Mac's ⌥⌘M: the active application's windows shown on this workspace go into
+/// the dock together, the active one last, and the keyboard moves once, to another application's
+/// window; one minimized already or on another workspace stays as it is.
+#[test]
+fn super_alt_m_minimizes_every_window_of_the_active_application_shown_here() {
+    let mut h = Harness::new();
+    dock(&mut h);
+    let other = h.toplevel(OTHER, 1, 400, 300);
+    let first = h.toplevel(APP, 1, 400, 300);
+    let second = h.toplevel(APP, 2, 400, 300);
+    let minimized = h.toplevel(APP, 3, 400, 300);
+    let away = h.toplevel(APP, 4, 400, 300);
+    h.scene.minimize(minimized);
+    h.scene.add_workspace();
+    let number = h.scene.window_number(away).unwrap();
+    h.request(
+        SHELL,
+        Request::MoveWindowToWorkspace {
+            window: number,
+            workspace: 1,
+        },
+    )
+    .unwrap();
+    h.activate(second);
+    h.scene.take_appearances();
+    logged(&mut h);
+    keys(&mut h, &[SUPER, ALT, M]);
+    let events = logged(&mut h);
+    assert!(!h.rendered(first) && !h.rendered(second));
+    assert!(h.rendered(other));
+    assert_eq!(h.scene.focus(), Some(other));
+    // Every window's state as the shell has it: both shown here minimized, the one minimized
+    // before still minimized, the one on the other workspace shown there, the other application
+    // focused.
+    let states: Vec<(u32, u32, bool, bool)> = h
+        .scene
+        .shell_window_states()
+        .iter()
+        .map(|state| {
+            (
+                state.number,
+                state.workspace,
+                state.minimized,
+                state.focused,
+            )
+        })
+        .collect();
+    let n = |window| h.scene.window_number(window).unwrap();
+    let mut expected = vec![
+        (n(other), 0, false, true),
+        (n(first), 0, true, false),
+        (n(second), 0, true, false),
+        (n(minimized), 0, true, false),
+        (number, 1, false, false),
+    ];
+    expected.sort();
+    assert_eq!(states, expected);
+    assert!(to(&events, SHELL).iter().any(|event| matches!(
+        event,
+        Event::WindowState {
+            minimized: true,
+            ..
+        }
+    )));
+    // Two genies, the active window's last.
+    let appearances = h.scene.take_appearances();
+    assert_eq!(
+        appearances
+            .iter()
+            .map(|appearance| (appearance.key, appearance.change))
+            .collect::<Vec<_>>(),
+        [
+            (first, AppearanceChange::Minimized),
+            (second, AppearanceChange::Minimized)
+        ]
+    );
+    // The application lost the keyboard once and heard no key.
+    assert_eq!(input_to(&events, APP), []);
+    assert_eq!(
+        to(&events, APP)
+            .iter()
+            .filter(|event| matches!(event, Event::Activated { active: false, .. }))
+            .count(),
+        1
+    );
+    // Again: the application now frontmost goes into the dock; then, with none active, nothing.
+    keys(&mut h, &[SUPER, ALT, M]);
+    assert_eq!(
+        h.scene
+            .take_appearances()
+            .iter()
+            .map(|appearance| (appearance.key, appearance.change))
+            .collect::<Vec<_>>(),
+        [(other, AppearanceChange::Minimized)]
+    );
+    assert_eq!(h.scene.focus(), None);
+    keys(&mut h, &[SUPER, ALT, M]);
+    assert!(h.scene.take_appearances().is_empty());
+}
+
 /// Super+M or Super+H with a menu open in the window: the menu closes as the window goes, its
 /// parent hidden, and the window is never given the keyboard back for the instant between (a
 /// focus in and out it would hear, and an activation it would draw), as a Mac's menu closes with

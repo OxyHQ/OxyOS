@@ -367,6 +367,8 @@ type Registered = {
   pinned: number | null;
   /** The media types its entry declares it opens (ADR 0034, decision 11). */
   opens?: string[];
+  /** False for an entry never listed (`NoDisplay`): About This Computer, which the Oxy menu opens. */
+  shown?: boolean;
 };
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
@@ -562,8 +564,10 @@ function SessionShell() {
       const index = kept.indexOf(app.id);
       return index < 0 ? null : index + 1;
     };
+    // An application never listed (NoDisplay) is in none of the shell's lists: not in Launchpad,
+    // Spotlight, the dock or the switcher, as a Mac's About This Mac is in none.
     return registry
-      .filter((app) => app.icon !== null)
+      .filter((app) => app.icon !== null && app.shown !== false)
       .map((app, order) => ({ app, order, place: place(app) }))
       .sort((a, b) => (a.place ?? Infinity) - (b.place ?? Infinity) || a.order - b.order)
       .map(({ app, place }) => ({

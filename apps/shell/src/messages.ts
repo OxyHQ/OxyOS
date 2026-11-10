@@ -65,7 +65,6 @@ const en = (f: Formats) => ({
   common: {
     close: "Close",
     options: "Options",
-    systemSettings: "System Settings",
     showDesktops: "Show Desktops",
     searchApplications: "Search Applications",
     controlCenter: "Control Center",
@@ -85,6 +84,11 @@ const en = (f: Formats) => ({
   topBar: {
     menuBar: "Menu Bar",
     oxyMenu: "Oxy Menu",
+    /** The Oxy menu's first row, a Mac's About This Mac: the window with the computer's facts. */
+    aboutThisComputer: "About This Computer",
+    systemSettings: "System Settings…",
+    /** The App Store's row, by its name (Atlas), as a Mac's App Store…. */
+    appStore: (name: string) => `${name}…`,
     applications: "Applications",
     lockScreen: "Lock Screen",
     /** The battery, a level indicator: its charge and state are its value. */
@@ -735,7 +739,6 @@ const es = (f: Formats): Catalogue => ({
   common: {
     close: "Cerrar",
     options: "Opciones",
-    systemSettings: "Ajustes del sistema",
     showDesktops: "Ver escritorios",
     searchApplications: "Buscar aplicaciones",
     controlCenter: "Centro de control",
@@ -752,6 +755,9 @@ const es = (f: Formats): Catalogue => ({
   topBar: {
     menuBar: "Barra de menús",
     oxyMenu: "Menú de Oxy",
+    aboutThisComputer: "Acerca de este ordenador",
+    systemSettings: "Ajustes del sistema…",
+    appStore: (name) => `${name}…`,
     applications: "Aplicaciones",
     lockScreen: "Bloquear pantalla",
     battery: "Batería",

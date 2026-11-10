@@ -19,7 +19,7 @@
   },
   "steps": [
     {
-      "name": "the Oxy menu: Sleep, Restart…, Shut Down…, Lock Screen and Log Out Ada Lovelace…; the application not asked anything, the power key's inhibitor held",
+      "name": "the Oxy menu, a Mac's Apple menu: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out Ada Lovelace… (Shift+Super+Q), never Launchpad's or Mission Control's; the application not asked anything, the power key's inhibitor held",
       "do": [
         "press_named",
         "Oxy Menu"
@@ -32,11 +32,20 @@
         ],
         "in_shell": {
           "texts": [
+            "About This Computer",
+            "System Settings…",
             "Sleep",
             "Restart…",
             "Shut Down…",
             "Lock Screen",
-            "Log Out Ada Lovelace…"
+            "Ctrl+Super+Q",
+            "Log Out Ada Lovelace…",
+            "Shift+Super+Q"
+          ],
+          "absent": [
+            "Applications",
+            "Show Desktops",
+            "System Settings"
           ]
         },
         "power": {
@@ -343,15 +352,20 @@
       "expect": {
         "in_shell": {
           "texts": [
+            "About This Computer",
+            "System Settings…",
             "Restart",
             "Shut Down",
             "Sleep",
-            "Log Out Ada Lovelace"
+            "Log Out Ada Lovelace",
+            "Alt+Shift+Super+Q",
+            "Ctrl+Super+Q"
           ],
           "absent": [
             "Restart…",
             "Shut Down…",
-            "Log Out Ada Lovelace…"
+            "Log Out Ada Lovelace…",
+            "Shift+Super+Q"
           ]
         }
       }
@@ -367,9 +381,15 @@
       "expect": {
         "in_shell": {
           "texts": [
+            "About This Computer",
+            "System Settings…",
             "Restart…",
             "Shut Down…",
-            "Log Out Ada Lovelace…"
+            "Log Out Ada Lovelace…",
+            "Shift+Super+Q"
+          ],
+          "absent": [
+            "Alt+Shift+Super+Q"
           ]
         }
       }
