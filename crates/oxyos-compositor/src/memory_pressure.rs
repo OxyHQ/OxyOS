@@ -8,9 +8,12 @@
 //! `POLLPRI`) at the levels Activity Monitor's graph colours (docs/adr/0063-activity-monitor.mdx,
 //! decision 4): a warning when some tasks wait for memory a tenth of a 2 s window, critical at 40 %
 //! some or a tenth all, the windows a multiple of 2 s as an unprivileged trigger must be. A
-//! trigger raises the level at once; it comes down only as the ten-second averages say, read every
-//! 2 s while it is up, so a level is never dropped and raised again on the edge of a threshold.
-//! Its thread waits on the triggers alone while memory is plentiful: no timer.
+//! trigger raises the level at once. It comes down only once the ten-second averages, read every
+//! 2 s while it is up, have stayed under half the threshold it was raised at for HOLD (`Levels`):
+//! pressure hovering at a threshold is one level, not a level dropped and raised again; and once
+//! down, a trigger of the level it came from is not heeded again for RETELL, so an application is
+//! told a level at most once a window and never gives back its caches in a loop. Its thread waits
+//! on the triggers alone while memory is plentiful: no timer.
 //!
 //! The development compositor follows the files its environment names instead, and only when it
 //! names them: the machine's (`OXYOS_MEMORY_PRESSURE_FIXTURE`, the saturation benchmark's machine,
@@ -27,7 +30,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The machine's pressure, as the kernel says it to any user.
 pub const MACHINE: &str = "/proc/pressure/memory";
@@ -42,6 +45,89 @@ const TRIGGERS: [(&str, MemoryPressureLevel); 3] = [
 
 /// While the level is up, the averages are read this often to see it come down.
 const EASING: Duration = Duration::from_secs(2);
+/// How long the averages must stay under half a level's threshold before it comes down.
+pub const HOLD: Duration = Duration::from_secs(10);
+/// How long after it came down a trigger of the level it came from is not heeded.
+pub const RETELL: Duration = Duration::from_secs(10);
+
+/// The level's way down: under half its threshold, Activity Monitor's (`level_of`) halved. From
+/// critical (40 % some, 10 % all) to a warning below 20 % some and 5 % all; from a warning (10 %
+/// some) to normal below 5 % some and 5 % all.
+pub fn level_down(some: f64, full: f64) -> MemoryPressureLevel {
+    if some < 5.0 && full < 5.0 {
+        MemoryPressureLevel::Normal
+    } else if some < 20.0 && full < 5.0 {
+        MemoryPressureLevel::Warning
+    } else {
+        MemoryPressureLevel::Critical
+    }
+}
+
+/// The level as triggers and averages move it, with its hysteresis: what the follower's thread
+/// says, given the time of each trigger and each reading.
+#[derive(Debug)]
+pub struct Levels {
+    level: MemoryPressureLevel,
+    /// Since when the averages have said a lower level, while they have.
+    lower_since: Option<Instant>,
+    /// When the level last came down, and from what.
+    came_down: Option<(Instant, MemoryPressureLevel)>,
+}
+
+impl Default for Levels {
+    fn default() -> Self {
+        Self {
+            level: MemoryPressureLevel::Normal,
+            lower_since: None,
+            came_down: None,
+        }
+    }
+}
+
+impl Levels {
+    pub fn level(&self) -> MemoryPressureLevel {
+        self.level
+    }
+
+    /// A trigger of `fired` at `now`: the new level, if it rises. A trigger at or above the level
+    /// says the pressure is still there, so the way down starts again.
+    pub fn fired(
+        &mut self,
+        now: Instant,
+        fired: MemoryPressureLevel,
+    ) -> Option<MemoryPressureLevel> {
+        if fired >= self.level {
+            self.lower_since = None;
+        }
+        if fired <= self.level {
+            return None;
+        }
+        if let Some((at, from)) = self.came_down {
+            if fired <= from && now.saturating_duration_since(at) < RETELL {
+                return None;
+            }
+        }
+        self.level = fired;
+        Some(fired)
+    }
+
+    /// The averages read at `now` (percent, some and all): the new level, if it comes down.
+    pub fn read(&mut self, now: Instant, some: f64, full: f64) -> Option<MemoryPressureLevel> {
+        let down = level_down(some, full);
+        if self.level == MemoryPressureLevel::Normal || down >= self.level {
+            self.lower_since = None;
+            return None;
+        }
+        let since = *self.lower_since.get_or_insert(now);
+        if now.saturating_duration_since(since) < HOLD {
+            return None;
+        }
+        self.came_down = Some((now, self.level));
+        self.lower_since = None;
+        self.level = down;
+        Some(down)
+    }
+}
 
 /// The files the session follows: the machine's, and its applications' where its user manager has
 /// an `app.slice` (`/proc/self/cgroup`'s session scope's sibling `user@UID.service`).
@@ -243,11 +329,10 @@ fn follow(
     levels: &mpsc::Sender<MemoryPressureLevel>,
     wake: &UnixStream,
 ) {
-    let mut level = MemoryPressureLevel::Normal;
-    // When the averages were last read, or the level last raised: they are read again EASING later
-    // while it is up, whatever triggers fire meanwhile (a warning's firing every window must not
-    // hold a critical level up).
-    let mut checked = std::time::Instant::now();
+    let mut levels_now = Levels::default();
+    // When the averages were last read: again EASING later while the level is up, whatever
+    // triggers fire meanwhile.
+    let mut checked = Instant::now();
     let Ok(easing) = Timespec::try_from(EASING) else {
         return;
     };
@@ -259,7 +344,7 @@ fn follow(
                 .iter()
                 .map(|trigger| PollFd::from_borrowed_fd(trigger.file.as_fd(), PollFlags::PRI)),
         );
-        let timeout = (level != MemoryPressureLevel::Normal).then_some(&easing);
+        let timeout = (levels_now.level() != MemoryPressureLevel::Normal).then_some(&easing);
         match poll(&mut fds, timeout) {
             Ok(_) => {}
             Err(rustix::io::Errno::INTR) => continue,
@@ -289,25 +374,23 @@ fn follow(
                 files[trigger.source].display()
             );
         }
-        let next = if fired > level {
-            checked = std::time::Instant::now();
-            fired
-        } else if level != MemoryPressureLevel::Normal && checked.elapsed() >= EASING {
-            // Down as far as the averages say, never below what fired now.
-            checked = std::time::Instant::now();
-            files
+        let now = Instant::now();
+        let mut said = levels_now.fired(now, fired);
+        if levels_now.level() != MemoryPressureLevel::Normal
+            && now.saturating_duration_since(checked) >= EASING
+        {
+            checked = now;
+            // The highest of the files' averages: one file still under pressure holds the level.
+            let read = files
                 .iter()
                 .filter_map(|path| std::fs::read_to_string(path).ok())
                 .filter_map(|text| averages(&text))
-                .map(|(some, full)| level_of(some, full))
-                .max()
-                .unwrap_or(MemoryPressureLevel::Normal)
-                .max(fired)
-        } else {
-            level
-        };
-        if next != level {
-            level = next;
+                .fold((0.0_f64, 0.0_f64), |(some, full), (s, f)| {
+                    (some.max(s), full.max(f))
+                });
+            said = levels_now.read(now, read.0, read.1).or(said);
+        }
+        if let Some(level) = said {
             if levels.send(level).is_err() {
                 return;
             }
@@ -330,6 +413,57 @@ mod tests {
         assert_eq!(level_of(20.0, 10.0), MemoryPressureLevel::Critical);
         assert_eq!(level_of(9.9, 0.0), MemoryPressureLevel::Normal);
         assert_eq!(averages("some avg10=1.00\n"), None);
+    }
+
+    /// A played pressure: triggers and averages as a machine hovering at the critical threshold
+    /// gives them, every 2 s, then easing. One critical, then one normal; a trigger of the level it
+    /// came from soon after is not heeded, and the next one, a window later, is.
+    #[test]
+    fn pressure_hovering_at_a_threshold_is_one_critical_then_one_normal() {
+        let start = Instant::now();
+        let at = |s: u64| start + Duration::from_secs(s);
+        let mut levels = Levels::default();
+        let mut said = Vec::new();
+        // Hovering at 40 % some for 30 s: the critical trigger fires every other window, the
+        // averages read 45 % and 30 %, never under half the threshold.
+        for t in (0..30).step_by(2) {
+            if t % 4 == 0 {
+                said.extend(levels.fired(at(t), MemoryPressureLevel::Critical));
+            }
+            let some = if t % 4 == 0 { 45.0 } else { 30.0 };
+            said.extend(levels.read(at(t + 1), some, 2.0));
+        }
+        assert_eq!(said, [MemoryPressureLevel::Critical]);
+        // Easing to 15 % some: under half critical's threshold, so a warning after HOLD.
+        for t in (30..44).step_by(2) {
+            said.extend(levels.read(at(t), 15.0, 1.0));
+        }
+        assert_eq!(said[1..], [MemoryPressureLevel::Warning]);
+        // A critical trigger within RETELL of coming down is not heeded; a warning trigger, the
+        // level it is at, changes nothing.
+        said.extend(levels.fired(at(44), MemoryPressureLevel::Critical));
+        said.extend(levels.fired(at(46), MemoryPressureLevel::Warning));
+        assert_eq!(said.len(), 2);
+        // Down to 1 %: normal after HOLD, the warning trigger above having started its way down
+        // again.
+        for t in (48..62).step_by(2) {
+            said.extend(levels.read(at(t), 1.0, 0.0));
+        }
+        assert_eq!(said[2..], [MemoryPressureLevel::Normal]);
+        // Back a window later: told again.
+        said.extend(levels.fired(at(62), MemoryPressureLevel::Warning));
+        assert!(said[3..].is_empty());
+        said.extend(levels.fired(at(75), MemoryPressureLevel::Warning));
+        assert_eq!(said[3..], [MemoryPressureLevel::Warning]);
+    }
+
+    #[test]
+    fn the_way_down_is_half_the_threshold() {
+        assert_eq!(level_down(4.9, 0.0), MemoryPressureLevel::Normal);
+        assert_eq!(level_down(5.0, 0.0), MemoryPressureLevel::Warning);
+        assert_eq!(level_down(19.9, 4.9), MemoryPressureLevel::Warning);
+        assert_eq!(level_down(19.9, 5.0), MemoryPressureLevel::Critical);
+        assert_eq!(level_down(20.0, 0.0), MemoryPressureLevel::Critical);
     }
 
     #[test]
