@@ -27,7 +27,7 @@
       }
     }
   },
-  "about": "An application that quits unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx): Crash Probe, installed, reads its storage as it starts, and its storage file in the run's home is corrupt (cut short, as a power cut leaves one), so a fatal JavaScript error ends it each time, as it would end any React Native application. Opened from the dock it quits: the session reports it in the run's ~/.local/state/oxyos/crash-reports and posts one notification about it, as Crash Probe's, with Reopen and Report…; nothing is asked. Its Reopen opens it again, and it quits again within ten minutes: the system's sheet, once, in the notification's place, the keyboard on Reopen, its other buttons Ignore, Reset… and Report…. Report… shows what it reported, Copy puts it on the clipboard and Done goes back; Reopen opens it a third time and the sheet comes back, once, saying so; Ignore leaves it closed. No other application is told anything, and Allo's window only loses and gets back the keyboard as Crash Probe's comes and goes. With the host keeping a window an error unmounted, or no sheet for a second quit, the run fails.",
+  "about": "An application that quits unexpectedly (docs/adr/0061-crashes-and-resetting-an-application.mdx): Crash Probe, installed, reads its storage as it starts, and its storage file in the run's home is corrupt (cut short, as a power cut leaves one), so a fatal JavaScript error ends it each time, as it would end any React Native application. Opened from the dock it quits: the session reports it in the run's ~/.local/state/oxyos/crash-reports and posts one notification about it, as Crash Probe's, with Reopen and Report…; nothing is asked. Its Reopen opens it again, and it quits again within ten minutes: the system's sheet, once, in the notification's place, the keyboard on Reopen, its other buttons Ignore, Reset… and Report…. Report… shows what it reported, Copy puts it on the clipboard and Done goes back; Reopen opens it a third time and the sheet comes back, once, saying so; Ignore leaves it closed. No other application is told anything, and Allo's window only loses and gets back the keyboard as Crash Probe's comes and goes. With the host keeping a window an error unmounted, or no sheet for a second quit, the run fails. Each process runs in a scope of its own (`scopes`, docs/adr/0066-quality-of-service.mdx, decision 3), placed by `oxyos-scope` before it runs the application: a crash is the application's, reported and counted as before.",
   "steps": [
     {
       "name": "Crash Probe in the dock: started, it cannot read its storage and quits; one notification about it, with Reopen and Report…, nothing asked",
@@ -439,5 +439,13 @@
       "origin": "installed 1",
       "settings": false
     }
-  ]
+  ],
+  "scopes": {
+    "app.slice": [
+      "so.oxy.allo",
+      "so.oxy.crashprobe",
+      "so.oxy.crashprobe",
+      "so.oxy.crashprobe"
+    ]
+  }
 }

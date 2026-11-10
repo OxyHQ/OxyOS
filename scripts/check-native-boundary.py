@@ -39,8 +39,8 @@ LAYERS = {
     "system": (
         "oxyos-app-storage", "oxyos-apps", "oxyos-audio", "oxyos-auth", "oxyos-dmabuf",
         "oxyos-gpu", "oxyos-gpu-device", "oxyos-image", "oxyos-input", "oxyos-input-methods",
-        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-seat", "oxyos-seqpacket", "oxyos-sound",
-        "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
+        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-scopes", "oxyos-seat", "oxyos-seqpacket",
+        "oxyos-sound", "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
     ),
     "service": (
         "oxyos-account", "oxyos-activity", "oxyos-backup", "oxyos-bluetooth", "oxyos-controls",
@@ -52,7 +52,7 @@ LAYERS = {
     "program": (
         "oxyos-accountd", "oxyos-backupd", "oxyos-boot-logo", "oxyos-gpu-client", "oxyos-installd",
         "oxyos-kms-probe", "oxyos-kms-show", "oxyos-login", "oxyos-offscreen", "oxyos-pack",
-        "oxyos-platform-probe", "oxyos-reader", "oxyos-recovery-tool", "oxyos-session",
+        "oxyos-platform-probe", "oxyos-reader", "oxyos-recovery-tool", "oxyos-scope", "oxyos-session",
     ),
 }
 

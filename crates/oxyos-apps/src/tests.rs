@@ -535,6 +535,86 @@ const SETTINGS: &str =
 
 /// A policy naming `id` as a native system application: its entry in `directory`, `program`
 /// what it runs.
+#[test]
+fn a_scoped_launch_places_itself_then_runs_the_application_as_the_same_process() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = std::env::temp_dir().join(format!("oxyos-apps-scoped-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let (said, ran) = (scratch.join("placer"), scratch.join("application"));
+    // A played `oxyos-scope`: it records its pid and its arguments up to `--`, then executes the
+    // rest in the same process, as the real one does once placed.
+    let placer = scratch.join("oxyos-scope");
+    std::fs::write(
+        &placer,
+        format!(
+            "#!/bin/sh\necho $$ \"$@\" > {}\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n",
+            said.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&placer, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let dir = Directory::new(
+        "scoped",
+        &[
+            (
+                "so.oxy.my-writer.desktop",
+                &format!(
+                    "[Desktop Entry]\nType=Application\nName=My Writer\nExec=sh -c \"echo $$ $OXYOS_APP_ID > {}\"\n",
+                    ran.display()
+                ),
+            ),
+            (
+                "so.oxy.missing.desktop",
+                "[Desktop Entry]\nType=Application\nName=Missing\nExec=/nonexistent/program\n",
+            ),
+        ],
+    );
+    let runtime = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (960, 600),
+        env: Vec::new(),
+    };
+    let mut launcher = Launcher::new(runtime, vec![dir.0.clone()], vec![]).with_scopes(Scoping {
+        program: placer,
+        fixture: Some(scratch.join("cgroup")),
+    });
+    assert!(launcher.scoped());
+    // A program that is not there fails the launch, as it did unscoped.
+    assert!(launcher.launch("so.oxy.missing").is_err());
+    let pid = launcher.launch("so.oxy.my-writer").unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while launcher.reap().is_empty() {
+        assert!(std::time::Instant::now() < deadline, "it did not exit");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // The placer was the launched process, asked for the application's scope by its id; then the
+    // application ran in that same process (the pid the launcher knows), with its environment, the
+    // program found on the PATH.
+    let sh = executable(
+        std::ffi::OsStr::new("sh"),
+        std::env::var_os("PATH").as_deref(),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&said).unwrap().trim(),
+        format!(
+            "{pid} --fixture {} --description My Writer app so.oxy.my-writer -- {} -c echo $$ $OXYOS_APP_ID > {}",
+            scratch.join("cgroup").display(),
+            sh.display(),
+            ran.display()
+        )
+    );
+    assert_eq!(
+        std::fs::read_to_string(&ran).unwrap().trim(),
+        format!("{pid} so.oxy.my-writer")
+    );
+    let _ = std::fs::remove_dir_all(scratch);
+}
+
 fn policy_of(id: &str, directory: &Path, program: &Path, grants: &str) -> String {
     format!(
         r#"{{"applications":{{"{id}":{{"entry":"{}","exec":"{}","grants":[{grants}]}}}}}}"#,
