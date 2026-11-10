@@ -200,9 +200,10 @@ class Mounter : public SchedulerDelegate {
     }
     oxyos::UiThread::wake();
   }
-  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): commits are applied only at the
-  // loop's frame, after everything its turn handled, so what an effect sends with its commit comes
-  // before the mount.
+  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): what JavaScript handed over is
+  // applied only once JavaScript is idle, after everything it ran for its commits (their passive
+  // effects among it), so what an effect sends after its commit comes before the mount. A commit made
+  // on the UI thread waits for the loop's frame too.
   bool mountAtFrame = false;
   // Whether anything waits to be applied.
   bool pending() {
@@ -303,9 +304,13 @@ class Mounter : public SchedulerDelegate {
   void queue(Item item) {
     {
       std::lock_guard lock(mutex_);
-      // Behind a commit made before it and not yet handed over: it waits for that commit.
+      // Behind a commit made before it: one not yet handed over, which it waits for, or one handed
+      // over and not yet applied, which it follows in the queue.
+      bool behind = unpulled_ || std::any_of(queue_.begin(), queue_.end(), [](const Item& queued) {
+        return queued.kind == Item::Kind::Transaction;
+      });
+      if (behind && item.kind == Item::Kind::AccessibilityEvent) oxyos::Report::get().input("a11y.event.queued", 0);
       if (unpulled_) {
-        if (item.kind == Item::Kind::AccessibilityEvent) oxyos::Report::get().input("a11y.event.queued", 0);
         waiting_.push_back(std::move(item));
       } else {
         queue_.push_back(std::move(item));
@@ -2233,7 +2238,72 @@ int main(int argc, char** argv) {
       folly::dynamic offered;
     };
     std::optional<OfferedKey> offeredKey;
-    std::deque<std::pair<OxyOSEvent, uint64_t>> heldBehindKey;
+    // An event held behind it keeps what the connection says of it beyond the event itself, which
+    // the library keeps only until it reads the next event: a text input's transaction and
+    // AutoFill's fill, a long answer, the input method's candidates. Read as it is received, and
+    // handled from that (`replaying`).
+    struct Payload {
+      bool transaction = false, filled = false;
+      OxyOSTextTransaction change{};
+      OxyOSTextFill fill{};
+      std::string commit, preedit, fillText, pairedText;
+      std::vector<OxyOSPreeditSegment> segments;
+      std::optional<std::string> systemData;
+      std::optional<oxyos::Window::Candidates> candidates;
+      // The transaction and the fill, pointing into what is kept here.
+      OxyOSTextTransaction kept() const {
+        auto out = change;
+        out.commit = commit.data();
+        out.preedit = preedit.data();
+        out.segments = segments.data();
+        return out;
+      }
+      OxyOSTextFill keptFill() const {
+        auto out = fill;
+        out.fill = fillText.data();
+        out.paired_fill = pairedText.data();
+        return out;
+      }
+      // A fill is a credential: gone from memory as the payload goes.
+      ~Payload() {
+        std::fill(fillText.begin(), fillText.end(), '\0');
+        std::fill(pairedText.begin(), pairedText.end(), '\0');
+      }
+    };
+    struct Held {
+      OxyOSEvent event;
+      uint64_t seq;
+      std::shared_ptr<const Payload> payload;
+    };
+    std::deque<Held> heldBehindKey;
+    const Payload* replaying = nullptr;
+    auto payloadOf = [&](const OxyOSEvent& event) -> std::shared_ptr<const Payload> {
+      auto payload = std::make_shared<Payload>();
+      if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
+        OxyOSTextTransaction change{};
+        if (window->transaction(change)) {
+          payload->transaction = true;
+          payload->change = change;
+          payload->commit.assign(change.commit ? change.commit : "", change.commit_length);
+          payload->preedit.assign(change.preedit ? change.preedit : "", change.preedit_length);
+          if (change.segments) payload->segments.assign(change.segments, change.segments + change.segment_count);
+          OxyOSTextFill fill{};
+          if (window->fill(fill)) {
+            payload->filled = true;
+            payload->fill = fill;
+            if (fill.fill) payload->fillText.assign(fill.fill, fill.fill_length);
+            if (fill.paired_fill) payload->pairedText.assign(fill.paired_fill, fill.paired_fill_length);
+          }
+        }
+      } else if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
+        payload->systemData = window->systemData();
+      } else if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
+        payload->candidates = window->inputCandidates();
+      } else {
+        return nullptr;
+      }
+      return payload;
+    };
     // The number of the event being handled, as received.
     uint64_t handlingSeq = 0;
     auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
@@ -2290,7 +2360,7 @@ int main(int argc, char** argv) {
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
         // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
         diagnostics.javascriptApplied(js->ran());
-        bool pulled = mounter.apply();
+        bool pulled = (!mounter.mountAtFrame || js->idle()) && mounter.apply();
         bool busy = pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
         bool uiFrame = false;
@@ -2403,7 +2473,9 @@ int main(int argc, char** argv) {
               }
               if (event.kind == OXYOS_EVENT_TEXT_INPUT) {
                 OxyOSTextTransaction change{};
-                if (window->transaction(change)) {
+                bool transacted = replaying ? replaying->transaction : window->transaction(change);
+                if (replaying && transacted) change = replaying->kept();
+                if (transacted) {
                   auto& r = oxyos::Report::get();
                   if (r.enabled()) {
                     r.input("text_input", event.surface,
@@ -2416,7 +2488,9 @@ int main(int argc, char** argv) {
                   // AutoFill's fill, the person's pick (docs/adr/0050-keychain-autofill-and-passkeys.mdx):
                   // the field and its pair replaced whole; its text is never reported.
                   OxyOSTextFill filled{};
-                  if (window->fill(filled)) editing.fill(filled);
+                  bool fills = replaying ? replaying->filled : window->fill(filled);
+                  if (replaying && fills) filled = replaying->keptFill();
+                  if (fills) editing.fill(filled);
                 }
               }
               if (withheld) return;
@@ -2439,7 +2513,9 @@ int main(int argc, char** argv) {
               }
               // A long answer whole (ADR 0063), handed to JavaScript as text.
               if (event.kind == OXYOS_EVENT_SYSTEM_DATA) {
-                if (auto text = window->systemData()) systemData.emplace_back(event.code, std::move(*text));
+                if (auto text = replaying ? replaying->systemData : window->systemData()) {
+                  systemData.emplace_back(event.code, std::move(*text));
+                }
               }
               if (event.kind == OXYOS_EVENT_SEARCH_TEXT) {
                 if (auto text = searchTexts.add(event.code, event.detail, event.flag != 0, event.text)) {
@@ -2465,7 +2541,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
-                if (auto list = window->inputCandidates()) candidates = std::move(*list);
+                if (auto list = replaying ? replaying->candidates : window->inputCandidates()) candidates = std::move(*list);
               }
               if (event.kind == OXYOS_EVENT_CAPTURE_MODE || event.kind == OXYOS_EVENT_CAPTURE_TARGET) {
                 captures.push_back(event);
@@ -2605,11 +2681,13 @@ int main(int argc, char** argv) {
           }
           finishEvent(key.event, taken, std::nullopt, false);
           while (!offeredKey && !heldBehindKey.empty()) {
-            auto [held, seq] = heldBehindKey.front();
+            auto held = std::move(heldBehindKey.front());
             heldBehindKey.pop_front();
-            oxyos::Report::Handling heldHandling(held, seq);
-            handlingSeq = seq;
-            dispatched(held);
+            oxyos::Report::Handling heldHandling(held.event, held.seq);
+            handlingSeq = held.seq;
+            replaying = held.payload.get();
+            dispatched(held.event);
+            replaying = nullptr;
           }
         }
         // What JavaScript was handed until now: the inputs below that hand it more are answered once it
@@ -2619,7 +2697,7 @@ int main(int argc, char** argv) {
           // Window::dispatch reported it received just before.
           handlingSeq = oxyos::Report::get().receivedSeq();
           if (offeredKey || !heldBehindKey.empty()) {
-            heldBehindKey.emplace_back(event, handlingSeq);
+            heldBehindKey.push_back(Held{event, handlingSeq, payloadOf(event)});
             return;
           }
           dispatched(event);
@@ -3479,7 +3557,8 @@ int main(int argc, char** argv) {
         dragDrop.ranJavaScript();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
-        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript();
+        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() ||
+                         (mounter.mountAtFrame && mounter.pending());
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
