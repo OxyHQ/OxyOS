@@ -2917,6 +2917,67 @@ fn scrolls_go_to_the_surface_under_the_pointer_without_activating_it() {
 }
 
 #[test]
+fn a_wheel_turned_with_shift_held_scrolls_across() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    let w = h.rect(window);
+    h.scene.pointer_motion(w.x + 10, w.y + 20);
+    h.pump();
+    let scrolls = |h: &mut Harness| -> Vec<(i32, i32, ScrollSource)> {
+        h.pump()
+            .into_iter()
+            .filter_map(|(_, e)| match e {
+                Event::Scroll { dx, dy, source, .. } => Some((dx, dy, source)),
+                _ => None,
+            })
+            .collect()
+    };
+    h.clear_log();
+    // Shift held, either one: a notch down scrolls right, up scrolls left.
+    for shift in [42, 54] {
+        h.scene.key(shift, true);
+        h.scene
+            .pointer_scroll(0, 40 * 256, ScrollSource::Wheel, false);
+        h.scene
+            .pointer_scroll(0, -40 * 256, ScrollSource::Wheel, false);
+        // A tilted wheel's push across stays across; a touchpad's fingers and a continuous
+        // device keep their axes, as a Mac's do.
+        h.scene
+            .pointer_scroll(-40 * 256, 0, ScrollSource::Wheel, false);
+        h.scene.pointer_scroll(0, 512, ScrollSource::Finger, false);
+        h.scene.pointer_scroll(0, 0, ScrollSource::Finger, true);
+        h.scene
+            .pointer_scroll(0, 512, ScrollSource::Continuous, false);
+        h.scene.key(shift, false);
+        assert_eq!(
+            scrolls(&mut h),
+            vec![
+                (40 * 256, 0, ScrollSource::Wheel),
+                (-40 * 256, 0, ScrollSource::Wheel),
+                (-40 * 256, 0, ScrollSource::Wheel),
+                (0, 512, ScrollSource::Finger),
+                (0, 0, ScrollSource::Finger),
+                (0, 512, ScrollSource::Continuous),
+            ]
+        );
+    }
+    // Released, or with another modifier alone, the wheel scrolls down a view again.
+    h.scene
+        .pointer_scroll(0, 40 * 256, ScrollSource::Wheel, false);
+    h.scene.key(29, true);
+    h.scene
+        .pointer_scroll(0, 40 * 256, ScrollSource::Wheel, false);
+    h.scene.key(29, false);
+    assert_eq!(
+        scrolls(&mut h),
+        vec![
+            (0, 40 * 256, ScrollSource::Wheel),
+            (0, 40 * 256, ScrollSource::Wheel),
+        ]
+    );
+}
+
+#[test]
 fn a_touchpad_scroll_stays_with_its_surface_until_its_fingers_lift() {
     let mut h = Harness::new();
     let window = h.toplevel(APP, 1, 400, 300);

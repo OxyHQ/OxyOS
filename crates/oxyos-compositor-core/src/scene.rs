@@ -4537,9 +4537,21 @@ impl Scene {
     /// A touchpad's or a continuous device's scroll goes on reaching the surface it began on
     /// until its `stop` (the fingers lifted), which reaches it too, so the application that
     /// scrolled hears the scroll end; a wheel's notches each go to the surface under the pointer.
+    /// A wheel's notch turned with Shift held scrolls across, as macOS turns a mouse's wheel
+    /// (docs/adr/0042-scrolling.mdx, decision 9): down to the right, up to the left. Only a
+    /// discrete wheel's, and only one that moved nothing across already (a tilted wheel's push
+    /// stays as it was); a touchpad's fingers and a continuous device keep their own axes.
     pub fn pointer_scroll(&mut self, dx: i32, dy: i32, source: ScrollSource, stop: bool) {
         self.not_super_alone();
         self.user_input();
+        let (dx, dy) = if source == ScrollSource::Wheel
+            && dx == 0
+            && self.modifiers() & oxyos_protocol::MODIFIER_SHIFT != 0
+        {
+            (dy, 0)
+        } else {
+            (dx, dy)
+        };
         let target = if source == ScrollSource::Wheel {
             self.pointer_target()
         } else {

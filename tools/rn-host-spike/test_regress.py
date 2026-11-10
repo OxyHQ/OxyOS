@@ -393,8 +393,6 @@ class LaunchToContent(unittest.TestCase):
             self.check(self.report((40, 1, ["notas.txt"])), texts=())
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class GlidesOnlySlow(unittest.TestCase):
@@ -419,3 +417,119 @@ class GlidesOnlySlow(unittest.TestCase):
     def test_upwards_too(self):
         self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
                          [(2, -1875, -3125)])
+
+
+class GlidesMeetInput(unittest.TestCase):
+    """`glide`'s check of a fling (regress.check_glide) and of the input that meets it, on reports
+    written by hand: input on the glide's surface stops it where it is, input on another surface of
+    the application (a popup's) leaves it gliding to its end."""
+
+    VELOCITY, FRICTION, FRAME = 1200.0, 0.015, 16
+
+    def glide(self, axis="y", stop_at=None):
+        """A report of a drag's end and its glide along `axis`, decelerating as a spline does, stopped
+        at frame `stop_at` if given: its lines, and the offset and time where its momentum ended."""
+        distance = regress.android_fling_distance(self.VELOCITY, self.FRICTION)
+        frames = 30
+        other = "x" if axis == "y" else "y"
+
+        def line(ms, event, offset):
+            return {"kind": "deliver", "t": int(ms * 1e6), "event": event, "target": "list", "surface": 1,
+                    axis: offset, other: 0}
+
+        fling = {"kind": "fling", "t": int(0.5e6), "target": "list", "friction": self.FRICTION, "v" + axis: self.VELOCITY,
+                 "d" + axis: distance, "v" + other: 0.0, "d" + other: 0.0}
+        lines = [line(0, "scrollEndDrag", 100), line(0.2, "momentumScrollBegin", 100), fling]
+        offset = 100
+        last = frames if stop_at is None else stop_at
+        for i in range(1, last + 1):
+            share = i / frames
+            offset = round(100 + distance * (1 - (1 - share) ** 2), 2)
+            lines.append(line(i * self.FRAME, "scroll", offset))
+        ended = last * self.FRAME + (5 if stop_at is not None else 0.1)
+        lines.append(line(ended, "momentumScrollEnd", offset))
+        return lines, offset, ended, line
+
+    def check(self, wanted, report):
+        failures = []
+        regress.check_glide({"view": "list", "velocity": [1000, 1400], **wanted}, report, 0, int(10e9),
+                            failures.append)
+        return failures
+
+    @staticmethod
+    def scroll_input(ms, surface, source, dx=0, dy=0, stop=False):
+        return {"kind": "input", "t": int(ms * 1e6), "event": "scroll", "surface": surface, "source": source,
+                "dx": dx, "dy": dy, "stop": stop}
+
+    def test_a_glide_to_its_distance_down_or_across(self):
+        for axis in ("y", "x"):
+            lines, _, _, _ = self.glide(axis)
+            self.assertEqual(self.check({"axis": axis}, lines), [], axis)
+        # Across, read as down, glides nowhere.
+        lines, _, _, _ = self.glide("x")
+        self.assertTrue(self.check({}, lines))
+
+    def test_a_wheels_notch_on_its_surface_stops_it_then_scrolls(self):
+        lines, offset, ended, line = self.glide(stop_at=10)
+        notch = self.scroll_input(ended - 0.5, 1, "wheel", dy=40)
+        self.assertEqual(self.check({"stopped_by": "wheel"}, lines + [notch, line(ended + 0.2, "scroll", offset + 40)]), [])
+        # The notch's scroll missing, or by another distance, fails; so does a glide scroll after it.
+        self.assertTrue(self.check({"stopped_by": "wheel"}, lines + [notch]))
+        self.assertTrue(self.check({"stopped_by": "wheel"}, lines + [notch, line(ended + 0.2, "scroll", offset + 15)]))
+        # A notch on another surface does not stop it here.
+        elsewhere = dict(notch, surface=2)
+        self.assertIn("the wheel's notch came on surface 2, not the glide's (1)",
+                      self.check({"stopped_by": "wheel"}, lines + [elsewhere, line(ended + 0.2, "scroll", offset + 40)]))
+
+    def test_a_glide_the_notch_did_not_stop_fails(self):
+        lines, _, ended, _ = self.glide()
+        notch = self.scroll_input(200, 1, "wheel", dy=40)
+        failures = self.check({"stopped_by": "wheel"}, lines + [notch])
+        self.assertTrue(any("did not stop it" in failure for failure in failures), failures)
+
+    def test_new_fingers_stop_it_and_drag_it_from_there(self):
+        lines, offset, ended, line = self.glide(stop_at=10)
+        fingers = [self.scroll_input(ended - 0.5 + 16 * i, 1, "finger", dy=10) for i in range(3)]
+        lifted = self.scroll_input(ended + 150, 1, "finger", stop=True)
+        drag = [line(ended + 0.2, "scrollBeginDrag", offset)] + \
+               [line(ended + 0.3 + 16 * i, "scroll", offset + 10 * (i + 1)) for i in range(3)] + \
+               [line(ended + 150, "scrollEndDrag", offset + 30), line(ended + 150.1, "momentumScrollBegin", offset + 30),
+                line(ended + 166, "momentumScrollEnd", offset + 30)]
+        rested = {"kind": "fling", "t": int((ended + 150.2) * 1e6), "target": "list", "friction": self.FRICTION,
+                  "vx": 0.0, "vy": 0.0, "dx": 0.0, "dy": 0.0}
+        self.assertEqual(self.check({"stopped_by": "fingers"}, lines + fingers + [lifted] + drag + [rested]), [])
+        # Their lift flinging it again fails.
+        flung = dict(rested, vy=300.0, dy=40.0)
+        self.assertTrue(self.check({"stopped_by": "fingers"}, lines + fingers + [lifted] + drag + [flung]))
+        # A drag going the other way fails.
+        back = drag[:1] + [dict(event, y=offset - 10 * (i + 1)) for i, event in enumerate(drag[1:4])] + drag[4:]
+        self.assertTrue(self.check({"stopped_by": "fingers"}, lines + fingers + [lifted] + back + [rested]))
+
+    def test_resting_fingers_and_a_click_as_before(self):
+        lines, _, ended, _ = self.glide(stop_at=10)
+        hold = {"kind": "input", "t": int((ended - 0.5) * 1e6), "event": "hold.begin", "surface": 1}
+        press = dict(hold, event="pointer.press")
+        self.assertEqual(self.check({"held": True}, lines + [hold]), [])
+        self.assertEqual(self.check({"pressed": True}, lines + [press]), [])
+        self.assertTrue(self.check({"held": True}, lines + [press]))
+
+    def test_input_on_another_surface_leaves_it_gliding_to_its_end(self):
+        lines, _, _, _ = self.glide()
+        for kind, inputs in (("wheel", [self.scroll_input(200, 2, "wheel", dy=40)]),
+                             ("fingers", [self.scroll_input(200 + 16 * i, 2, "finger", dy=10) for i in range(3)]),
+                             ("press", [{"kind": "input", "t": int(200e6), "event": "pointer.press", "surface": 2}])):
+            self.assertEqual(self.check({"kept_by": kind}, lines + inputs), [], kind)
+        # On its own surface, or after its end, it is no such input.
+        self.assertTrue(self.check({"kept_by": "wheel"}, lines + [self.scroll_input(200, 1, "wheel", dy=40)]))
+        self.assertTrue(self.check({"kept_by": "wheel"}, lines + [self.scroll_input(900, 2, "wheel", dy=40)]))
+        # Stopped by it all the same fails.
+        cut, _, ended, _ = self.glide(stop_at=10)
+        self.assertTrue(self.check({"kept_by": "wheel"}, cut + [self.scroll_input(ended - 0.5, 2, "wheel", dy=40)]))
+
+    def test_anything_after_its_momentum_ended_fails(self):
+        lines, offset, ended, line = self.glide()
+        self.assertTrue(self.check({}, lines + [line(ended + 20, "scroll", offset + 5)]))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -111,14 +111,16 @@ pub enum Step {
     /// A press and release at the first point, then a press there held and moved to the second
     /// point, then released: a double click whose second press drags.
     DoubleDrag { from: (i32, i32), to: (i32, i32) },
-    /// Scroll by `dy` logical pixels (positive moves the view down) with the pointer at a
-    /// window-local point: a wheel's notches with `events` 0, else a touchpad's two fingers in
-    /// `events` even steps, then lifted. Through the virtual devices it is the hand's: the wheel
-    /// turned toward the person, or the fingers moved down, for a positive `dy`, which libinput
-    /// turns as the device's natural scrolling says (docs/adr/0042-scrolling.mdx, decision 6).
+    /// Scroll by `dy` logical pixels (positive moves the view down), and `dx` across (positive
+    /// moves it right), with the pointer at a window-local point: a wheel's notches with `events`
+    /// 0, else a touchpad's two fingers in `events` even steps, then lifted. Through the virtual
+    /// devices it is the hand's, down only: the wheel turned toward the person, or the fingers
+    /// moved down, for a positive `dy`, which libinput turns as the device's natural scrolling says
+    /// (docs/adr/0042-scrolling.mdx, decision 6).
     Scroll {
         x: i32,
         y: i32,
+        dx: i32,
         dy: i32,
         events: u32,
     },
@@ -190,20 +192,20 @@ pub enum Step {
         rest_ms: u32,
         held: bool,
     },
-    /// The pointer at a window-local point scrolling by `dy` in `events` even steps, `hz` of them a
-    /// second, the compositor serving the application between them: a touchpad's two fingers
-    /// scrolling a list. What the window showed meanwhile is measured (`scroll_paced`). With
-    /// `lift`, the fingers then lift (the scroll's stop) and leave it gliding: a flick. With
-    /// `stop_after`, the glide is then stopped that long after the lift: two fingers coming to rest
-    /// on the touchpad (libinput's hold gesture: its begin, then its end 150 ms later as they lift
-    /// unmoved), or a click where the fingers were, as a hand stops a list gliding.
+    /// The pointer at a window-local point scrolling by (`dx`, `dy`) in `events` even steps, `hz`
+    /// of them a second, the compositor serving the application between them: a touchpad's two
+    /// fingers scrolling a list. What the window showed meanwhile is measured (`scroll_paced`).
+    /// With `lift`, the fingers then lift (the scroll's stop) and leave it gliding: a flick. With
+    /// `stop_after`, input then comes while it glides, as a hand stops a list gliding, or as
+    /// input elsewhere leaves it gliding (`GlideStopAfter`).
     ScrollPaced {
         at: (i32, i32),
+        dx: i32,
         dy: i32,
         events: u32,
         hz: u32,
         lift: bool,
-        stop_after: Option<(GlideStop, u32)>,
+        stop_after: Option<GlideStopAfter>,
     },
     /// `count` presses of the primary button at a window-local point, `interval_ms` apart by
     /// their device's time, each injected when its time comes (the compositor serving the
@@ -392,12 +394,20 @@ impl Step {
             Step::Scroll {
                 x,
                 y,
+                dx,
                 dy,
                 events: 0,
-            } => format!("scroll by {dy} at ({x}, {y})"),
-            Step::Scroll { x, y, dy, events } => {
-                format!("scroll by {dy} at ({x}, {y}) in {events} events")
-            }
+            } => format!("scroll by {} at ({x}, {y})", distance_text(*dx, *dy)),
+            Step::Scroll {
+                x,
+                y,
+                dx,
+                dy,
+                events,
+            } => format!(
+                "scroll by {} at ({x}, {y}) in {events} events",
+                distance_text(*dx, *dy)
+            ),
             Step::Pinch {
                 x,
                 y,
@@ -449,19 +459,33 @@ impl Step {
             ),
             Step::ScrollPaced {
                 at,
+                dx,
                 dy,
                 events,
                 hz,
                 lift,
                 stop_after,
             } => format!(
-                "{} by {dy} at {at:?} in {events} events at {hz} Hz{}",
+                "{} by {} at {at:?} in {events} events at {hz} Hz{}",
                 if *lift { "flick" } else { "scroll" },
-                match stop_after {
-                    None => String::new(),
-                    Some((GlideStop::Hold, ms)) => format!(", fingers resting {ms} ms after the lift"),
-                    Some((GlideStop::Press, ms)) => format!(", a click {ms} ms after the lift"),
-                }
+                distance_text(*dx, *dy),
+                stop_after.as_ref().map_or(String::new(), |stop| {
+                    let what = match stop.by {
+                        GlideStop::Hold => "fingers resting".to_string(),
+                        GlideStop::Press => "a click".to_string(),
+                        GlideStop::Wheel { dx, dy } => {
+                            format!("a wheel's notch by {}", distance_text(dx, dy))
+                        }
+                        GlideStop::Fingers { dx, dy, events } => format!(
+                            "fingers scrolling by {} in {events} events",
+                            distance_text(dx, dy)
+                        ),
+                    };
+                    let place = stop
+                        .at
+                        .map_or(String::new(), |(x, y)| format!(" at ({x}, {y})"));
+                    format!(", {what}{place} {} ms after the lift", stop.after_ms)
+                })
             ),
             Step::MovePaced {
                 from,
@@ -575,10 +599,20 @@ impl Step {
             Step::Scroll {
                 x,
                 y,
+                dx,
                 dy,
                 events: 0,
-            } => format!("\"scroll\":[{x},{y},{dy}]"),
-            Step::Scroll { x, y, dy, events } => format!("\"scroll\":[{x},{y},{dy},{events}]"),
+            } => format!("\"scroll\":[{x},{y},{}]", distance_json(*dx, *dy)),
+            Step::Scroll {
+                x,
+                y,
+                dx,
+                dy,
+                events,
+            } => format!(
+                "\"scroll\":[{x},{y},{},{events}]",
+                distance_json(*dx, *dy)
+            ),
             Step::Pinch {
                 x,
                 y,
@@ -665,32 +699,47 @@ impl Step {
             ),
             Step::ScrollPaced {
                 at,
+                dx,
                 dy,
                 events,
                 hz,
                 lift,
-                stop_after: Some((stop, ms)),
-            } if *lift => format!(
-                "\"{}\":[{},{},{dy},{events},{hz},{ms}]",
-                match stop {
-                    GlideStop::Hold => "flick_hold",
-                    GlideStop::Press => "flick_press",
-                },
-                at.0,
-                at.1
-            ),
+                stop_after: Some(stop),
+            } if *lift => {
+                let (name, by) = match stop.by {
+                    GlideStop::Hold => ("flick_hold", String::new()),
+                    GlideStop::Press => ("flick_press", String::new()),
+                    GlideStop::Wheel { dx, dy } => {
+                        ("flick_wheel", format!(",{}", distance_json(dx, dy)))
+                    }
+                    GlideStop::Fingers { dx, dy, events } => (
+                        "flick_fingers",
+                        format!(",{},{events}", distance_json(dx, dy)),
+                    ),
+                };
+                format!(
+                    "\"{name}\":[{},{},{},{events},{hz},{}{by}{}]",
+                    at.0,
+                    at.1,
+                    distance_json(*dx, *dy),
+                    stop.after_ms,
+                    stop.at.map_or(String::new(), |(x, y)| format!(",{x},{y}"))
+                )
+            }
             Step::ScrollPaced {
                 at,
+                dx,
                 dy,
                 events,
                 hz,
                 lift,
                 ..
             } => format!(
-                "\"{}\":[{},{},{dy},{events},{hz}]",
+                "\"{}\":[{},{},{},{events},{hz}]",
                 if *lift { "flick" } else { "scroll_paced" },
                 at.0,
-                at.1
+                at.1,
+                distance_json(*dx, *dy)
             ),
             Step::MovePaced {
                 from,
@@ -763,13 +812,47 @@ fn style_name(style: PreeditStyle) -> &'static str {
     }
 }
 
-/// What stops a flick's glide (`Step::ScrollPaced`'s `stop_after`).
+/// The input that comes while a flick's list glides (`Step::ScrollPaced`'s `stop_after`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GlideStop {
-    /// Two fingers coming to rest on the touchpad.
+    /// Two fingers coming to rest on the touchpad (libinput's hold gesture: its begin, then its
+    /// end 150 ms later as they lift unmoved).
     Hold,
-    /// A click of the primary button where the fingers were.
+    /// A click of the primary button.
     Press,
+    /// A wheel's notch by (`dx`, `dy`).
+    Wheel { dx: i32, dy: i32 },
+    /// Two fingers scrolling by (`dx`, `dy`) in `events` even steps at the flick's rate, then
+    /// resting 100 ms, so that nothing is flung, and lifting.
+    Fingers { dx: i32, dy: i32, events: u32 },
+}
+
+/// When and where a flick's glide meets `by` (`Step::ScrollPaced`'s `stop_after`): `after_ms`
+/// after the fingers lift, with the pointer where they were, or moved first to `at` (a
+/// window-local point, which may be beyond the window, over a popup of it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlideStopAfter {
+    pub by: GlideStop,
+    pub after_ms: u32,
+    pub at: Option<(i32, i32)>,
+}
+
+/// A scroll's distance as a step's description says it: down only as a number, else (dx, dy).
+fn distance_text(dx: i32, dy: i32) -> String {
+    if dx == 0 {
+        dy.to_string()
+    } else {
+        format!("({dx}, {dy})")
+    }
+}
+
+/// A scroll's distance as a scenario writes it: down only as a number, else [dx, dy].
+fn distance_json(dx: i32, dy: i32) -> String {
+    if dx == 0 {
+        dy.to_string()
+    } else {
+        format!("[{dx},{dy}]")
+    }
 }
 
 /// `B-E:STYLE;...` (or `-` for none): a transaction's styled segments.
@@ -1009,7 +1092,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1074,6 +1157,37 @@ fn numbers(value: Option<&std::ffi::OsString>, count: usize) -> Result<Vec<i32>>
         return Err(format!("{value:?}: expected {count} numbers").into());
     }
     Ok(numbers)
+}
+
+/// `least` to `most` comma-separated numbers, those at `distances` (positions) scroll distances,
+/// each a number down or `DX:DY`, across and down: the numbers, each distance's down part in its
+/// place, and each one's across part (0 for a number).
+fn scroll_numbers(
+    value: Option<&std::ffi::OsString>,
+    least: usize,
+    most: usize,
+    distances: &[usize],
+) -> Result<(Vec<i32>, Vec<i32>)> {
+    let text = value.and_then(|v| v.to_str()).ok_or(USAGE)?;
+    let fields: Vec<&str> = text.split(',').map(str::trim).collect();
+    if fields.len() < least || fields.len() > most {
+        return Err(format!("{text:?}: expected {least} to {most} numbers").into());
+    }
+    let (mut numbers, mut across) = (Vec::new(), Vec::new());
+    for (i, field) in fields.iter().enumerate() {
+        match field.split_once(':') {
+            Some((dx, dy)) if distances.contains(&i) => {
+                across.push(dx.trim().parse::<i32>()?);
+                numbers.push(dy.trim().parse::<i32>()?);
+            }
+            Some(_) => return Err(format!("{text:?}: only a distance may be DX:DY").into()),
+            None => {
+                across.push(0);
+                numbers.push(field.parse::<i32>()?);
+            }
+        }
+    }
+    Ok((numbers, across))
 }
 
 /// `least` to `most` comma-separated numbers.
@@ -1543,12 +1657,13 @@ impl Launch {
                     }
                 }
                 Some("--scroll") => {
-                    // X,Y,DY a wheel's notches, X,Y,DY,EVENTS a touchpad's fingers.
-                    let value = args.next();
-                    let n = numbers(value, 4).or_else(|_| numbers(value, 3))?;
+                    // X,Y,DY a wheel's notches, X,Y,DY,EVENTS a touchpad's fingers; DY may be
+                    // DX:DY, across and down.
+                    let (n, across) = scroll_numbers(args.next(), 3, 4, &[2])?;
                     Step::Scroll {
                         x: n[0],
                         y: n[1],
+                        dx: across[2],
                         dy: n[2],
                         events: n
                             .get(3)
@@ -1639,7 +1754,7 @@ impl Launch {
                     }
                 }
                 Some("--scroll-paced") => {
-                    let n = numbers(args.next(), 5)?;
+                    let (n, across) = scroll_numbers(args.next(), 5, 5, &[2])?;
                     if n[3] < 1 || n[4] < 1 {
                         return Err(
                             "--scroll-paced needs at least one event at 1 Hz or more".into()
@@ -1647,6 +1762,7 @@ impl Launch {
                     }
                     Step::ScrollPaced {
                         at: (n[0], n[1]),
+                        dx: across[2],
                         dy: n[2],
                         events: n[3] as u32,
                         hz: n[4] as u32,
@@ -1655,12 +1771,13 @@ impl Launch {
                     }
                 }
                 Some("--flick") => {
-                    let n = numbers(args.next(), 5)?;
+                    let (n, across) = scroll_numbers(args.next(), 5, 5, &[2])?;
                     if n[3] < 1 || n[4] < 1 {
                         return Err("--flick needs at least one event at 1 Hz or more".into());
                     }
                     Step::ScrollPaced {
                         at: (n[0], n[1]),
+                        dx: across[2],
                         dy: n[2],
                         events: n[3] as u32,
                         hz: n[4] as u32,
@@ -1668,38 +1785,54 @@ impl Launch {
                         stop_after: None,
                     }
                 }
-                Some("--flick-hold") => {
-                    let n = numbers(args.next(), 6)?;
-                    if n[3] < 1 || n[4] < 1 || n[5] < 0 {
-                        return Err(
-                            "--flick-hold needs at least one event at 1 Hz or more, and a delay"
-                                .into(),
-                        );
+                Some(
+                    flag @ ("--flick-hold" | "--flick-press" | "--flick-wheel" | "--flick-fingers"),
+                ) => {
+                    // X,Y,DY,EVENTS,HZ,AFTER_MS, what stops it (a wheel's NOTCH, the fingers'
+                    // DY,EVENTS), then where, AX,AY, if not where the flick was. DY and NOTCH may
+                    // be DX:DY.
+                    let given = match flag {
+                        "--flick-wheel" => 1,
+                        "--flick-fingers" => 2,
+                        _ => 0,
+                    };
+                    let distances: &[usize] = if given > 0 { &[2, 6] } else { &[2] };
+                    let (n, across) = scroll_numbers(args.next(), 6 + given, 8 + given, distances)?;
+                    if n[3] < 1 || n[4] < 1 || n[5] < 0 || n.len() == 7 + given {
+                        return Err(format!(
+                            "{flag} needs at least one event at 1 Hz or more, a delay, and a \
+                             point as two numbers if any"
+                        )
+                        .into());
                     }
+                    let by = match flag {
+                        "--flick-hold" => GlideStop::Hold,
+                        "--flick-press" => GlideStop::Press,
+                        "--flick-wheel" => GlideStop::Wheel {
+                            dx: across[6],
+                            dy: n[6],
+                        },
+                        _ if n[7] < 1 => {
+                            return Err("--flick-fingers needs at least one event".into())
+                        }
+                        _ => GlideStop::Fingers {
+                            dx: across[6],
+                            dy: n[6],
+                            events: n[7] as u32,
+                        },
+                    };
                     Step::ScrollPaced {
                         at: (n[0], n[1]),
+                        dx: across[2],
                         dy: n[2],
                         events: n[3] as u32,
                         hz: n[4] as u32,
                         lift: true,
-                        stop_after: Some((GlideStop::Hold, n[5] as u32)),
-                    }
-                }
-                Some("--flick-press") => {
-                    let n = numbers(args.next(), 6)?;
-                    if n[3] < 1 || n[4] < 1 || n[5] < 0 {
-                        return Err(
-                            "--flick-press needs at least one event at 1 Hz or more, and a delay"
-                                .into(),
-                        );
-                    }
-                    Step::ScrollPaced {
-                        at: (n[0], n[1]),
-                        dy: n[2],
-                        events: n[3] as u32,
-                        hz: n[4] as u32,
-                        lift: true,
-                        stop_after: Some((GlideStop::Press, n[5] as u32)),
+                        stop_after: Some(GlideStopAfter {
+                            by,
+                            after_ms: n[5] as u32,
+                            at: (n.len() == 8 + given).then(|| (n[6 + given], n[7 + given])),
+                        }),
                     }
                 }
                 Some("--move-paced") => {
@@ -3990,7 +4123,16 @@ fn inject_through(
             compositor.read_input();
             devices.button(false)?;
         }
-        Step::Scroll { x, y, dy, events } => {
+        Step::Scroll {
+            x,
+            y,
+            dx,
+            dy,
+            events,
+        } => {
+            if *dx != 0 {
+                return Err("a scroll across is not made through the virtual devices".into());
+            }
             inside(window, *x, *y)?;
             let (px, py) = at(window.x + x, window.y + y);
             devices.move_to(px, py)?;
@@ -4098,16 +4240,24 @@ fn inject_through(
     Ok(Some(0))
 }
 
-/// A scroll on the scene where the pointer is: a wheel's notch by `dy` with `events` 0, else a
-/// touchpad's two fingers by `dy` in `events` even steps, then lifted.
-fn scroll_scene(scene: &mut Scene, dy: i32, events: u32) {
+/// A scroll on the scene where the pointer is: a wheel's notch by (`dx`, `dy`) with `events` 0,
+/// else a touchpad's two fingers by (`dx`, `dy`) in `events` even steps, then lifted.
+fn scroll_scene(scene: &mut Scene, dx: i32, dy: i32, events: u32) {
     if events == 0 {
-        scene.pointer_scroll(0, dy.saturating_mul(256), ScrollSource::Wheel, false);
+        scene.pointer_scroll(
+            dx.saturating_mul(256),
+            dy.saturating_mul(256),
+            ScrollSource::Wheel,
+            false,
+        );
         return;
     }
-    let each = dy.saturating_mul(256) / events as i32;
+    let (across, each) = (
+        dx.saturating_mul(256) / events as i32,
+        dy.saturating_mul(256) / events as i32,
+    );
     for _ in 0..events {
-        scene.pointer_scroll(0, each, ScrollSource::Finger, false);
+        scene.pointer_scroll(across, each, ScrollSource::Finger, false);
     }
     scene.pointer_scroll(0, 0, ScrollSource::Finger, true);
 }
@@ -4636,16 +4786,18 @@ fn swipe_paced(
 /// the window did, as JSON: `events`; `presented`, the frames it showed meanwhile; and
 /// `latency_ms` (median and max), from each event to the first frame shown after it. The events
 /// are a touchpad's; with `lift`, its stop follows the last one, a frame of the hand later, as
-/// the fingers lift; with `hold`, two fingers come to rest that many milliseconds after the lift
-/// (libinput's hold begin, each when its time comes), and lift unmoved 150 ms later (its end).
+/// the fingers lift; with `stop`, its input comes that many milliseconds after the lift, each
+/// event when its time comes, the pointer moved first where it says: two fingers coming to rest
+/// (libinput's hold begin) and lifting unmoved 150 ms later (its end), a click, a wheel's notch,
+/// or two fingers scrolling at the flick's rate, resting 100 ms and lifting.
 fn scroll_paced(
     session: &mut Session,
     window: Rect,
     at: (i32, i32),
-    dy: i32,
+    (dx, dy): (i32, i32),
     (events, hz): (u32, u32),
     lift: bool,
-    stop: Option<(GlideStop, u32)>,
+    stop: Option<GlideStopAfter>,
 ) -> Result<String> {
     if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
         return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
@@ -4668,90 +4820,108 @@ fn scroll_paced(
         }
     };
     let idle_wait = session.compositor.idle_wait;
-    let mut scrolled: Vec<Duration> = Vec::new();
-    // In 256ths of a pixel (`Scene::pointer_scroll`), spread evenly over the events.
-    let total = i64::from(dy) * 256;
-    for i in 1..=i64::from(events) {
-        let due = interval * i as u32;
+    // The compositor serving the application until `due`, then `input` made on the scene at that
+    // time, and the turn it wakes served at once.
+    let mut inject = |session: &mut Session,
+                      shown: &mut Vec<Duration>,
+                      due: Duration,
+                      input: &mut dyn FnMut(&mut Scene)|
+     -> Result<()> {
         while start.elapsed() < due {
             session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
             session.compositor.serve(&session.listener)?;
-            observe(&session.compositor, &mut shown);
+            observe(&session.compositor, shown);
         }
-        let step = total * i / i64::from(events) - total * (i - 1) / i64::from(events);
-        scrolled.push(start.elapsed());
         session
             .compositor
             .scene
             .set_input_time(paced_time(origin, due));
-        session
-            .compositor
-            .scene
-            .pointer_scroll(0, step as i32, ScrollSource::Finger, false);
+        input(&mut session.compositor.scene);
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
-        observe(&session.compositor, &mut shown);
+        observe(&session.compositor, shown);
+        Ok(())
+    };
+    // Fingers scrolling by (dx, dy) in `events` even steps from `from`, in 256ths of a pixel
+    // (`Scene::pointer_scroll`): each step's share.
+    let share = |total: i32, events: u32, i: u32| {
+        let (total, events, i) = (i64::from(total) * 256, i64::from(events), i64::from(i));
+        (total * i / events - total * (i - 1) / events) as i32
+    };
+    let mut scrolled: Vec<Duration> = Vec::new();
+    for i in 1..=events {
+        let due = interval * i;
+        inject(session, &mut shown, due, &mut |scene| {
+            scrolled.push(start.elapsed());
+            scene.pointer_scroll(
+                share(dx, events, i),
+                share(dy, events, i),
+                ScrollSource::Finger,
+                false,
+            );
+        })?;
     }
     if lift {
-        let due = interval * (events + 1);
-        while start.elapsed() < due {
-            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
-            session.compositor.serve(&session.listener)?;
-            observe(&session.compositor, &mut shown);
-        }
-        session
-            .compositor
-            .scene
-            .set_input_time(paced_time(origin, due));
-        session
-            .compositor
-            .scene
-            .pointer_scroll(0, 0, ScrollSource::Finger, true);
-        session.compositor.idle_wait = Duration::ZERO;
-        session.compositor.serve(&session.listener)?;
-        observe(&session.compositor, &mut shown);
-        if let Some((GlideStop::Press, after)) = stop {
-            let due = due + Duration::from_millis(after.into());
-            while start.elapsed() < due {
-                session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
-                session.compositor.serve(&session.listener)?;
-                observe(&session.compositor, &mut shown);
+        let lifted = interval * (events + 1);
+        inject(session, &mut shown, lifted, &mut |scene| {
+            scene.pointer_scroll(0, 0, ScrollSource::Finger, true)
+        })?;
+        if let Some(stop) = stop {
+            let due = lifted + Duration::from_millis(stop.after_ms.into());
+            if let Some((x, y)) = stop.at {
+                inject(session, &mut shown, due, &mut |scene| {
+                    scene.pointer_motion(window.x + x, window.y + y)
+                })?;
             }
-            for pressed in [true, false] {
-                session
-                    .compositor
-                    .scene
-                    .set_input_time(paced_time(origin, due));
-                session.compositor.scene.pointer_button(BUTTON, pressed);
-                session.compositor.idle_wait = Duration::ZERO;
-                session.compositor.serve(&session.listener)?;
-                observe(&session.compositor, &mut shown);
-            }
-        }
-        if let Some((GlideStop::Hold, after)) = stop {
-            let lifted = due;
-            for (phase, offset) in [
-                (GesturePhase::Begin, Duration::from_millis(after.into())),
-                (
-                    GesturePhase::End,
-                    Duration::from_millis(u64::from(after) + 150),
-                ),
-            ] {
-                let due = lifted + offset;
-                while start.elapsed() < due {
-                    session.compositor.idle_wait =
-                        idle_wait.min(due.saturating_sub(start.elapsed()));
-                    session.compositor.serve(&session.listener)?;
-                    observe(&session.compositor, &mut shown);
+            match stop.by {
+                GlideStop::Press => {
+                    for pressed in [true, false] {
+                        inject(session, &mut shown, due, &mut |scene| {
+                            scene.pointer_button(BUTTON, pressed)
+                        })?;
+                    }
                 }
-                session
-                    .compositor
-                    .scene
-                    .set_input_time(paced_time(origin, due));
-                session.compositor.scene.pointer_hold(phase, 2);
-                session.compositor.idle_wait = Duration::ZERO;
-                session.compositor.serve(&session.listener)?;
-                observe(&session.compositor, &mut shown);
+                GlideStop::Hold => {
+                    for (phase, after) in [(GesturePhase::Begin, 0), (GesturePhase::End, 150)] {
+                        inject(
+                            session,
+                            &mut shown,
+                            due + Duration::from_millis(after),
+                            &mut |scene| scene.pointer_hold(phase, 2),
+                        )?;
+                    }
+                }
+                GlideStop::Wheel { dx, dy } => {
+                    inject(session, &mut shown, due, &mut |scene| {
+                        scene.pointer_scroll(
+                            dx.saturating_mul(256),
+                            dy.saturating_mul(256),
+                            ScrollSource::Wheel,
+                            false,
+                        )
+                    })?;
+                }
+                GlideStop::Fingers { dx, dy, events } => {
+                    for i in 1..=events {
+                        inject(
+                            session,
+                            &mut shown,
+                            due + interval * (i - 1),
+                            &mut |scene| {
+                                scene.pointer_scroll(
+                                    share(dx, events, i),
+                                    share(dy, events, i),
+                                    ScrollSource::Finger,
+                                    false,
+                                )
+                            },
+                        )?;
+                    }
+                    let rested = due + interval * (events - 1) + Duration::from_millis(100);
+                    inject(session, &mut shown, rested, &mut |scene| {
+                        scene.pointer_scroll(0, 0, ScrollSource::Finger, true)
+                    })?;
+                }
             }
         }
     }
@@ -5095,12 +5265,18 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         Step::ScrollOutput { x, y, dy, events } => {
             on_outputs(*x, *y)?;
             compositor.scene.pointer_motion(*x, *y);
-            scroll_scene(&mut compositor.scene, *dy, *events);
+            scroll_scene(&mut compositor.scene, 0, *dy, *events);
         }
-        Step::Scroll { x, y, dy, events } => {
+        Step::Scroll {
+            x,
+            y,
+            dx,
+            dy,
+            events,
+        } => {
             inside(window, *x, *y)?;
             compositor.scene.pointer_motion(window.x + x, window.y + y);
-            scroll_scene(&mut compositor.scene, *dy, *events);
+            scroll_scene(&mut compositor.scene, *dx, *dy, *events);
         }
         Step::Pinch {
             x,
@@ -6231,6 +6407,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             _ if matches!(step, Step::ScrollPaced { .. }) => {
                 if let Step::ScrollPaced {
                     at,
+                    dx,
                     dy,
                     events,
                     hz,
@@ -6242,7 +6419,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         &mut session,
                         window,
                         *at,
-                        *dy,
+                        (*dx, *dy),
                         (*events, *hz),
                         *lift,
                         *stop_after,
@@ -6793,6 +6970,7 @@ mod tests {
                 Step::Scroll {
                     x: 3,
                     y: 4,
+                    dx: 0,
                     dy: -50,
                     events: 0
                 },
@@ -6892,10 +7070,126 @@ mod tests {
     }
 
     #[test]
+    fn scrolls_take_a_distance_across_and_flicks_what_meets_their_glide() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--scroll",
+            "3,4,-50",
+            "--scroll",
+            "3,4,40:0",
+            "--scroll",
+            "3,4,-6:60,6",
+            "--flick",
+            "5,6,-120:0,6,60",
+            "--flick-hold",
+            "5,6,120,6,60,150",
+            "--flick-press",
+            "5,6,120,6,60,150,400,20",
+            "--flick-wheel",
+            "5,6,120,6,60,150,40",
+            "--flick-wheel",
+            "5,6,120,6,60,150,-40:0,400,20",
+            "--flick-fingers",
+            "5,6,120,6,60,150,30,3",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        let steps: Vec<_> = launch.steps.iter().map(|(step, _)| step.clone()).collect();
+        let flick = |dx, dy, stop_after| Step::ScrollPaced {
+            at: (5, 6),
+            dx,
+            dy,
+            events: 6,
+            hz: 60,
+            lift: true,
+            stop_after,
+        };
+        let after = |by, at| {
+            Some(GlideStopAfter {
+                by,
+                after_ms: 150,
+                at,
+            })
+        };
+        let expected = [
+            Step::Scroll {
+                x: 3,
+                y: 4,
+                dx: 0,
+                dy: -50,
+                events: 0,
+            },
+            Step::Scroll {
+                x: 3,
+                y: 4,
+                dx: 40,
+                dy: 0,
+                events: 0,
+            },
+            Step::Scroll {
+                x: 3,
+                y: 4,
+                dx: -6,
+                dy: 60,
+                events: 6,
+            },
+            flick(-120, 0, None),
+            flick(0, 120, after(GlideStop::Hold, None)),
+            flick(0, 120, after(GlideStop::Press, Some((400, 20)))),
+            flick(0, 120, after(GlideStop::Wheel { dx: 0, dy: 40 }, None)),
+            flick(
+                0,
+                120,
+                after(GlideStop::Wheel { dx: -40, dy: 0 }, Some((400, 20))),
+            ),
+            flick(
+                0,
+                120,
+                after(
+                    GlideStop::Fingers {
+                        dx: 0,
+                        dy: 30,
+                        events: 3,
+                    },
+                    None,
+                ),
+            ),
+        ];
+        assert_eq!(steps, expected);
+        // As a scenario writes them, a distance down alone as a number, as every scenario before
+        // the distance across did.
+        let json: Vec<_> = steps.iter().map(Step::json).collect();
+        assert_eq!(
+            json,
+            [
+                "\"scroll\":[3,4,-50]",
+                "\"scroll\":[3,4,[40,0]]",
+                "\"scroll\":[3,4,[-6,60],6]",
+                "\"flick\":[5,6,[-120,0],6,60]",
+                "\"flick_hold\":[5,6,120,6,60,150]",
+                "\"flick_press\":[5,6,120,6,60,150,400,20]",
+                "\"flick_wheel\":[5,6,120,6,60,150,40]",
+                "\"flick_wheel\":[5,6,120,6,60,150,[-40,0],400,20]",
+                "\"flick_fingers\":[5,6,120,6,60,150,30,3]",
+            ]
+        );
+        assert_eq!(
+            steps[7].describe(),
+            "flick by 120 at (5, 6) in 6 events at 60 Hz, a wheel's notch by (-40, 0) at (400, 20) \
+             150 ms after the lift"
+        );
+    }
+
+    #[test]
     fn malformed_steps_are_rejected() {
         for bad in [
             &["--press", "1", "--", "app"][..],
             &["--scroll", "1,2", "--", "app"],
+            &["--scroll", "1:2,3,4", "--", "app"],
+            &["--scroll", "1,2,3:", "--", "app"],
+            &["--flick-wheel", "1,2,3,4,60,150", "--", "app"],
+            &["--flick-press", "1,2,3,4,60,150,7", "--", "app"],
+            &["--flick-fingers", "1,2,3,4,60,150,30,0", "--", "app"],
             &["--key", "x", "--", "app"],
             &["--key", "42+", "--", "app"],
             &["--drag", "1,2,3", "--", "app"],

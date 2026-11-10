@@ -1133,7 +1133,12 @@ int main(int argc, char** argv) {
         r.input("preedit", event.surface,
                 folly::dynamic::object("text", editing.logged(std::string(event.text)))("cursor", event.detail));
       } else if (event.kind == OXYOS_EVENT_SCROLL) {
-        r.input("scroll", event.surface, folly::dynamic::object("dy", event.y / 256.0));
+        // Its source: a wheel's notch, a touchpad's fingers (their stop as they lift), or another
+        // continuous device.
+        static const char* source[] = {"", "wheel", "finger", "continuous"};
+        r.input("scroll", event.surface,
+                folly::dynamic::object("dx", event.x / 256.0)("dy", event.y / 256.0)(
+                    "source", event.detail <= 3 ? source[event.detail] : "")("stop", event.flag != 0));
       } else if (event.kind == OXYOS_EVENT_HOLD && event.detail >= OXYOS_PINCH_BEGIN &&
                  event.detail <= OXYOS_PINCH_CANCEL) {
         static const char* hold[] = {"", "hold.begin", "", "hold.end", "hold.cancel"};

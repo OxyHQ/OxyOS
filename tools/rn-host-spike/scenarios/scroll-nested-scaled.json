@@ -1,0 +1,236 @@
+{
+  "about": "scroll-nested.json at a fractional scale (ADR 0018: 1.25, a 1600x1000 output): the same notches and gestures, the same exact offsets of both lists (each on the display's pixels) and the same scroll events.",
+  "module": "NestedScrollProbe",
+  "window": [640, 400],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "the wheel down over the inner list moves it, and not the outer one",
+      "do": ["scroll", [110, 220, 100]],
+      "expect": {
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "scroll@inner": 1
+        },
+        "delivered": {"1": {"enter": 1, "scroll": 1}},
+        "scroll_offset": {"inner": [0, 100]},
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a notch further than it can go: the inner list takes it to its end and no further, the outer one unmoved, as a Mac's inner scroll view takes a notch",
+      "do": ["scroll", [110, 220, 200]],
+      "expect": {
+        "react": {
+          "scroll@inner": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"inner": [0, 280]}
+      }
+    },
+    {
+      "name": "at its end, the next notch down goes to the outer list",
+      "do": ["scroll", [110, 220, 100]],
+      "expect": {
+        "react": {
+          "scroll@outer": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"outer": [0, 100]}
+      }
+    },
+    {
+      "name": "up over the inner list: it moves first",
+      "do": ["scroll", [110, 120, -200]],
+      "expect": {
+        "react": {
+          "scroll@inner": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"inner": [0, 80]}
+      }
+    },
+    {
+      "name": "up past its top: the inner list stops there, the outer one unmoved",
+      "do": ["scroll", [110, 120, -100]],
+      "expect": {
+        "react": {
+          "scroll@inner": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"inner": [0, 0]}
+      }
+    },
+    {
+      "name": "at its top, the next notch up goes to the outer list",
+      "do": ["scroll", [110, 120, -60]],
+      "expect": {
+        "react": {
+          "scroll@outer": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"outer": [0, 40]}
+      }
+    },
+    {
+      "name": "a notch down over the row of cells, which scrolls only across, goes to the outer list",
+      "do": ["scroll", [110, 60, 40]],
+      "expect": {
+        "react": {
+          "scroll@outer": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"outer": [0, 80]}
+      }
+    },
+    {
+      "name": "a notch across over the row of cells moves it, and not the outer list",
+      "do": ["scroll", [110, 20, [80, 0]]],
+      "expect": {
+        "react": {
+          "scroll@cells": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"cells": [80, 0]}
+      }
+    },
+    {
+      "name": "fingers across over the row of cells drag it back, latched to it: no fling (they rest before they lift)",
+      "do": ["flick", [110, 20, [-80, 0], 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@cells": 1,
+          "scroll@cells": 6,
+          "scrollEndDrag@cells": 1,
+          "momentumScrollBegin@cells": 1,
+          "momentumScrollEnd@cells": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"cells": [0, 0]}
+      }
+    },
+    {
+      "name": "fingers mostly down, drifting right, over the row of cells drag the outer list: a gesture goes by its predominant axis, as AppKit's, so the row that could move right does not take it",
+      "do": ["flick", [110, 20, [12, 60], 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@outer": 1,
+          "scroll@outer": 6,
+          "scrollEndDrag@outer": 1,
+          "momentumScrollBegin@outer": 1,
+          "momentumScrollEnd@outer": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"outer": [0, 140]}
+      }
+    },
+    {
+      "name": "fingers down over the inner list drag it, and not the outer one",
+      "do": ["flick", [110, 80, 120, 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inner": 1,
+          "scroll@inner": 6,
+          "scrollEndDrag@inner": 1,
+          "momentumScrollBegin@inner": 1,
+          "momentumScrollEnd@inner": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"inner": [0, 120]}
+      }
+    },
+    {
+      "name": "fingers down past its end: the inner list reaches it and stretches there, latched to the gesture, the outer one unmoved, as a Mac's rubber-bands",
+      "do": ["flick", [110, 80, 240, 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inner": 1,
+          "scroll@inner": 4,
+          "scrollEndDrag@inner": 1,
+          "momentumScrollBegin@inner": 1,
+          "momentumScrollEnd@inner": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"inner": [0, 280]},
+        "stretch": {"view": "inner", "rests": true}
+      }
+    },
+    {
+      "name": "a new gesture down over the inner list at its end drags the outer one",
+      "do": ["flick", [110, 80, 60, 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@outer": 1,
+          "scroll@outer": 6,
+          "scrollEndDrag@outer": 1,
+          "momentumScrollBegin@outer": 1,
+          "momentumScrollEnd@outer": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"outer": [0, 200]},
+        "stretch": {"view": "inner", "none": true}
+      }
+    },
+    {
+      "name": "fingers up over the inner list drag it first",
+      "do": ["flick", [110, 40, -120, 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inner": 1,
+          "scroll@inner": 6,
+          "scrollEndDrag@inner": 1,
+          "momentumScrollBegin@inner": 1,
+          "momentumScrollEnd@inner": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"inner": [0, 160]}
+      }
+    },
+    {
+      "name": "fingers up to its top drag it there",
+      "do": ["flick", [110, 40, -160, 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inner": 1,
+          "scroll@inner": 6,
+          "scrollEndDrag@inner": 1,
+          "momentumScrollBegin@inner": 1,
+          "momentumScrollEnd@inner": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"inner": [0, 0]}
+      }
+    },
+    {
+      "name": "a new gesture up over the inner list at its top drags the outer one",
+      "do": ["flick", [110, 40, -80, 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@outer": 1,
+          "scroll@outer": 6,
+          "scrollEndDrag@outer": 1,
+          "momentumScrollBegin@outer": 1,
+          "momentumScrollEnd@outer": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"outer": [0, 120]}
+      }
+    },
+    {
+      "name": "a flick in the inner list glides to its end and stops there: its glide never goes on into the outer one",
+      "do": ["flick", [110, 100, 120, 6, 60]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@inner": 1,
+          "scroll@inner": [8, 60],
+          "scrollEndDrag@inner": 1,
+          "momentumScrollBegin@inner": 1,
+          "momentumScrollEnd@inner": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "glide": {"view": "inner", "velocity": [900, 1500], "to_end": true, "end_offset": 280, "frames_min": 2},
+        "scroll_offset": {"inner": [0, 280]}
+      }
+    }
+  ]
+}

@@ -8,7 +8,7 @@
 
 use super::erase::{eraser, FakePasswords, FakeSystem};
 use super::platform::{machine_as, Machine};
-use super::session::{me, wait_for};
+use super::session::{me, session_program, wait_for};
 use super::*;
 use crate::pidfd;
 use crate::session::{
@@ -177,10 +177,7 @@ fn the_session_registers_its_running_applications_again_when_the_service_restart
     let first = Run::start(
         &upgrade.machine,
         &upgrade.path,
-        registrars(
-            std::env::current_exe().unwrap(),
-            Some(upgrade.verified.clone()),
-        ),
+        registrars(session_program(), Some(upgrade.verified.clone())),
     );
     let (session, said) = registrar_thread(&upgrade.path);
     let (shell, shell_pidfd) = launched();
@@ -342,11 +339,7 @@ fn every_launch_is_registered_after_restarts_and_an_upgrade_of_the_image() {
     let upgrade = upgrade();
     let image = Image::new(&upgrade.machine.dir.path().join("image"));
     let kept = |program: PathBuf| registrars(program, Some(upgrade.verified.clone()));
-    let first = Run::start(
-        &upgrade.machine,
-        &upgrade.path,
-        kept(std::env::current_exe().unwrap()),
-    );
+    let first = Run::start(&upgrade.machine, &upgrade.path, kept(session_program()));
     let (session, said) = registrar_thread(&upgrade.path);
     let mut launcher = image.launcher(Arc::new(session));
     let mut pids = Vec::new();
@@ -461,7 +454,7 @@ fn the_session_never_gives_up_on_a_service_that_refuses_it_or_is_gone() {
     let taking = Run::start(
         &upgrade.machine,
         &upgrade.path,
-        registrars(std::env::current_exe().unwrap(), None),
+        registrars(session_program(), None),
     );
     wait_for("the launch registered at last", || {
         taking.registered() == [app.id() as i32]
@@ -477,10 +470,7 @@ fn what_was_kept_must_be_the_same_process_running_the_same_file() {
     let first = Run::start(
         &upgrade.machine,
         &upgrade.path,
-        registrars(
-            std::env::current_exe().unwrap(),
-            Some(upgrade.verified.clone()),
-        ),
+        registrars(session_program(), Some(upgrade.verified.clone())),
     );
     assert_eq!(
         Registrar::connect(&upgrade.path)
@@ -550,10 +540,7 @@ fn a_kept_registrar_whose_process_is_gone_is_forgotten() {
     let run = Run::start(
         &upgrade.machine,
         &upgrade.path,
-        registrars(
-            std::env::current_exe().unwrap(),
-            Some(upgrade.verified.clone()),
-        ),
+        registrars(session_program(), Some(upgrade.verified.clone())),
     );
     assert_eq!(
         Registrar::connect(&upgrade.path)

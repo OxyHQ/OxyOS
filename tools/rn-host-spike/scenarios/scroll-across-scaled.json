@@ -1,0 +1,133 @@
+{
+  "about": "scroll-across.json at a fractional scale (ADR 0018: 1.25, a 1600x1000 output): the same notches across, Shift and the wheel, the drag and the glides across, the same exact offsets and scroll events.",
+  "module": "NestedScrollProbe",
+  "window": [640, 400],
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "a notch across moves the horizontal list right at once",
+      "do": ["scroll", [430, 30, [80, 0]]],
+      "expect": {
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1,
+          "scroll@across": 1
+        },
+        "delivered": {"1": {"enter": 1, "scroll": 1}},
+        "scroll_offset": {"across": [80, 0]},
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "a notch back moves it left",
+      "do": ["scroll", [430, 30, [-40, 0]]],
+      "expect": {
+        "react": {
+          "scroll@across": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"across": [40, 0]}
+      }
+    },
+    {
+      "name": "a notch down over it moves nothing: it scrolls only across, and nothing around it scrolls",
+      "do": ["scroll", [430, 30, 40]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {}
+      }
+    },
+    {
+      "name": "Shift held",
+      "do": ["key_down", [42]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"key.press": 1}},
+        "scroll_offset": {}
+      }
+    },
+    {
+      "name": "with Shift held a notch down scrolls across, to the right, as a Mac turns a mouse's wheel",
+      "do": ["scroll", [430, 30, 40]],
+      "expect": {
+        "react": {
+          "scroll@across": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"across": [80, 0]}
+      }
+    },
+    {
+      "name": "and a notch up to the left",
+      "do": ["scroll", [430, 30, -80]],
+      "expect": {
+        "react": {
+          "scroll@across": 1
+        },
+        "delivered": {"1": {"scroll": 1}},
+        "scroll_offset": {"across": [0, 0]}
+      }
+    },
+    {
+      "name": "Shift let go",
+      "do": ["key_up", [42]],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {"1": {"key.release": 1}},
+        "scroll_offset": {}
+      }
+    },
+    {
+      "name": "fingers across drag it, resting before they lift: no fling",
+      "do": ["flick", [430, 30, [120, 0], 6, 10]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@across": 1,
+          "scroll@across": 6,
+          "scrollEndDrag@across": 1,
+          "momentumScrollBegin@across": 1,
+          "momentumScrollEnd@across": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "scroll_offset": {"across": [120, 0]}
+      }
+    },
+    {
+      "name": "a flick across glides on to Android's distance, only slowing",
+      "do": ["flick", [430, 30, [120, 0], 6, 60]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@across": 1,
+          "scroll@across": [8, 60],
+          "scrollEndDrag@across": 1,
+          "momentumScrollBegin@across": 1,
+          "momentumScrollEnd@across": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "glide": {"view": "across", "axis": "x", "velocity": [900, 1500], "frames_min": 8},
+        "scroll_offset": {"across": [506.6756591796875, 0]},
+        "scroll_times": "dispatch"
+      }
+    },
+    {
+      "name": "a flick back glides back its distance",
+      "do": ["flick", [430, 30, [-120, 0], 6, 60]],
+      "expect": {
+        "react": {
+          "scrollBeginDrag@across": 1,
+          "scroll@across": [8, 60],
+          "scrollEndDrag@across": 1,
+          "momentumScrollBegin@across": 1,
+          "momentumScrollEnd@across": 1
+        },
+        "delivered": {"1": {"scroll": 7}},
+        "glide": {"view": "across", "axis": "x", "velocity": [-1500, -900], "frames_min": 8},
+        "scroll_offset": {"across": [120, 0]},
+        "scroll_times": "dispatch"
+      }
+    }
+  ]
+}

@@ -20,6 +20,27 @@ pub(super) fn me() -> u32 {
     rustix::process::getuid().as_raw()
 }
 
+/// The program the test runs, standing for the session program. The service takes a registrar
+/// only if the file it runs is written by no group or other (the image's is root's, 0755); the
+/// linker leaves the test's binary as the developer's umask has it (0775 under 0002), so the test
+/// gives it that mode itself rather than depend on the umask. It cannot be a copy elsewhere: the
+/// registrar is this process, and the service looks at the file it runs.
+pub(super) fn session_program() -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    static PROGRAM: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    PROGRAM
+        .get_or_init(|| {
+            let program = std::env::current_exe().unwrap();
+            let mode = std::fs::metadata(&program).unwrap().permissions().mode();
+            if mode & 0o022 != 0 {
+                let mode = std::fs::Permissions::from_mode(mode & 0o7777 & !0o022);
+                std::fs::set_permissions(&program, mode).unwrap();
+            }
+            program
+        })
+        .clone()
+}
+
 /// The program the test's parent runs (cargo's test runner), standing for the login program.
 fn parent_program() -> PathBuf {
     let parent = rustix::process::getppid().expect("the test has a parent");
@@ -43,7 +64,7 @@ pub(super) fn service(api: FakeApi) -> Socket {
     let sessions = Arc::new(Sessions::new(
         machine.platform.clone(),
         Registrars {
-            program: std::env::current_exe().unwrap(),
+            program: session_program(),
             parent: parent_program(),
             owner: me(),
             verified: None,
@@ -586,7 +607,7 @@ fn the_session_program_not_started_by_the_login_program_registers_nothing() {
     let sessions = Arc::new(Sessions::new(
         machine.platform.clone(),
         Registrars {
-            program: std::env::current_exe().unwrap(),
+            program: session_program(),
             parent: PathBuf::from("/bin/sh"),
             owner: me(),
             verified: None,
