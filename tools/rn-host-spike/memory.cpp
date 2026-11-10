@@ -21,6 +21,7 @@
 #include <iostream>
 #include <map>
 #include <string>
+#include <utility>
 
 namespace oxyos {
 
@@ -131,7 +132,7 @@ void Memory::relieve(bool critical) {
   if (Report::get().enabled()) {
     folly::dynamic account = this->account();
     account["pressure"] = critical ? "critical" : "warning";
-    Report::get().memory(account);
+    Report::get().memory(std::move(account));
   }
 }
 
