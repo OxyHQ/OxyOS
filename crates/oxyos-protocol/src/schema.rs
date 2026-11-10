@@ -433,7 +433,8 @@ messages! {
         // the session did not start (the shell, the login screen, the lock screen, a client
         // claiming an id) is never ended.
         230 => ForceQuitApplication { window: u32 },
-        // Any client answers Ping `serial`, as its library does while it reads events: an
+        // Any client answers Ping `serial`, as its library does while it reads events (or the
+        // client, once it handled what came before, docs/adr/0067-the-ui-thread.mdx): an
         // application that does not answer in time is not responding (WindowState).
         231 => Pong { serial: u32 },
         // The session's shell (its `shell` grant) replaces one of the person's lists of

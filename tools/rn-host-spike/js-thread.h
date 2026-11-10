@@ -115,6 +115,8 @@ class JsThread : public facebook::react::MessageQueueThread {
   // Nothing handed over waiting, nothing running, no timer due (what the loop queued and has not
   // handed over yet is the loop's).
   bool idle() const;
+  // Whether the loop queued anything it has not handed over yet (the batch `batch()` is).
+  bool staging() const;
   // The highest rank of what the loop queued and has not handed over (Cause's: 1 and above, the
   // person's input and the compositor's events), -1 for nothing.
   int stagedRank() const;

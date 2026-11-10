@@ -153,6 +153,11 @@ bool JsThread::idle() const {
   return !due || *due > Clock::now();
 }
 
+bool JsThread::staging() const {
+  std::lock_guard lock(mutex_);
+  return !staged_.empty();
+}
+
 int JsThread::stagedRank() const {
   std::lock_guard lock(mutex_);
   int rank = -1;
