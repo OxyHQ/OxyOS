@@ -626,5 +626,17 @@ class EachThreadsDiagnostics(unittest.TestCase):
         self.assertTrue(self.check(report + [{**summary, "js_stretches": 1}]))
 
 
+class SignalSteps(unittest.TestCase):
+    def test_a_part_is_sent_a_signal_that_ends_it(self):
+        self.assertEqual(regress.director_args({"do": ["signal", ["SEGV", "reader"]]}, None),
+                         ["--signal", "SEGV", "reader"])
+        self.assertIn("signal", regress.STEP_KEYS)
+
+    def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
+        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+            with self.assertRaises(ValueError):
+                regress.director_args({"do": ["signal", value]}, None)
+
+
 if __name__ == "__main__":
     unittest.main()

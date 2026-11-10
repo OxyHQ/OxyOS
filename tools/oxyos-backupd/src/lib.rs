@@ -10,6 +10,7 @@ use oxyos_backup::policy::{self, Sources};
 use oxyos_backup::service::{self, Options, Service};
 use oxyos_backup::store::STATE_DIRECTORY;
 use oxyos_install::socket::Listener;
+use oxyos_seat::notify::{wait_readable, Notify};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -48,7 +49,7 @@ fn hostname() -> String {
 }
 
 /// Runs the service: it listens on its socket and serves until the process ends.
-pub fn run(arguments: Arguments) -> Result<(), String> {
+pub fn run(arguments: Arguments, notify: Option<Notify>) -> Result<(), String> {
     let root = rustix::process::geteuid().is_root();
     if arguments.development {
         if root {
@@ -126,6 +127,10 @@ pub fn run(arguments: Arguments) -> Result<(), String> {
         .map_err(|e| format!("the schedule cannot start: {e}"))?;
     let open = Arc::new(AtomicUsize::new(0));
     loop {
+        // The accept loop says it is alive while it waits (the unit's WatchdogSec=).
+        if let Err(e) = wait_readable(&listener, notify.as_ref()) {
+            eprintln!("oxyos-backupd: waiting for a connection: {e}");
+        }
         let connection = match listener.accept() {
             Ok(connection) => connection,
             Err(e) => {

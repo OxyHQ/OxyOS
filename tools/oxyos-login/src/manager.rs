@@ -28,19 +28,21 @@
 //!   ended (its logind session closed, the card's DRM master let go) is the person's session
 //!   opened. When that session ends (signing out), or fails to open, the login screen starts
 //!   again.
-//! - **A login screen that ends** while nobody signs in (it crashed) is started again, no sooner
-//!   than [`RESTART`] after it last started; a check it had going is abandoned.
+//! - **A login screen that ends** while nobody signs in (it crashed) is started again with the
+//!   shell's doubling wait (`oxyos_seat::restarts::Restarts`, docs/adr/0061, decision 6): at
+//!   once the first time, then after 1, 2, 4 … up to 60 s while it keeps ending within a minute
+//!   of its start, never given up on; a check it had going is abandoned. A session that ended
+//!   (signing out) brings it back at once.
 
 use oxyos_auth::greeter::Verdict;
 use oxyos_auth::{Outcome, Throttle};
+use oxyos_seat::restarts::Restarts;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 /// How long the login screen has to end once someone signed in, before it is stopped (and as
 /// long again before it is killed).
 pub const GREETER_GRACE: Duration = Duration::from_secs(5);
-/// A login screen that ended is started again no sooner than this after it last started.
-pub const RESTART: Duration = Duration::from_secs(1);
 
 /// What a worker said of a password.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,6 +142,8 @@ pub struct Manager {
     throttles: BTreeMap<(String, bool), Throttle>,
     unknown: Throttle,
     greeter_started: Option<Instant>,
+    /// The login screen's ends in a row without its having run a minute.
+    restarts: Restarts,
     /// The last online check asked: an answer to an earlier one is no answer.
     checks: u64,
 }
@@ -152,6 +156,7 @@ impl Manager {
             throttles: BTreeMap::new(),
             unknown: Throttle::default(),
             greeter_started: Some(now),
+            restarts: Restarts::default(),
             checks: 0,
         };
         (
@@ -394,18 +399,19 @@ impl Manager {
                     actions.push(Action::AbandonCheck);
                 }
                 self.state = State::Greeter { checking: None };
-                actions.push(self.restart(now));
+                let ran = self.greeter_started.map_or(Duration::ZERO, |started| {
+                    now.saturating_duration_since(started)
+                });
+                let after = self.restarts.ended(ran);
+                actions.push(self.start_greeter(now, after));
                 actions
             }
             State::Opening { .. } | State::Session { .. } => Vec::new(),
         }
     }
 
-    fn restart(&mut self, now: Instant) -> Action {
-        let after = self
-            .greeter_started
-            .map(|started| (started + RESTART).saturating_duration_since(now))
-            .unwrap_or_default();
+    /// The login screen started again `after` from `now`.
+    fn start_greeter(&mut self, now: Instant, after: Duration) -> Action {
         self.greeter_started = Some(now + after);
         Action::StartGreeter { after }
     }
@@ -461,7 +467,7 @@ impl Manager {
             // The session ended (signed out), or never opened: the login screen again.
             State::Opening { .. } | State::Session { .. } => {
                 self.state = State::Greeter { checking: None };
-                vec![self.restart(now)]
+                vec![self.start_greeter(now, Duration::ZERO)]
             }
             // The accepted worker went before its session opened: the login screen is ending,
             // and starts again once it has.
@@ -744,14 +750,14 @@ mod tests {
         let now = Instant::now();
         let (mut manager, _) = Manager::start(now);
         manager.attempt(ADA, false, true, now);
-        // Within a second of its start: started again once the second is over.
+        // The first end: started again at once.
         let soon = now + Duration::from_millis(300);
         assert_eq!(
             manager.greeter_ended(soon),
             [
                 Action::AbandonCheck,
                 Action::StartGreeter {
-                    after: Duration::from_millis(700)
+                    after: Duration::ZERO
                 }
             ]
         );
@@ -759,10 +765,57 @@ mod tests {
         // The abandoned check's answer, if it comes, signs nobody in.
         assert!(pam(&mut manager, Checked::Accepted, soon).is_empty());
         assert_eq!(manager.state(), &State::Greeter { checking: None });
-        // Later, at once.
-        let later = now + Duration::from_secs(60);
+        // Having run a minute, at once again.
+        let later = soon + Duration::from_secs(60);
         assert_eq!(
             manager.greeter_ended(later),
+            [Action::StartGreeter {
+                after: Duration::ZERO
+            }]
+        );
+    }
+
+    /// The login screen of 7 November 2026 on the ThinkPad, ending 174 times in three minutes
+    /// (PAM failing to set its user's credentials): now 0, 1, 2, 4, 8 … 60 s apart, never given
+    /// up on, and a minute's steady run starts over.
+    #[test]
+    fn a_login_screen_that_keeps_crashing_waits_ever_longer_and_is_never_given_up_on() {
+        let start = Instant::now();
+        let (mut manager, _) = Manager::start(start);
+        let mut now = start;
+        let mut starts = Vec::new();
+        for _ in 0..10 {
+            // It ends a tenth of a second after each start.
+            now += Duration::from_millis(100);
+            match manager.greeter_ended(now).as_slice() {
+                [Action::StartGreeter { after }] => {
+                    starts.push(after.as_secs());
+                    now += *after;
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(starts, [0, 1, 2, 4, 8, 16, 32, 60, 60, 60]);
+        // A run of a minute: its end is a first one again.
+        now += Duration::from_secs(60);
+        assert_eq!(
+            manager.greeter_ended(now),
+            [Action::StartGreeter {
+                after: Duration::ZERO
+            }]
+        );
+        // Signing out brings it back at once, whatever came before.
+        now += Duration::from_millis(100);
+        assert_eq!(
+            manager.greeter_ended(now),
+            [Action::StartGreeter {
+                after: Duration::from_secs(1)
+            }]
+        );
+        signed_in(&mut manager, now + Duration::from_secs(1));
+        manager.greeter_ended(now + Duration::from_secs(1));
+        assert_eq!(
+            manager.worker_ended(now + Duration::from_secs(2)),
             [Action::StartGreeter {
                 after: Duration::ZERO
             }]
