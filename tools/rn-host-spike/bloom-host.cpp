@@ -213,11 +213,6 @@ class Mounter : public SchedulerDelegate {
   // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): a commit made on the UI thread is
   // applied only at the loop's frame too.
   bool mountAtFrame = false;
-  // A scenario's forced order (focus-first, grant-first, window-focus-first): what JavaScript handed
-  // over is applied only once JavaScript is idle, after everything it ran with its commits (their
-  // passive effects among it), as the loop and JavaScript took turns: what an effect sends after its
-  // commit is handled with the mount, in the order the forced order is about.
-  bool applyWhenJavaScriptIdle = false;
   // Whether anything waits to be applied, and since when (the oldest).
   bool pending() {
     std::lock_guard lock(mutex_);
@@ -1031,8 +1026,6 @@ int main(int argc, char** argv) {
   mounter.attach(scheduler.get());
   mounter.runningBatch = [thread = js.get()] { return thread->running(); };
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
-  // Not the popups' own order, whose keyboard moves the loop holds itself.
-  mounter.applyWhenJavaScriptIdle = focusFirst || grantFirst || windowFocusFirst;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -2528,15 +2521,13 @@ int main(int argc, char** argv) {
         // What JavaScript handed over since the last turn (Mounter): its commits mounted, its view
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
         // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
-        // What JavaScript handed over is applied once JavaScript is idle, after all it ran with its
-        // commits (a layout effect's, an effect's), so a frame shows the whole of what JavaScript did,
-        // as when the two took turns; while JavaScript keeps working, once a refresh has passed since
-        // it was handed over, so a long piece of work shows at the display's pace. (A commit made on
-        // the UI thread applies it at once, behind which it is.)
-        auto handedSince = mounter.waitingSince();
-        bool applyNow = js->idle() || (!mounter.applyWhenJavaScriptIdle && handedSince &&
-                                       Clock::now() >= *handedSince + refresh.period());
-        bool pulled = applyNow && mounter.apply();
+        // What JavaScript handed over is applied as one transaction once JavaScript is idle, after all
+        // it ran with its commits (a layout effect's, an effect's, what a press set off), as Core
+        // Animation commits what a run loop's turn changed at its end: a frame shows the whole of what
+        // JavaScript did, never a step of it, as when the two took turns. What the UI thread moves
+        // meanwhile (an animation, a scroll) goes on being drawn. (A commit made on the UI thread
+        // applies the queue at once, being behind it.)
+        bool pulled = js->idle() && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
@@ -3757,10 +3748,7 @@ int main(int argc, char** argv) {
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
-          auto handedSince = mounter.applyWhenJavaScriptIdle ? std::nullopt : mounter.waitingSince();
-          std::optional<Clock::time_point> applyBy;
-          if (handedSince) applyBy = *handedSince + refresh.period();
-          for (auto due : {settleBy, applyBy, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
+          for (auto due : {settleBy, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
                            dragDrop.nextDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),

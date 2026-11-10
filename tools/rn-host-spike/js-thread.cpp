@@ -118,7 +118,8 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
 
 bool JsThread::idle() const {
   std::lock_guard lock(mutex_);
-  if (running_ || !tasks_.empty() || !staged_.empty()) return false;
+  // What the loop queued and has not handed over yet is the loop's: JavaScript is idle without it.
+  if (running_ || !tasks_.empty()) return false;
   auto due = timers_ ? timers_->next() : std::nullopt;
   return !due || *due > Clock::now();
 }

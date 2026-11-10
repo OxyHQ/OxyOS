@@ -89,7 +89,8 @@ class JsThread : public facebook::react::MessageQueueThread {
   // The batch JavaScript runs now: the last handed over (one is handed over only while the thread is
   // idle, so whatever it runs is that batch's, or set off by it).
   uint64_t running() const { return handed_.load(); }
-  // Nothing queued, nothing running, no timer due.
+  // Nothing handed over waiting, nothing running, no timer due (what the loop queued and has not
+  // handed over yet is the loop's).
   bool idle() const;
   // Waits until the thread is idle (ui-thread.h's state let go meanwhile), or until `deadline`.
   bool waitIdle(Clock::time_point deadline);
