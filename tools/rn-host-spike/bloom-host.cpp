@@ -269,6 +269,9 @@ class Mounter : public SchedulerDelegate {
   uint64_t appliedBatch() const { return appliedBatch_; }
   // What JavaScript's thread runs now, as it pulls a commit.
   std::function<uint64_t()> runningBatch;
+  // Raised as something is handed over, which the loop applies once JavaScript is idle: JavaScript's
+  // thread then wakes the loop as it settles, whenever that is.
+  std::atomic<bool>* wakeWhenIdle = nullptr;
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
   // A transaction about to be applied, its views still in the tree (a modal's last frame).
@@ -308,6 +311,7 @@ class Mounter : public SchedulerDelegate {
   };
   void queued() {
     if (queue_.empty()) queuedAt_ = std::chrono::steady_clock::now();
+    if (wakeWhenIdle) *wakeWhenIdle = true;
   }
   // Pulls every surface's transaction into the queue, then what waited for it.
   void pullLocked() {
@@ -1025,6 +1029,7 @@ int main(int argc, char** argv) {
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
   mounter.runningBatch = [thread = js.get()] { return thread->running(); };
+  mounter.wakeWhenIdle = &wakeUiWhenIdle;
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
 
   // In a window, the compositor's configure decides the size the app lays out at.
