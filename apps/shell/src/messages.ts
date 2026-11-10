@@ -67,7 +67,6 @@ const en = (f: Formats) => ({
     options: "Options",
     /** A window of an application that does not answer (docs/adr/0067-hangs-and-force-quit.mdx). */
     notRespondingTitle: (title: string) => `${title} (Not Responding)`,
-    systemSettings: "System Settings",
     showDesktops: "Show Desktops",
     searchApplications: "Search Applications",
     controlCenter: "Control Center",
@@ -87,6 +86,11 @@ const en = (f: Formats) => ({
   topBar: {
     menuBar: "Menu Bar",
     oxyMenu: "Oxy Menu",
+    /** The Oxy menu's first row, a Mac's About This Mac: the window with the computer's facts. */
+    aboutThisComputer: "About This Computer",
+    systemSettings: "System Settings…",
+    /** The App Store's row, by its name (Atlas), as a Mac's App Store…. */
+    appStore: (name: string) => `${name}…`,
     applications: "Applications",
     lockScreen: "Lock Screen",
     forceQuit: "Force Quit…",
@@ -749,7 +753,6 @@ const es = (f: Formats): Catalogue => ({
     close: "Cerrar",
     options: "Opciones",
     notRespondingTitle: (title) => `${title} (No responde)`,
-    systemSettings: "Ajustes del Sistema",
     showDesktops: "Ver escritorios",
     searchApplications: "Buscar aplicaciones",
     controlCenter: "Centro de control",
@@ -766,6 +769,9 @@ const es = (f: Formats): Catalogue => ({
   topBar: {
     menuBar: "Barra de menús",
     oxyMenu: "Menú de Oxy",
+    aboutThisComputer: "Acerca de este ordenador",
+    systemSettings: "Ajustes del Sistema…",
+    appStore: (name) => `${name}…`,
     applications: "Aplicaciones",
     lockScreen: "Bloquear pantalla",
     forceQuit: "Forzar salida…",
