@@ -1,0 +1,565 @@
+{
+  "about": "Edit › Undo and Redo of what the person did to their files, as Finder's ⌘Z and ⌘⇧Z (Dropsea's docs/adr/0002-undo.md): Facturas dragged onto Projects moves into it; Ctrl+Z puts it back in the home, selected and focused as Finder selects what an Undo brings back, the screen reader told; Ctrl+Shift+Z moves it again and Edit › Undo from the menu bar puts it back. notes.txt put in the Trash (Ctrl+Backspace) is put back where it was by Ctrl+Z, selected. notes.txt renamed ideas.txt in place gets its name back with Ctrl+Z and the new one with Ctrl+Shift+Z. Every step checks the disk and the Trash, the Edit menu's exact titles as the shell is told them (“Undo Move “Facturas””, plain and disabled with nothing to undo), the selection, what the screen reader is told and what the window was delivered.",
+  "module": "Dropsea",
+  "window": [
+    640,
+    560
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.dropsea",
+    "title": "Dropsea"
+  },
+  "home": {
+    "items": {
+      "Facturas/": "",
+      "Facturas/enero.pdf": "enero",
+      "notes.txt": "hello",
+      "plan.txt": "plan",
+      "Projects/": "",
+      "Projects/README.md": "readme"
+    }
+  },
+  "steps": [
+    {
+      "name": "the home: Facturas, notes.txt and plan.txt on the first row, Projects on the second; Edit's Undo and Redo plain and disabled, nothing done yet",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "texts": [
+          "Facturas",
+          "notes.txt",
+          "plan.txt",
+          "Projects",
+          "4 items"
+        ],
+        "menus": {
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo": {
+            "disabled": true
+          }
+        },
+        "home": {
+          "Facturas/enero.pdf": "enero",
+          "notes.txt": "hello",
+          "Projects/README.md": "readme",
+          "trash": []
+        }
+      }
+    },
+    {
+      "name": "Facturas dragged onto Projects: it moves into it, and Edit's Undo names the move",
+      "do": [
+        "drag_paced_named",
+        [
+          "Facturas",
+          "Projects",
+          20,
+          60
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Projects/Facturas/enero.pdf": "enero",
+          "Facturas": false
+        },
+        "menus": {
+          "Edit > Undo Move “Facturas”": {
+            "disabled": false
+          },
+          "Edit > Undo": null,
+          "Edit > Redo": {
+            "disabled": true
+          }
+        },
+        "delivered": {
+          "0": {
+            "drag.dropped": 1,
+            "drag.finished": 1,
+            "drag.send": 1
+          },
+          "1": {
+            "cancel": 1,
+            "drag.drop": 1,
+            "drag.enter": 1,
+            "enter": 2,
+            "leave": 1,
+            "press": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Undo (Ctrl+Z): Facturas is back in the home, selected and focused as Finder selects it, the screen reader told; Redo names the move",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Facturas/enero.pdf": "enero",
+          "Projects/Facturas": false,
+          "Projects/README.md": "readme"
+        },
+        "texts": [
+          "1 of 4 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Facturas",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "menus": {
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo Move “Facturas”": {
+            "disabled": false
+          },
+          "Edit > Redo": null
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "1 of 4 selected",
+            "live": true
+          },
+          {
+            "politeness": "assertive",
+            "text": "Undone: Move “Facturas”",
+            "live": false
+          }
+        ],
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Redo (Ctrl+Shift+Z): it moves into Projects again, out of the window",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "Projects/Facturas/enero.pdf": "enero",
+          "Facturas": false
+        },
+        "texts": [
+          "3 items"
+        ],
+        "menus": {
+          "Edit > Undo Move “Facturas”": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "3 items",
+            "live": true
+          },
+          {
+            "politeness": "assertive",
+            "text": "Redone: Move “Facturas”",
+            "live": false
+          }
+        ],
+        "delivered": {
+          "1": {
+            "key.press": 3,
+            "key.release": 3
+          }
+        }
+      }
+    },
+    {
+      "name": "Edit › Undo Move “Facturas” from the menu bar: back in the home, selected",
+      "do": [
+        "menu",
+        "Edit > Undo Move “Facturas”"
+      ],
+      "expect": {
+        "home": {
+          "Facturas/enero.pdf": "enero",
+          "Projects/Facturas": false
+        },
+        "texts": [
+          "1 of 4 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "Facturas",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "menus": {
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo Move “Facturas”": {
+            "disabled": false
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "1 of 4 selected",
+            "live": true
+          },
+          {
+            "politeness": "assertive",
+            "text": "Undone: Move “Facturas”",
+            "live": false
+          }
+        ],
+        "delivered": {
+          "1": {
+            "menu.activated": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "a press selects notes.txt",
+      "do": [
+        "press_named",
+        "notes.txt"
+      ],
+      "expect": {
+        "texts": [
+          "1 of 4 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "delivered": {
+          "1": {
+            "press": 1,
+            "release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Move to Trash (Ctrl+Backspace): notes.txt goes to the Trash; Undo names it, and the move undone can no longer be redone",
+      "do": [
+        "key",
+        [
+          29,
+          14
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": false,
+          "trash": [
+            "notes.txt"
+          ]
+        },
+        "sounds": [
+          "file-trash"
+        ],
+        "menus": {
+          "Edit > Undo Move to Trash “notes.txt”": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          }
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Undo (Ctrl+Z): notes.txt is put back where it was, the Trash empty, selected again",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": "hello",
+          "trash": []
+        },
+        "texts": [
+          "1 of 4 selected"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "menus": {
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo Move to Trash “notes.txt”": {
+            "disabled": false
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "1 of 4 selected",
+            "live": true
+          },
+          {
+            "politeness": "assertive",
+            "text": "Undone: Move to Trash “notes.txt”",
+            "live": false
+          }
+        ],
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Return renames it in place, its stem selected",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "field": {
+          "text": "notes.txt",
+          "anchor": 0,
+          "cursor": 5
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "typing replaces the stem",
+      "do": [
+        "type",
+        "ideas"
+      ],
+      "expect": {
+        "focus_input": "rename",
+        "field": {
+          "text": "ideas.txt",
+          "anchor": 5,
+          "cursor": 5
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Return keeps the name on the disk; Undo names the rename",
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": null,
+        "home": {
+          "ideas.txt": "hello",
+          "notes.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "ideas.txt",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "menus": {
+          "Edit > Undo Rename “notes.txt”": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          }
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "Undo (Ctrl+Z): its name back, selected under it",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "notes.txt": "hello",
+          "ideas.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "notes.txt",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "at_absent": {
+          "window": [
+            {
+              "name": "ideas.txt"
+            }
+          ]
+        },
+        "menus": {
+          "Edit > Undo": {
+            "disabled": true
+          },
+          "Edit > Redo Rename “notes.txt”": {
+            "disabled": false
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "assertive",
+            "text": "Undone: Rename “notes.txt”",
+            "live": false
+          }
+        ],
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "Redo (Ctrl+Shift+Z): the new name again, selected",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "home": {
+          "ideas.txt": "hello",
+          "notes.txt": false
+        },
+        "at": {
+          "window": [
+            {
+              "role": "ListItem",
+              "name": "ideas.txt",
+              "state": [
+                "selected",
+                "focused"
+              ]
+            }
+          ]
+        },
+        "menus": {
+          "Edit > Undo Rename “notes.txt”": {
+            "disabled": false
+          },
+          "Edit > Redo": {
+            "disabled": true
+          }
+        },
+        "announcements": [
+          {
+            "politeness": "assertive",
+            "text": "Redone: Rename “notes.txt”",
+            "live": false
+          }
+        ],
+        "delivered": {
+          "1": {
+            "key.press": 3,
+            "key.release": 3
+          }
+        }
+      }
+    }
+  ]
+}

@@ -6,7 +6,7 @@
 BLOOM_REPO=https://github.com/OxyHQ/Bloom.git
 BLOOM_COMMIT=688b748acbd36e233097d064a8dac8912544b307
 DROPSEA_REPO=https://github.com/OxyHQ/Dropsea.git
-DROPSEA_COMMIT=f4d92b4a7bbe26fd053fc386b933ffb0f0c8c3ec
+DROPSEA_COMMIT=d2cb8ebcda92370fd36a835fd7002efddba1499f
 ATLAS_REPO=https://github.com/OxyHQ/Atlas.git
 ATLAS_COMMIT=fc3b8217679dd9dd05f203579e49d1ddc12c2dd7
 

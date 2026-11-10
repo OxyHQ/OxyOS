@@ -608,6 +608,21 @@
       }
     },
     {
+      "name": "↓: Duplicate",
+      "do": [
+        "key",
+        108
+      ],
+      "expect": {
+        "spoken": [
+          {
+            "text": "Duplicate, menu item",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
       "name": "↓: the row of colour dots, at its first, Red",
       "do": [
         "key",

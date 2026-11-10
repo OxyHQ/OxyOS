@@ -138,7 +138,7 @@
       }
     },
     {
-      "name": "Undo (Ctrl+Z, the Edit menu's Undo Move of “notes.txt”): it is back in the home",
+      "name": "Undo (Ctrl+Z, the Edit menu's Undo Move “notes.txt”): it is back in the home",
       "do": [
         "key",
         [
