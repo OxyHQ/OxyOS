@@ -2567,6 +2567,9 @@ int main(int argc, char** argv) {
           try {
             auto value = listener->call(*rt, jsi::valueFromDynamic(*rt, offered));
             taken = value.isBool() && value.getBool();
+            // Its microtasks, as React Native's scheduler runs a task's: React schedules the render of
+            // what the key changed from one, which runs after the keys of the burst.
+            rt->drainMicrotasks();
           } catch (const jsi::JSError& error) {
             std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
           }
