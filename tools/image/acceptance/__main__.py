@@ -248,8 +248,12 @@ def system(args, run):
         cmdline = machine.run("cat /proc/cmdline")
         run.facts["cmdline"] = cmdline
         run.check("the shipped command line, plus only the test's console",
-                  "quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles" in cmdline
-                  and arguments in cmdline, cmdline)
+                  "quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles preempt=full"
+                  in cmdline and arguments in cmdline, cmdline)
+        # Full preemption in effect (docs/adr/0066-quality-of-service.mdx, decision 2): the kernel
+        # says which model PREEMPT_DYNAMIC chose as it starts.
+        preemption = machine.run("journalctl -k -b --no-pager -q | grep -m1 'Dynamic Preempt' || true")
+        run.check("the kernel preempts fully", "Dynamic Preempt: full" in preemption, preemption.strip())
         state = machine.run("systemctl is-system-running --wait", timeout=args.timeout)
         run.check("the boot finishes running, not degraded", state.strip() == "running", state.strip())
         failed = machine.run("systemctl --failed --no-legend --plain")

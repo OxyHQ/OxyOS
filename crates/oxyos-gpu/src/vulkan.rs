@@ -320,6 +320,35 @@ struct Opened {
     /// Whether it imports clients' DMA-BUFs and samples them in place (docs/adr/0031): the
     /// formats and modifiers it can, the foreign queue family, its render node.
     images: Option<import::Capabilities>,
+    queue_priority: QueuePriority,
+}
+
+/// The global priority the compositor's queue was created at (docs/adr/0066-quality-of-service.mdx,
+/// decision 2): above the applications' queues where the driver gives it, so a heavy application's
+/// GPU work does not delay composition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueuePriority {
+    /// `VK_QUEUE_GLOBAL_PRIORITY_HIGH`.
+    High,
+    /// `MEDIUM`, every queue's default: the driver refused `HIGH` (i915, xe and amdgpu give it only
+    /// to a process with `CAP_SYS_NICE`), for this reason.
+    Medium { refused: String },
+    /// The device has no global priority (`VK_KHR_global_priority`, `VK_EXT_global_priority`).
+    Unasked,
+}
+
+impl std::fmt::Display for QueuePriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QueuePriority::High => write!(f, "its queue at high priority"),
+            QueuePriority::Medium { refused } => {
+                write!(f, "its queue at medium priority (high refused: {refused})")
+            }
+            QueuePriority::Unasked => {
+                write!(f, "its queue at the default priority (no global priority)")
+            }
+        }
+    }
 }
 
 pub struct VulkanCompositor {
@@ -346,6 +375,7 @@ pub struct VulkanCompositor {
     buffers: [Option<Buffer>; 5],
     device_name: String,
     kind: DeviceKind,
+    queue_priority: QueuePriority,
     timestamp_period: f32,
     timestamp_bits: u32,
     last_gpu_ms: Option<f64>,
@@ -478,6 +508,7 @@ impl VulkanCompositor {
             buffers: [None, None, None, None, None],
             device_name: opened.name,
             kind: opened.kind,
+            queue_priority: opened.queue_priority,
             timestamp_period: opened.timestamp_period,
             timestamp_bits: opened.timestamp_bits,
             last_gpu_ms: None,
@@ -609,9 +640,6 @@ impl VulkanCompositor {
                 })
             })?;
         let priorities = [1.0];
-        let queues = [vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(family)
-            .queue_priorities(&priorities)];
         // DMA-BUF export, for output buffers a display can scan out (Linux).
         let wanted = [
             ash::khr::external_memory_fd::NAME,
@@ -669,17 +697,57 @@ impl VulkanCompositor {
                 }
             }
         }
+        // The compositor's queue above the applications' (docs/adr/0066-quality-of-service.mdx,
+        // decision 2): at global priority HIGH where the device has it, and MEDIUM, every queue's
+        // default, where the driver refuses HIGH (i915, xe and amdgpu give it only to a process
+        // with CAP_SYS_NICE, which the session does not hold).
+        let global = [
+            ash::khr::global_priority::NAME,
+            ash::ext::global_priority::NAME,
+        ]
+        .into_iter()
+        .find(|name| {
+            available
+                .iter()
+                .any(|extension| extension.extension_name_as_c_str() == Ok(*name))
+        });
+        if let Some(name) = global {
+            extensions.push(name.as_ptr());
+        }
         let mut indexing = vk::PhysicalDeviceVulkan12Features::default()
             .shader_sampled_image_array_non_uniform_indexing(true);
-        let mut info = vk::DeviceCreateInfo::default()
-            .queue_create_infos(&queues)
-            .enabled_extension_names(&extensions);
-        if images.is_some() {
-            info = info.push_next(&mut indexing);
-        }
-        // SAFETY: `physical` belongs to the instance; the create info, what it chains and the
-        // extension names (static strings) outlive the call.
-        let device = unsafe { instance.create_device(physical, &info, None) }?;
+        let mut create = |priority: Option<vk::QueueGlobalPriorityKHR>| {
+            let mut global = vk::DeviceQueueGlobalPriorityCreateInfoKHR::default()
+                .global_priority(priority.unwrap_or(vk::QueueGlobalPriorityKHR::MEDIUM));
+            let mut queue = vk::DeviceQueueCreateInfo::default()
+                .queue_family_index(family)
+                .queue_priorities(&priorities);
+            if priority.is_some() {
+                queue = queue.push_next(&mut global);
+            }
+            let queues = [queue];
+            let mut info = vk::DeviceCreateInfo::default()
+                .queue_create_infos(&queues)
+                .enabled_extension_names(&extensions);
+            if images.is_some() {
+                info = info.push_next(&mut indexing);
+            }
+            // SAFETY: `physical` belongs to the instance; the create info, what it chains and the
+            // extension names (static strings) outlive the call.
+            unsafe { instance.create_device(physical, &info, None) }
+        };
+        let (device, queue_priority) = match global {
+            Some(_) => match create(Some(vk::QueueGlobalPriorityKHR::HIGH)) {
+                Ok(device) => (device, QueuePriority::High),
+                Err(refused) => (
+                    create(Some(vk::QueueGlobalPriorityKHR::MEDIUM))?,
+                    QueuePriority::Medium {
+                        refused: format!("{refused}"),
+                    },
+                ),
+            },
+            None => (create(None)?, QueuePriority::Unasked),
+        };
         // SAFETY: the device was created with one queue in `family`; `physical` is live.
         let (queue, memory) = unsafe {
             (
@@ -704,6 +772,7 @@ impl VulkanCompositor {
             dma_buf,
             sync_file,
             images,
+            queue_priority,
         })
     }
 
@@ -824,6 +893,11 @@ impl VulkanCompositor {
 
     pub fn device_kind(&self) -> DeviceKind {
         self.kind
+    }
+
+    /// The global priority its queue was created at.
+    pub fn queue_priority(&self) -> &QueuePriority {
+        &self.queue_priority
     }
 
     /// Whether the device exports memory as DMA-BUF, so that `scanout_targets` can hand a
