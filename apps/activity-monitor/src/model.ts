@@ -408,7 +408,7 @@ export const DEFAULT_SORTS: Record<ActivityView, Sort> = {
 };
 
 /** A row's value for `key`: its name and user as text, every other column as a number or null. */
-export function valueOf(row: Row, key: ColumnKey): number | string | null {
+export function columnValue(row: Row, key: ColumnKey): number | string | null {
   if (key === "name") return row.name;
   if (key === "user") return row.kind === "interface" ? null : row.user;
   if (key === "pid" && row.kind === "process") return row.pid;
@@ -453,8 +453,8 @@ export function compareRows(a: Row, b: Row, sort: Sort, ranks?: Map<string, numb
   // Apps that no longer run (the Energy view's) go after everything that does.
   const resting = Number(a.kind === "app" && !a.running) - Number(b.kind === "app" && !b.running);
   if (resting !== 0) return resting;
-  const left = valueOf(a, sort.key);
-  const right = valueOf(b, sort.key);
+  const left = columnValue(a, sort.key);
+  const right = columnValue(b, sort.key);
   if (left === null || right === null || left === "" || right === "") {
     const missing = Number(left === null || left === "") - Number(right === null || right === "");
     if (missing !== 0) return missing;
@@ -467,7 +467,7 @@ export function compareRows(a: Row, b: Row, sort: Sort, ranks?: Map<string, numb
   }
   const byName = compareText(a.name, b.name, ranks);
   if (byName !== 0) return byName;
-  return (Number(valueOf(a, "pid")) || 0) - (Number(valueOf(b, "pid")) || 0);
+  return (Number(columnValue(a, "pid")) || 0) - (Number(columnValue(b, "pid")) || 0);
 }
 
 /** The rows sorted by `sort`, the apps among the rows by their sums and each app's processes among themselves. */
@@ -872,7 +872,7 @@ export function formatLoad(load: readonly number[], locale: string): string {
 /** The words a row's cells show for `view`'s columns. */
 export function cellTexts(row: Row, view: ActivityView, locale: string, none: string): string[] {
   return COLUMNS[view].map((key) => {
-    const value = valueOf(row, key);
+    const value = columnValue(row, key);
     switch (key) {
       case "name":
       case "user":

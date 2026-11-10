@@ -58,13 +58,19 @@ test("a locale's language is its primary subtag, English for any OxyOS does not 
   assert.equal(shellMessages("es_ES").locale, "es");
 });
 
-test("the top bar's clock follows the locale's hour cycle, Spanish as before", () => {
+test("the top bar's clock is the locale's short time, padded only where the locale pads it", () => {
   const morning = new Date(2026, 10, 2, 9, 41);
-  assert.equal(barClock(morning, "es-ES"), "lun, 2 nov 09:41");
-  assert.equal(barClock(morning, "es"), "lun, 2 nov 09:41");
+  const short = (locale: string) => new Intl.DateTimeFormat(locale, { timeStyle: "short" }).format(morning);
+  // Spanish's own short time (CLDR 48 pads it, as the session's host prints it; an older CLDR
+  // does not): whichever it is, the shell neither pads nor trims it.
+  assert.equal(barClock(morning, "es-ES"), `lun, 2 nov ${short("es-ES")}`);
+  assert.equal(barClock(morning, "es"), `lun, 2 nov ${short("es")}`);
   assert.match(barClock(morning, "en-US"), /^Mon, Nov 2 9:41\sAM$/u);
   assert.equal(barClock(morning, "en-US-u-hc-h23"), "Mon, Nov 2 09:41");
   assert.match(barClock(morning, "es-ES-u-hc-h12"), /^lun, 2 nov 9:41\sa\.\sm\.$/u);
+  // A 24-hour locale that writes the hour unpadded keeps it so; one that pads it, padded.
+  assert.equal(barClock(morning, "ja-JP").endsWith(" 9:41"), true);
+  assert.equal(barClock(morning, "en-GB"), "Mon 2 Nov 09:41");
   assert.equal(twelveHour("en-US"), true);
   assert.equal(twelveHour("es-ES"), false);
   assert.equal(twelveHour("en-GB"), false);
@@ -72,9 +78,15 @@ test("the top bar's clock follows the locale's hour cycle, Spanish as before", (
 
 test("the lock screen's date and time, the day period said but not drawn", () => {
   const morning = new Date(2026, 10, 2, 9, 41);
-  assert.equal(lockDate(morning, "es-ES"), "Lunes, 2 de noviembre");
+  // Cased as each language writes it: Spanish's days and months in lower case, as Apple's Spanish
+  // lock screen shows them; English's capitalized.
+  assert.equal(lockDate(morning, "es-ES"), "lunes, 2 de noviembre");
   assert.equal(lockDate(morning, "en-US"), "Monday, November 2");
-  assert.deepEqual(lockTime(morning, "es-ES"), { shown: "09:41", said: "09:41" });
+  assert.equal(lockDate(morning, "fr-FR"), "lundi 2 novembre");
+  const spanish = new Intl.DateTimeFormat("es-ES", { timeStyle: "short" }).format(morning);
+  assert.deepEqual(lockTime(morning, "es-ES"), { shown: spanish, said: spanish });
+  assert.deepEqual(lockTime(morning, "en-GB"), { shown: "09:41", said: "09:41" });
+  assert.deepEqual(lockTime(morning, "ja-JP"), { shown: "9:41", said: "9:41" });
   const twelve = lockTime(new Date(2026, 10, 2, 21, 5), "en-US");
   assert.equal(twelve.shown, "9:05");
   assert.match(twelve.said, /^9:05\sPM$/u);

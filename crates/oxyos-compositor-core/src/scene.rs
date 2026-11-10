@@ -1841,6 +1841,10 @@ impl Scene {
                 self.quit_reply(client, serial, quit);
                 Ok(())
             }
+            Request::SuddenTermination { enabled } => {
+                self.set_sudden_termination(client, enabled);
+                Ok(())
+            }
             Request::ChooseFiles {
                 serial,
                 surface,

@@ -211,6 +211,24 @@ class DeliveredCounts(unittest.TestCase):
         self.assertTrue(regress.counts_match({}, {}))
 
 
+class SpokenExactly(unittest.TestCase):
+    # What the reader said is the step's exactly: in order, or with `spoken_any_order` in either
+    # (two processes speaking for one input), each utterance once.
+    SAID = [{"t": 1, "text": "EE. UU.", "interrupting": False}, {"t": 2, "text": "ni", "interrupting": True}]
+
+    def test_in_order(self):
+        self.assertTrue(regress.spoken_matches(self.SAID, ["EE. UU.", {"text": "ni", "interrupting": True}]))
+        self.assertFalse(regress.spoken_matches(self.SAID, ["ni", "EE. UU."]))
+
+    def test_in_any_order_each_once(self):
+        wanted = [{"text": "ni", "interrupting": True}, {"text": "EE. UU.", "interrupting": False}]
+        self.assertTrue(regress.spoken_matches(self.SAID, wanted, any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID, ["ni", "ni"], any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID + self.SAID[:1], wanted, any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID, [{"text": "ni", "interrupting": False}, "EE. UU."],
+                                                any_order=True))
+
+
 class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
     """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""
 
@@ -490,6 +508,18 @@ class GlidesMeetInput(unittest.TestCase):
     def test_anything_after_its_momentum_ended_fails(self):
         lines, offset, ended, line = self.glide()
         self.assertTrue(self.check({}, lines + [line(ended + 20, "scroll", offset + 5)]))
+
+
+class SignalSteps(unittest.TestCase):
+    def test_a_part_is_sent_a_signal_that_ends_it(self):
+        self.assertEqual(regress.director_args({"do": ["signal", ["SEGV", "reader"]]}, None),
+                         ["--signal", "SEGV", "reader"])
+        self.assertIn("signal", regress.STEP_KEYS)
+
+    def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
+        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+            with self.assertRaises(ValueError):
+                regress.director_args({"do": ["signal", value]}, None)
 
 
 if __name__ == "__main__":

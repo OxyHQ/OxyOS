@@ -90,6 +90,11 @@ class FrameDiagnostics {
     Part previous_;
   };
 
+  // The loop waited, in the current part, for work another thread did (JavaScript's, on its own
+  // thread, js-thread.h): the wait is charged as that thread's time, measured there (`span`: its
+  // time on its CPU and preempted), the rest of the wait blocked.
+  void ranElsewhere(const ThreadSpan& span);
+
   // What started the work: the first of a frame's names it, unless something of a higher `rank`
   // follows: 0 for JavaScript running (an input or a timer may be behind it), 1 for the pointer
   // moving and other compositor events (a press comes after the motion to its place), 2 for

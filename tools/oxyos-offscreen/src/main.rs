@@ -818,12 +818,31 @@ impl Session {
         let running: Vec<String> = launcher
             .map(|launcher| launcher.running().map(|(_, l)| l.id.clone()).collect())
             .unwrap_or_default();
+        // What the session started it can end at once, as an end begins (ADR 0064, decision 10).
+        let endable: Vec<ClientId> = pids
+            .iter()
+            .filter(|(_, pid)| {
+                launcher.is_some_and(|launcher| launcher.application_of(**pid).is_some())
+            })
+            .map(|(client, _)| *client)
+            .collect();
+        ending.set_endable(endable);
         let served = ending.serve(
             &mut self.compositor,
             &mut self.settings,
             &|client| names.get(&client).cloned().unwrap_or_default(),
             &running,
         );
+        let at_once = ending.take_ended_at_once();
+        if let Some(launcher) = self.launcher.as_mut() {
+            for client in at_once {
+                if let Some(pid) = pids.get(&client) {
+                    if launcher.kill(*pid) {
+                        eprintln!("[launch] ended {pid} at once: nothing unsaved");
+                    }
+                }
+            }
+        }
         self.logged_out |= served.log_out;
         self.quit_asked |= matches!(ending.state_name(), "quitting" | "ending" | "ended");
     }
@@ -1690,6 +1709,19 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
+        // rtkit played on a run's own bus (docs/adr/0066-quality-of-service.mdx, decision 2):
+        // what the system's gives a session on a seat, given to the threads of the control group
+        // CGROUP alone (the run's), run apart with CAP_SYS_NICE by the run's wrapper
+        // (tools/rn-host-spike/played-rtkit.sh); `READY` is written once it is served. Never
+        // installed.
+        [flag, address, cgroup, ready] if flag == "--play-rtkit" => {
+            let address = address.to_str().ok_or("an address is text")?;
+            let _played = oxyos_priority::played::Played::serve(address, Path::new(cgroup))?;
+            fs::write(ready, "served\n")?;
+            loop {
+                std::thread::park();
+            }
+        }
         // The development backup service (docs/adr/0059-backups.mdx), as `oxyos-backupd
         // --development` runs it, on a run's own folders: its state, its played disks (each
         // folder of VOLUMES a disk connected), restic's cache and what it backs up; it serves
@@ -1704,7 +1736,7 @@ fn main() -> Result<()> {
                 volumes: Some(volumes.into()),
                 cache: Some(cache.into()),
                 sources: sources.iter().map(PathBuf::from).collect(),
-            })?;
+            }, None)?;
             Ok(())
         }
         _ if args.iter().any(|arg| arg == "--launch") => {

@@ -60,6 +60,7 @@ use crate::index::{Index, Question, Record, Searcher, Source, Usage, Viewer};
 use crate::indexer::{Command, Indexer};
 use crate::query::{self, Token};
 use crate::writer::{self, Status, Wake};
+use oxyos_files::places::{favourites, Favourite};
 use oxyos_files::{uri, Scope};
 use rustix::event::{poll, PollFd, PollFlags};
 use rustix::fd::{AsFd, OwnedFd};
@@ -396,6 +397,38 @@ pub fn listed_records(listed: &[Listed]) -> (Vec<Record>, Vec<Record>) {
         }
     }
     (applications, declared)
+}
+
+/// Where items are, for an answer: the home and its standard folders, read once per answer.
+struct Places {
+    home: PathBuf,
+    standard: Vec<(Favourite, PathBuf)>,
+}
+
+impl Places {
+    fn of(scope: &Scope) -> Places {
+        Places {
+            home: scope.home().to_path_buf(),
+            standard: favourites(scope),
+        }
+    }
+
+    /// The standard folder (Documents, Pictures…) a file's folder is in, by its key, and the
+    /// folders below it: what a person reads in their language (`place`, decision 7), as Finder
+    /// shows the home's folders by their localized names whatever they are called on disk.
+    fn place(&self, path: &Path) -> Option<(&'static str, Vec<String>)> {
+        let parent = path.parent()?;
+        self.standard.iter().find_map(|(favourite, folder)| {
+            let within = parent.strip_prefix(folder).ok()?;
+            Some((
+                favourite.key(),
+                within
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect(),
+            ))
+        })
+    }
 }
 
 /// Where a file is, as a person reads it: its folder's path from the home (`Documents › Work`),
@@ -897,9 +930,10 @@ impl Service {
         let language = language
             .or_else(|| self.languages.first().cloned())
             .unwrap_or_default();
+        let places = Places::of(&self.scope);
         let items: Vec<Value> = records
             .iter()
-            .map(|record| self.item(record, &language, &home, None))
+            .map(|record| self.item(record, &language, &places, None))
             .collect();
         json!({"results": {
             "items": items,
@@ -909,7 +943,13 @@ impl Service {
     }
 
     /// An item as an answer gives it (decision 7), with its snippet if it has one.
-    fn item(&self, record: &Record, language: &str, home: &Path, snippet: Option<String>) -> Value {
+    fn item(
+        &self,
+        record: &Record,
+        language: &str,
+        places: &Places,
+        snippet: Option<String>,
+    ) -> Value {
         let mut item = serde_json::Map::new();
         item.insert("id".into(), json!(record.id));
         item.insert("category".into(), json!(record.category.name()));
@@ -919,8 +959,11 @@ impl Service {
                 "uri".into(),
                 json!(uri::of(path, record.category == Category::Folder)),
             );
-            if let Some(location) = location(path, home) {
+            if let Some(location) = location(path, &places.home) {
                 item.insert("location".into(), json!(location));
+            }
+            if let Some((key, within)) = places.place(path) {
+                item.insert("place".into(), json!({"key": key, "within": within}));
             }
         }
         if let Some(snippet) = snippet {
@@ -1032,7 +1075,7 @@ impl Service {
                 (Vec::new(), None)
             }
         };
-        let home = self.scope.home().to_path_buf();
+        let places = Places::of(&self.scope);
         let items: Vec<Value> = found
             .iter()
             .enumerate()
@@ -1043,7 +1086,7 @@ impl Service {
                     .as_ref()
                     .filter(|_| at < SNIPPETS && parsed.has_text())
                     .and_then(|path| snippet_of(path, record, &parsed));
-                self.item(record, &language, &home, snippet)
+                self.item(record, &language, &places, snippet)
             })
             .collect();
         let top_hit = top.map(|at| found[at].record.id.clone());

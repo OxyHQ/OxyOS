@@ -1,0 +1,144 @@
+{
+  "about": "The screen reader started again when it crashes (docs/adr/0014-screen-reader.mdx, amended; docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6): a blind person is never left in silence. Allo (sample/EditingProbe.tsx) with the shell and the session's reader on. SIGABRT to the reader (a crash: abort(), as a failed assertion or a corrupted heap ends a program): it is started again at once and says it is on, then the field Allo focuses, as VoiceOver says what has focus as it starts, Allo receiving nothing and keeping the keyboard, its report written; again within a minute: nothing for a second (the shell's doubling wait, never a loop), then it is back; turned off with Super+F5, nothing starts it again. At 1 (1280 × 720).",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "reader": {},
+  "steps": [
+    {
+      "name": "Allo's window with the shell; the screen reader on: it says so as the session starts",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "announcements": []
+      }
+    },
+    {
+      "name": "Allo's line field pressed: Allo has the keyboard",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "announcements": []
+      }
+    },
+    {
+      "name": "The screen reader crashes (SIGABRT): started again at once, and it says so, then the field Allo focuses; Allo receives nothing and keeps the keyboard; its report written as the shell's",
+      "do": [
+        "signal",
+        [
+          "ABRT",
+          "reader"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "announcements": [],
+        "crash_reports": [
+          {
+            "application": "so.oxy.reader",
+            "contains": [
+              "signal 6 (SIGABRT)"
+            ]
+          }
+        ],
+        "spoken": [
+          {
+            "text": "Screen reader on",
+            "interrupting": true
+          },
+          {
+            "text": "Line, text field",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "It crashes again within a minute: not started again at once, never in a loop",
+      "do": [
+        "signal",
+        [
+          "ABRT",
+          "reader"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [],
+        "delivered": {},
+        "announcements": []
+      }
+    },
+    {
+      "name": "A second later it is back, and says so, then the field Allo focuses",
+      "do": [
+        "wait",
+        1200
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "delivered": {},
+        "announcements": [],
+        "spoken": [
+          {
+            "text": "Screen reader on",
+            "interrupting": true
+          },
+          {
+            "text": "Line, text field",
+            "interrupting": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "Super+F5: the person turns it off",
+      "do": [
+        "strokes",
+        [
+          [
+            125,
+            63
+          ]
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Turned off, nothing starts it again",
+      "do": [
+        "wait",
+        2500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "spoken": [],
+        "delivered": {},
+        "announcements": []
+      }
+    }
+  ],
+  "home": {
+    "items": {
+      "notes.txt": "keep me"
+    }
+  }
+}

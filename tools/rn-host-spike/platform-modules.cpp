@@ -219,6 +219,16 @@ class ApplicationModule : public NativeOxyOSApplicationCxxSpec<ApplicationModule
     if (services_.quit.handles) services_.quit.handles(handles);
   }
 
+  // Sudden Termination (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10), as a
+  // Mac's NSProcessInfo counter: held while the application has unsaved work, so the session asks it
+  // to quit instead of ending it at once; each disable is matched by an enable.
+  void disableSuddenTermination(jsi::Runtime&) {
+    if (services_.quit.holdSuddenTermination) services_.quit.holdSuddenTermination(1);
+  }
+  void enableSuddenTermination(jsi::Runtime&) {
+    if (services_.quit.holdSuddenTermination) services_.quit.holdSuddenTermination(-1);
+  }
+
   // The application's answer to the request `serial`; whether it was sent. Answering quit ends the
   // host, as a close request does, background activity or not.
   bool replyToQuit(jsi::Runtime&, double serial, bool quit) {

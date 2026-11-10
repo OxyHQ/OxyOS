@@ -39,8 +39,8 @@ LAYERS = {
     "system": (
         "oxyos-app-storage", "oxyos-apps", "oxyos-audio", "oxyos-auth", "oxyos-dmabuf",
         "oxyos-gpu", "oxyos-gpu-device", "oxyos-image", "oxyos-input", "oxyos-input-methods",
-        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-seat", "oxyos-seqpacket", "oxyos-sound",
-        "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
+        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-priority", "oxyos-seat", "oxyos-seqpacket",
+        "oxyos-sound", "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
     ),
     "service": (
         "oxyos-account", "oxyos-activity", "oxyos-backup", "oxyos-bluetooth", "oxyos-controls",

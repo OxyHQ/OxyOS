@@ -87,7 +87,7 @@
       "do": ["a11y-action", ["select:5-7", "Nota"]],
       "expect": {
         "focus_input": "note",
-        "react": {"focus@note": 1, "selectionChange@note": 2},
+        "react": {"focus@note": 1, "selectionChange@note": 1},
         "at": {"window": [{"role": "TextInput", "name": "Nota", "value": "hola ñandú", "actions": ["select"], "selection": [5, 7]}]}
       }
     },
