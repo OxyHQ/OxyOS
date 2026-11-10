@@ -89,7 +89,7 @@ def main():
             if job["status"] == "in_progress" and job["started_at"]:
                 jobs.append((run, job))
     newest = {}
-    for run, job in jobs:
+    for _run, job in jobs:
         name = job.get("runner_name")
         if name and (name not in newest or when(job["started_at"]) > newest[name]):
             newest[name] = when(job["started_at"])

@@ -137,6 +137,11 @@ jobs:
       - run: python3 scripts/check-native-boundary.py
       # The boundary script's crate layers on graphs written by hand (docs/native-architecture.mdx).
       - run: python3 scripts/test_check_native_boundary.py
+      # The Python (ruff.toml: pyflakes, syntax errors, bugbear; lint only), once: the same files on
+      # either architecture.
+      - name: Ruff
+        if: matrix.runner == 'ubuntu-latest'
+        run: pipx run ruff==0.17.4 check .
       # regress.py's own checks (the input-delivery invariant) on records written by hand.
       - run: python3 tools/rn-host-spike/test_regress.py
       # The scenario gate's builds below every gate's scenarios (tools/gate/run-scenarios.sh).
