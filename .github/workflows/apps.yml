@@ -1,0 +1,56 @@
+name: Applications
+
+# The applications' TypeScript (apps/*, the platform API in tools/rn-host-spike/sample/oxyos/platform,
+# tools/shell-preview): type-checked, their unit tests run, and the browser preview built. Every pull
+# request and every merge queue entry, with no path filter: its job is a required check of main
+# (docs/developing.mdx), so it reports whatever a change touches. Nothing here builds or publishes an
+# image.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apps-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: tools/shell-preview
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node as tools/dev/pins says (what tools/dev/bootstrap installs), and pnpm as the preview's
+      # package.json says (packageManager), whose lockfile it installs.
+      - id: pins
+        working-directory: .
+        run: |
+          . tools/dev/pins
+          echo "node=$NODE_VERSION" >> "$GITHUB_OUTPUT"
+          python3 -c 'import json; print("pnpm=" + json.load(open("tools/shell-preview/package.json"))["packageManager"].split("@")[1])' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ steps.pins.outputs.node }}
+      - run: npm install --global pnpm@${{ steps.pins.outputs.pnpm }}
+      - id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      # pnpm's store between runs, keyed on the lockfile: an unchanged lockfile installs offline.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ runner.arch }}-node${{ steps.pins.outputs.node }}-${{ hashFiles('tools/shell-preview/pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-${{ runner.arch }}-node${{ steps.pins.outputs.node }}-
+      - run: pnpm install --frozen-lockfile
+      # tsconfig.json includes every apps/*/src and apps/*/tests and the platform API's sources,
+      # specs and tests; `pnpm test` runs every apps/*/tests/*.test.ts and the platform API's tests.
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
