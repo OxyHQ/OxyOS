@@ -96,7 +96,7 @@ test("the sheets speak the locale's language, and their sizes its digits", () =>
   const es = shellMessages("es-ES");
   const en = shellMessages("en-US");
   assert.equal(sheetView({ kind: "empty-trash", items: 3 }, es).body, "Se eliminarán 3 ítems. No puedes deshacer esta acción.");
-  assert.equal(sheetView({ kind: "empty-trash", items: 3 }, en).body, "3 items will be erased. You can't undo this action.");
+  assert.equal(sheetView({ kind: "empty-trash", items: 3 }, en).body, "3 items will be erased. You can’t undo this action.");
   assert.equal(sheetView({ kind: "empty-trash", items: 1 }, es).title, "¿Seguro que quieres eliminar permanentemente los ítems de la Papelera?");
   assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, en).accept, "OK");
   assert.equal(size(1_500_000, es), "1,5 MB");
@@ -143,7 +143,7 @@ test("the dock's menus in English are a Mac's", () => {
   );
   assert.deepEqual(
     trashMenu(2, true, en).map((entry) => entry.label),
-    ["Open", "Empty Trash"],
+    ["Open", "Empty Trash…"],
   );
 });
 

@@ -202,6 +202,6 @@ test("counts through Intl.PluralRules, worded as before", () => {
   assert.equal(es.lockScreen.minutes(30), "30 minutos");
   assert.equal(es.lockScreen.minutes(60), "1 hora");
   assert.equal(en.displays.keepDescription(15), "The display goes back to its previous settings in 15 seconds.");
-  assert.equal(es.displays.keepDescription(1), "La pantalla vuelve a su configuración anterior en 1 segundo.");
-  assert.equal(es.displays.keepDescription(0), "La pantalla vuelve a su configuración anterior en 0 segundos.");
+  assert.equal(es.displays.keepDescription(1), "La pantalla vuelve a sus ajustes anteriores en 1 segundo.");
+  assert.equal(es.displays.keepDescription(0), "La pantalla vuelve a sus ajustes anteriores en 0 segundos.");
 });
