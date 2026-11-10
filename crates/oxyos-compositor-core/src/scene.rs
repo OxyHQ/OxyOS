@@ -513,6 +513,9 @@ pub struct Scene {
     /// How recently each window was active, and the windows hidden with their application.
     applications: shortcuts::Applications,
     events: Vec<(ClientId, Event)>,
+    /// How each application client is presented, as last told (`AppVisibility`,
+    /// docs/adr/0066-quality-of-service.mdx, decision 5), whatever its version.
+    presented: BTreeMap<ClientId, oxyos_protocol::Visibility>,
     buffers: BTreeMap<(ClientId, u64), BufferEntry>,
     /// Buffers no consumer will read again and the client cannot reuse: the backend may drop
     /// their memory and file descriptors.
@@ -5150,6 +5153,8 @@ impl Scene {
         self.tell_displays();
         // Then the active window's menus, once it knows the window (ADR 0021).
         self.tell_menu_bar();
+        // Each application, how it is presented, where that changed (ADR 0066).
+        self.tell_presences();
         std::mem::take(&mut self.events)
     }
 

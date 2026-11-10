@@ -22,11 +22,16 @@
 //!   ← "registered" | {"refused": {"reason"}}
 //!   → {"check": {"password", "local": "accepted" | "rejected"}}          the lock's online check
 //!   ← {"checked": {"result", "reason"?}}                                  for its own account
+//!   → {"memoryClaim": {"bytes": 314572800}}                    what app.slice protects, as it changes
+//!   ← "accepted"
 //!   ```
 //!
 //!   Accepted, its account's keychain is unlocked with that password; the registrar also asks
 //!   AutoFill's requests and locks the keychain when the session locks (`crate::keychain`). The
-//!   session's last registrar connection closed, its keychain locks.
+//!   session's last registrar connection closed, its keychain locks. Its memory claim (the
+//!   protection its applications' slice holds) is handed to whoever the service names
+//!   ([`Sessions::with_memory_claims`]: the seat's slices, docs/adr/0066-quality-of-service.mdx
+//!   decision 8), and ends with its connection.
 //!
 //!   A registration lives while its process does (the service watches the pidfd) and while the
 //!   registrar's connection stays open: the session keeps one for its life, and closing it drops
@@ -159,6 +164,13 @@ pub enum Request {
     Check {
         password: Secret,
         local: Local,
+    },
+    /// The memory the session's applications claim (bytes): what its user manager's `app.slice`
+    /// protects, which the service carries up the slices above it while the session holds the
+    /// seat (docs/adr/0066-quality-of-service.mdx, decision 8). Answered `"accepted"`; the
+    /// registrar's alone.
+    MemoryClaim {
+        bytes: u64,
     },
     Snapshot,
     Subscribe,
@@ -688,8 +700,23 @@ pub enum Kind {
 }
 
 /// The session socket's side of the service.
+/// A session's memory claim as the service is told it ([`Request::MemoryClaim`]): the registrar's
+/// user, the registrar's connection (one per session), and the bytes, `None` once the connection
+/// ended (the session is gone, and its claim with it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MemoryClaim {
+    pub uid: u32,
+    pub registrar: u64,
+    pub bytes: Option<u64>,
+}
+
+/// Who is told the sessions' memory claims ([`Sessions::with_memory_claims`]).
+pub type MemoryClaims = Box<dyn Fn(MemoryClaim) + Send + Sync>;
+
 pub struct Sessions<A, U> {
     platform: Arc<Platform<A, U>>,
+    /// Told each session's memory claim, and its end.
+    memory_claims: Option<MemoryClaims>,
     eraser: Eraser,
     registrars: Registrars,
     registrations: Mutex<Vec<Arc<Registration>>>,
@@ -818,6 +845,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
     pub fn new(platform: Arc<Platform<A, U>>, registrars: Registrars, eraser: Eraser) -> Self {
         Self {
             platform,
+            memory_claims: None,
             eraser,
             registrars,
             registrations: Mutex::new(Vec::new()),
@@ -826,6 +854,19 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
             next: AtomicU64::new(1),
             saves: Saves::default(),
             save_wait: AtomicU64::new(SAVE_WAIT.as_millis() as u64),
+        }
+    }
+
+    /// `told` is told each session's memory claim as its registrar says it, and the claim's end as
+    /// its connection ends; without it a claim is accepted and goes nowhere.
+    pub fn with_memory_claims(mut self, told: MemoryClaims) -> Self {
+        self.memory_claims = Some(told);
+        self
+    }
+
+    fn memory_claim(&self, claim: MemoryClaim) {
+        if let Some(told) = &self.memory_claims {
+            told(claim);
         }
     }
 
@@ -916,6 +957,12 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                 }
                 let served = self.serve_registrar(connection, id, &enrollment, pid, &mut log);
                 self.drop_registrar(id);
+                // Its claim ends with it.
+                self.memory_claim(MemoryClaim {
+                    uid,
+                    registrar: id,
+                    bytes: None,
+                });
                 self.release_registrar(uid);
                 // The session's last connection gone, its keychain locks (ADR 0050 decision 2).
                 if let Some(keychains) = self.platform.keychains() {
@@ -1067,6 +1114,14 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Sessio
                     continue;
                 }
                 // The session's prompts connection: from now on, the passkey sheets to show.
+                Some(Request::MemoryClaim { bytes }) => {
+                    self.memory_claim(MemoryClaim {
+                        uid: enrollment.uid,
+                        registrar: id,
+                        bytes: Some(bytes),
+                    });
+                    Answer::Accepted
+                }
                 Some(Request::PasskeyPrompts {}) => {
                     let Some(keychains) = self.platform.keychains() else {
                         connection.send(&Answer::refused(Reason::Locked))?;
@@ -1749,6 +1804,20 @@ impl Registrar {
         }
     }
 
+    /// Tells the service the memory the session's applications claim.
+    pub fn memory_claim(&self, bytes: u64) -> io::Result<Result<(), Reason>> {
+        self.connection.send(&Request::MemoryClaim { bytes })?;
+        match self.connection.receive::<Answer>()? {
+            Some(Some(Answer::Accepted)) => Ok(Ok(())),
+            Some(Some(Answer::Refused { reason, .. })) => Ok(Err(reason)),
+            Some(_) => Err(io::Error::new(io::ErrorKind::InvalidData, "not an answer")),
+            None => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the service closed the connection",
+            )),
+        }
+    }
+
     /// Locks the session's keychain (the session locked).
     pub fn keychain_lock(&self) -> io::Result<Result<(), Reason>> {
         self.connection.send(&Request::KeychainLock {})?;
@@ -1821,6 +1890,8 @@ enum Job {
     Register(String, bool, OwnedFd),
     /// The session locked: its keychain locks too (ADR 0050 decision 2).
     KeychainLock,
+    /// The memory the session's applications claim now.
+    MemoryClaim(u64),
 }
 
 /// The longest wait before connecting again to a service that is not there.
@@ -1874,6 +1945,13 @@ impl RegistrarThread {
         self.send(Job::KeychainLock);
     }
 
+    /// Tells the service the memory the session's applications claim (`app.slice`'s protection),
+    /// never waiting: sent at once while connected, and the latest again each time the session
+    /// connects (a service started again knows nothing of it).
+    pub fn memory_claim(&self, bytes: u64) {
+        self.send(Job::MemoryClaim(bytes));
+    }
+
     fn send(&self, job: Job) {
         if self.launches.send(job).is_ok() {
             use std::io::Write;
@@ -1887,6 +1965,7 @@ impl RegistrarThread {
 fn reconnect(
     socket: &Path,
     live: &[(String, bool, OwnedFd)],
+    claim: Option<u64>,
     log: &dyn Fn(&str),
 ) -> Result<Registrar, Outage> {
     let registrar = Registrar::connect(socket)
@@ -1905,6 +1984,13 @@ fn reconnect(
             return Err(Outage::Unreachable(format!(
                 "the connection ended registering {id}"
             )));
+        }
+    }
+    if let Some(bytes) = claim {
+        if !claim_memory(&registrar, bytes, log) {
+            return Err(Outage::Unreachable(
+                "the connection ended telling the memory claim".into(),
+            ));
         }
     }
     Ok(registrar)
@@ -1973,6 +2059,8 @@ fn registrar_thread(
     use std::io::Read;
     use std::time::Instant;
     let mut live: Vec<(String, bool, OwnedFd)> = Vec::new();
+    // The applications' memory claim, as last told: told again on every new connection.
+    let mut claim: Option<u64> = None;
     let mut registrar: Option<Registrar> = None;
     let mut state = Connecting {
         retry: None,
@@ -2038,6 +2126,16 @@ fn registrar_thread(
                         }
                         continue;
                     }
+                    Job::MemoryClaim(bytes) => {
+                        claim = Some(bytes);
+                        if let Some(connected) = &registrar {
+                            if !claim_memory(connected, bytes, log) {
+                                registrar = None;
+                                state.lost(log);
+                            }
+                        }
+                        continue;
+                    }
                 };
                 if let Some(connected) = &registrar {
                     if !register_one(connected, &id, system, &pidfd, log) {
@@ -2052,7 +2150,7 @@ fn registrar_thread(
         // Not connected: a launch is a time to try again, as is the wait's end.
         let due = state.retry.is_some_and(|(at, _)| Instant::now() >= at);
         if registrar.is_none() && (launched || due || state.retry.is_none() && woke) {
-            match reconnect(socket, &live, log) {
+            match reconnect(socket, &live, claim, log) {
                 Ok(connected) => {
                     state.connected(live.len(), log);
                     registrar = Some(connected);
@@ -2074,6 +2172,22 @@ fn lock_keychain(registrar: &Registrar, log: &dyn Fn(&str)) -> bool {
         }
         Err(error) => {
             log(&format!("locking the keychain: {error}"));
+            false
+        }
+    }
+}
+
+/// Tells the memory claim; false if the connection failed (the service went). A service that does
+/// not take claims (an older one) refuses it: said, and the session goes on.
+fn claim_memory(registrar: &Registrar, bytes: u64, log: &dyn Fn(&str)) -> bool {
+    match registrar.memory_claim(bytes) {
+        Ok(Ok(())) => true,
+        Ok(Err(reason)) => {
+            log(&format!("the memory claim was not taken: {reason:?}"));
+            true
+        }
+        Err(error) => {
+            log(&format!("telling the memory claim: {error}"));
             false
         }
     }

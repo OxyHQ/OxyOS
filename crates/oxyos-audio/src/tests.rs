@@ -1,4 +1,6 @@
-use super::graph::{Availability, DeviceObject, Graph, Node, Props, Route, Target, Volumes};
+use super::graph::{
+    Availability, DeviceObject, Graph, Node, Props, Route, Stream, Target, Volumes,
+};
 use super::*;
 use pipewire::spa;
 
@@ -758,4 +760,43 @@ fn the_state_is_told_as_the_shell_and_settings_read_it() {
     assert_eq!(json["output"]["volume"], 0.5);
     assert_eq!(json["input"]["balance"], serde_json::Value::Null);
     assert_eq!(json["input"]["devices"][0]["transport"], "builtIn");
+}
+
+#[test]
+fn the_processes_heard_are_those_whose_output_streams_run() {
+    let mut graph = thinkpad();
+    graph.streams.insert(
+        90,
+        Stream {
+            pid: Some(4242),
+            running: true,
+        },
+    );
+    // Paused (idle), or of no known process: not heard.
+    graph.streams.insert(
+        91,
+        Stream {
+            pid: Some(4243),
+            running: false,
+        },
+    );
+    graph.streams.insert(
+        92,
+        Stream {
+            pid: None,
+            running: true,
+        },
+    );
+    let state = graph.state(1);
+    assert_eq!(state.audible, std::collections::BTreeSet::from([4242]));
+    // Settings is not told who plays.
+    assert!(serde_json::to_value(&state)
+        .unwrap()
+        .get("audible")
+        .is_none());
+    // Nor are streams devices.
+    assert_eq!(
+        state.output.devices.len(),
+        thinkpad().state(1).output.devices.len()
+    );
 }

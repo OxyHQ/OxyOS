@@ -10,9 +10,18 @@ oxyos-account = { path = "../../crates/oxyos-account" }
 # The administrator's password that authorizes erasing the machine, checked by PAM and throttled as
 # the lock checks one (src/passwords.rs).
 oxyos-auth = { path = "../../crates/oxyos-auth" }
-rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+# The machine's memory (sysinfo), which caps the seat's applications' claim (src/seat.rs).
+rustix = { version = "1.1.6", default-features = false, features = ["std", "process", "system"] }
 # The PIN read from PAM, overwritten once handed on (oxyos-pin-check).
 zeroize = "1"
+# The person at the seat (src/seat.rs): logind's seat and systemd's slices over the system bus, in
+# safe Rust, its executor and signals waited on with futures-lite's block_on (oxyos-seat's
+# `system_bus`, as every kept connection of OxyOS makes it).
+zbus = "5"
+futures-lite = "2"
+# The sessions' memory claims handed to the seat's thread, which waits on them beside the bus.
+async-channel = "2"
+oxyos-seat = { path = "../../crates/oxyos-seat" }
 
 [lints]
 workspace = true

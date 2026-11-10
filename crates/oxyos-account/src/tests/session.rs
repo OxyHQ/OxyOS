@@ -8,7 +8,10 @@ use super::platform::{machine_as, Machine};
 use super::*;
 use crate::pidfd;
 use crate::platform::{Checked, Local, Status};
-use crate::session::{Answer, Reason, Registrar, RegistrarThread, Registrars, Request, Sessions};
+use crate::session::{
+    Answer, MemoryClaim, MemoryClaims, Reason, Registrar, RegistrarThread, Registrars, Request,
+    Sessions,
+};
 use rustix::fd::AsFd;
 use std::io::{BufRead, BufReader, Write as _};
 use std::path::PathBuf;
@@ -57,11 +60,16 @@ pub(super) struct Socket {
 /// A service whose session socket serves every connection on a thread of its own, Ada enrolled
 /// as this test's user (and so the machine's administrator).
 pub(super) fn service(api: FakeApi) -> Socket {
+    service_with(api, None)
+}
+
+/// The same, the sessions' memory claims told to `claims`.
+fn service_with(api: FakeApi, claims: Option<MemoryClaims>) -> Socket {
     let machine = machine_as(api, PASSWORD, Some(me()));
     let path = machine.dir.path().join("session");
     let listener = crate::ipc::Listener::bind(&path).unwrap();
     let system = Arc::new(FakeSystem::default());
-    let sessions = Arc::new(Sessions::new(
+    let mut sessions = Sessions::new(
         machine.platform.clone(),
         Registrars {
             program: session_program(),
@@ -70,7 +78,11 @@ pub(super) fn service(api: FakeApi) -> Socket {
             verified: None,
         },
         eraser(&system, &Arc::new(FakePasswords::default())),
-    ));
+    );
+    if let Some(claims) = claims {
+        sessions = sessions.with_memory_claims(claims);
+    }
+    let sessions = Arc::new(sessions);
     let serving = sessions.clone();
     std::thread::spawn(move || loop {
         let Ok(connection) = listener.accept() else {
@@ -713,6 +725,63 @@ fn the_session_registers_on_a_thread_and_never_waits_for_the_service() {
 }
 
 #[test]
+fn a_sessions_memory_claim_is_handed_over_and_ends_with_its_connection() {
+    let told: Arc<std::sync::Mutex<Vec<MemoryClaim>>> = Arc::default();
+    let seen = told.clone();
+    let socket = service_with(
+        FakeApi::default(),
+        Some(Box::new(move |claim| seen.lock().unwrap().push(claim))),
+    );
+    let registrar = Registrar::connect(&socket.path).unwrap();
+    registrar.memory_claim(300 << 20).unwrap().unwrap();
+    registrar.memory_claim(0).unwrap().unwrap();
+    drop(registrar);
+    wait_for("the claim's end", || told.lock().unwrap().len() == 3);
+    let claims = told.lock().unwrap().clone();
+    let bytes: Vec<Option<u64>> = claims.iter().map(|claim| claim.bytes).collect();
+    assert_eq!(bytes, vec![Some(300 << 20), Some(0), None]);
+    assert!(claims.iter().all(|claim| claim.uid == me()));
+    assert!(claims
+        .iter()
+        .all(|claim| claim.registrar == claims[0].registrar));
+    told.lock().unwrap().clear();
+    // The session's registrar thread: told at once, never waiting; and told again on the
+    // connection it makes once the service is back (a new registrar connection).
+    let thread = RegistrarThread::spawn(socket.path.clone(), |said| {
+        panic!("the registrar said: {said}")
+    })
+    .unwrap();
+    let started = Instant::now();
+    thread.memory_claim(64 << 20);
+    assert!(started.elapsed() < Duration::from_millis(100));
+    wait_for("the thread's claim told", || {
+        told.lock()
+            .unwrap()
+            .iter()
+            .any(|claim| claim.bytes == Some(64 << 20))
+    });
+    // An application, registered, may not claim: only the session's registrar carries the seat's
+    // claim.
+    let registrar = Registrar::connect(&socket.path).unwrap();
+    let mut app = Application::start(
+        &socket,
+        serde_json::json!([{"send": {"memoryClaim": {"bytes": 1u64 << 40}}}]),
+    );
+    registrar
+        .register("so.oxy.dropsea", false, app.pidfd().as_fd())
+        .unwrap()
+        .unwrap();
+    app.go();
+    assert_eq!(app.line(), not_permitted());
+    app.end();
+    assert!(told
+        .lock()
+        .unwrap()
+        .iter()
+        .all(|claim| claim.bytes != Some(1 << 40)));
+}
+
+#[test]
 fn the_wire_format_is_the_documented_one() {
     let register: Request =
         serde_json::from_str(r#"{"register":{"desktopEntryId":"so.oxy.dropsea","system":true}}"#)
@@ -726,6 +795,7 @@ fn the_wire_format_is_the_documented_one() {
         (r#"{"eraseAll":{"password":"p"}}"#, "EraseAll"),
         (r#"{"token":{"reason":"response-401"}}"#, "Response401"),
         (r#"{"check":{"password":"p","local":"accepted"}}"#, "Check"),
+        (r#"{"memoryClaim":{"bytes":314572800}}"#, "MemoryClaim"),
     ] {
         let request: Request = serde_json::from_str(text).unwrap();
         assert!(format!("{request:?}").contains(expected), "{text}");

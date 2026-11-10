@@ -2701,6 +2701,7 @@ fn serve_session(session: &mut Session) -> Result<()> {
     session.serve_launches();
     session.serve_installs();
     session.serve_background();
+    session.serve_naps();
     session.serve_preferences();
     if let Some(memory_pressure) = session.memory_pressure.as_mut() {
         memory_pressure.serve(&mut session.compositor.scene);
@@ -2911,6 +2912,7 @@ fn settle(
         session.serve_launches();
         session.serve_installs();
         session.serve_background();
+        session.serve_naps();
         session.serve_preferences();
         if let Some(memory_pressure) = session.memory_pressure.as_mut() {
             memory_pressure.serve(&mut session.compositor.scene);
@@ -5819,6 +5821,19 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     {
         let mut command = Command::new(std::env::current_exe()?);
         command.arg("--search-service");
+        // In the benchmark's background.slice, as a session runs it (ADR 0066, decision 3).
+        let command = fixture_scoping()
+            .and_then(|scoping| {
+                scoping
+                    .wrap(
+                        &command,
+                        oxyos_apps::ScopeKind::Background,
+                        "search",
+                        "Spotlight's index",
+                    )
+                    .ok()
+            })
+            .unwrap_or(command);
         let mut search = oxyos_compositor::search::Search::new(command, false)?;
         search.set_locale(&session.settings.locale());
         search.list_applications(oxyos_apps::Listing::read(session.installed_fixture.clone()));
@@ -6142,6 +6157,14 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             .with_crash_reports(session.directory().join("reports"))?,
         );
     }
+    // Each application the launcher starts in a scope of its own in the saturation benchmark's
+    // control group, as a session places them (docs/adr/0066-quality-of-service.mdx, decision 3).
+    if let Some(scoping) = fixture_scoping() {
+        session.launcher = session
+            .launcher
+            .take()
+            .map(|launcher| launcher.with_scopes(scoping));
+    }
     if let Some(password) = &launch.lock_password {
         session.compositor.authentication = Some(Box::new(
             crate::lock::Fixture::new(password.clone())?.with_pin(launch.lock_pin.clone()),
@@ -6392,6 +6415,26 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         // applications list the install service's (ADR 0030, decision 7): Settings names them.
         if let Some(root) = &session.installed_fixture {
             application.env("OXYOS_INSTALLED_FIXTURE", root);
+        }
+        // In a scope of its own in the saturation benchmark's control group, named for the id the
+        // scenario gives it (else its program's), as a session's launcher places it (ADR 0066,
+        // decision 3).
+        if let Some(scoping) = fixture_scoping() {
+            let id = std::env::var("OXYOS_APP_ID").unwrap_or_else(|_| {
+                Path::new(program).file_name().map_or_else(
+                    || "application".into(),
+                    |name| name.to_string_lossy().into_owned(),
+                )
+            });
+            let title = std::env::var("OXYOS_APP_TITLE").unwrap_or_else(|_| id.clone());
+            application = scoping
+                .wrap(
+                    &application,
+                    oxyos_apps::ScopeKind::Application,
+                    &id,
+                    &title,
+                )
+                .map_err(|oxyos_apps::Error(why)| why)?;
         }
         children.0.push(application.spawn()?);
     }

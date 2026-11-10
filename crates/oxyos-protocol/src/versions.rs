@@ -86,8 +86,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
 /// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
-/// version 41, how short of memory the machine is (`MemoryPressure`,
-/// docs/adr/0066-quality-of-service.mdx, decision 7), told unasked to applications.
+/// version 41, kept for the memory pressure told to applications (ADR 0066, decision 7);
+/// `APP_VISIBILITY_VERSION`, how the session presents an application (`AppVisibility`,
+/// docs/adr/0066-quality-of-service.mdx), told to it unasked.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -112,6 +113,7 @@ const EVENTS_ADDED: Added = &[
     (37, 167..=167),
     (38, 168..=169),
     (41, 175..=175),
+    (crate::APP_VISIBILITY_VERSION, 176..=176),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

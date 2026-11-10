@@ -480,6 +480,15 @@ pub const OXYOS_EVENT_QUIT_REQUESTED: u32 = 168;
 /// To the surface with the keyboard (protocol version 38): the modifiers held changed, or were held
 /// as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's `flagsChanged:`.
 pub const OXYOS_EVENT_MODIFIERS: u32 = 169;
+/// To an application (protocol `APP_VISIBILITY_VERSION`, docs/adr/0066-quality-of-service.mdx,
+/// decision 5): how the session presents it, all its windows together; `code` one of
+/// OXYOS_VISIBILITY_*. Hidden, it naps until shown.
+pub const OXYOS_EVENT_APP_VISIBILITY: u32 = 176;
+/// How the session presents an application: none of its windows shown, one shown behind another
+/// application's, or its window the active one.
+pub const OXYOS_VISIBILITY_HIDDEN: u32 = 1;
+pub const OXYOS_VISIBILITY_VISIBLE: u32 = 2;
+pub const OXYOS_VISIBILITY_FOCUSED: u32 = 3;
 /// Why the session asks an application to quit: the person logs out, restarts or shuts down.
 pub const OXYOS_SESSION_END_LOG_OUT: u32 = 1;
 pub const OXYOS_SESSION_END_RESTART: u32 = 2;
@@ -2017,6 +2026,13 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_MEMORY_PRESSURE,
                 detail: u32::from(level as u8),
+                ..out
+            }
+        }
+        Event::AppVisibility { state } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_APP_VISIBILITY,
+                code: u32::from(state as u8),
                 ..out
             }
         }

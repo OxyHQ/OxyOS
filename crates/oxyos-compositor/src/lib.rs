@@ -51,6 +51,7 @@ pub mod installs;
 pub mod login;
 pub mod memory_pressure;
 pub mod motion;
+pub mod naps;
 pub mod networks;
 pub mod passkeys;
 pub mod power;
@@ -549,6 +550,9 @@ pub struct Compositor {
     pub screens: Vec<Screen>,
     pub scene: Scene,
     pub peers: HashMap<ClientId, Peer>,
+    /// The session's user's processes holding one of logind's block inhibitors, by pid, as the
+    /// seat says them: never napped (naps.rs, docs/adr/0066-quality-of-service.mdx).
+    pub inhibiting: std::collections::BTreeSet<u32>,
     /// The development compositor's shell socket: a same-user peer connecting there is granted
     /// `shell` (docs/adr/0009-session-shell.mdx) and `lock` (it is the lock screen too, ADR 0010), as a shipping session will grant it from its
     /// launch records (#35).
@@ -1121,6 +1125,7 @@ impl Compositor {
                 .collect(),
             scene,
             peers: HashMap::new(),
+            inhibiting: std::collections::BTreeSet::new(),
             shell_listener: None,
             reader_listener: None,
             reader_toggled: false,
@@ -3810,6 +3815,9 @@ impl Compositor {
                     );
                     let now = self.now();
                     self.idle.set_held(held, now);
+                }
+                oxyos_seat::Event::Inhibiting(pids) => {
+                    self.inhibiting = pids.into_iter().collect();
                 }
                 oxyos_seat::Event::Resumed(device, fd) => {
                     drop(fd);

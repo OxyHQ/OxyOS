@@ -140,6 +140,15 @@ pub struct Graph {
     pub devices: BTreeMap<u32, DeviceObject>,
     /// WirePlumber's choices (`default.audio.sink`, `default.audio.source`): node names.
     pub defaults: BTreeMap<Direction, String>,
+    /// Applications' output streams (`Stream/Output/Audio`), by global id.
+    pub streams: BTreeMap<u32, Stream>,
+}
+
+/// An application's output stream: its process, and whether it is running (playing).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Stream {
+    pub pid: Option<u32>,
+    pub running: bool,
 }
 
 /// Where a volume, mute or balance change goes.
@@ -322,6 +331,12 @@ impl Graph {
         let mut state = State {
             available: true,
             generation,
+            audible: self
+                .streams
+                .values()
+                .filter(|stream| stream.running)
+                .filter_map(|stream| stream.pid)
+                .collect(),
             ..State::default()
         };
         for node in self.nodes.values() {

@@ -157,6 +157,9 @@ struct Session {
     /// With `--launch --shell`: the applications' login items and background activity, as the
     /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
     pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// Each application told how it is presented, and in the saturation benchmark's control group
+    /// weighed by it (docs/adr/0066-quality-of-service.mdx, decisions 4 and 5).
+    pub naps: oxyos_compositor::naps::Naps,
     /// The processes the session ended for their background activity since a step last took them
     /// (each its application's id).
     pub background_ended: Vec<String>,
@@ -365,6 +368,7 @@ impl Session {
             grants: Vec::new(),
             installs: None,
             background: None,
+            naps: oxyos_compositor::naps::Naps::new(fixture_scopes()),
             background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
@@ -1077,6 +1081,41 @@ impl Session {
     /// The applications' login items and background activity
     /// (docs/adr/0060-login-items-and-background-activity.mdx), as the session serves them, after
     /// the install service's answers: a process in the background without the right is ended.
+    /// The applications told how they are presented and weighed by it (naps.rs): those the
+    /// launcher started and the one the run started, each by its pid.
+    pub fn serve_naps(&mut self) {
+        let mut running: Vec<(u32, String)> = self
+            .launcher
+            .as_ref()
+            .map(|launcher| {
+                launcher
+                    .running()
+                    .map(|(pid, launched)| (pid, launched.id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        running.extend(self.app.clone());
+        let background: std::collections::BTreeSet<u32> = self
+            .background
+            .as_ref()
+            .map(|background| {
+                background
+                    .background_processes()
+                    .values()
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let busy = self.compositor.inhibiting.clone();
+        self.naps.serve(
+            &self.compositor,
+            &running,
+            &background,
+            &busy,
+            Instant::now(),
+        );
+    }
+
     pub fn serve_background(&mut self) {
         let Some(background) = self.background.as_mut() else {
             return;
@@ -1702,6 +1741,37 @@ pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bo
         }
         _ => wanted == state,
     }
+}
+
+/// The saturation benchmark's scopes (docs/adr/0066-quality-of-service.mdx, decision 3): with
+/// `OXYOS_CGROUP_FIXTURE` naming a delegated control group that stands for the person's user
+/// manager's (docs/performance.mdx), each application this compositor starts, and its search
+/// service, is placed in that layout as a session places it, by `oxyos-scope` beside this program.
+/// Without it (the gate, a developer's run), everything runs where this program does, as before.
+/// The saturation benchmark's scopes' weights (`fixture_scoping`'s control group), set as a
+/// session sets them; none outside the benchmark.
+fn fixture_scopes() -> Option<oxyos_scopes::Scopes> {
+    let scoping = fixture_scoping()?;
+    oxyos_scopes::Scopes::start(oxyos_scopes::Manager::Fixture(scoping.fixture?)).ok()
+}
+
+fn fixture_scoping() -> Option<oxyos_apps::Scoping> {
+    let oxyos_scopes::Manager::Fixture(fixture) = oxyos_scopes::Manager::fixture_from_env()? else {
+        return None;
+    };
+    let program = std::env::current_exe().ok()?.parent()?.join("oxyos-scope");
+    if !program.is_file() {
+        eprintln!(
+            "[launch] {} is set but there is no {}: the applications are not placed",
+            oxyos_scopes::FIXTURE_ENV,
+            program.display()
+        );
+        return None;
+    }
+    Some(oxyos_apps::Scoping {
+        program,
+        fixture: Some(fixture),
+    })
 }
 
 fn main() -> Result<()> {

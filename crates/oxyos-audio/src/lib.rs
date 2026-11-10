@@ -126,6 +126,11 @@ pub struct State {
     /// is only new to the person between two states of the same one.
     #[serde(skip)]
     pub generation: u64,
+    /// The processes playing sound now (an output stream of theirs running), by pid, as PipeWire
+    /// says them (`application.process.id`): an application the person hears is never napped
+    /// (docs/adr/0066-quality-of-service.mdx, decision 5). Not told to Settings.
+    #[serde(skip)]
+    pub audible: std::collections::BTreeSet<u32>,
 }
 
 impl State {
