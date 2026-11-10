@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { useColorScheme } from "react-native";
 import { CloseButton } from "@oxy.so/bloom/button";
 import { Text } from "@oxy.so/bloom/typography";
