@@ -48,6 +48,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -163,7 +164,14 @@ class Report {
   static const char* inputKind(const OxyOSEvent& event);
   // The number `received` gave the event it wrote last.
   uint64_t receivedSeq() const { return received_; }
-  // An event delivered to React (touch, text, scroll, …) on `view`.
+  // An event delivered to React (touch, text, scroll, …) on `view`. Each delivery says the turn of
+  // JavaScript's it reaches JavaScript in (`turn`): the loop's work is handed over in batches, one
+  // whenever JavaScript's thread is idle (JsThread::batch, which `turns` gives), and what one batch
+  // holds JavaScript takes together. While JavaScript works, what the loop's turns deliver goes into
+  // the one batch waiting for it, so a press's motions the loop read while JavaScript took the first
+  // (behind a stall, under load) are one turn's (regress.py's `react` turns), however many turns of
+  // the loop's read them.
+  void countTurnsBy(std::function<uint64_t()> turns);
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());
   // An event delivered to JavaScript that no view is the target of (a choice in the shell's menu
@@ -246,6 +254,7 @@ class Report {
   bool turning_ = false;
   double busyMs_ = 0;  // the loop's work since the last frame written
   double jsThreadMs_ = 0;  // JavaScript's on its thread since the last frame written
+  std::function<uint64_t()> turns_;  // the batch of the loop's work JavaScript takes next
   ThreadSpan js_;      // JavaScript since the last frame written
   int reactCommits_ = 0;          // React's commits since the last frame written
   // The input event being handled (Handling): its kind, serial and surface; null for none.

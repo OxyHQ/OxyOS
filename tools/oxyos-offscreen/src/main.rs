@@ -15,6 +15,7 @@ mod displays;
 mod ime;
 mod input_sources;
 mod launch;
+mod load;
 mod lock;
 mod passkeys;
 mod pasteboard;
@@ -86,6 +87,18 @@ impl Drop for Children {
     }
 }
 
+impl Drop for Session {
+    /// A run that ends on an error ends what its launcher started too, as `finish` does at a run's
+    /// end: a load the saturation benchmark launched (`--also-launch`) left running would hold the
+    /// run's output open, and regress.py waits for it to close (a run of S6 that missed a step's
+    /// deadline waited 22 minutes). Nothing is left to end after `finish`.
+    fn drop(&mut self) {
+        if let Some(launcher) = self.launcher.as_mut() {
+            launcher.end(std::time::Duration::from_secs(2));
+        }
+    }
+}
+
 fn open_descriptors() -> Result<usize> {
     Ok(fs::read_dir("/proc/self/fd")?.count())
 }
@@ -130,6 +143,12 @@ struct Session {
     /// Applications that quit unexpectedly and resetting one (docs/adr/0061-crashes-and-resetting-
     /// an-application.mdx), as the session has them: the reports in the run's own state folder.
     pub crashes: oxyos_compositor::crashes::Crashes,
+    /// Resume (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 3), as the
+    /// session keeps it, in the run's own state folder.
+    pub resume: Option<oxyos_compositor::resume::Resume>,
+    /// At a login screen (`--login`): whether the login program said the last session ended
+    /// because of a problem (`OXYOS_LAST_SESSION_ENDED`), which the login screen asks.
+    pub last_session_problem: Option<bool>,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -346,6 +365,8 @@ impl Session {
                 oxyos_compositor::crashes::Reports::of_user(),
                 oxyos_compositor::crashes::system_description(),
             ),
+            resume: None,
+            last_session_problem: None,
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
@@ -924,6 +945,10 @@ impl Session {
         // Sleep, restart, shut down and log out (ADR 0064), before the install service takes what
         // is left.
         self.serve_session_end();
+        // The login screen's question of how the last session ended (docs/adr/0065).
+        if let Some(problem) = self.last_session_problem {
+            oxyos_compositor::login::answer_last_session(&mut self.compositor.scene, problem);
+        }
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
         // Backups (ADR 0059), before the install service takes what is left.
@@ -1160,6 +1185,15 @@ impl Session {
         }
         // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
         self.crashes.exited(&mut self.compositor.scene, &exits);
+        // Resume follows what runs, and takes the person's answer to reopening again (ADR 0065).
+        if let Some(resume) = self.resume.as_mut() {
+            resume.serve(
+                &mut self.compositor.scene,
+                launcher,
+                self.settings.preferences(),
+                std::time::Instant::now(),
+            );
+        }
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
             if let Err(error) = launcher.launch(&id) {
@@ -1683,6 +1717,15 @@ pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bo
 }
 
 fn main() -> Result<()> {
+    // A load of the saturation benchmark (load.rs, perf.py saturation), run as an application or a
+    // process the benchmark places.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|flag| flag == "--load")
+    {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        return load::main(&args).map_err(|error| error.to_string().into());
+    }
     // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
     // child, its standard input the socket the compositor brokers questions over.
     if std::env::args_os()

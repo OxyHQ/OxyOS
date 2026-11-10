@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <sys/file.h>
 #include <unistd.h>
+#include <utility>
 
 using namespace facebook::react;
 
@@ -397,6 +398,11 @@ void Report::deliver(const std::string& event, uint32_t surface, const ShadowVie
   deliver(event, surface, name(view), extra);
 }
 
+void Report::countTurnsBy(std::function<uint64_t()> turns) {
+  std::lock_guard lock(mutex_);
+  turns_ = std::move(turns);
+}
+
 void Report::deliver(const std::string& event, uint32_t surface, const std::string& target,
                      const folly::dynamic& extra) {
   if (!file_) return;
@@ -405,6 +411,10 @@ void Report::deliver(const std::string& event, uint32_t surface, const std::stri
   line["event"] = event;
   line["surface"] = surface;
   line["target"] = target;
+  {
+    std::lock_guard lock(mutex_);
+    line["turn"] = turns_ ? turns_() : 0;
+  }
   if (handlingKind_) {
     line["input_serial"] = handlingSerial_;
     line["input_seq"] = handlingSeq_;

@@ -33,7 +33,7 @@ FORBIDDEN = ("x11", "xcb", "wayland", "smithay", "winit", "tauri", "webkit", "gt
 LAYERS = {
     "leaf": (
         "oxyos-gestures", "oxyos-intl", "oxyos-package", "oxyos-preferences", "oxyos-solar",
-        "oxyos-vector",
+        "oxyos-splash", "oxyos-vector",
     ),
     "protocol": ("oxyos-ipc", "oxyos-protocol"),
     "system": (
@@ -98,9 +98,6 @@ ALLOWED = {
     ("oxyos-speech", "oxyos-protocol"): (
         "AccessibleRole, AccessibleState and Politeness are defined in the wire crate; they move "
         "below it"
-    ),
-    ("oxyos-boot-logo", "oxyos-compositor"): (
-        "the boot logo draws the compositor's splash; the splash moves to a crate of its own"
     ),
     ("oxyos-offscreen", "oxyos-backupd"): (
         "the development compositor runs the backup service in process from its program crate; the "
