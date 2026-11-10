@@ -31,7 +31,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 41;
+pub const VERSION: u16 = 46;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -67,7 +67,7 @@ pub const SUDDEN_TERMINATION_VERSION: u16 = 40;
 /// The first version whose compositor tells an application how short of memory the machine is
 /// (`MemoryPressure`, docs/adr/0066-quality-of-service.mdx, decision 7): a client of an older one
 /// is never told, and keeps what it holds until it trims itself idle.
-pub const MEMORY_PRESSURE_VERSION: u16 = 41;
+pub const MEMORY_PRESSURE_VERSION: u16 = 46;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";

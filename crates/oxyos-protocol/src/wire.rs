@@ -110,7 +110,7 @@ wire_enum! {
     SessionEnd: u8 { LogOut = 1, Restart = 2, ShutDown = 3 }
 }
 wire_enum! {
-    /// How short of memory the machine is (version 41, docs/adr/0066-quality-of-service.mdx,
+    /// How short of memory the machine is (version 46, docs/adr/0066-quality-of-service.mdx,
     /// decision 7), as the kernel's pressure stall information says and Activity Monitor's graph
     /// colours it (docs/adr/0063-activity-monitor.mdx, decision 4): normal again; a warning (a
     /// tenth of the time some tasks wait for memory), drop what can be made again; critical (40 %

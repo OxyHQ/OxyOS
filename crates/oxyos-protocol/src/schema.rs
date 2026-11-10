@@ -820,7 +820,7 @@ messages! {
         // as it took the keyboard (MODIFIER_* bits), as a Mac's `flagsChanged:`: a menu's
         // alternates follow Option the instant it goes down or up.
         169 => Modifiers { surface: u32, modifiers: u8 },
-        // To an application, and at critical to the shell too (version 41,
+        // To an application, and at critical to the shell too (version 46,
         // docs/adr/0066-quality-of-service.mdx, decision 7): how short of memory the machine is, as
         // the session follows the kernel's pressure stall information, an application whose
         // windows are all hidden told a warning first; normal again once it eases. It gives back

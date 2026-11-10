@@ -2220,7 +2220,7 @@ int main(int argc, char** argv) {
         // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
         std::optional<uint8_t> modifiersHeld;
         // How short of memory the machine is, as the session last told it this turn (protocol
-        // version 41, docs/adr/0066-quality-of-service.mdx, decision 7), if it did.
+        // version 46, docs/adr/0066-quality-of-service.mdx, decision 7), if it did.
         std::optional<uint32_t> memoryPressure;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {

@@ -106,7 +106,7 @@ typedef struct OxyOSClient OxyOSClient;
 /* The modifiers held changed (protocol version 38), as a Mac's flagsChanged:. */
 #define OXYOS_EVENT_MODIFIERS 169
 /* How short of memory the machine is (docs/adr/0066-quality-of-service.mdx, decision 7, protocol
- * version 41). */
+ * version 46). */
 #define OXYOS_EVENT_MEMORY_PRESSURE 175
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
@@ -583,7 +583,7 @@ typedef struct OxyOSClient OxyOSClient;
  *                      follows the kernel's pressure stall information; an application whose
  *                      windows are all hidden is told a warning first. At a warning give back what
  *                      can be made again (caches, a collection of garbage), at critical everything
- *                      that can; NORMAL once it eases (protocol version 41,
+ *                      that can; NORMAL once it eases (protocol version 46,
  *                      docs/adr/0066-quality-of-service.mdx, decision 7).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
@@ -1010,7 +1010,7 @@ int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
 #define OXYOS_MEMORY_PRESSURE_NORMAL 0
 #define OXYOS_MEMORY_PRESSURE_WARNING 1
 #define OXYOS_MEMORY_PRESSURE_CRITICAL 2
-#define OXYOS_MEMORY_PRESSURE_VERSION 41
+#define OXYOS_MEMORY_PRESSURE_VERSION 46
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

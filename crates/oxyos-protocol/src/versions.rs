@@ -86,7 +86,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
 /// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
-/// version 41, how short of memory the machine is (`MemoryPressure`,
+/// versions 41 to 45 are other changes' (allocated by the coordinator, not here yet);
+/// version 46, how short of memory the machine is (`MemoryPressure`,
 /// docs/adr/0066-quality-of-service.mdx, decision 7), told unasked to applications.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
@@ -111,7 +112,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
-    (41, 175..=175),
+    (46, 175..=175),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

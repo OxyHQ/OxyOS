@@ -489,7 +489,7 @@ pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSI
 /// The first version whose compositor takes `oxyos_client_set_sudden_termination`
 /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
 pub const OXYOS_SUDDEN_TERMINATION_VERSION: u32 = oxyos_protocol::SUDDEN_TERMINATION_VERSION as u32;
-/// To an application, and at critical to the shell (protocol version 41,
+/// To an application, and at critical to the shell (protocol version 46,
 /// docs/adr/0066-quality-of-service.mdx, decision 7): how short of memory the machine is, `detail`
 /// an OXYOS_MEMORY_PRESSURE_* level: give back what can be made again at a warning, everything
 /// that can at critical.

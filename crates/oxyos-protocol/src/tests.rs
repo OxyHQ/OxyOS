@@ -3247,22 +3247,22 @@ fn version_40_sudden_termination_is_only_version_40s() {
 }
 
 #[test]
-fn version_41_memory_pressure_is_only_version_41s() {
-    assert_eq!(MEMORY_PRESSURE_VERSION, 41);
+fn version_46_memory_pressure_is_only_version_46s() {
+    assert_eq!(MEMORY_PRESSURE_VERSION, 46);
     for level in [
         MemoryPressureLevel::Normal,
         MemoryPressureLevel::Warning,
         MemoryPressureLevel::Critical,
     ] {
         let event = Event::MemoryPressure { level };
-        assert_eq!(event_since(&event), 41);
+        assert_eq!(event_since(&event), 46);
         let mut old = Vec::new();
-        assert!(!write_event_for(&mut old, &event, 40).unwrap());
+        assert!(!write_event_for(&mut old, &event, 45).unwrap());
         assert!(old.is_empty());
         let mut new = Vec::new();
-        assert!(write_event_for(&mut new, &event, 41).unwrap());
-        assert!(read_event_for(&mut Cursor::new(new.clone()), 40).is_err());
-        assert_eq!(read_event_for(&mut Cursor::new(new), 41).unwrap(), event);
+        assert!(write_event_for(&mut new, &event, 46).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 45).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 46).unwrap(), event);
     }
     assert!(MemoryPressureLevel::from_raw(3).is_none());
     assert_eq!(
