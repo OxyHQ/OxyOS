@@ -305,6 +305,43 @@
    }
   },
   {
+   "name": "Tab: Desktop & Dock, the next row",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-desktop-dock",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "Button",
+       "name": "Escritorio y Dock",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Escritorio y Dock, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
    "name": "Tab: Displays, the next row",
    "do": [
     "key",
