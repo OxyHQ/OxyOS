@@ -28,7 +28,7 @@
    "do": [
     "wait_named",
     [
-     "Don't Reopen",
+     "Don’t Reopen",
      15000
     ]
    ],
@@ -37,7 +37,7 @@
     "in_shell": {
      "texts": [
       "Reopen",
-      "Don't Reopen"
+      "Don’t Reopen"
      ],
      "keyboard_focus": {
       "target": "system-sheet-accept"
@@ -57,7 +57,7 @@
    "expect": {
     "in_shell": {
      "absent": [
-      "Don't Reopen"
+      "Don’t Reopen"
      ]
     },
     "home": {

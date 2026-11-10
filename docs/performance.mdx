@@ -757,6 +757,85 @@ one GPU buffer kept and nothing in Skia's cache it could purge (`regress.py`'s `
 idle host wakes once for the trim: 0.2 wakeups a second over the five seconds sampled, 0.01 % of
 a core (`perf.py idle`, within its budget of one a second and 0.1 %).
 
+## Saturation
+
+What a person feels while the machine is busy: typing, scrolling, pointing and dragging under load
+([ADR 0066](./adr/0066-quality-of-service), decision 1). `perf.py saturation` runs four interactions
+under each of eight loads in the development compositor, and measures every input's latency from
+its **device's time** (the time the input carries, as libinput's would, whenever the compositor got
+to it: a paced step's `due`) to the first frame that shows its answer (`device_latency_ms` of the
+director's paced steps: `scroll_paced`, `move_paced`, `drag_paced` and `type_paced`). Under load the
+compositor's own wait to run is in it, as a person sees it; a step's older `latency_ms`, from when
+the input was injected, leaves that wait out.
+
+| interaction | what happens | measured |
+|---|---|---|
+| scroll | Settings' sidebar scrolled 240 px down and back by a touchpad at 60 Hz (`perf-settings-scroll.json`) | each event to the frame after it |
+| pointer | the mouse across `PointerTrackProbe`, which draws a dot where the pointer is, 120 motions at 125 Hz | each motion to its frame, before the next |
+| drag | WindowProbe dragged by its title area at 125 Hz (`perf-window-drag.json`): the compositor moves the window | each motion to the frame composed after it; late frames |
+| typing | EditingProbe's line, twenty keys at ten a second | each key to the frame after it |
+
+| load | what it is | where it runs |
+|---|---|---|
+| S0 | none | |
+| S1 | a process computing for every CPU (a terminal's `make -jN`) | an application the session launches |
+| S2 | one process with two threads computing for every CPU | an application the session launches |
+| S3 | a cold `cargo build` of oxyos-search, `-j` every CPU, started over as it ends | an application the session launches |
+| S4 | five hidden applications animating each frame in JavaScript, one hidden running JavaScript without rest | Bloom applications the session launches, their windows minimized |
+| S5 | restic's full first backup of 1.5 GiB of random files, and the search index of 20,000 files built, each started over | the backup in `system.slice/oxyos-backupd.service` with the unit file's own settings; the index as the session runs it |
+| S6 | an application writing over 110 % of the machine's memory again and again, each page compressing about 2:1 as an application's does | an application the session launches, the machine 3 GiB |
+| S7 | another user's processes computing for every CPU | another user's slice |
+
+**The machine is the run's control group.** The run needs a control group delegated to it, in which
+it makes the tree a session's machine has and puts every process where that machine would:
+`machine/system.slice/oxyos-backupd.service` (S5's backup, its unit file's `CPUWeight=`,
+`IOWeight=`, `Memory*=`, `AllowedCPUs=` written to its group and its `Nice=`,
+`CPUSchedulingPolicy=` and `IOSchedulingClass=` given its processes, as systemd does),
+`machine/user.slice/user-seat.slice/session.scope` (the person's logind session: `regress.py` and all
+the development compositor starts, as a session's processes are today),
+`machine/user.slice/user-seat.slice/user@.service/{app,background,session}.slice` (the person's
+user manager: `OXYOS_CGROUP_FIXTURE` names it to the development compositor, which puts there what
+the session would put in the real one) and `machine/user.slice/user-other.slice` (S7). An
+application's load is an application the session launches (`also_launch`: development entries the
+development compositor starts through the session's launcher, `oxyos_apps::Launcher`, as the dock
+does, `oxyos-offscreen --load` their program), so it runs wherever the session puts what it
+launches. Each load starts five seconds before the input and its progress is recorded (its work a
+second and the cores it used): a load yields, it is not starved. For S6, `machine/`'s `memory.max`
+is the machine's memory, so the hog never touches anything outside the run. Where the tree has a
+played rtkit (`tools/rn-host-spike/played-rtkit.sh`), the run starts it for the compositor to ask,
+as the session asks the system's; where the accounts' service weighs the users' slices
+(`oxyos-accountd --apply-seat-weights`, beside the development compositor), the run's are weighed
+by it, the person at the seat's and another user's, else both stay at 100 as on today's machine.
+
+Each row: the inputs measured over every run, their latency at p50, p95, p99 and its most, late
+frames (a drag's frames more than one and a half refreshes apart), composing at p95, the
+application's JavaScript a frame at p95, the compositor's turn thread's wait to run each time it
+ran (its `schedstat`), the session's pressure stall (cpu, memory, io: the share of the time some of
+its tasks waited) and each load's progress. `--check` holds every load's p95 to the unloaded (S0)
+p95 plus a refresh (16.7 ms) and a drag to no late frame; by default it only reports.
+
+**On a development machine** (seldon), on CPUs no gate reserves, one run at a time:
+
+```sh
+tools/rn-host-spike/perf-saturation.sh --cpus 8-11,24-27 --offscreen target/release/oxyos-offscreen \
+  --runtimes RUN/machine/runtimes --packages RUN/machine/packages --out DIR [--runs 3] \
+  [--loads S0,S1,...] [--interactions scroll,pointer,drag,typing] [--gpu-only] [--check]
+```
+
+`RUN` is a gate run's directory (`SCENARIOS=perf-window-drag tools/gate/run-scenarios.sh --out RUN`
+builds the runtimes and the packages and runs one scenario). The script runs `perf.py saturation` in a
+transient system unit of its own (`oxyosperf.slice`, `Delegate=yes`, `AllowedCPUs=` the CPUs named,
+refused if any is the gate's), as the caller, waiting for any other saturation run (a lock in
+`/run/lock/oxyos-gate`).
+
+**On a device** someone is signed in to (the ThinkPad), only through `perf-device.sh`, by its rules:
+only while the person at seat0 is idle, on the GPU that drives the display alone and never another,
+never a display, at the least priority; its unit is delegated for this part.
+
+**Comparing two builds.** Build each (a checkout of each commit, its own target and gate run), then
+run them in turn, A, B, A, B, each with the same `--cpus`, `--runs` and loads, and compare the
+pooled p95 and p99 of each: on a shared machine the second half of an evening is not the first.
+
 ## The ThinkPad
 
 Read-only, over ssh, on the owner's session (`oxyos-probar`: Intel Core i5-1240P, Iris Xe,

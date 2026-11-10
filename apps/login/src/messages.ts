@@ -7,30 +7,35 @@
  */
 import type { Language } from "../../shell/src/messages";
 
+/** A count's words in a language: `one` where its CLDR plural rules say "one", else `other`. */
+function plural(language: Language, count: number, one: string, other: string): string {
+  return new Intl.PluralRules(language).select(count) === "one" ? one : other;
+}
+
 const en = {
   accounts: "Accounts",
   /** An account Oxy names nothing (neither a name nor a username): its user is never a name. */
   unnamedAccount: "Oxy Account",
   addAccount: "Add Account",
-  unreadable: "The accounts on this computer can't be read.",
+  unreadable: "The accounts on this computer can’t be read.",
   signInAgain: {
-    description: (name: string) => `Sign in to ${name}'s Oxy account again to use it on this computer.`,
+    description: (name: string) => `Sign in to ${name}’s Oxy account again to use it on this computer.`,
     action: "Sign In Again",
   },
   migrate: {
     title: "Migrate from a Backup",
     transferTitle: "Transfer Your Data to This Computer",
     transferDescription:
-      "Bring another computer's accounts over from its backup, with their files, their pictures and its Wi-Fi networks. You can also set this computer up as new.",
+      "Bring another computer’s accounts over from its backup, with their files, their pictures and its Wi-Fi networks. You can also set this computer up as new.",
     fromBackup: "From a Backup",
     fromBackupDetail: "A backup disk or a network share",
     asNew: "Not Now",
     asNewDetail: "Set up this computer as new",
     sourceTitle: "Where Are the Backups?",
-    sourceDescription: "Connect the other computer's backup disk, or choose a network share.",
+    sourceDescription: "Connect the other computer’s backup disk, or choose a network share.",
     lookingForDisks: "Looking for backup disks…",
     noDisks: "No backup disk is connected.",
-    disks: "Backup disks",
+    disks: "Backup Disks",
     networkShare: "Network Share…",
     lookAgain: "Look Again",
     shareTitle: "Connect to a Network Share",
@@ -40,7 +45,7 @@ const en = {
     sharePassword: "Password",
     connect: "Connect",
     passwordTitle: (place: string) => `Enter the backup password for ${place}`,
-    passwordDescription: "The password chosen when the backups were set up. OxyOS doesn't keep it.",
+    passwordDescription: "The password chosen when the backups were set up. OxyOS doesn’t keep it.",
     passwordPlaceholder: "Backup Password",
     opening: "Opening the backups…",
     computers: "Choose a Computer",
@@ -57,22 +62,22 @@ const en = {
       files: (percent: string) => `Restoring files… ${percent}`,
       finishing: "Finishing…",
     },
-    migrating: "Don't turn off this computer.",
-    failedTitle: "The Migration Didn't Finish",
-    migrated: (count: number) => (count === 1 ? "1 account was brought over" : `${count} accounts were brought over`),
+    migrating: "Don’t turn off this computer.",
+    failedTitle: "The Migration Didn’t Finish",
+    migrated: (count: number) => plural("en", count, "1 account was brought over", `${count} accounts were brought over`),
     startOver: "Start Over",
     problems: {
-      notConnected: "The backup disk isn't connected.",
+      notConnected: "The backup disk isn’t connected.",
       noBackup: "There are no OxyOS backups there.",
-      wrongPassword: "That password doesn't open any of the backups there.",
-      shareRefused: "The share didn't accept that user and password.",
-      unreachable: "The share's computer can't be reached. Check its name and the network.",
+      wrongPassword: "That password doesn’t open any of the backups there.",
+      shareRefused: "The share didn’t accept that user and password.",
+      unreachable: "The share’s computer can’t be reached. Check its name and the network.",
       inUse: "Another computer is using these backups now. Try again in a moment.",
-      full: "This computer's disk is full.",
-      invalidBackup: "This backup can't be migrated to a computer.",
+      full: "This computer’s disk is full.",
+      invalidBackup: "This backup can’t be migrated to a computer.",
       clash: "An account of this backup is on this computer already.",
       alreadySetUp: "This computer has an account already.",
-      failed: "The migration didn't finish. Try again.",
+      failed: "The migration didn’t finish. Try again.",
     },
   },
   setup: {
@@ -89,26 +94,33 @@ const en = {
     networkTitle: "Connect to the Internet",
     offline:
       "Setting up an account needs the internet once, to sign in with Oxy. Connect this computer to a network, then try again. After that, it works offline.",
-    notConfiguredTitle: "Accounts Can't Be Added",
+    notConfiguredTitle: "Accounts Can’t Be Added",
     notConfigured:
-      "This computer isn't set up to add Oxy accounts. Ask whoever installed OxyOS on it to check its configuration.",
+      "This computer isn’t set up to add Oxy accounts. Ask whoever installed OxyOS on it to check its configuration.",
     checkingAccount: "Finishing signing in…",
     accountUnchecked:
-      "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
-    passwordTitle: (name: string) => (name ? `Enter ${name}'s Oxy Password` : "Enter Your Oxy Password"),
+      "Oxy couldn’t be reached to finish signing in. You’re still signed in: check the connection, then try again.",
+    passwordTitle: (name: string) => (name ? `Enter ${name}’s Oxy Password` : "Enter Your Oxy Password"),
     passwordDescription: "This computer signs you in with your Oxy password, even offline. Enter it once more.",
     passwordPlaceholder: "Oxy Account Password",
-    passwordIncorrect: "That isn't the password of this Oxy account. Try again.",
+    passwordIncorrect: "Incorrect password. Try again.",
     passwordThrottled: (seconds: number) =>
-      seconds > 0 ? `Too many tries. Wait ${seconds} seconds, then try again.` : "Too many tries. Wait a moment, then try again.",
-    unusablePassword: "This computer can't use this password. Choose another one for your Oxy account, then try again.",
+      seconds > 0
+        ? plural(
+            "en",
+            seconds,
+            "Too many attempts. Wait 1 second, then try again.",
+            `Too many attempts. Wait ${seconds} seconds, then try again.`,
+          )
+        : "Too many attempts. Wait a moment, then try again.",
+    unusablePassword: "This computer can’t use this password. Choose another one for your Oxy account, then try again.",
     pinTitle: "Create a PIN",
     pinAgainTitle: "Enter Your PIN Again",
-    pinDescription: "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+    pinDescription: "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
     pinOptionalDescription: "Unlock faster with a PIN, even offline. It stays on this computer: Oxy never sees it.",
-    pinAgainDescription: "To be sure it's the one you meant.",
+    pinAgainDescription: "To be sure it’s the one you meant.",
     pinPlaceholder: "PIN (4 to 16 digits)",
-    pinMismatch: "Those PINs don't match. Create it again.",
+    pinMismatch: "Those PINs don’t match. Create it again.",
     unusablePin: "A PIN is 4 to 16 digits, and not your password.",
     appearanceTitle: "Choose Your Look",
     appearanceDescription: "Select an appearance. You can change it later in Settings.",
@@ -128,18 +140,18 @@ const en = {
     stageDone: "done",
     stageNow: "in progress",
     waiting: (seconds: number) =>
-      `Oxy is busy right now. Setup goes on by itself in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
-    problemTitle: "Your Account Isn't Set Up Yet",
+      `Oxy is busy right now. Setup goes on by itself in ${plural("en", seconds, "1 second", `${seconds} seconds`)}.`,
+    problemTitle: "Your Account Isn’t Set Up Yet",
     unreachable:
-      "Oxy couldn't be reached. Your sign-in, PIN and choices are kept: check the connection, then try again.",
+      "Oxy couldn’t be reached. You’re still signed in, and your PIN and choices are kept: check the connection, then try again.",
     machine:
-      "This computer couldn't create your account, and nothing was changed. Your sign-in is kept: try again. If it happens again, restart the computer.",
-    expired: "Your sign-in can no longer be used, because it was more than a few minutes ago. Sign in again to continue.",
-    failed: "Something went wrong while setting up your account, and nothing was changed. Try again.",
+      "This computer couldn’t create your account, and nothing was changed. You’re still signed in: try again. If it happens again, restart the computer.",
+    expired: "You signed in more than a few minutes ago, so you need to sign in again to continue.",
+    failed: "Your account couldn’t be set up, and nothing was changed. Try again.",
     signInAgain: "Sign In Again",
     secondFactorTitle: "Two-Factor Authentication",
     secondFactorDescription: "Enter the code from your authenticator app.",
-    secondFactorInvalid: "That code isn't right. Wait for a new one, then try again.",
+    secondFactorInvalid: "That code isn’t right. Wait for a new one, then try again.",
     code: "Code",
     welcomeName: (name: string) => (name ? `Welcome, ${name}` : "Welcome"),
     added: (name: string) => (name ? `${name} was added to this computer` : "The account was added to this computer"),
@@ -205,7 +217,7 @@ const es: LoginMessages = {
     },
     migrating: "No apagues este ordenador.",
     failedTitle: "La migración no ha terminado",
-    migrated: (count: number) => (count === 1 ? "Se ha traído 1 cuenta" : `Se han traído ${count} cuentas`),
+    migrated: (count: number) => plural("es", count, "Se ha traído 1 cuenta", `Se han traído ${count} cuentas`),
     startOver: "Empezar de nuevo",
     problems: {
       notConnected: "El disco de copias no está conectado.",
@@ -245,10 +257,15 @@ const es: LoginMessages = {
     passwordDescription:
       "Este ordenador inicia tu sesión con tu contraseña de Oxy, incluso sin conexión. Introdúcela una vez más.",
     passwordPlaceholder: "Contraseña de la cuenta de Oxy",
-    passwordIncorrect: "Esa no es la contraseña de esta cuenta de Oxy. Vuelve a intentarlo.",
+    passwordIncorrect: "Contraseña incorrecta. Vuelve a intentarlo.",
     passwordThrottled: (seconds: number) =>
       seconds > 0
-        ? `Demasiados intentos. Espera ${seconds} segundos y vuelve a intentarlo.`
+        ? plural(
+            "es",
+            seconds,
+            "Demasiados intentos. Espera 1 segundo y vuelve a intentarlo.",
+            `Demasiados intentos. Espera ${seconds} segundos y vuelve a intentarlo.`,
+          )
         : "Demasiados intentos. Espera un momento y vuelve a intentarlo.",
     unusablePassword:
       "Este ordenador no puede usar esta contraseña. Elige otra para tu cuenta de Oxy y vuelve a intentarlo.",
@@ -263,7 +280,7 @@ const es: LoginMessages = {
     pinMismatch: "Los PIN no coinciden. Vuelve a crearlo.",
     unusablePin: "Un PIN tiene de 4 a 16 cifras y no es tu contraseña.",
     appearanceTitle: "Elige tu aspecto",
-    appearanceDescription: "Selecciona un aspecto. Puedes cambiarlo más tarde en Ajustes.",
+    appearanceDescription: "Selecciona una apariencia. Puedes cambiarla más tarde en Ajustes.",
     appearance: { light: "Claro", dark: "Oscuro", auto: "Automático" },
     appearanceAutoDescription: "Claro de día, oscuro de noche.",
     settingUpTitle: "Configurando tu cuenta…",
@@ -280,15 +297,15 @@ const es: LoginMessages = {
     stageDone: "hecho",
     stageNow: "en curso",
     waiting: (seconds: number) =>
-      `Oxy está ocupado ahora mismo. La configuración seguirá sola en ${seconds} ${seconds === 1 ? "segundo" : "segundos"}.`,
+      `Oxy está ocupado ahora mismo. La configuración seguirá sola en ${plural("es", seconds, "1 segundo", `${seconds} segundos`)}.`,
     problemTitle: "Tu cuenta aún no está configurada",
     unreachable:
-      "No se ha podido contactar con Oxy. Tu inicio de sesión, tu PIN y tus elecciones se conservan: revisa la conexión y vuelve a intentarlo.",
+      "No se ha podido contactar con Oxy. Sigues con la sesión iniciada, y tu PIN y tus elecciones se conservan: revisa la conexión y vuelve a intentarlo.",
     machine:
-      "Este ordenador no ha podido crear tu cuenta y no se ha cambiado nada. Tu inicio de sesión se conserva: vuelve a intentarlo. Si vuelve a pasar, reinicia el ordenador.",
+      "Este ordenador no ha podido crear tu cuenta y no se ha cambiado nada. Sigues con la sesión iniciada: vuelve a intentarlo. Si vuelve a pasar, reinicia el ordenador.",
     expired:
-      "Tu inicio de sesión ya no se puede usar, porque fue hace más de unos minutos. Vuelve a iniciar sesión para continuar.",
-    failed: "Algo ha fallado al configurar tu cuenta y no se ha cambiado nada. Vuelve a intentarlo.",
+      "Iniciaste sesión hace más de unos minutos, así que tienes que volver a iniciarla para continuar.",
+    failed: "No se ha podido configurar tu cuenta y no se ha cambiado nada. Vuelve a intentarlo.",
     signInAgain: "Volver a iniciar sesión",
     secondFactorTitle: "Autenticación en dos pasos",
     secondFactorDescription: "Introduce el código de tu app de autenticación.",

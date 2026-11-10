@@ -120,7 +120,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
             "Step 2 of 4",
             "Back"
           ],
@@ -158,7 +158,7 @@
         "in_shell": {
           "texts": [
             "Enter Your PIN Again",
-            "To be sure it's the one you meant.",
+            "To be sure it’s the one you meant.",
             "Step 2 of 4"
           ],
           "absent": [
@@ -251,8 +251,8 @@
         },
         "in_shell": {
           "texts": [
-            "Your Account Isn't Set Up Yet",
-            "Oxy couldn't be reached. Your sign-in, PIN and choices are kept: check the connection, then try again.",
+            "Your Account Isn’t Set Up Yet",
+            "Oxy couldn’t be reached. You’re still signed in, and your PIN and choices are kept: check the connection, then try again.",
             "Try Again"
           ],
           "absent": [
