@@ -41,7 +41,7 @@ The Rust workspace keeps these boundaries in its crate graph, checked in CI by `
 
 | Layer | Holds | May use |
 | --- | --- | --- |
-| leaf | Pure data and logic, no I/O: gestures, intl, package, preferences, solar, vector | leaf |
+| leaf | Pure data and logic, no I/O: gestures, intl, names, package, preferences, solar, vector | leaf |
 | protocol | The display protocol and its transport: protocol, ipc | leaf, protocol, system |
 | system | OS adapters and in-process libraries over the system: devices, sockets, files, engines (seat, kms, gpu, input, audio, sound, speech, auth, keychain, apps, wallpaper...) | leaf, system |
 | service | What a system or session service does: account, install, files, backup, networks, bluetooth, power, controls, activity, search, recovery | leaf, system, service |
