@@ -1787,6 +1787,19 @@ fn main() -> Result<()> {
                 std::thread::park();
             }
         }
+        // rtkit played on a run's own bus (docs/adr/0066-quality-of-service.mdx, decision 2):
+        // what the system's gives a session on a seat, given to the threads of the control group
+        // CGROUP alone (the run's), run apart with CAP_SYS_NICE by the run's wrapper
+        // (tools/rn-host-spike/played-rtkit.sh); `READY` is written once it is served. Never
+        // installed.
+        [flag, address, cgroup, ready] if flag == "--play-rtkit" => {
+            let address = address.to_str().ok_or("an address is text")?;
+            let _played = oxyos_priority::played::Played::serve(address, Path::new(cgroup))?;
+            fs::write(ready, "served\n")?;
+            loop {
+                std::thread::park();
+            }
+        }
         // The development backup service (docs/adr/0059-backups.mdx), as `oxyos-backupd
         // --development` runs it, on a run's own folders: its state, its played disks (each
         // folder of VOLUMES a disk connected), restic's cache and what it backs up; it serves

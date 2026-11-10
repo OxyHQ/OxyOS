@@ -1,0 +1,13 @@
+# The format of OxyOS's own C and C++ (the Bloom host in tools/rn-host-spike, the client's C ABI
+# header): Google's style as the host was written, measured to change the fewest of its lines.
+# Checked by scripts/check-cpp-format.py, with clang-format 19.1.7; files that do not conform yet are
+# listed in scripts/cpp-format-baseline.txt, which only shrinks. Third-party code is never in this
+# repository.
+BasedOnStyle: Google
+ColumnLimit: 120
+# Includes stay in the blocks and order they were written in.
+IncludeBlocks: Preserve
+SortIncludes: Never
+AllowShortCaseLabelsOnASingleLine: true
+# The comments are prose, wrapped by hand.
+ReflowComments: false
