@@ -188,6 +188,8 @@ export const Shell = memo(function Shell({
         chosen and the Oxy account's password, to the session alone. Without it such a sheet
         cannot be answered but by Cancel. */
     answerPasskey?: (choice: number | undefined, password: string) => void;
+    /** Force Quit Applications' answer: the application chosen (docs/adr/0067). */
+    answerChoice?: (choice: number) => void;
     /** What else a sheet offers, pressed (an application that quit: Reset…, which asks the session
         to reset it, docs/adr/0061-crashes-and-resetting-an-application.mdx). */
     act?: (action: SheetAction) => void;
@@ -1173,6 +1175,7 @@ export const Shell = memo(function Shell({
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
               answerPasskey={sheet.answerPasskey}
+              answerChoice={sheet.answerChoice}
               act={sheet.act}
               toggle={sheet.toggle}
               copy={sheet.copy}

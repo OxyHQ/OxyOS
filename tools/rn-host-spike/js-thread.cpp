@@ -4,6 +4,7 @@
 #include "ui-thread.h"
 
 #include <algorithm>
+#include <atomic>
 #include <csignal>
 #include <exception>
 #include <stdexcept>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include <sys/prctl.h>
+#include <unistd.h>
 
 namespace oxyos {
 
@@ -26,6 +28,8 @@ thread_local bool tJsThread = false;
 thread_local JsThread::Cause tCause;
 // What another thread's tasks are for while a CausedBy lives there.
 thread_local std::optional<JsThread::Cause> tQueuedFor;
+// The JavaScript thread's id, for a signal handler: lock-free, so async-signal-safe.
+std::atomic<pid_t> gJsThreadId{0};
 
 }  // namespace
 
@@ -55,6 +59,7 @@ void* JsThread::main(void* self) {
   tJsThread = true;
   // Input waits on it as on the UI thread: its own short slice (scheduling.h).
   requestInteractiveSlice();
+  gJsThreadId.store(static_cast<pid_t>(gettid()), std::memory_order_relaxed);
   // The fatal signals' report runs on a stack of its own, so that a stack overflow here is reported
   // too (crash-report.h): an alternate stack is the thread's own, never inherited.
   static thread_local std::vector<char> alternate(std::max<size_t>(SIGSTKSZ, 64 * 1024));
@@ -67,6 +72,8 @@ void* JsThread::main(void* self) {
 }
 
 bool JsThread::isCurrent() const { return tJsThread; }
+
+pid_t jsThreadId() { return gJsThreadId.load(std::memory_order_relaxed); }
 
 void JsThread::runOnQueue(std::function<void()>&& task) {
   Cause cause = tJsThread ? tCause : tQueuedFor ? *tQueuedFor : cause_ ? cause_() : Cause{};

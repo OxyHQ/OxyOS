@@ -14,7 +14,7 @@ import { AppIcon } from "../apps";
 import { Wallpaper } from "./Wallpaper";
 import type { ShellWallpaper } from "../wallpaper";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
-import { exposedWindows } from "../expose";
+import { exposedWindows, shownTitle } from "../expose";
 import type { ShellKeyboard, WindowSize, WindowViewProps } from "../platform";
 import { exposeLayout, neighbour, type Rect } from "../overview-geometry";
 import { useShellMessages } from "../useShellMessages";
@@ -76,6 +76,8 @@ const ExposeWindow = memo(function ExposeWindow({
   choose: (window: ShellWindow) => void;
   focused: (area: Area, index: number) => void;
 }) {
+  // "(Not Responding)" while its application does not answer (docs/adr/0067).
+  const title = shownTitle(window, useShellMessages().common);
   const [hovered, setHovered] = useState(false);
   const [keyed, setKeyed] = useState(false);
   const lit = hovered || keyed;
@@ -104,7 +106,7 @@ const ExposeWindow = memo(function ExposeWindow({
       <PressArea
         testID={`expose-window-${window.id}`}
         accessibilityRole="button"
-        accessibilityLabel={window.title}
+        accessibilityLabel={title}
         {...({
           accessibilityCollectionItem: {
             rowIndex: index,
@@ -157,7 +159,7 @@ const ExposeWindow = memo(function ExposeWindow({
             className="mt-2 text-center text-[13px] font-medium text-white"
             style={{ width: rect.width, textShadowColor: "#00000080", textShadowRadius: 4 }}
           >
-            {window.title}
+            {title}
           </Text>
         </Box>
       )}

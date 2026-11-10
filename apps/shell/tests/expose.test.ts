@@ -27,3 +27,16 @@ test("App Exposé: the application's windows, the one used last first, the minim
   assert.deepEqual(minimized.map((w) => w.id), ["d"]);
   assert.deepEqual(exposedWindows({ windows }, "so.oxy.settings"), { open: [], minimized: [] });
 });
+
+// A window whose application does not answer (docs/adr/0067-hangs-and-force-quit.mdx): Mission
+// Control and App Exposé say so after its title, as a Mac's Force Quit and Windows' title bars do.
+test("a hung application's window is titled (Not Responding)", async () => {
+  const { shownTitle } = await import("../src/expose.ts");
+  const { shellMessages } = await import("../src/messages.ts");
+  const en = shellMessages("en-US").common;
+  const es = shellMessages("es-ES").common;
+  assert.equal(shownTitle({ title: "Hang Probe", responding: false }, en), "Hang Probe (Not Responding)");
+  assert.equal(shownTitle({ title: "Hang Probe", responding: false }, es), "Hang Probe (No responde)");
+  assert.equal(shownTitle({ title: "Inbox", responding: true }, en), "Inbox");
+  assert.equal(shownTitle({ title: "Inbox" }, en), "Inbox");
+});

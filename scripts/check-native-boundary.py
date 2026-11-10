@@ -99,10 +99,6 @@ ALLOWED = {
         "AccessibleRole, AccessibleState and Politeness are defined in the wire crate; they move "
         "below it"
     ),
-    ("oxyos-offscreen", "oxyos-backupd"): (
-        "the development compositor runs the backup service in process from its program crate; the "
-        "service's run moves into oxyos-backup"
-    ),
 }
 
 

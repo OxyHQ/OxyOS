@@ -363,6 +363,7 @@ fn a_report_says_what_quit_how_and_what_it_said() {
         times: 2,
         system: Some("OxyOS, Linux 6.12.0"),
         said: Some("[host] fatal signal 11 (code 1) at address 0x8"),
+        hang: None,
     });
     assert_eq!(
         text,
@@ -387,12 +388,32 @@ fn a_report_says_what_quit_how_and_what_it_said() {
         times: 1,
         system: None,
         said: None,
+        hang: None,
     });
     assert!(quiet.contains("Kind:         a system application\n"));
     assert!(quiet.contains("Running for:  1 second\n"));
     assert!(quiet.contains("Reason:       exit status 70\n"));
     assert!(!quiet.contains("Repeated") && !quiet.contains("System"));
     assert!(quiet.ends_with("\nIt reported nothing of its end.\n"));
+    // A hang the person force-quit (docs/adr/0067): said so, with how long it did not answer and
+    // the stack the host wrote.
+    let hang = report_text(&Report {
+        id: MENTION,
+        name: "Mention",
+        origin: &Origin::System,
+        ended: utc(0),
+        ran: Duration::from_secs(70),
+        status: Some(std::process::ExitStatus::from_raw(9)),
+        times: 1,
+        system: None,
+        said: Some("[host] hang: asked by process 1 (SIGQUIT); the JavaScript thread's stack:"),
+        hang: Some(Duration::from_secs(7)),
+    });
+    assert!(hang.starts_with("Mention stopped responding and was force quit.\n"));
+    assert!(
+        hang.contains("Reason:       hang: no response for 7 seconds; force quit by the person\n")
+    );
+    assert!(hang.contains("the JavaScript thread's stack"));
     assert_eq!(reason(None), "it could not be waited for");
     assert_eq!(
         reason(Some(std::process::ExitStatus::from_raw(64))),

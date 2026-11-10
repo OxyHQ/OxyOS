@@ -30,8 +30,13 @@
 #include <string>
 
 #include <pthread.h>
+#include <sys/types.h>
 
 namespace oxyos {
+
+// The JavaScript thread's id (gettid), once it started; 0 before. Async-signal-safe: a hang's report
+// (bloom-host.cpp) hands its signal to the thread it concerns.
+pid_t jsThreadId();
 
 class JsThread : public facebook::react::MessageQueueThread {
  public:
