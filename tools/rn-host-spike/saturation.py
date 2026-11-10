@@ -39,6 +39,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -222,6 +223,24 @@ def unit_settings(path):
         elif section == "[Service]" and "=" in line and not line.startswith("#"):
             key, value = line.split("=", 1)
             settings[key.strip()] = value.strip()
+    return settings
+
+
+def generated(unit, scope="system"):
+    """What the image's systemd generators (config/'s usr/lib/systemd/<scope>-generators) write for
+    `unit` on this machine, read as systemd reads a drop-in over its unit (its settings, the last of
+    a key winning): the efficiency cores' AllowedCPUs (ADR 0066, decision 6) on a hybrid processor,
+    nothing elsewhere, and nothing from a tree without generators."""
+    generators = TREE / "config/includes.chroot_after_packages/usr/lib/systemd" / f"{scope}-generators"
+    settings = {}
+    if not generators.is_dir():
+        return settings
+    with tempfile.TemporaryDirectory() as out:
+        for program in sorted(generators.iterdir()):
+            subprocess.run(["sh", str(program), out, out, out], check=True,
+                           env=dict(os.environ, SYSTEMD_SCOPE=scope))
+        for drop_in in sorted(pathlib.Path(out, f"{unit}.d").glob("*.conf")):
+            settings.update(unit_settings(drop_in))
     return settings
 
 
@@ -514,7 +533,7 @@ class Loads:
         if restic is None:
             raise SystemExit("S5 needs restic (the backup service's engine)")
         unit = TREE / "tools/oxyos-backupd/oxyos-backupd.service"
-        settings = unit_settings(unit)
+        settings = {**unit_settings(unit), **generated("oxyos-backupd.service")}
         group = self.fixture.unit("oxyos-backupd.service")
         written = apply_unit(group, settings, MACHINE_MIB << 20)
         (self.out / "s5-unit.json").write_text(json.dumps({"settings": settings, "written": written}, indent=1))
