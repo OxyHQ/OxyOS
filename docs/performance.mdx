@@ -87,26 +87,26 @@ each of its two threads measured on its own ([ADR 0067](./adr/0067-the-ui-thread
 frames, and JavaScript's work on its thread:
 
 ```text
-[host so.oxy.frameprobe] JavaScript worked 121.4 ms after pointer.release, on its own thread: on the CPU 120.9,
-  blocked 0.3, preempted 0.2; 2 tasks; the window presented 0 frames meanwhile, 0 dropped (a refresh is 16.7 ms)
-[host so.oxy.dropsea] a frame after pointer.press took 24.1 ms, 1 dropped (a refresh is 16.7 ms): events 0.4,
-  laying out 0.0, animation 0.1, mount 2.3 (commits 9.8, of which Yoga layout 4.1 and text 1.2), drawing 19.6,
-  presenting 1.1 from the CPU, other 0.6; of it on the CPU 23.5, blocked 0.4, preempted 0.2; waiting for the
-  compositor 0.0; 2 turns; JavaScript on its thread meanwhile 38.2 (on the CPU 37.9, blocked 0.1); input to
-  present 63.0 ms
-[host so.oxy.frameprobe] in the last 10.0 s: 91 frames, their work 2.1 ms median, 3.4 at the 95th percentile,
-  4.0 at most; input to present 124.6 ms median, 129.6 at the 95th percentile (2 inputs); 0 slow, 0 dropped
-  (a refresh is 16.7 ms); JavaScript on its thread 412.5 ms in 97 stretches, 3 over a refresh, the longest
-  121.4 ms
-[host so.oxy.dropsea] a resize to 1102x680: its frame presented 104.5 ms after the configure (laying it out 0.8,
-  settling 65.8, cut short at a refresh; the frame's work 104.6, waiting for the compositor 0.0)
-[host so.oxy.dropsea] a live resize: 6 frames for 6 configures over 712 ms; configure to frame 104.5 ms median,
-  187.6 at most; laying out 0.8 ms median, 1.8 at most; 6 settles cut short at a refresh
-[host so.oxy.dropsea] zoom (to fill the work area): its configure 47.9 ms after it was asked, its frame presented 472.9 ms after
+[host so.oxy.dropsea] JavaScript worked 149.6 ms after pointer.press, on its own thread: on the CPU 59.6,
+  blocked 1.1, preempted 88.9; 4 tasks; the window presented 0 frames meanwhile, 0 dropped (a refresh is 16.7 ms)
+[host so.oxy.dropsea] a frame after a resize took 17.3 ms, 1 dropped (a refresh is 16.7 ms): events 0.0, laying
+  out 1.4, animation 0.1, mount 0.1 (commits 0.9, of which Yoga layout 0.5 and text 0.0), drawing 6.0, presenting
+  5.4 from the CPU, other 4.3; of it on the CPU 9.7, blocked 0.0, preempted 7.6; waiting for the compositor 0.0;
+  2 turns; JavaScript on its thread meanwhile 4.0 (on the CPU 4.0, blocked 0.0)
+[host so.oxy.frameprobe] in the last 10.0 s: 7 frames, their work 0.6 ms median, 3.9 at the 95th percentile, 3.9
+  at most; input to present 125.8 ms median, 136.5 at the 95th percentile (6 inputs); 0 slow, 0 dropped (a
+  refresh is 16.7 ms); JavaScript on its thread 535.3 ms in 14 stretches, 5 over a refresh, the longest 130.9 ms
+[host so.oxy.dropsea] a resize to 1102x680: its frame presented 20.2 ms after the configure (laying it out 1.3,
+  settling 3.9; the frame's work 14.8, waiting for the compositor 0.0)
+[host so.oxy.dropsea] a live resize: 19 frames for 19 configures over 422 ms; configure to frame 18.0 ms median,
+  35.8 at most; laying out 1.5 ms median, 2.0 at most; 1 settles cut short at a refresh
+[host so.oxy.dropsea] zoom (to fill the work area): its configure 6.8 ms after it was asked, its frame presented
+  69.1 ms after
 ```
 
 (each is one line in the log; these from `frame-diagnostics.json` and `dropsea-window.json` on the
-development compositor, which draws from the CPU). How to read them:
+development compositor, which draws from the CPU, on seldon under the gate's load, 10 November 2026:
+the preempted time is the machine's other work). How to read them:
 
 - **A frame's work** is everything the UI thread, the host's loop, did since the frame before, its
   sleeping left out: each moment is charged to one part. *events*: handling the compositor's
