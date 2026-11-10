@@ -842,6 +842,12 @@ int main(int argc, char** argv) {
     std::cerr << "[host] " << error.what() << "\n";
     return 1;
   }
+  // Each delivery to React says the batch it reaches JavaScript in (Report::countTurnsBy): what the
+  // loop queues while JavaScript works waits for it in one, however many turns of the loop's queue it.
+  oxyos::Report::get().countTurnsBy([thread = std::weak_ptr(js)] {
+    auto running = thread.lock();
+    return running ? running->batch() : 0;
+  });
   auto timerRegistry = js->makeTimers();
   auto* timers = timerRegistry.get();
   // The instance holds the only reference to its timer manager, as Android's JReactInstance gives
@@ -1445,6 +1451,7 @@ int main(int argc, char** argv) {
                             OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE, std::move(image), std::move(done));
     }});
     dragDrop.editsText(editing);
+    dragDrop.takesPress([&pointer] { pointer.cancelResponder(); });
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
         .copySensitive = [&window](uint64_t serial, const std::string& text) {

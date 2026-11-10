@@ -177,7 +177,7 @@ test("when nothing runs, the menu says the latest backup and when, in the shell'
 test("a destination never backed up, a failure, a disk not connected and Low Power Mode", () => {
   const never = state({ destinations: [disk({ lastBackup: null, oldestBackup: null, backups: 0 })], lastBackup: null });
   assert.deepEqual(backupMenuLines(never, NOW, en), ["No Backups Yet"]);
-  assert.deepEqual(backupMenuLines(never, NOW, es), ["Todavía no hay copias de seguridad"]);
+  assert.deepEqual(backupMenuLines(never, NOW, es), ["Aún no hay copias de seguridad"]);
   assert.equal(backupSaid(never, NOW, en), "No backups yet");
 
   // The latest attempt failed after the latest backup.

@@ -45,6 +45,7 @@ import ScrollProbe from './ScrollProbe';
 import TimingProbe from './TimingProbe';
 import StallProbe from './StallProbe';
 import FrameProbe from './FrameProbe';
+import { LoadAnimationProbe, LoadScriptProbe, PointerTrackProbe } from './SaturationProbe';
 import ClipProbe from './ClipProbe';
 import GenieProbe from './GenieProbe';
 import SvgProbe from './SvgProbe';
@@ -131,6 +132,10 @@ AppRegistry.registerComponent('ScrollProbe', () => ScrollProbe);
 AppRegistry.registerComponent('TimingProbe', () => TimingProbe);
 AppRegistry.registerComponent('StallProbe', () => StallProbe);
 AppRegistry.registerComponent('FrameProbe', () => FrameProbe);
+// The saturation benchmark's (perf.py saturation): its pointer's window, and load S4's hidden applications.
+AppRegistry.registerComponent('PointerTrackProbe', () => PointerTrackProbe);
+AppRegistry.registerComponent('LoadAnimationProbe', () => LoadAnimationProbe);
+AppRegistry.registerComponent('LoadScriptProbe', () => LoadScriptProbe);
 AppRegistry.registerComponent('ClipProbe', () => ClipProbe);
 AppRegistry.registerComponent('GenieProbe', () => GenieProbe);
 AppRegistry.registerComponent('SvgProbe', () => SvgProbe);

@@ -364,16 +364,19 @@ fn settings_alone_is_told_the_volume_measured_when_it_asks_and_nothing_runs_othe
 #[test]
 fn a_measurement_whose_asker_went_stops_and_answers_no_one() {
     let home = scratch("gone");
-    // Enough to walk that the asker is gone before it ends.
-    for n in 0..2_000 {
-        file(
-            &home.join(format!(
-                ".local/share/oxyos/apps/so.oxy.allo/{}/{n}",
-                n % 40
-            )),
-            1,
-        );
-    }
+    file(&home.join(".local/share/oxyos/apps/so.oxy.allo/notes/1"), 1);
+    // The measurement held as it comes to Allo's own data, until the asker is gone: under way
+    // whatever the machine's load (a walk long enough to outlast a turn was not, on a loaded
+    // machine, where the turn's thread waited while the walk ran to its end).
+    let (reached, held) = std::sync::mpsc::channel();
+    let (releaser, released) = std::sync::mpsc::channel::<()>();
+    let released = std::sync::Mutex::new(released);
+    let own = own_under(&home);
+    let own: OwnDataOf = Arc::new(move |id: &str| {
+        let _ = reached.send(id.to_string());
+        let _ = released.lock().unwrap().recv();
+        own(id)
+    });
     let mut storage = Storage::new(
         scope_of(&home),
         Arc::new(PlayedDisk {
@@ -386,7 +389,9 @@ fn a_measurement_whose_asker_went_stops_and_answers_no_one() {
         home.join("no-installd.socket"),
     )
     .unwrap()
-    .with_own_data(own_under(&home));
+    .with_own_data(own);
+    // Dropped before the storage, which waits for its measurement: a failure below ends it.
+    let release = releaser;
     let apps = home.join("applications");
     std::fs::create_dir_all(&apps).unwrap();
     std::fs::write(
@@ -403,6 +408,10 @@ fn a_measurement_whose_asker_went_stops_and_answers_no_one() {
     let mut scene = scene();
     ask(&mut scene, SETTINGS, 1, r#"{"storage":{}}"#);
     storage.serve(&mut scene);
+    assert_eq!(
+        held.recv_timeout(Duration::from_secs(10)).unwrap(),
+        "so.oxy.allo"
+    );
     assert!(storage.measuring.is_some());
     // Settings closes: the measurement is told to stop, and its answer goes to no one.
     scene.disconnect(SETTINGS);
@@ -410,7 +419,8 @@ fn a_measurement_whose_asker_went_stops_and_answers_no_one() {
     assert!(storage
         .measuring
         .as_ref()
-        .is_none_or(|measuring| measuring.stop.load(Ordering::Acquire)));
+        .is_some_and(|measuring| measuring.stop.load(Ordering::Acquire)));
+    release.send(()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while storage.measuring.is_some() {
         storage.serve(&mut scene);

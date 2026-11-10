@@ -196,7 +196,7 @@
    "do": [
     "wait_named",
     [
-     "Couldn't forget the network",
+     "Couldn’t forget the network",
      5000
     ]
    ],
