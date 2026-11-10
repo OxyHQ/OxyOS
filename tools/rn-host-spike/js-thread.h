@@ -43,6 +43,18 @@ class JsThread : public facebook::react::MessageQueueThread {
     std::string what;
     int rank = -1;
   };
+  // What the tasks the calling thread queues while it lives are for, whatever `cause` says: the
+  // loop's requestAnimationFrame callbacks, "an animation frame".
+  class CausedBy {
+   public:
+    explicit CausedBy(Cause cause);
+    ~CausedBy();
+    CausedBy(const CausedBy&) = delete;
+    CausedBy& operator=(const CausedBy&) = delete;
+
+   private:
+    std::optional<Cause> previous_;
+  };
   // A stretch of work: from the thread taking work up while idle to its being idle again.
   struct Stretch {
     ThreadSpan span;

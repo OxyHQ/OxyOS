@@ -29,6 +29,9 @@ constexpr auto kOperationAnswer = std::chrono::seconds(3);
 constexpr auto kHeldAfter = std::chrono::seconds(1);
 
 const char* const kPartNames[] = {"other", "events", "layout", "animation", "mount", "draw", "present"};
+// What started a stretch of JavaScript's work that no turn of the loop queued: a call from a thread of
+// the host's other than the loop (a network's answer, a file read).
+const char* const kAnotherThread = "a call from another thread";
 // Inputs no frame answered for this long are timed by none.
 constexpr auto kInputsForgottenAfter = std::chrono::seconds(10);
 
@@ -211,7 +214,7 @@ void FrameDiagnostics::javascriptWorked(const ThreadSpan& span, Clock::time_poin
     if (report.enabled()) {
       report.diagnostic("js_timing", folly::dynamic::object("work_ms", span.wallMs)("cpu_ms", span.cpuMs)(
                                          "blocked_ms", span.blockedMs)("preempted_ms", span.preemptedMs)(
-                                         "tasks", tasks)("trigger", cause.empty() ? "JavaScript" : cause)(
+                                         "tasks", tasks)("trigger", cause.empty() ? kAnotherThread : cause)(
                                          "slow", slow)("frames", frames)("dropped", dropped)("refresh_ms", periodMs));
     }
     if (slow) {
@@ -220,7 +223,7 @@ void FrameDiagnostics::javascriptWorked(const ThreadSpan& span, Clock::time_poin
         line = format("JavaScript worked %.1f ms after %s, on its own thread: on the CPU %.1f, blocked %.1f, "
                       "preempted %.1f; %d task%s; the window presented %d frame%s meanwhile, %d dropped (a refresh "
                       "is %.1f ms)",
-                      span.wallMs, cause.empty() ? "JavaScript" : cause.c_str(), span.cpuMs, span.blockedMs,
+                      span.wallMs, cause.empty() ? kAnotherThread : cause.c_str(), span.cpuMs, span.blockedMs,
                       span.preemptedMs, tasks, tasks == 1 ? "" : "s", frames, frames == 1 ? "" : "s", dropped,
                       periodMs);
         if (js_.slowSkipped > 0) *line += format("; %d slow not shown since the last", js_.slowSkipped);

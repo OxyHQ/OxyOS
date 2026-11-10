@@ -129,7 +129,8 @@ development compositor, which draws from the CPU). How to read them:
   idle again: React's handlers, renders and commits, the callbacks of timers and
   requestAnimationFrame. A stretch longer than a refresh is said (at most one line a second, the
   next saying how many went unsaid), with what started it (the input the loop handed it, *a
-  timer*, *an animation frame*, *data arriving*), its time on the CPU, blocked and preempted, and
+  timer*, *an animation frame*, *data arriving*, *its commit* for what mounting its commit set off,
+  *a call from another thread*), its time on the CPU, blocked and preempted, and
   the frames the window presented meanwhile, and how many of those dropped refreshes: a long
   stretch with frames presented and none dropped is a slow answer that held nothing a person
   watches.

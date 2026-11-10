@@ -736,6 +736,9 @@ int main(int argc, char** argv) {
         [] {
           if (!oxyos::UiThread::isCurrent()) return oxyos::JsThread::Cause{};
           auto& diagnostics = oxyos::FrameDiagnostics::get();
+          // A turn that mounted JavaScript's commit hands it what the mount set off (a layout's
+          // events, an image loaded).
+          if (diagnostics.currentRank() == 0) return oxyos::JsThread::Cause{"its commit", 0};
           return oxyos::JsThread::Cause{diagnostics.currentTrigger(), diagnostics.currentRank()};
         },
         [](const oxyos::JsThread::Stretch& stretch) {
@@ -2561,7 +2564,10 @@ int main(int argc, char** argv) {
           uiFrame = javascript(Part::Animation, [&] { return worklets.tick(); });
           animating |= javascript(Part::Animation, [&] { return reanimated.tick(); });
           animating |= animated.tick();
-          animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
+          {
+            oxyos::JsThread::CausedBy frame({"an animation frame", 0});
+            animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
+          }
           animating |= pointer.tick(window->ready(oxyos::Window::kToplevel));
           // expo-image views' transitions and animated pictures: a frame drawn again.
           if (images.tick(window->ready(oxyos::Window::kToplevel))) {
@@ -3849,7 +3855,10 @@ int main(int argc, char** argv) {
     worklets.tick();
     busy |= reanimated.tick();
     busy |= animated.tick();
-    busy |= animationFrames.tick(true);
+    {
+      oxyos::JsThread::CausedBy frame({"an animation frame", 0});
+      busy |= animationFrames.tick(true);
+    }
     if (busy) images.sync(display.scale);
     busy |= images.deliver();
     // A transition moves on while the render settles; an animated picture never keeps it busy.

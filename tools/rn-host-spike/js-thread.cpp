@@ -23,8 +23,14 @@ thread_local bool tJsThread = false;
 // What started the stretch the thread is in: a task it queues itself (a promise's continuation, a
 // timer it set) is part of it.
 thread_local JsThread::Cause tCause;
+// What another thread's tasks are for while a CausedBy lives there.
+thread_local std::optional<JsThread::Cause> tQueuedFor;
 
 }  // namespace
+
+JsThread::CausedBy::CausedBy(Cause cause) : previous_(std::exchange(tQueuedFor, std::move(cause))) {}
+
+JsThread::CausedBy::~CausedBy() { tQueuedFor = std::move(previous_); }
 
 JsThread::JsThread(std::function<Cause()> cause, std::function<void(const Stretch&)> worked,
                    std::function<void()> idle, std::function<void(bool)> settled)
@@ -57,7 +63,7 @@ void* JsThread::main(void* self) {
 bool JsThread::isCurrent() const { return tJsThread; }
 
 void JsThread::runOnQueue(std::function<void()>&& task) {
-  Cause cause = tJsThread ? tCause : cause_ ? cause_() : Cause{};
+  Cause cause = tJsThread ? tCause : tQueuedFor ? *tQueuedFor : cause_ ? cause_() : Cause{};
   bool staged = UiThread::isCurrent();
   {
     std::lock_guard lock(mutex_);
