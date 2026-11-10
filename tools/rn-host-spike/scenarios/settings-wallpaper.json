@@ -650,11 +650,11 @@
   {
    "name": "Show on all desktops off: kept, and a choice is now the current desktop's alone",
    "do": [
-    "press",
-    [
-     954,
-     293
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Mostrar en todos los escritorios"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

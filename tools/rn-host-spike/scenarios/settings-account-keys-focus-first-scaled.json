@@ -73,10 +73,6 @@
         "at": {
           "window": [
             {
-              "role": "Heading",
-              "name": "Cuenta de Oxy"
-            },
-            {
               "role": "ListItem",
               "name": "Ada Lovelace",
               "state": []

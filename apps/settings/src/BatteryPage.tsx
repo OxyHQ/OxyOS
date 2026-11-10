@@ -450,7 +450,7 @@ function OptionsDialog({
       // Done stays in view below the options, which scroll, as a Mac's sheet keeps its button.
       footer={
         <View style={{ paddingHorizontal: 20, paddingVertical: 12, alignItems: "flex-end" }}>
-          <Button onPress={onClose} testID="battery-options-done">
+          <Button onPress={onClose} accessibilityLabel={words.done} testID="battery-options-done">
             {words.done}
           </Button>
         </View>
