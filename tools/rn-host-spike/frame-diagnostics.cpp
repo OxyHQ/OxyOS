@@ -28,7 +28,9 @@ constexpr auto kOperationAnswer = std::chrono::seconds(3);
 // Waiting this long for the compositor's answer to a frame is a hold (frame-diagnostics.h).
 constexpr auto kHeldAfter = std::chrono::seconds(1);
 
-const char* const kPartNames[] = {"other", "events", "javascript", "animation", "mount", "draw", "present"};
+const char* const kPartNames[] = {"other", "events", "layout", "animation", "mount", "draw", "present"};
+// Inputs no frame answered for this long are timed by none.
+constexpr auto kInputsForgottenAfter = std::chrono::seconds(10);
 
 double ms(Clock::duration duration) { return std::chrono::duration<double, std::milli>(duration).count(); }
 
@@ -50,8 +52,8 @@ std::string format(const char* pattern, ...) {
 
 double round2(double value) { return std::round(value * 100) / 100; }
 
-// The diagnostics are the loop's: a part entered on another thread (none is, today) is not charged,
-// since that thread's CPU clock is not the loop's.
+// The frames are the loop's: a part entered on another thread (a commit's mount pulled there) is not
+// charged, since that thread's CPU clock is not the loop's.
 thread_local bool tLoopThread = false;
 
 }  // namespace
@@ -67,13 +69,14 @@ double FrameDiagnostics::percentile(const std::vector<double>& sorted, int p) {
 }
 
 void FrameDiagnostics::start(const std::string& application) {
-  started_ = true;
   tLoopThread = true;
   application_ = application;
   since_ = ThreadSample::now();
   turnEnded_ = since_.wall;
   work_.reserve(2048);
   latency_.reserve(512);
+  // Last: JavaScript's thread reads what is above once it sees it started.
+  started_ = true;
 }
 
 void FrameDiagnostics::charge(const ThreadSample& now) {
@@ -93,19 +96,6 @@ void FrameDiagnostics::leave(Part previous) {
   if (!started_ || !tLoopThread) return;
   charge(ThreadSample::now());
   current_ = previous;
-}
-
-void FrameDiagnostics::ranElsewhere(const ThreadSpan& span) {
-  if (!started_ || !tLoopThread || !turning_) return;
-  auto now = ThreadSample::now();
-  ThreadSpan waited = ThreadSpan::between(since_, now);
-  ThreadSpan charged;
-  charged.wallMs = waited.wallMs;
-  charged.cpuMs = std::min(span.cpuMs, charged.wallMs);
-  charged.preemptedMs = std::min(span.preemptedMs, charged.wallMs - charged.cpuMs);
-  charged.blockedMs = charged.wallMs - charged.cpuMs - charged.preemptedMs;
-  parts_[static_cast<size_t>(current_)] += charged;
-  since_ = now;
 }
 
 void FrameDiagnostics::beginTurn() {
@@ -178,7 +168,70 @@ void FrameDiagnostics::input(uint32_t kind, uint32_t detail, uint64_t timeNs) {
                                                 detail == OXYOS_POINTER_LEAVE);
   trigger(name, moving ? 1 : 2);
   // The input's time, as its device registered it; when the read itself without one.
-  inputsNs_.push_back(timeNs != 0 ? timeNs : monotonicNs());
+  inputs_.push_back(Input{.ns = timeNs != 0 ? timeNs : monotonicNs(), .name = name});
+}
+
+void FrameDiagnostics::handedToJavaScript(bool handed, uint64_t queued) {
+  if (!started_) return;
+  for (auto& input : inputs_) {
+    if (!input.javascript) input.javascript = handed ? queued : 0;
+  }
+}
+
+void FrameDiagnostics::javascriptApplied(uint64_t ran) {
+  if (started_) javascriptApplied_ = ran;
+}
+
+bool FrameDiagnostics::awaitingJavaScript() const {
+  return std::any_of(inputs_.begin(), inputs_.end(),
+                     [&](const Input& input) { return input.javascript && *input.javascript > javascriptApplied_; });
+}
+
+void FrameDiagnostics::javascriptWorked(const ThreadSpan& span, Clock::time_point started, const std::string& cause,
+                                        int tasks) {
+  if (!started_) return;
+  auto now = Clock::now();
+  double periodMs = jsPeriodMs_;
+  bool slow = span.wallMs > periodMs;
+  int frames = 0, dropped = 0;
+  std::optional<std::string> line;
+  {
+    std::lock_guard lock(jsMutex_);
+    js_.sinceFrame += span;
+    ++js_.stretchesSinceFrame;
+    js_.work.push_back(span.wallMs);
+    for (const auto& [at, missed] : js_.frames) {
+      if (at >= started) {
+        ++frames;
+        dropped += missed;
+      }
+    }
+    // In the report before any frame or summary counts it.
+    auto& report = Report::get();
+    if (report.enabled()) {
+      report.diagnostic("js_timing", folly::dynamic::object("work_ms", span.wallMs)("cpu_ms", span.cpuMs)(
+                                         "blocked_ms", span.blockedMs)("preempted_ms", span.preemptedMs)(
+                                         "tasks", tasks)("trigger", cause.empty() ? "JavaScript" : cause)(
+                                         "slow", slow)("frames", frames)("dropped", dropped)("refresh_ms", periodMs));
+    }
+    if (slow) {
+      ++js_.slow;
+      if (!js_.slowLogged || now - *js_.slowLogged >= kSlowLinesEvery) {
+        line = format("JavaScript worked %.1f ms after %s, on its own thread: on the CPU %.1f, blocked %.1f, "
+                      "preempted %.1f; %d task%s; the window presented %d frame%s meanwhile, %d dropped (a refresh "
+                      "is %.1f ms)",
+                      span.wallMs, cause.empty() ? "JavaScript" : cause.c_str(), span.cpuMs, span.blockedMs,
+                      span.preemptedMs, tasks, tasks == 1 ? "" : "s", frames, frames == 1 ? "" : "s", dropped,
+                      periodMs);
+        if (js_.slowSkipped > 0) *line += format("; %d slow not shown since the last", js_.slowSkipped);
+        js_.slowLogged = now;
+        js_.slowSkipped = 0;
+      } else {
+        ++js_.slowSkipped;
+      }
+    }
+  }
+  if (line) log(*line);
 }
 
 void FrameDiagnostics::hold(Clock::time_point now) {
@@ -196,10 +249,10 @@ void FrameDiagnostics::hold(Clock::time_point now) {
   // The inputs that waited longer than a hold are timed by no frame; newer ones (one that wakes
   // the displays) are timed by the frame after it.
   uint64_t oldest = monotonicNs() - static_cast<uint64_t>(std::chrono::nanoseconds(kHeldAfter).count());
-  auto untimed = std::erase_if(inputsNs_, [&](uint64_t at) { return at < oldest; });
+  auto untimed = std::erase_if(inputs_, [&](const Input& input) { return input.ns < oldest; });
   held_->untimedInputs += static_cast<int>(untimed);
   // What started the frame after it, when no input of its own: its window being shown again.
-  if (inputsNs_.empty()) {
+  if (inputs_.empty()) {
     trigger_ = "being shown again";
     triggerRank_ = -1;
   }
@@ -213,9 +266,9 @@ void FrameDiagnostics::endHold() {
   auto part = [&](Part p) { return held.parts[static_cast<size_t>(p)]; };
   double heldMs = ms(held.until - held.since);
   log(format("held %.1f s by the compositor (its answer withheld: the window not shown, or the displays off): "
-             "meanwhile %d turn%s worked %.1f ms (JavaScript %.1f, animation %.1f, drawing %.1f; on the CPU %.1f); "
+             "meanwhile %d turn%s worked %.1f ms (laying out %.1f, animation %.1f, drawing %.1f; on the CPU %.1f); "
              "%d input%s not timed",
-             heldMs / 1000, held.turns, held.turns == 1 ? "" : "s", all.wallMs, part(Part::JavaScript).wallMs,
+             heldMs / 1000, held.turns, held.turns == 1 ? "" : "s", all.wallMs, part(Part::Layout).wallMs,
              part(Part::Animation).wallMs, part(Part::Draw).wallMs, all.cpuMs, held.untimedInputs,
              held.untimedInputs == 1 ? "" : "s"));
   auto& report = Report::get();
@@ -248,19 +301,19 @@ void FrameDiagnostics::presented(bool gpu, double syncMs) {
   syncMs_ += syncMs;
 }
 
-std::string FrameDiagnostics::partsText() const {
+std::string FrameDiagnostics::partsText(const ThreadSpan& javascript) const {
   auto part = [&](Part p) { return parts_[static_cast<size_t>(p)].wallMs; };
   ThreadSpan all;
   for (const auto& span : parts_) all += span;
-  const ThreadSpan& javascript = parts_[static_cast<size_t>(Part::JavaScript)];
   std::string painter = presents_ == 0 ? "" : gpu_ ? format(" on the GPU (sync %.1f)", syncMs_) : " from the CPU";
-  return format("events %.1f, JavaScript %.1f (commits %.1f, of which Yoga layout %.1f and text %.1f), animation %.1f, "
-                "mount %.1f, drawing %.1f, presenting %.1f%s, other %.1f; of it on the CPU %.1f (JavaScript %.1f), "
-                "blocked %.1f (JavaScript %.1f), preempted %.1f; waiting for the compositor %.1f; %d turn%s",
-                part(Part::Events), part(Part::JavaScript), commitMs_, layoutMs_, textMs_, part(Part::Animation),
-                part(Part::Mount), part(Part::Draw), part(Part::Present), painter.c_str(), part(Part::Other), all.cpuMs,
-                javascript.cpuMs, all.blockedMs, javascript.blockedMs, all.preemptedMs, waitMs_, turns_,
-                turns_ == 1 ? "" : "s");
+  return format("events %.1f, laying out %.1f, animation %.1f, mount %.1f (commits %.1f, of which Yoga layout %.1f and "
+                "text %.1f), drawing %.1f, presenting %.1f%s, other %.1f; of it on the CPU %.1f, blocked %.1f, "
+                "preempted %.1f; waiting for the compositor %.1f; %d turn%s; JavaScript on its thread meanwhile %.1f "
+                "(on the CPU %.1f, blocked %.1f)",
+                part(Part::Events), part(Part::Layout), part(Part::Animation), part(Part::Mount), commitMs_, layoutMs_,
+                textMs_, part(Part::Draw), part(Part::Present), painter.c_str(), part(Part::Other), all.cpuMs,
+                all.blockedMs, all.preemptedMs, waitMs_, turns_, turns_ == 1 ? "" : "s", javascript.wallMs,
+                javascript.cpuMs, javascript.blockedMs);
 }
 
 void FrameDiagnostics::log(const std::string& line) {
@@ -286,16 +339,45 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
   double late = work + std::max(0.0, waitMs_ - periodMs_);
   bool slow = late > periodMs_;
   int dropped = slow ? static_cast<int>(std::ceil(late / periodMs_)) - 1 : 0;
+  // The inputs this frame answers: handed over in a turn that queued nothing for JavaScript, or once
+  // JavaScript ran what their turn queued and the loop applied what it committed then. Without a
+  // frame, those JavaScript has answered changed nothing visible, and no frame times them.
+  auto nowNs = monotonicNs();
   std::optional<double> latency;
-  if (presented && !inputsNs_.empty()) {
-    latency = static_cast<double>(monotonicNs() - *std::min_element(inputsNs_.begin(), inputsNs_.end())) / 1e6;
+  std::string answered;
+  uint64_t earliest = UINT64_MAX;
+  std::erase_if(inputs_, [&](const Input& input) {
+    bool done = input.javascript && *input.javascript <= javascriptApplied_;
+    if (done && presented && input.ns < earliest) {
+      earliest = input.ns;
+      answered = input.name;
+    }
+    return done || nowNs - input.ns > static_cast<uint64_t>(std::chrono::nanoseconds(kInputsForgottenAfter).count());
+  });
+  if (earliest != UINT64_MAX) latency = static_cast<double>(nowNs - earliest) / 1e6;
+  std::string what = first_ && presented ? "the first frame"
+                     : !trigger_.empty() ? trigger_
+                     : !answered.empty() ? answered
+                                         : "JavaScript";
+  // JavaScript's work on its thread since the frame line before, taken by the frame whose line is
+  // written. Held until that line is written, so that the report has each stretch's line before the
+  // frame's that counts it.
+  std::unique_lock jsLock(jsMutex_);
+  ThreadSpan javascript;
+  int stretches = 0;
+  if (presented || slow) {
+    javascript = std::exchange(js_.sinceFrame, ThreadSpan{});
+    stretches = std::exchange(js_.stretchesSinceFrame, 0);
   }
-  std::string what = first_ && presented ? "the first frame" : trigger_.empty() ? "JavaScript" : trigger_;
+  if (presented) {
+    js_.frames.emplace_back(now, dropped);
+    std::erase_if(js_.frames, [&](const auto& frame) { return now - frame.first > kSummaryEvery; });
+  }
 
   // The report has every frame, and work that drew none when it was slow or ran JavaScript: what
   // an event that changed nothing visible cost (the shell told of another window's change).
   // Each part by the wall clock (`parts`), and of it on the loop thread's CPU, blocked and preempted.
-  if (presented || slow || parts_[static_cast<size_t>(Part::JavaScript)].wallMs > 0) {
+  if (presented || slow) {
     auto& report = Report::get();
     if (report.enabled()) {
       folly::dynamic parts = folly::dynamic::object, cpu = folly::dynamic::object, blocked = folly::dynamic::object,
@@ -314,9 +396,13 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
                                       "latency_ms", latency ? folly::dynamic(*latency) : folly::dynamic(nullptr))(
                                       "trigger", what)("parts", std::move(parts))("commit_ms", commitMs_)(
                                       "layout_ms", layoutMs_)("text_ms", textMs_)("gpu", gpu_)("sync_ms", syncMs_)(
-                                      "turns", turns_)("refresh_ms", periodMs_));
+                                      "turns", turns_)("refresh_ms", periodMs_)(
+                                      "js", folly::dynamic::object("work_ms", javascript.wallMs)("cpu_ms", javascript.cpuMs)(
+                                                "blocked_ms", javascript.blockedMs)("preempted_ms", javascript.preemptedMs)(
+                                                "stretches", stretches)));
     }
   }
+  jsLock.unlock();
   if (presented) {
     if (!windowFrom_) windowFrom_ = now;
     work_.push_back(work);
@@ -332,7 +418,7 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
                                       : "handling " + what + " (no frame)";
       std::string line = format("%s took %.1f ms, %d dropped (a refresh is %.1f ms): ", subject.c_str(), work,
                                 dropped, periodMs_) +
-                         partsText();
+                         partsText(javascript);
       if (latency) line += format("; input to present %.1f ms", *latency);
       if (slowSkipped_ > 0) line += format("; %d slow not shown since the last", slowSkipped_);
       log(line);
@@ -372,7 +458,6 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
   gpu_ = false;
   trigger_.clear();
   triggerRank_ = -1;
-  inputsNs_.clear();
 }
 
 void FrameDiagnostics::resized(Clock::time_point received, float width, float height) {
@@ -422,9 +507,10 @@ void FrameDiagnostics::minimizeAsked() {
 void FrameDiagnostics::closeAsked(const char* by) {
   if (!started_ || (operation_ && operation_->name.starts_with("close"))) return;
   std::string name = std::string("close (asked by ") + by;
-  if (!inputsNs_.empty()) {
-    name += format(" %.1f ms after the input",
-                   static_cast<double>(monotonicNs() - *std::min_element(inputsNs_.begin(), inputsNs_.end())) / 1e6);
+  if (!inputs_.empty()) {
+    auto earliest = std::min_element(inputs_.begin(), inputs_.end(),
+                                     [](const Input& a, const Input& b) { return a.ns < b.ns; });
+    name += format(" %.1f ms after the input", static_cast<double>(monotonicNs() - earliest->ns) / 1e6);
   }
   operation_ = Operation{.name = name + ")", .asked = Clock::now()};
 }
@@ -491,6 +577,13 @@ void FrameDiagnostics::summarize(Clock::time_point now) {
   double seconds = ms(now - *windowFrom_) / 1000;
   windowFrom_.reset();
   if (work_.empty()) return;
+  // Held until the summary is in the report, after the lines of the stretches it counts.
+  std::unique_lock jsLock(jsMutex_);
+  auto javascript = std::exchange(js_.work, {});
+  int javascriptSlow = std::exchange(js_.slow, 0);
+  double javascriptMs = 0;
+  for (double stretch : javascript) javascriptMs += stretch;
+  double javascriptLongest = javascript.empty() ? 0 : *std::max_element(javascript.begin(), javascript.end());
   std::sort(work_.begin(), work_.end());
   std::sort(latency_.begin(), latency_.end());
   std::string inputs = latency_.empty()
@@ -498,9 +591,11 @@ void FrameDiagnostics::summarize(Clock::time_point now) {
                            : format("input to present %.1f ms median, %.1f at the 95th percentile (%zu inputs)",
                                     percentile(latency_, 50), percentile(latency_, 95), latency_.size());
   log(format("in the last %.1f s: %zu frames, their work %.1f ms median, %.1f at the 95th percentile, %.1f at most; %s; "
-             "%d slow, %d dropped (a refresh is %.1f ms)",
+             "%d slow, %d dropped (a refresh is %.1f ms); JavaScript on its thread %.1f ms in %zu stretch%s, %d over a "
+             "refresh, the longest %.1f ms",
              seconds, work_.size(), percentile(work_, 50), percentile(work_, 95), work_.back(), inputs.c_str(), slow_,
-             dropped_, periodMs_));
+             dropped_, periodMs_, javascriptMs, javascript.size(), javascript.size() == 1 ? "" : "es", javascriptSlow,
+             javascriptLongest));
   auto& report = Report::get();
   if (report.enabled()) {
     auto optional = [&](double value) { return latency_.empty() ? folly::dynamic(nullptr) : folly::dynamic(value); };
@@ -509,7 +604,8 @@ void FrameDiagnostics::summarize(Clock::time_point now) {
                           "work_p50", percentile(work_, 50))("work_p95", percentile(work_, 95))("work_max", work_.back())(
                           "latency_p50", optional(percentile(latency_, 50)))(
                           "latency_p95", optional(percentile(latency_, 95)))("inputs", latency_.size())("slow", slow_)(
-                          "dropped", dropped_)("refresh_ms", periodMs_));
+                          "dropped", dropped_)("refresh_ms", periodMs_)("js_ms", javascriptMs)(
+                          "js_stretches", javascript.size())("js_slow", javascriptSlow)("js_longest_ms", javascriptLongest));
   }
   work_.clear();
   latency_.clear();

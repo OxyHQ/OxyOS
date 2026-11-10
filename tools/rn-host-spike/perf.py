@@ -445,11 +445,12 @@ def measure_steps(scenario, summary, report, shell):
         end = result["t_settled"]
         expect = step.get("expect", {})
         for host, wanted, lines in (("app", expect, report), ("shell", expect.get("in_shell", {}), shell)):
-            work = [line for line in lines if line["kind"] == "timing" and start <= line["t"] <= end]
-            for budget, measure in (("js_ms_max", "cpu"), ("js_blocked_ms_max", "blocked"), ("js_wall_ms_max", "parts")):
+            # Each stretch of JavaScript's work on its thread (js-thread.h), as regress.py holds it.
+            work = [line for line in lines if line["kind"] == "js_timing" and start <= line["t"] <= end]
+            for budget, measure in (("js_ms_max", "cpu_ms"), ("js_blocked_ms_max", "blocked_ms"),
+                                    ("js_wall_ms_max", "work_ms")):
                 if budget in wanted.get("js_work", {}):
-                    measured[(index, host, budget)] = max(
-                        (line.get(measure, line["parts"]).get("javascript", 0) for line in work), default=0.0)
+                    measured[(index, host, budget)] = max((line[measure] for line in work), default=0.0)
             resize = wanted.get("resize_work", {})
             if resize:
                 begun = result.get("t_inject") or start
@@ -691,8 +692,8 @@ def responses(options, name, scenario, out):
 
 def shell_responses(options, name, scenario, out):
     """Each step of `scenario` that holds the shell to a `js_work` budget, over every run: the most
-    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `timing`
-    lines, frames and work that drew none), as regress.py holds it to the budget, that piece's
+    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `js_timing`
+    lines, each stretch of work on JavaScript's thread), as regress.py holds it to the budget, that piece's
     JavaScript by the wall clock and blocked, and the frames the shell presented."""
     path = SCENARIOS / scenario
     steps = json.loads(path.read_text())["steps"]
@@ -701,18 +702,21 @@ def shell_responses(options, name, scenario, out):
         summary, _, shell, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}")
         start = summary["t_launch"]
         for index, (step, result) in enumerate(zip(steps, summary["steps"])):
-            # From the step before's end, as regress.py checks it: the input and what followed.
-            work = [line for line in shell if line["kind"] == "timing" and start <= line["t"] <= result["t_settled"]]
+            # From the step before's end, as regress.py checks it: the input and what followed. Each
+            # stretch of JavaScript's work on its thread (js-thread.h), and the frames presented.
+            work = [line for line in shell if line["kind"] == "js_timing" and start <= line["t"] <= result["t_settled"]]
+            frames = [line for line in shell if line["kind"] == "timing" and line["presented"]
+                      and start <= line["t"] <= result["t_settled"]]
             start = result["t_settled"]
             budget = step["expect"].get("in_shell", {}).get("js_work", {}).get("js_ms_max")
             if budget is None:
                 continue
             entry = measured.setdefault(index, {"name": step["name"], "budget_ms": budget, "js": [], "wall": [],
                                                 "blocked": [], "frames": []})
-            costly = max(work, key=lambda line: line["cpu"].get("javascript", 0), default=None)
-            for key, measure in (("js", "cpu"), ("wall", "parts"), ("blocked", "blocked")):
-                entry[key].append(costly[measure].get("javascript", 0) if costly else 0.0)
-            entry["frames"].append(sum(1 for line in work if line["presented"]))
+            costly = max(work, key=lambda line: line["cpu_ms"], default=None)
+            for key, measure in (("js", "cpu_ms"), ("wall", "work_ms"), ("blocked", "blocked_ms")):
+                entry[key].append(costly[measure] if costly else 0.0)
+            entry["frames"].append(len(frames))
     return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "js_ms": percentiles(entry["js"]),
              "js_wall_ms": percentiles(entry["wall"]), "js_blocked_ms": percentiles(entry["blocked"]),
              "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]

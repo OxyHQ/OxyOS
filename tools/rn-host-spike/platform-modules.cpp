@@ -241,16 +241,16 @@ std::shared_ptr<TurboModule> createPlatformModule(
     const std::shared_ptr<CallInvoker>& invoker,
     HostServices& services) {
   if (name == NativeOxyOSSoundsCxxSpec<SoundsModule>::kModuleName) {
-    return std::make_shared<SoundsModule>(invoker, services);
+    return std::make_shared<UiLocked<SoundsModule>>(invoker, services);
   }
   if (name == NativeOxyOSClipboardCxxSpec<ClipboardModule>::kModuleName) {
-    return std::make_shared<ClipboardModule>(invoker, services);
+    return std::make_shared<UiLocked<ClipboardModule>>(invoker, services);
   }
   if (name == NativeOxyOSApplicationCxxSpec<ApplicationModule>::kModuleName) {
-    return std::make_shared<ApplicationModule>(invoker, services);
+    return std::make_shared<UiLocked<ApplicationModule>>(invoker, services);
   }
   if (name == NativeOxyOSNotificationsCxxSpec<NotificationsModule>::kModuleName) {
-    return std::make_shared<NotificationsModule>(invoker, services);
+    return std::make_shared<UiLocked<NotificationsModule>>(invoker, services);
   }
   return nullptr;
 }

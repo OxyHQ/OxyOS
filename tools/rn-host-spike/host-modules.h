@@ -6,6 +6,7 @@
 #include "migration.h"
 #include "network.h"
 #include "renderer.h"
+#include "ui-thread.h"
 
 #include <oxyos_client.h>
 
@@ -35,7 +36,23 @@ using facebook::react::CallInvoker;
 using facebook::react::TurboModule;
 namespace jsi = facebook::jsi;
 
-// A TurboModule whose methods are host lambdas.
+// A module's method, as JavaScript calls it on its thread, made to hold the UI thread's state while it
+// runs (ui-thread.h): every method of the host's modules reaches that state (the window, the view tree,
+// the services), so none runs while the loop works. A value that is no function is returned as is.
+jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method);
+
+// A module of React Native's codegen (a NativeOxyOS*CxxSpec) whose methods hold the UI thread's state.
+template <typename Module>
+class UiLocked : public Module {
+ public:
+  using Module::Module;
+  jsi::Value create(jsi::Runtime& rt, const jsi::PropNameID& prop) override {
+    return uiLockedMethod(rt, prop, Module::create(rt, prop));
+  }
+};
+
+// A TurboModule whose methods are host lambdas, each holding the UI thread's state while it runs
+// (ui-thread.h).
 class HostModule : public TurboModule {
  public:
   using Method = std::function<jsi::Value(jsi::Runtime&, const jsi::Value*, size_t)>;
@@ -90,6 +107,7 @@ class HostModule : public TurboModule {
     auto fn = it->second;
     return jsi::Function::createFromHostFunction(
         rt, prop, 0, [fn](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+          UiThread::Lock uiState;
           return fn(rt, args, count);
         });
   }
@@ -253,10 +271,10 @@ struct SettingsService {
 };
 
 // The window's key presses for Bloom's `PlatformKeyboard` (key-chords.h): JavaScript's one
-// listener, called with each press before the focused view, which returns whether it took the key
-// (a menu's shortcut ran). Set by JavaScript in an application's window; never in the shell.
+// listener, called on its thread with each press before the focused view, which returns whether it
+// took the key (a menu's shortcut ran). Set by JavaScript in an application's window; never in the
+// shell.
 struct KeyboardService {
-  jsi::Runtime* runtime = nullptr;
   std::shared_ptr<jsi::Function> listener;
 };
 

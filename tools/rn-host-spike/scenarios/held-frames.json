@@ -101,7 +101,7 @@
             1
           ],
           "logged": [
-            "^\\[host so\\.oxy\\.frameprobe\\] held [0-9]+\\.[0-9] s by the compositor \\(its answer withheld: the window not shown, or the displays off\\): meanwhile [0-9]+ turns? worked [0-9.]+ ms \\(JavaScript [0-9.]+, animation [0-9.]+, drawing [0-9.]+; on the CPU [0-9.]+\\); 0 inputs not timed$"
+            "^\\[host so\\.oxy\\.frameprobe\\] held [0-9]+\\.[0-9] s by the compositor \\(its answer withheld: the window not shown, or the displays off\\): meanwhile [0-9]+ turns? worked [0-9.]+ ms \\(laying out [0-9.]+, animation [0-9.]+, drawing [0-9.]+; on the CPU [0-9.]+\\); 0 inputs not timed$"
           ],
           "wait_max_ms": 500,
           "latency_max_ms": 1000,

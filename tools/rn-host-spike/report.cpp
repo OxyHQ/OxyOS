@@ -156,6 +156,7 @@ void Report::animationFrame(double timestamp, size_t callbacks) {
 
 void Report::write(folly::dynamic&& line) {
   if (!file_) return;
+  std::lock_guard lock(mutex_);
   line["t"] = monotonicNs();
   std::string text = folly::toJson(line);
   std::fwrite(text.data(), 1, text.size(), file_);
@@ -168,18 +169,21 @@ void Report::frame(uint32_t surface, int width, int height, double renderMs, con
   if (!file_) return;
   folly::dynamic list = folly::dynamic::array;
   for (const auto& text : texts) list.push_back(text);
+  std::lock_guard lock(mutex_);
   // The work so far in this turn is the frame's.
   if (turning_) {
     auto now = std::chrono::steady_clock::now();
     busyMs_ += std::chrono::duration<double, std::milli>(now - turn_).count();
     turn_ = now;
   }
+  // The loop's work and JavaScript's on its thread (counted once: the loop's own JavaScript, worklets',
+  // is in its turns).
   write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
-      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", js_.wallMs)("js_cpu_ms", js_.cpuMs)(
+      "render_ms", renderMs)("busy_ms", busyMs_ + jsThreadMs_)("js_ms", js_.wallMs)("js_cpu_ms", js_.cpuMs)(
       "js_blocked_ms", js_.blockedMs)("react_commits", reactCommits_)("damaged", damaged)(
       "texts", std::move(list))(
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
-  busyMs_ = 0;
+  busyMs_ = jsThreadMs_ = 0;
   js_ = {};
   reactCommits_ = 0;
 }
@@ -191,18 +195,24 @@ void Report::stage(const char* name) {
 
 void Report::beginTurn() {
   if (!file_) return;
+  std::lock_guard lock(mutex_);
   turn_ = std::chrono::steady_clock::now();
   turning_ = true;
 }
 
 void Report::endTurn() {
-  if (!file_ || !turning_) return;
+  if (!file_) return;
+  std::lock_guard lock(mutex_);
+  if (!turning_) return;
   busyMs_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - turn_).count();
   turning_ = false;
 }
 
-void Report::javascript(const ThreadSpan& span) {
-  if (file_) js_ += span;
+void Report::javascript(const ThreadSpan& span, bool onItsThread) {
+  if (!file_) return;
+  std::lock_guard lock(mutex_);
+  js_ += span;
+  if (onItsThread) jsThreadMs_ += span.wallMs;
 }
 
 void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
@@ -212,7 +222,10 @@ void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
       jsi::Function::createFromHostFunction(
           runtime, jsi::PropNameID::forAscii(runtime, "__oxyosReactCommitted"), 1,
           [this](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
-            ++reactCommits_;
+            {
+              std::lock_guard lock(mutex_);
+              ++reactCommits_;
+            }
             // [[name, count, {name: count, …}], …]: where each re-render began, how many components
             // it rendered and which.
             if (count == 0 || !args[0].isObject()) return jsi::Value::undefined();

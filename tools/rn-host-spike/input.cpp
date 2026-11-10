@@ -1098,7 +1098,10 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface, boo
   const double dispatched = dispatchTime();
   auto data = state->getData();
   data.contentOffset = next;
-  state->updateState(std::move(data));
+  // The offset is the UI thread's, as an Android ScrollView's is its view's: committed and mounted
+  // here at once, so the scroll view is drawn at it this frame, however busy JavaScript is
+  // (docs/adr/0067-the-ui-thread.mdx); JavaScript hears of it as onScroll.
+  state->updateState(std::move(data), EventQueue::UpdateMode::unstable_Immediate);
   if (auto emitter = std::dynamic_pointer_cast<const ScrollViewEventEmitter>(view.eventEmitter)) {
     ScrollEvent event;
     event.contentSize = content;
