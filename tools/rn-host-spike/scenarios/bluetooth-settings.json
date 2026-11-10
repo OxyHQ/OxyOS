@@ -395,7 +395,7 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "If you don't know it, try 0000 or 1234."
+            "If you don’t know it, try 0000 or 1234."
           ]
         },
         "delivered": {}

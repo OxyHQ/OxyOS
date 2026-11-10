@@ -98,7 +98,7 @@ test("an erase's answer is read strictly: anything else is a failure, never an e
 });
 
 test("a refusal is said where it belongs: the field's, or the step's", () => {
-  assert.deepEqual(refusalMessage({ refused: "wrongPassword" }, en), { field: "Incorrect password.", step: null });
+  assert.deepEqual(refusalMessage({ refused: "wrongPassword" }, en), { field: "Incorrect password. Try again.", step: null });
   assert.deepEqual(refusalMessage({ refused: "throttled", retryAfter: 30 }, en), {
     field: "Try again in 30 seconds.",
     step: null,
@@ -108,7 +108,7 @@ test("a refusal is said where it belongs: the field's, or the step's", () => {
     step: null,
   });
   assert.deepEqual(refusalMessage({ refused: "throttled" }, en), { field: en.tryAgainLater, step: null });
-  const nothingChanged = "OxyOS couldn't erase this computer. Nothing was changed.";
+  const nothingChanged = "OxyOS couldn’t erase this computer. Nothing was changed.";
   for (const refused of ["failed", "notPermitted"] as const) {
     assert.deepEqual(refusalMessage({ refused }, en), { field: null, step: nothingChanged });
   }
@@ -128,6 +128,6 @@ test("Transfer or Reset's words in both languages", () => {
   assert.equal(es.tryAgainIn(45), "Vuelve a intentarlo dentro de 45 segundos.");
   assert.equal(
     en.noRecovery,
-    "This computer can't be erased from Settings because it has no recovery.",
+    "This computer can’t be erased from Settings because it has no recovery.",
   );
 });

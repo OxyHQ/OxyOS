@@ -8448,6 +8448,8 @@ mod shortcuts;
 /// System sounds (docs/adr/0044-system-sounds.mdx).
 mod sounds;
 mod system;
+/// Window tiling (ADR 0016, decision 12).
+mod tiling;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 
 /// The shell's overview: an overlay over the whole output.

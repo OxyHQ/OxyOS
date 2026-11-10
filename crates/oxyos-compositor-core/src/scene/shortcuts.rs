@@ -7,8 +7,9 @@
 //! The compositor acts on windows itself, so those work whatever the shell is doing:
 //! Super+W closes the active window (its close request), Super+Q quits its application (a close
 //! request to each of its windows), Super+M minimizes it, Super+H hides its application,
-//! Super+` (Shift: backwards) moves to its application's next window and Super+Ctrl+F toggles
-//! full screen. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
+//! Super+` (Shift: backwards) moves to its application's next window, Super+Ctrl+F toggles
+//! full screen and Super+Alt with F, C, R or an arrow (Shift: arrangements) tiles it (ADR 0016,
+//! decision 12, `tiling.rs`). What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
 //! choice), Super pressed and released alone opens the launcher's search (ADR 0041), Super+Space
@@ -31,6 +32,7 @@
 //! a window hidden with its application stays off the screen, out of the dock, until its
 //! application is activated again.
 
+use super::tiling::{Arrangement, Layout, Tile};
 use super::{appearances, ClientId, OutputId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{
     CaptureMode, DismissReason, ErrorCode, Event, ShellKind, ShortcutIntent, SystemShortcut,
@@ -53,7 +55,10 @@ const KEY_5: u32 = 6;
 const TAB: u32 = 15;
 const Q: u32 = 16;
 const W: u32 = 17;
+/// R and C, with F: tiling's Return to Previous Size, Center and Fill (ADR 0016, decision 12).
+const R: u32 = 19;
 const F: u32 = 33;
+const C: u32 = 46;
 const H: u32 = 35;
 /// The key above Tab, left of 1: ` on the US layout, º on the Spanish one.
 const GRAVE: u32 = 41;
@@ -141,6 +146,26 @@ enum WindowAction {
     NextWindow,
     PreviousWindow,
     FullScreen,
+}
+
+/// The layout Super+Alt with `key` (and Shift) asks for (ADR 0016, decision 12).
+fn tiling_layout(key: u32, shift: bool) -> Option<Layout> {
+    let tile = |tile| Some(Layout::Tile(tile));
+    let arrange = |arrangement| Some(Layout::Arrange(arrangement));
+    match (key, shift) {
+        (F, false) => tile(Tile::Fill),
+        (C, false) => Some(Layout::Center),
+        (R, false) => Some(Layout::ReturnToPreviousSize),
+        (LEFT, false) => tile(Tile::Left),
+        (RIGHT, false) => tile(Tile::Right),
+        (UP, false) => tile(Tile::Top),
+        (DOWN, false) => tile(Tile::Bottom),
+        (LEFT, true) => arrange(Arrangement::LeftAndRight),
+        (RIGHT, true) => arrange(Arrangement::RightAndLeft),
+        (UP, true) => arrange(Arrangement::TopAndBottom),
+        (DOWN, true) => arrange(Arrangement::BottomAndTop),
+        _ => None,
+    }
 }
 
 impl Scene {
@@ -304,6 +329,18 @@ impl Scene {
         if key == Q && shift && !ctrl && !self.capturing() {
             self.dismiss_grab(DismissReason::OutsidePress);
             self.session_key(super::SessionKey::LogOut { confirm: !alt });
+            return;
+        }
+        // Tiling, as a Mac's Fn-Control with the same keys (ADR 0016, decision 12): Super+Alt with
+        // F fills, C centres, R returns to the previous size, an arrow tiles to that half, and with
+        // Shift an arrow arranges the active window and the one behind it.
+        if alt && !ctrl && !self.capturing() {
+            if let Some(layout) = tiling_layout(key, shift) {
+                if let Some(active) = self.active.filter(|active| self.live(*active).is_some()) {
+                    self.dismiss_grab(DismissReason::OutsidePress);
+                    self.lay_out_window(active, layout);
+                }
+            }
             return;
         }
         if alt {

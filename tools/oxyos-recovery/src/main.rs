@@ -51,7 +51,8 @@ fn main() -> ExitCode {
         Some("rearm") => rearm(&arguments[1..]),
         Some("safe-mode-entry") => safe_mode_entry(&arguments[1..]),
         Some("kernel-parameters") => kernel_parameters(&arguments[1..]),
-        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY | safe-mode-entry add|remove VERSION | sync [--boot-root DIRECTORY] [--entry-token TOKEN] | kernel-parameters sync [--boot-root DIRECTORY] [--entry-token TOKEN] [--cmdline FILE]".into()),
+        Some("panic-report") => panic_report(),
+        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | panic-report | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY | safe-mode-entry add|remove VERSION | sync [--boot-root DIRECTORY] [--entry-token TOKEN] | kernel-parameters sync [--boot-root DIRECTORY] [--entry-token TOKEN] [--cmdline FILE]".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -60,6 +61,20 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Each kernel panic systemd-pstore brought back, its account for the person
+/// (docs/adr/0068-crash-evidence-and-kernel-panics.mdx; `oxyos-panic-report.service`).
+fn panic_report() -> Result<(), String> {
+    let written = oxyos_recovery::panics::report(
+        Path::new(oxyos_recovery::panics::PSTORE),
+        Path::new(oxyos_recovery::panics::PROBLEMS),
+    )
+    .map_err(|e| format!("the panics' accounts: {e}"))?;
+    for name in written {
+        println!("A kernel panic's account: {name}");
+    }
+    Ok(())
 }
 
 fn now() -> u64 {
