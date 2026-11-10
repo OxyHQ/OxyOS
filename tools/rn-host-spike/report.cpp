@@ -156,10 +156,12 @@ void Report::animationFrame(double timestamp, size_t callbacks) {
 
 void Report::write(folly::dynamic&& line) {
   if (!file_) return;
-  std::lock_guard lock(mutex_);
-  line["t"] = monotonicNs();
+  // Made into text before the lock (a react_render line can be large, and the two threads write),
+  // stamped and written under it, so the file's lines are in the order of their time.
   std::string text = folly::toJson(line);
-  std::fwrite(text.data(), 1, text.size(), file_);
+  std::lock_guard lock(mutex_);
+  std::string stamped = "{\"t\":" + std::to_string(monotonicNs()) + (text.size() > 2 ? "," : "") + text.substr(1);
+  std::fwrite(stamped.data(), 1, stamped.size(), file_);
   std::fputc('\n', file_);
   std::fflush(file_);
 }
