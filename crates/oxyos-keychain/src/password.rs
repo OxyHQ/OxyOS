@@ -3,7 +3,7 @@
 //! letter and one digit, drawn uniformly from the system's CSPRNG (about 100 bits). A draw
 //! without every class is drawn again whole, so every acceptable password is equally likely.
 
-use crate::{Error, Result, SecretString};
+use crate::{Error, Result, Secret};
 use rand::distributions::{Distribution, Slice};
 use rand::rngs::OsRng;
 use zeroize::Zeroizing;
@@ -14,7 +14,7 @@ const GROUP: usize = 5;
 pub const LENGTH: usize = GROUPS * GROUP + GROUPS - 1;
 
 /// A new strong password.
-pub fn generate() -> Result<SecretString> {
+pub fn generate() -> Result<Secret> {
     let letters = Slice::new(ALPHABET).map_err(|_| Error::Random)?;
     loop {
         let mut password = Zeroizing::new(String::with_capacity(LENGTH));
@@ -27,7 +27,7 @@ pub fn generate() -> Result<SecretString> {
         }
         let has = |class: fn(&u8) -> bool| password.bytes().any(|b| class(&b));
         if has(u8::is_ascii_lowercase) && has(u8::is_ascii_uppercase) && has(u8::is_ascii_digit) {
-            return Ok(SecretString::from(password));
+            return Ok(Secret::from(password));
         }
     }
 }

@@ -25,7 +25,7 @@
 //! key RustCrypto holds zeroes itself when dropped; neither appears in `Debug` or an error.
 
 use crate::item::{Content, Item, Passkey, ES256};
-use crate::secret::SecretString;
+use crate::secret::Secret;
 use crate::wire::{b64, b64_secret, getrandom, unb64, ItemId};
 use crate::{Error, Result};
 use ciborium::value::{Integer, Value};
@@ -105,12 +105,12 @@ pub fn supports(algorithms: &[i64]) -> bool {
 }
 
 /// `text` kept to [`MAX_NAME`] bytes, cut at a character's edge.
-fn name(text: &str) -> SecretString {
+fn name(text: &str) -> Secret {
     let mut end = text.len().min(MAX_NAME);
     while !text.is_char_boundary(end) {
         end -= 1;
     }
-    SecretString::new(&text[..end])
+    Secret::new(&text[..end])
 }
 
 /// What a registration is asked to make (CTAP2 authenticatorMakeCredential, the parts OxyOS
@@ -123,7 +123,7 @@ pub struct NewPasskey<'a> {
     pub user_name: &'a str,
     pub user_display_name: &'a str,
     /// The desktop entry ids of the applications it was made for (none from the browser).
-    pub apps: Vec<SecretString>,
+    pub apps: Vec<Secret>,
 }
 
 impl fmt::Debug for NewPasskey<'_> {
@@ -257,14 +257,14 @@ pub fn create(new: &NewPasskey<'_>, id: ItemId, now: &str) -> Result<(Item, Regi
         modified_at: now.to_owned(),
         counter: 1,
         content: Content::Passkey(Passkey {
-            rp_id: SecretString::new(new.rp_id),
+            rp_id: Secret::new(new.rp_id),
             rp_name: name(new.rp_name),
-            user_handle: SecretString::new(b64(new.user_handle)),
+            user_handle: Secret::new(b64(new.user_handle)),
             user_name: name(new.user_name),
             user_display_name: name(new.user_display_name),
-            credential_id: SecretString::new(b64(&credential_id)),
+            credential_id: Secret::new(b64(&credential_id)),
             algorithm: ES256,
-            private_key: SecretString::from(b64_secret(private_key.as_bytes())),
+            private_key: Secret::from(b64_secret(private_key.as_bytes())),
             apps: new.apps.clone(),
         }),
     };

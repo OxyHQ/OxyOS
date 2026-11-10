@@ -796,7 +796,7 @@ fn join(daemon: &dyn Daemon, back: &Back, client: ClientId, ssid: &str) -> Resul
     };
     loop {
         let password = ask(security.name(), incorrect).ok_or(Failure::Cancelled)?;
-        if !password.valid_wpa() {
+        if !oxyos_networks::valid_wpa(&password) {
             incorrect = true;
             continue;
         }

@@ -34,31 +34,9 @@ use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 
-/// A credential, or a code: overwritten when it goes, never shown by `Debug`.
-#[derive(Clone, Default, PartialEq, Eq)]
-pub struct Secret(String);
-
-impl Secret {
-    pub fn new(text: impl Into<String>) -> Self {
-        Self(text.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for Secret {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Secret(..)")
-    }
-}
-
-impl Drop for Secret {
-    fn drop(&mut self) {
-        zeroize::Zeroize::zeroize(&mut self.0);
-    }
-}
+/// A credential, or a code: the one secret type of OxyOS (`oxyos-secret`), overwritten when it
+/// goes, never shown by `Debug`.
+pub use oxyos_secret::Secret;
 
 /// The field a suggestion or a fill is for, as the accounts' service names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -502,7 +480,7 @@ impl Autofill {
                 field: Field::OneTimeCode,
             },
             Some(Entry::Strong(password)) => {
-                return scene.fill_autofill(token, Some(password.as_str()), None);
+                return scene.fill_autofill(token, Some(password.expose()), None);
             }
             None => return false,
         };
@@ -546,7 +524,7 @@ impl Autofill {
                 let item = AutofillItem {
                     kind: AutofillKind::StrongPassword,
                     title: String::new(),
-                    detail: password.as_str().to_string(),
+                    detail: password.expose().to_string(),
                 };
                 offer.entries = vec![Entry::Strong(password)];
                 scene.answer_autofill(token, vec![item]);
@@ -560,10 +538,10 @@ impl Autofill {
                     TextContentType::Password => (password, username),
                     _ => (username, password),
                 };
-                scene.fill_autofill(token, Some(own.as_str()), Some(paired.as_str()))
+                scene.fill_autofill(token, Some(own.expose()), Some(paired.expose()))
             }
             (Asked::Fill(token), Answer::Code(code)) => {
-                scene.fill_autofill(token, Some(code.as_str()), None)
+                scene.fill_autofill(token, Some(code.expose()), None)
             }
             // Refused (locked, not permitted), unreachable, or an answer that is not this
             // question's: nothing is offered or filled.

@@ -66,10 +66,8 @@ impl Checker {
                     let answer = match &online {
                         None => authenticator.check(secret),
                         Some(online) => {
-                            let bytes = secret.into_bytes();
-                            let again = Secret::new(bytes.to_vec());
-                            let checked = authenticator.check(Secret::new(bytes.to_vec()));
-                            drop(bytes);
+                            let again = secret.clone();
+                            let checked = authenticator.check(secret);
                             checked.map(|local| online(again, local).unwrap_or(local))
                         }
                     };

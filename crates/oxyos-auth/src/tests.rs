@@ -42,7 +42,7 @@ impl Config {
     fn check(&self, service: &str, password: &str) -> Result<Outcome, Error> {
         Authenticator::with_confdir(service, "oxyos-test", self.path())
             .unwrap()
-            .check(Secret::new(password.as_bytes().to_vec()))
+            .check(Secret::new(password))
     }
 }
 
@@ -168,7 +168,7 @@ fn the_session_user_comes_from_the_real_user_id() {
 
 #[test]
 fn a_secret_is_never_printed() {
-    let secret = Secret::new(PASSWORD.as_bytes().to_vec());
+    let secret = Secret::new(PASSWORD);
     assert_eq!(format!("{secret:?}"), "Secret(…)");
 }
 
@@ -249,7 +249,7 @@ fn the_checker_answers_off_the_thread_one_at_a_time() {
     config.service("oxyos", PASSWORD_STACK);
     let authenticator = Authenticator::with_confdir("oxyos", "oxyos-test", config.path()).unwrap();
     let mut checker = Checker::spawn(authenticator).unwrap();
-    let secret = |text: &str| Secret::new(text.as_bytes().to_vec());
+    let secret = |text: &str| Secret::new(text);
     assert!(checker.answer(Instant::now()).is_none());
     assert_eq!(
         checker.attempt(secret("wrong"), Instant::now()),
@@ -288,7 +288,7 @@ fn a_broken_configuration_rejects_without_counting() {
     let mut checker = Checker::spawn(authenticator).unwrap();
     for _ in 0..8 {
         assert_eq!(
-            checker.attempt(Secret::new(PASSWORD.as_bytes().to_vec()), Instant::now()),
+            checker.attempt(Secret::new(PASSWORD), Instant::now()),
             Attempt::Checking
         );
         assert_eq!(answer_of(&mut checker).outcome, Outcome::Rejected);
@@ -316,7 +316,7 @@ fn the_online_check_is_given_pams_answer_and_its_answer_stands() {
     let mut checker = Checker::spawn_online(authenticator, online).unwrap();
     let mut check = |text: &str| {
         assert_eq!(
-            checker.attempt(Secret::new(text.as_bytes().to_vec()), Instant::now()),
+            checker.attempt(Secret::new(text), Instant::now()),
             Attempt::Checking
         );
         answer_of(&mut checker).outcome
@@ -365,7 +365,7 @@ session required pam_permit.so
         login.set_env("XDG_SESSION_CLASS", "user").unwrap();
         login.set_env("XDG_SEAT", "seat0").unwrap();
         assert_eq!(
-            login.authenticate(Secret::new(PASSWORD.as_bytes().to_vec())),
+            login.authenticate(Secret::new(PASSWORD)),
             Ok(Outcome::Accepted)
         );
         login.open_session().unwrap();
@@ -383,15 +383,15 @@ session required pam_permit.so
         config.service("oxyos-login", SESSION_STACK);
         let mut login = start(&config, "oxyos-login");
         assert_eq!(
-            login.authenticate(Secret::new(b"correct horse".to_vec())),
+            login.authenticate(Secret::new("correct horse")),
             Ok(Outcome::Rejected)
         );
         assert_eq!(
-            start(&config, "oxyos-login").authenticate(Secret::new(Vec::new())),
+            start(&config, "oxyos-login").authenticate(Secret::new("")),
             Ok(Outcome::Rejected)
         );
         assert_eq!(
-            start(&config, "oxyos-login").authenticate(Secret::new(b"a\0b".to_vec())),
+            start(&config, "oxyos-login").authenticate(Secret::new("a\0b")),
             Err(Error::NulInSecret)
         );
     }
@@ -437,8 +437,7 @@ session required pam_permit.so
         login.close_session().unwrap();
         // And nobody authenticates through it.
         assert_eq!(
-            start(&config, "oxyos-login-greeter")
-                .authenticate(Secret::new(PASSWORD.as_bytes().to_vec())),
+            start(&config, "oxyos-login-greeter").authenticate(Secret::new(PASSWORD)),
             Ok(Outcome::Rejected)
         );
     }
@@ -453,7 +452,7 @@ session required pam_permit.so
              auth required pam_exec.so quiet expose_authtok /bin/false\n\
              account required pam_permit.so\n",
         );
-        let outcome = start(&config, "oxyos-login").authenticate(Secret::new(PASSWORD.into()));
+        let outcome = start(&config, "oxyos-login").authenticate(Secret::new(PASSWORD));
         assert_ne!(outcome, Ok(Outcome::Accepted));
     }
 
@@ -495,7 +494,7 @@ session required pam_permit.so
         let attempt = ToLogin::Attempt {
             account: "oxy-aaaaaaaaaaaaaaaaaaaa".into(),
             passcode: false,
-            secret: Secret::new(PASSWORD.into()),
+            secret: Secret::new(PASSWORD),
         };
         assert!(!format!("{attempt:?}").contains(PASSWORD));
         // A PIN is told apart from a password by its first byte alone.
@@ -508,7 +507,7 @@ session required pam_permit.so
             panic!("a PIN's attempt");
         };
         assert_eq!(account, "oxy-a");
-        assert_eq!(&secret.0[..], b"482916");
+        assert_eq!(secret.as_bytes(), b"482916");
         assert!(matches!(
             ToLogin::decode(b"a\x05oxy-a482916"),
             Ok(ToLogin::Attempt {
@@ -520,6 +519,8 @@ session required pam_permit.so
         assert!(ToLogin::decode(b"a\x05abc").is_err());
         assert!(ToLogin::decode(b"a\x00").is_err());
         assert!(ToLogin::decode(b"x").is_err());
+        // A password is text: the login screen's compositor assembles it from UTF-8 chunks.
+        assert!(ToLogin::decode(b"a\x05oxy-a\xff\xfe").is_err());
         let mut long = vec![b'a', 1, b'u'];
         long.extend(std::iter::repeat_n(b'p', greeter::MAX_SECRET_BYTES + 1));
         assert!(ToLogin::decode(&long).is_err());
@@ -543,18 +544,18 @@ session required pam_permit.so
         assert!(connection.receive().unwrap().is_none());
         // The login screen always names its account: without one, nothing is sent.
         assert_eq!(
-            client.attempt(None, false, Secret::new(PASSWORD.into())),
+            client.attempt(None, false, Secret::new(PASSWORD)),
             Some(Answer {
                 verdict: Verdict::Rejected,
                 wait_s: 0
             })
         );
         assert_eq!(
-            client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD.into())),
+            client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD)),
             None
         );
         assert_eq!(
-            client.attempt(Some("oxy-a"), true, Secret::new(b"again".to_vec())),
+            client.attempt(Some("oxy-a"), true, Secret::new("again")),
             Some(Answer {
                 verdict: Verdict::Busy,
                 wait_s: 0
@@ -569,7 +570,7 @@ session required pam_permit.so
             panic!("an attempt");
         };
         assert_eq!(account, "oxy-a");
-        assert_eq!(&secret.0[..], PASSWORD.as_bytes());
+        assert_eq!(secret.as_bytes(), PASSWORD.as_bytes());
         assert!(client.answer().is_none(), "not answered yet");
         let answer = Answer {
             verdict: Verdict::Throttled,
@@ -584,7 +585,7 @@ session required pam_permit.so
         ));
         // The login program gone, an attempt is a rejection.
         assert_eq!(
-            client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD.into())),
+            client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD)),
             None
         );
         // Shut down, not only closed: a process another test forks meanwhile may hold a copy of
@@ -639,7 +640,7 @@ session required pam_permit.so
             let connection = accept();
             if round % 2 == 0 {
                 assert_eq!(
-                    client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD.into())),
+                    client.attempt(Some("oxy-a"), false, Secret::new(PASSWORD)),
                     None
                 );
                 while connection.receive().unwrap().is_none() {

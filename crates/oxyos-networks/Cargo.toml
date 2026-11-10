@@ -15,6 +15,8 @@ serde = { version = "1", features = ["derive"] }
 # Wi-Fi Diagnostics' echo requests to the router: an unprivileged ICMP datagram socket, polled.
 rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "event"] }
 serde_json = "1"
+# A password held as every OxyOS program holds a secret: overwritten when it goes.
+oxyos-secret = { path = "../oxyos-secret" }
 
 [lints]
 workspace = true

@@ -126,16 +126,16 @@ fn masks_and_names() {
 
 #[test]
 fn a_secret_says_nothing_and_checks_wpa_lengths() {
-    let secret = Secret::new("hunter22".into());
+    let secret = Secret::new("hunter22");
     assert_eq!(format!("{secret:?}"), "Secret(…)");
-    assert!(secret.valid_wpa());
-    assert!(!Secret::new("short".into()).valid_wpa());
-    assert!(Secret::new("a".repeat(63)).valid_wpa());
+    assert!(valid_wpa(&secret));
+    assert!(!valid_wpa(&Secret::new("short")));
+    assert!(valid_wpa(&Secret::new("a".repeat(63))));
     // Bytes of UTF-8, as WPA and the sheet count them: four characters, eight bytes.
-    assert!(Secret::new("ññññ".into()).valid_wpa());
-    assert!(!Secret::new("ñ".repeat(32)).valid_wpa());
-    assert!(!Secret::new("g".repeat(64)).valid_wpa());
-    assert!(Secret::new("0123456789abcdef".repeat(4)).valid_wpa());
+    assert!(valid_wpa(&Secret::new("ññññ")));
+    assert!(!valid_wpa(&Secret::new("ñ".repeat(32))));
+    assert!(!valid_wpa(&Secret::new("g".repeat(64))));
+    assert!(valid_wpa(&Secret::new("0123456789abcdef".repeat(4))));
     let mut text = String::from("hunter22");
     clear(&mut text);
     assert!(text.is_empty());
