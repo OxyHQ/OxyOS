@@ -332,6 +332,13 @@ def process_name(pid):
         return None
     program = os.path.basename(argv[0].decode(errors="replace"))
     if program == "oxyos-offscreen":
+        # The development compositor itself, or this program run again as something else: a
+        # saturation benchmark's load (`--load KIND`), the search service.
+        flag = argv[1].decode(errors="replace") if len(argv) > 1 else ""
+        if flag == "--load" and len(argv) > 2:
+            return f"load {argv[2].decode(errors='replace')}"
+        if flag.startswith("--") and flag not in ("--launch", "--out"):
+            return f"oxyos-offscreen {flag}"
         return "compositor"
     if program == "oxyos-bloom-host" and len(argv) > 2:
         return argv[2].decode(errors="replace")
