@@ -53,7 +53,7 @@
       ],
       "expect": {
         "texts": [
-          "This development install updates with apt.",
+          "This development install of OxyOS is updated outside Settings.",
           "Not checked yet",
           "Check for Updates"
         ],

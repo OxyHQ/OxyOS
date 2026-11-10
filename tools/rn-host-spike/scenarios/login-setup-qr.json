@@ -119,7 +119,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
             "Step 2 of 4",
             "Back"
           ],
@@ -157,7 +157,7 @@
         "in_shell": {
           "texts": [
             "Enter Your PIN Again",
-            "To be sure it's the one you meant.",
+            "To be sure it’s the one you meant.",
             "Step 2 of 4"
           ],
           "absent": [

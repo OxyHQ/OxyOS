@@ -55,7 +55,7 @@
       "expect": {
         "texts": [
           "@ada",
-          "Sign Out…",
+          "Log Out…",
           "Remove from This Computer…"
         ],
         "absent": [
@@ -72,7 +72,7 @@
             },
             {
               "role": "Button",
-              "name": "Sign Out…"
+              "name": "Log Out…"
             },
             {
               "role": "Button",

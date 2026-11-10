@@ -34,6 +34,72 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// The session itself, as its reports and its notification name it
+/// (docs/adr/0065-the-session-ending-because-of-a-problem.mdx).
+pub const SESSION: &str = "so.oxy.session";
+/// The session's notification after it ended because of a problem.
+pub const SESSION_NOTIFICATION: &str = "oxyos.session-ended";
+
+/// How the person's last session ended because of a problem, as the login program tells their
+/// next one (`OXYOS_SESSION_ENDED`: how, the seconds it ran, when, in seconds since the epoch):
+/// `signal 11 3600 1762790000`, `exit 1 2 1762790000`, `hang 12 1762790000`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionEnded {
+    pub how: SessionEnd,
+    pub ran: Duration,
+    pub at: jiff::Timestamp,
+}
+
+/// How a session ended because of a problem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionEnd {
+    Exit(u8),
+    Signal(u8),
+    Hang,
+}
+
+impl SessionEnded {
+    /// The environment's, taken out of it: nothing the session starts is told it.
+    pub fn take() -> Option<Self> {
+        let told = std::env::var("OXYOS_SESSION_ENDED").ok();
+        std::env::remove_var("OXYOS_SESSION_ENDED");
+        Self::parse(&told?)
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let (how, rest) = match words.as_slice() {
+            ["exit", status, rest @ ..] => (SessionEnd::Exit(status.parse().ok()?), rest),
+            ["signal", signal, rest @ ..] => (SessionEnd::Signal(signal.parse().ok()?), rest),
+            ["hang", rest @ ..] => (SessionEnd::Hang, rest),
+            _ => return None,
+        };
+        let [ran, at] = rest else {
+            return None;
+        };
+        Some(Self {
+            how,
+            ran: Duration::from_secs(ran.parse().ok()?),
+            at: jiff::Timestamp::from_second(at.parse().ok()?).ok()?,
+        })
+    }
+
+    /// Why, as its report says it.
+    fn reason(&self) -> String {
+        match self.how {
+            SessionEnd::Exit(status) => format!("exit status {status}"),
+            SessionEnd::Signal(signal) => match signal_name(signal.into()) {
+                Some(name) => format!("signal {signal} ({name})"),
+                None => format!("signal {signal}"),
+            },
+            SessionEnd::Hang => format!(
+                "it stopped answering for {} seconds and was ended (SIGABRT)",
+                oxyos_seat::heartbeat::HANG.as_secs()
+            ),
+        }
+    }
+}
+
 /// The screen reader as its reports name it, a part of OxyOS the session keeps running
 /// (decision 6, amended: docs/adr/0014-screen-reader.mdx).
 pub const READER: &str = "so.oxy.reader";
@@ -551,6 +617,85 @@ impl Crashes {
         }
     }
 
+    /// The person's last session ended because of a problem (docs/adr/0065, decision 2): its
+    /// report is written (`so.oxy.session_<time>.crash`, in ADR 0061's form), and the person is
+    /// told in the session's notification, *Your session ended unexpectedly*, whose *Report…*
+    /// (or the notification itself) shows it. `reopened`: the applications Resume opened again,
+    /// which the notification says.
+    pub fn session_ended(&mut self, scene: &mut Scene, ended: &SessionEnded, reopened: bool) {
+        let zone = jiff::tz::TimeZone::system();
+        let wall = ended.at.to_zoned(zone);
+        let mut text = format!(
+            "Your session ended unexpectedly.\n\nApplication:  OxyOS\nIdentifier:   {SESSION}\nKind:         the session (the compositor, oxyos-session)\nEnded:        {ended}\nRunning for:  {ran}\nReason:       {reason}\n",
+            ended = wall.strftime("%Y-%m-%d %H:%M:%S %:z"),
+            ran = lasted(ended.ran),
+            reason = ended.reason(),
+        );
+        if let Some(system) = &self.system {
+            text.push_str(&format!("System:       {system}\n"));
+        }
+        text.push_str(
+            "\nThe login program saw it end and showed the login screen again; every application \
+             ended with it.\n",
+        );
+        let file =
+            self.reports
+                .as_ref()
+                .and_then(|reports| match reports.write(SESSION, &wall, &text) {
+                    Ok(path) => Some(path),
+                    Err(error) => {
+                        eprintln!("[crashes] the session's report is not written: {error}");
+                        None
+                    }
+                });
+        eprintln!(
+            "[crashes] the last session ended unexpectedly ({}){}",
+            ended.reason(),
+            file.as_ref()
+                .map(|path| format!(": {}", path.display()))
+                .unwrap_or_default()
+        );
+        self.latest.insert(
+            SESSION.to_string(),
+            Latest {
+                name: "OxyOS".to_string(),
+                times: 1,
+                report: text,
+                file,
+            },
+        );
+        let (title, body, report) = if self.spanish {
+            (
+                "Tu sesión se cerró inesperadamente",
+                if reopened {
+                    "OxyOS ha vuelto a abrir tus apps."
+                } else {
+                    ""
+                },
+                "Informe…",
+            )
+        } else {
+            (
+                "Your session ended unexpectedly",
+                if reopened {
+                    "OxyOS reopened your apps."
+                } else {
+                    ""
+                },
+                "Report…",
+            )
+        };
+        if let Err(outcome) = scene.post_session_notification(
+            SESSION,
+            SESSION_NOTIFICATION,
+            title,
+            body,
+            &[("report", report)],
+        ) {
+            eprintln!("[crashes] the session's notification is not posted: {outcome:?}");
+        }
+    }
+
     /// A part of OxyOS the session keeps running quit unexpectedly (its shell, its screen
     /// reader): its report is written, and the person is told nothing, the part being started
     /// again (decision 6) and the shell being what would tell them.
@@ -626,8 +771,9 @@ impl Crashes {
         for number in numbers {
             if let Some(accepted) = scene.take_sheet_answer(number) {
                 let id = self.notices.remove(&number).expect("shown");
-                // Reopen: unless the person opened it meanwhile.
-                if accepted && !launcher.runs(&id) {
+                // Reopen: unless the person opened it meanwhile (the session itself is no
+                // application to open).
+                if accepted && id != SESSION && !launcher.runs(&id) {
                     served.open.push(id);
                 }
             }
@@ -675,6 +821,13 @@ impl Crashes {
             action,
         } in scene.take_session_activations()
         {
+            // The session's own: pressed, or its Report…, its report.
+            if identifier == SESSION_NOTIFICATION {
+                if application == SESSION && !self.notices.values().any(|shown| shown == SESSION) {
+                    self.show_notice(scene, SESSION, true);
+                }
+                continue;
+            }
             if identifier != NOTIFICATION {
                 continue;
             }

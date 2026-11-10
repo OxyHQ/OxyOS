@@ -265,7 +265,7 @@
       "expect": {
         "texts": [
           "¿Cerrar sesión en OxyOS?",
-          "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la pantalla de inicio, incluso sin conexión."
+          "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la ventana de inicio de sesión, incluso sin conexión."
         ],
         "spoken": [
           {
@@ -273,7 +273,7 @@
             "interrupting": true
           },
           {
-            "text": "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la pantalla de inicio, incluso sin conexión.",
+            "text": "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la ventana de inicio de sesión, incluso sin conexión.",
             "interrupting": false
           },
           {

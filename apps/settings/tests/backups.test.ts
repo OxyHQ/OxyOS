@@ -222,7 +222,7 @@ test("a destination's lines: its latest and oldest backups, its space, and why i
     "No se ha podido realizar la copia de seguridad. El disco de copia de seguridad está lleno.",
   );
   // A share that cannot be reached.
-  assert.equal(destinationSummary(destination({ kind: "share", url: "smb://nas/b", available: false }), NOW, "en", en).status, "Can't be reached");
+  assert.equal(destinationSummary(destination({ kind: "share", url: "smb://nas/b", available: false }), NOW, "en", en).status, "Can’t be reached");
 });
 
 test("a running backup says how far and how long is left, and each phase", () => {

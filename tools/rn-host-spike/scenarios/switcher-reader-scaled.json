@@ -58,7 +58,7 @@
     "at_absent": {
      "shell": [
       {
-       "name": "Cambiar de aplicación"
+       "name": "Selector de apps"
       }
      ]
     }
@@ -89,7 +89,7 @@
      "shell": [
       {
        "role": "List",
-       "name": "Cambiar de aplicación"
+       "name": "Selector de apps"
       },
       {
        "role": "Button",
@@ -155,7 +155,7 @@
      "shell": [
       {
        "role": "List",
-       "name": "Cambiar de aplicación"
+       "name": "Selector de apps"
       },
       {
        "role": "Button",
@@ -222,7 +222,7 @@
      "shell": [
       {
        "role": "List",
-       "name": "Cambiar de aplicación"
+       "name": "Selector de apps"
       },
       {
        "role": "Button",
@@ -280,7 +280,7 @@
     "at_absent": {
      "shell": [
       {
-       "name": "Cambiar de aplicación"
+       "name": "Selector de apps"
       }
      ]
     }

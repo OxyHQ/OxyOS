@@ -388,7 +388,7 @@
    "do": [
     "wait_named",
     [
-     "Automática",
+     "Automático",
      15000
     ]
    ],

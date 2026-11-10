@@ -59,7 +59,7 @@
       ],
       "expect": {
         "texts": [
-          "Sign-In on This Computer",
+          "PIN & Password",
           "PIN",
           "Off",
           "Set Up PIN…",
@@ -82,7 +82,7 @@
       ],
       "expect": {
         "texts": [
-          "Set up a PIN",
+          "Set Up a PIN",
           "Password",
           "New PIN (4 to 16 digits)",
           "Enter the new PIN again",
@@ -162,7 +162,7 @@
           "so.oxy.settings setPin: wrongPassword"
         ],
         "texts": [
-          "That password isn't right."
+          "Incorrect password. Try again."
         ],
         "never": [
           "wrong",
@@ -209,7 +209,7 @@
           "Remove PIN…"
         ],
         "absent": [
-          "Set up a PIN"
+          "Set Up a PIN"
         ],
         "never": [
           "played password 1",
