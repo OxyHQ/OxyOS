@@ -30,7 +30,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 41;
+pub const VERSION: u16 = 42;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -66,7 +66,7 @@ pub const SUDDEN_TERMINATION_VERSION: u16 = 40;
 /// The first version whose compositor tells an application how it is presented (`AppVisibility`,
 /// docs/adr/0066-quality-of-service.mdx, decision 5): never sent to an older client, which runs on
 /// as if always shown.
-pub const APP_VISIBILITY_VERSION: u16 = 41;
+pub const APP_VISIBILITY_VERSION: u16 = 42;
 const _: () = assert!(APP_VISIBILITY_VERSION <= VERSION);
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
