@@ -2530,6 +2530,8 @@ int main(int argc, char** argv) {
             // The main thread's timers (JavaScript's, the loop's own wait): coalesced within 50 ms
             // while hidden, as a Mac's background latency tier; the default again once shown.
             prctl(PR_SET_TIMERSLACK, napping ? 50'000'000UL : 0UL, 0, 0, 0);
+            // JavaScript's timers once a second at most, all together, as a hidden page's.
+            timers->throttle(napping ? std::optional<Clock::duration>(std::chrono::seconds(1)) : std::nullopt);
             std::cerr << "[host] " << applicationName << (napping ? " is hidden: it naps\n" : " is shown again\n");
           }
         }
@@ -3380,7 +3382,9 @@ int main(int argc, char** argv) {
         // Fabric's beat) is delivered on the next.
         idleTurns = busy ? 0 : idleTurns + 1;
         // What an idle window does not need is given back once it has been idle a while (memory.h).
-        if (busy || dirty) {
+        // Napping, only a frame drawn is work for that: its timers and data arriving would trim
+        // again after each, each a wakeup of its own.
+        if (dirty || (busy && !napping)) {
           oxyos::Memory::get().worked(Clock::now());
         } else {
           oxyos::Memory::get().tick(Clock::now());

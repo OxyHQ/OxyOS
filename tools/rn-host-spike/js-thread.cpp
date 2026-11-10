@@ -170,7 +170,19 @@ std::optional<JsThread::Clock::time_point> JsThread::Timers::next() const {
   for (const auto& [id, timer] : timers_) {
     if (!next || timer.at < *next) next = timer.at;
   }
+  // Throttled, the next whole multiple of the alignment at or after it: the timers due by then
+  // fire together.
+  if (next && align_) {
+    auto since = next->time_since_epoch();
+    auto steps = (since + *align_ - Clock::duration(1)) / *align_;
+    next = Clock::time_point(steps * *align_);
+  }
   return next;
+}
+
+void JsThread::Timers::throttle(std::optional<Clock::duration> align) {
+  std::lock_guard lock(mutex_);
+  align_ = align;
 }
 
 bool JsThread::Timers::oneShotDueBefore(Clock::time_point deadline) const {

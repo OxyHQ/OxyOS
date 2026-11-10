@@ -76,6 +76,11 @@ class JsThread : public facebook::react::MessageQueueThread {
     // Whether a one-shot timer falls due before `deadline`: the application is not settled until
     // it fires. Recurring timers never settle, so they do not hold it.
     bool oneShotDueBefore(Clock::time_point deadline) const;
+    // App Nap's timer throttling (docs/adr/0066-quality-of-service.mdx, decision 5): while set,
+    // timers fall due only on whole multiples of `align` of the steady clock, every timer due by
+    // then together, as a browser runs a hidden page's timers once a second: a napping application
+    // wakes at most once an `align` for them, however many it set and however short.
+    void throttle(std::optional<Clock::duration> align);
 
    private:
     struct Timer {
@@ -86,6 +91,7 @@ class JsThread : public facebook::react::MessageQueueThread {
     void add(uint32_t id, double delayMs, bool repeat);
     mutable std::mutex mutex_;
     std::map<uint32_t, Timer> timers_;
+    std::optional<Clock::duration> align_;
   };
 
  private:

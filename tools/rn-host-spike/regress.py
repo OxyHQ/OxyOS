@@ -202,6 +202,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   and `width` as laid out (a dock's place opening as icons slide apart), of views with a
   testID, as mounted: a JavaScript-driven Animated's and Reanimated's frames among them), with
   `committed_frames` and `committed_linear_ms`; views it does not list are not checked;
+- host_turns: the application host's turns that did work in the step (its report's `timing`
+  lines), [least, most]: a hidden application naps (docs/adr/0066-quality-of-service.mdx, decision
+  5), waking for its timers once a second at most;
 - animation_frames: requestAnimationFrame's frames in the step (animation-frames.h): "count",
   [least, most]; "interval_ms", the least time between two; "median_interval_ms", [least, most]
   for the median time between them (a frame of the display: 8.3 at 120 Hz); their timestamps rise
@@ -4463,6 +4466,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         check_animated(expect, report, start, end, fail, refresh_hz=refresh_hz)
     if "committed" in expect:
         check_animated(expect, report, start, end, fail, "committed", refresh_hz)
+    if "host_turns" in expect:
+        low, high = expect["host_turns"]
+        turns = sum(1 for line in report if line["kind"] == "timing" and start <= line["t"] <= end)
+        if not low <= turns <= high:
+            fail(f"the application's host turned {turns} times, expected {low} to {high}")
     if "animation_frames" in expect:
         wanted = expect["animation_frames"]
         frames = [line for line in report if line["kind"] == "animation_frame" and start <= line["t"] <= end]

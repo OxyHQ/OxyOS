@@ -1,5 +1,5 @@
 {
-  "about": "App Nap (docs/adr/0066-quality-of-service.mdx, decision 5): the session tells an application how it is presented, all its windows together (AppVisibility), and its host acts on it. Allo (sample/NapProbe.tsx) runs a requestAnimationFrame loop that never ends and shows React Native's AppState and every state it went through; Inbox (PressProbe) is a second application's window. Allo's window active: `active`, its frames running. Inbox's pressed: Allo shown behind it is `inactive`, still running. Allo's pressed again, then Super+M: minimized, `background`, and while it stays hidden its host runs no frame at all (requestAnimationFrame waits, as a hidden tab's). Allo's icon in the dock: restored, `active`, its frames running again.",
+  "about": "App Nap (docs/adr/0066-quality-of-service.mdx, decision 5): the session tells an application how it is presented, all its windows together (AppVisibility), and its host acts on it. Allo (sample/NapProbe.tsx) runs a requestAnimationFrame loop that never ends and shows React Native's AppState and every state it went through; Inbox (PressProbe) is a second application's window. Allo's window active: `active`, its frames running. Inbox's pressed: Allo shown behind it is `inactive`, still running. Allo's pressed again, then Super+M: minimized, `background`, and while it stays hidden its host runs no frame at all (requestAnimationFrame waits, as a hidden tab's) and turns at most once a second (its timers run once a second at most, as a hidden page's). Allo's icon in the dock: restored, `active`, its frames running again.",
   "module": "NapProbe",
   "window": [
     600,
@@ -105,10 +105,10 @@
       }
     },
     {
-      "name": "a second and a half hidden: its host runs no frame",
+      "name": "five seconds hidden: its host runs no frame, and wakes at most once a second (its timers throttled, nothing trimmed again)",
       "do": [
         "wait",
-        1500
+        5000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -118,7 +118,11 @@
             0,
             0
           ]
-        }
+        },
+        "host_turns": [
+          0,
+          5
+        ]
       }
     },
     {
