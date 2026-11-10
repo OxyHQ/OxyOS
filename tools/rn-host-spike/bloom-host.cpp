@@ -320,8 +320,7 @@ void hung(int signal, siginfo_t* info, void*) {
   int count = backtrace(frames, 64);
   for (int fd : {2, oxyos::crashReportFd()}) {
     if (fd < 0) continue;
-    dprintf(fd, "[host] hang: asked by process %d (SIGQUIT); the JavaScript thread's stack:
-",
+    dprintf(fd, "[host] hang: asked by process %d (SIGQUIT); the JavaScript thread's stack:\n",
             gHangAsker.load(std::memory_order_relaxed));
     backtrace_symbols_fd(frames, count, fd);
   }
