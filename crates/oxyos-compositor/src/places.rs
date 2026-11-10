@@ -115,13 +115,24 @@ pub struct Places {
     /// The order as the session started: what opens at login takes its place in it.
     started: Vec<Kept>,
     write_at: Option<Instant>,
-    /// Applications opened at login whose windows are placed whole.
+    /// Applications the session opened at login whose windows have not opened yet: their first
+    /// opening is placed whole.
     at_login: BTreeSet<String>,
     /// Windows offered and their applications, while they are open.
     placed: BTreeMap<SurfaceKey, String>,
-    /// Each application opening windows: its windows as kept when its first one opened, and how
-    /// many it opened since.
-    opening: BTreeMap<String, (Vec<Kept>, usize)>,
+    /// Each application opening windows since it had none.
+    opening: BTreeMap<String, Opening>,
+}
+
+/// An application opening windows since it had none.
+#[derive(Debug)]
+struct Opening {
+    /// Its windows as kept when its first one opened.
+    kept: Vec<Kept>,
+    /// How many it opened since.
+    opened: usize,
+    /// Opened by the session at login: placed whole.
+    at_login: bool,
 }
 
 impl Places {
@@ -180,7 +191,8 @@ impl Places {
             .retain(|key, _| scene.window_workspace(*key).is_some());
         for (key, application) in scene.take_windows_to_place() {
             // Its first window open: what is kept of its windows now is what they come back to,
-            // however the record follows them as they open.
+            // however the record follows them as they open; opened by the session at login, this
+            // opening alone is placed whole.
             if !self.placed.values().any(|placed| *placed == application) {
                 let kept = self
                     .record
@@ -189,20 +201,27 @@ impl Places {
                     .filter(|kept| kept.application == application)
                     .cloned()
                     .collect();
-                self.opening.insert(application.clone(), (kept, 0));
+                let at_login = self.at_login.remove(&application);
+                self.opening.insert(
+                    application.clone(),
+                    Opening {
+                        kept,
+                        opened: 0,
+                        at_login,
+                    },
+                );
             }
             self.placed.insert(key, application.clone());
-            let Some((kept, opened)) = self.opening.get_mut(&application) else {
+            let Some(opening) = self.opening.get_mut(&application) else {
                 continue;
             };
-            let nth = *opened;
-            *opened += 1;
-            let Some(place) = kept.get(nth).map(Kept::place) else {
+            let nth = opening.opened;
+            opening.opened += 1;
+            let at_login = opening.at_login;
+            let Some(place) = opening.kept.get(nth).map(Kept::place) else {
                 continue;
             };
-            let at_login = self
-                .at_login
-                .contains(&application)
+            let at_login = at_login
                 .then(|| {
                     self.started
                         .iter()

@@ -507,6 +507,12 @@ fn what_opens_at_login_takes_its_desktop_minimized_state_and_order_too() {
     // Nothing changed: the record is as it was, never rewritten.
     session.pass(&mut places, WRITE_AFTER);
     assert_eq!(read(&scratch), at_login_record());
+    // Mail quit, and the person opens it again later: at its frame, in front, not minimized.
+    session.close(&mut places, MAIL, 1);
+    let again = session.open(&mut places, MAIL, 2);
+    assert!(!session.window(again).place.minimized);
+    assert!(session.scene.shown(again));
+    assert_eq!(session.scene.focus(), Some(again));
 }
 
 #[test]
