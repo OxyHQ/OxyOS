@@ -3,6 +3,7 @@
 #include "scheduling.h"
 
 #include <algorithm>
+#include <atomic>
 #include <csignal>
 #include <iostream>
 #include <stdexcept>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include <sys/prctl.h>
+#include <unistd.h>
 
 namespace oxyos {
 
@@ -20,6 +22,8 @@ namespace {
 constexpr size_t kStackSize = 8 * 1024 * 1024;
 
 thread_local bool tJsThread = false;
+// The JavaScript thread's id, for a signal handler: lock-free, so async-signal-safe.
+std::atomic<pid_t> gJsThreadId{0};
 
 }  // namespace
 
@@ -40,6 +44,7 @@ void* JsThread::main(void* self) {
   tJsThread = true;
   // Input waits on it as on the UI thread: its own short slice (scheduling.h).
   requestInteractiveSlice();
+  gJsThreadId.store(static_cast<pid_t>(gettid()), std::memory_order_relaxed);
   // The fatal signals' report runs on a stack of its own, so that a stack overflow here is reported
   // too (crash-report.h): an alternate stack is the thread's own, never inherited.
   static thread_local std::vector<char> alternate(std::max<size_t>(SIGSTKSZ, 64 * 1024));
@@ -52,6 +57,8 @@ void* JsThread::main(void* self) {
 }
 
 bool JsThread::isCurrent() const { return tJsThread; }
+
+pid_t jsThreadId() { return gJsThreadId.load(std::memory_order_relaxed); }
 
 void JsThread::serve() {
   std::unique_lock lock(mutex_);

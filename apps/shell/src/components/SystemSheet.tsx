@@ -98,6 +98,7 @@ export const SystemSheet = memo(function SystemSheet({
   answerPassword,
   answerCode,
   answerPasskey,
+  answerChoice,
   act,
   copy,
   toggle,
@@ -114,6 +115,9 @@ export const SystemSheet = memo(function SystemSheet({
   /** A passkey sheet's answer: the passkey chosen (its index, for a list of them) and the account's
       password typed. */
   answerPasskey?: (choice: number | undefined, password: string) => void;
+  /** A list's answer (Force Quit Applications, docs/adr/0067): the row chosen, by its button or
+      Return. */
+  answerChoice?: (choice: number) => void;
   /** What else the sheet offers was pressed (Reset…): the sheet goes, as answered no. */
   act?: (action: SheetAction) => void;
   /** Puts a report's text on the clipboard, where the platform offers it. */
@@ -135,7 +139,13 @@ export const SystemSheet = memo(function SystemSheet({
   const passkey = text.kind === "passkey";
   const passwordAnswer = passkey ? answerPasskey : answerPassword;
   // Asked again (a wrong password), the account chosen before stays chosen.
-  const [choice, setChoice] = useState(text.kind === "passkey" ? (text.chosen ?? 0) : 0);
+  const [choice, setChoice] = useState(
+    text.kind === "passkey" || text.kind === "force-quit" ? (text.chosen ?? 0) : 0,
+  );
+  // Force Quit Applications answers with the application chosen, not a yes.
+  const chooses = text.kind === "force-quit" && !!answerChoice;
+  const latestChoice = useRef(choice);
+  latestChoice.current = choice;
   const choices = view.choices?.rows.length ?? 0;
   const submit = (typed: string) => {
     if (answered.current || !passwordAnswer || !submittablePassword(typed, view.passwordKind)) return;
@@ -175,7 +185,8 @@ export const SystemSheet = memo(function SystemSheet({
       ? () => {
           if (answered.current) return;
           answered.current = true;
-          latestAnswer.current(true);
+          if (chooses) answerChoice?.(latestChoice.current);
+          else latestAnswer.current(true);
         }
       : null;
   useEffect(() => {
@@ -187,7 +198,7 @@ export const SystemSheet = memo(function SystemSheet({
         latestReturn.current();
         return true;
       }
-      // A passkey's accounts: ↑ and ↓ choose among them.
+      // A passkey's accounts, Force Quit's applications: ↑ and ↓ choose among them.
       if (choices > 1 && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
         const step = event.key === "ArrowDown" ? 1 : -1;
         setChoice((current) => Math.min(choices - 1, Math.max(0, current + step)));
@@ -367,7 +378,7 @@ export const SystemSheet = memo(function SystemSheet({
                 key={index}
                 testID={`system-sheet-choice-${index}`}
                 accessibilityRole="radio"
-                accessibilityLabel={`${row.title}, ${row.detail}`}
+                accessibilityLabel={row.detail ? `${row.title}, ${row.detail}` : row.title}
                 accessibilityState={{ checked: index === choice }}
                 onPress={() => setChoice(index)}
                 style={{
@@ -381,9 +392,14 @@ export const SystemSheet = memo(function SystemSheet({
                 <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 14, color: INK }}>
                   {row.title}
                 </Text>
-                <Text importantForAccessibility="no-hide-descendants" style={{ fontSize: 12, color: QUIET }}>
-                  {row.detail}
-                </Text>
+                {row.detail ? (
+                  <Text
+                    importantForAccessibility="no-hide-descendants"
+                    style={{ fontSize: 12, color: row.alert ? ERROR : QUIET }}
+                  >
+                    {row.detail}
+                  </Text>
+                ) : null}
               </Pressable>
             ))}
           </Box>
@@ -491,6 +507,7 @@ export const SystemSheet = memo(function SystemSheet({
                     if (answered.current) return;
                     answered.current = true;
                   }
+                  if (chooses) return answerChoice?.(choice);
                   answer(true);
                 }}
               >

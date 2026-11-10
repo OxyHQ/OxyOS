@@ -2,8 +2,8 @@
 //! quitting by a window, the person's lists of applications and URLs the shell opens.
 
 use super::*;
-use crate::scene::{ApplicationList, PING_TIMEOUT};
-use oxyos_protocol::{ApplicationListKind, MODIFIER_ALT, MODIFIER_CONTROL};
+use crate::scene::{ApplicationList, BUSY_AFTER, PING_TIMEOUT};
+use oxyos_protocol::{ApplicationListKind, PointerShape, MODIFIER_ALT, MODIFIER_CONTROL};
 use std::time::Duration;
 
 fn pings_to(events: &[(ClientId, Event)], client: ClientId) -> Vec<u32> {
@@ -93,6 +93,63 @@ fn a_client_given_a_press_is_pinged_once_and_is_not_responding_until_it_answers(
     // Answered, the next press pings again.
     click(&mut h, window);
     assert_eq!(pings_to(&logged(&mut h), APP).len(), 1);
+}
+
+/// A hung window shows the compositor's wait cursor (docs/adr/0067-hangs-and-force-quit.mdx,
+/// decision 1): the pointer coming over it and moving pings it, and 2 s unanswered the pointer is
+/// the wait cursor whatever the client asked for, until it answers; 5 s, it is not responding.
+#[test]
+fn the_pointer_over_a_client_that_does_not_answer_is_the_wait_cursor() {
+    let mut h = Harness::new();
+    h.scene.set_version(APP, 8);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.scene.set_clock(Duration::from_secs(10));
+    answer_pings(&mut h);
+    let rect = h.rect(window);
+    let (x, y) = (rect.x + 100, rect.y + 100);
+    // The client's own shape over it.
+    h.request(
+        APP,
+        Request::SetPointerShape {
+            surface: 1,
+            shape: PointerShape::Text,
+        },
+    )
+    .unwrap();
+    // Coming onto it pings it, once; moving while unanswered pings no more.
+    h.scene.pointer_motion(x, y);
+    h.pump();
+    let pings = pings_to(&logged(&mut h), APP);
+    assert_eq!(pings.len(), 1);
+    h.scene.pointer_motion(x + 5, y);
+    h.pump();
+    assert!(pings_to(&logged(&mut h), APP).is_empty());
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    // The turn wakes when it becomes busy, then when it is not responding.
+    assert_eq!(h.scene.next_ping_deadline(), Some(BUSY_AFTER));
+    h.scene
+        .set_clock(Duration::from_secs(10) + BUSY_AFTER - Duration::from_millis(1));
+    assert!(!h.scene.busy(APP));
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    h.scene.set_clock(Duration::from_secs(10) + BUSY_AFTER);
+    assert!(h.scene.busy(APP));
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Wait);
+    assert_eq!(h.scene.pointer_image(), None);
+    assert_eq!(
+        h.scene.next_ping_deadline(),
+        Some(PING_TIMEOUT - BUSY_AFTER)
+    );
+    // Responding still: the shell is told nothing yet.
+    h.scene.check_responding();
+    assert!(h.scene.responding(APP));
+    // Its answer: its own shape back at once.
+    h.request(APP, Request::Pong { serial: pings[0] }).unwrap();
+    assert!(!h.scene.busy(APP));
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Text);
+    // Off the window, the arrow, whatever the window does.
+    h.scene.pointer_motion(rect.x + rect.width as i32 + 50, y);
+    h.pump();
+    assert_eq!(h.scene.pointer_shape(), PointerShape::Arrow);
 }
 
 #[test]
