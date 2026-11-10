@@ -146,6 +146,8 @@ const en = {
     step: (title: string, current: number, total: number) => `${title}, step ${current} of ${total}`,
   },
   pinLocked: "Too many incorrect PINs. Sign in with Oxy to create a new one.",
+  /** The last session ended because of a problem (docs/adr/0065), said quietly under the field. */
+  sessionEnded: "Your session ended because of a problem.",
   signInWithOxy: "Sign In with Oxy",
 };
 
@@ -297,6 +299,7 @@ const es: LoginMessages = {
     step: (title: string, current: number, total: number) => `${title}, paso ${current} de ${total}`,
   },
   pinLocked: "Demasiados PIN incorrectos. Inicia sesión con Oxy para crear uno nuevo.",
+  sessionEnded: "Tu sesión se cerró por un problema.",
   signInWithOxy: "Iniciar sesión con Oxy",
 };
 

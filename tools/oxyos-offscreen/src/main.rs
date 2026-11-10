@@ -127,6 +127,12 @@ struct Session {
     /// Applications that quit unexpectedly and resetting one (docs/adr/0061-crashes-and-resetting-
     /// an-application.mdx), as the session has them: the reports in the run's own state folder.
     pub crashes: oxyos_compositor::crashes::Crashes,
+    /// Resume (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 3), as the
+    /// session keeps it, in the run's own state folder.
+    pub resume: Option<oxyos_compositor::resume::Resume>,
+    /// At a login screen (`--login`): whether the login program said the last session ended
+    /// because of a problem (`OXYOS_LAST_SESSION_ENDED`), which the login screen asks.
+    pub last_session_problem: Option<bool>,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -342,6 +348,8 @@ impl Session {
                 oxyos_compositor::crashes::Reports::of_user(),
                 oxyos_compositor::crashes::system_description(),
             ),
+            resume: None,
+            last_session_problem: None,
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
@@ -920,6 +928,10 @@ impl Session {
         // Sleep, restart, shut down and log out (ADR 0064), before the install service takes what
         // is left.
         self.serve_session_end();
+        // The login screen's question of how the last session ended (docs/adr/0065).
+        if let Some(problem) = self.last_session_problem {
+            oxyos_compositor::login::answer_last_session(&mut self.compositor.scene, problem);
+        }
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
         // Backups (ADR 0059), before the install service takes what is left.
@@ -1156,6 +1168,15 @@ impl Session {
         }
         // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
         self.crashes.exited(&mut self.compositor.scene, &exits);
+        // Resume follows what runs, and takes the person's answer to reopening again (ADR 0065).
+        if let Some(resume) = self.resume.as_mut() {
+            resume.serve(
+                &mut self.compositor.scene,
+                launcher,
+                self.settings.preferences(),
+                std::time::Instant::now(),
+            );
+        }
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
             if let Err(error) = launcher.launch(&id) {

@@ -629,6 +629,10 @@ const en = (f: Formats) => ({
     emptyTrashBody: (items: number) =>
       `${f.plural(items, { one: "1 item will be erased", other: `${f.number(items)} items will be erased` })}. You can't undo this action.`,
     emptyTrashButton: "Empty",
+    reopenAgain: "The last time you logged in, OxyOS quit unexpectedly while reopening your apps.",
+    reopenAgainBody: "Do you want to try to reopen them again?",
+    reopenAgainButton: "Reopen",
+    dontReopen: "Don't Reopen",
     wifiPassword: (ssid: string, kind: string) => `The Wi-Fi network “${ssid}” requires a ${kind} password.`,
     wifiIncorrect: "The password is incorrect. Try again.",
     wifiJoin: "Join",
@@ -1223,6 +1227,10 @@ const es = (f: Formats): Catalogue => ({
     emptyTrashBody: (items) =>
       `${f.plural(items, { one: "Se eliminará 1 ítem", other: `Se eliminarán ${f.number(items)} ítems` })}. No puedes deshacer esta acción.`,
     emptyTrashButton: "Vaciar",
+    reopenAgain: "La última vez que iniciaste sesión, OxyOS se cerró inesperadamente al volver a abrir tus apps.",
+    reopenAgainBody: "¿Quieres intentar volver a abrirlas?",
+    reopenAgainButton: "Volver a abrir",
+    dontReopen: "No volver a abrir",
     wifiPassword: (ssid, kind) => `La red Wi-Fi “${ssid}” requiere una contraseña ${kind}.`,
     wifiIncorrect: "La contraseña no es correcta. Inténtalo de nuevo.",
     wifiJoin: "Conectarse",

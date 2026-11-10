@@ -6017,6 +6017,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ));
     }
     // A login screen: locked before any client connects, its passwords the login program's.
+    if launch.login.is_some() {
+        session.last_session_problem = Some(oxyos_compositor::login::last_session_problem());
+    }
     if let Some(socket) = &launch.login {
         let greeter = oxyos_auth::greeter::Greeter::connect(socket)
             .map_err(|error| format!("the login program at {}: {error}", socket.display()))?;
@@ -6225,6 +6228,28 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
+    // Resume (docs/adr/0065, decision 3), as the session starts it once its shell is shown: what the run's state folder
+    // says the last session left, opened again or asked; and how the last session ended,
+    // as the login program tells it (`OXYOS_SESSION_ENDED`).
+    if let (Some(path), Some(launcher)) =
+        (oxyos_compositor::resume::path(), session.launcher.as_mut())
+    {
+        let (resume, reopened) = oxyos_compositor::resume::Resume::at_login(
+            path,
+            oxyos_compositor::session_end::reopen_path().as_deref(),
+            session.settings.preferences(),
+            launch.safe_mode,
+            launcher,
+            &mut session.compositor.scene,
+            Instant::now(),
+        );
+        session.resume = Some(resume);
+        if let Some(ended) = oxyos_compositor::crashes::SessionEnded::take() {
+            session
+                .crashes
+                .session_ended(&mut session.compositor.scene, &ended, reopened);
+        }
+    }
     // The screen reader before the application, as a session that runs one starts it; off, only
     // its socket, for Super+F5 to start it on.
     let speech = out.join("speech.jsonl");

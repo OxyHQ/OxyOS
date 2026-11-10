@@ -539,6 +539,12 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
+A scenario with `last_session` "problem" runs a login screen (`login`) the login program told the last
+session ended because of a problem, and `session_ended` ("signal 11 3600 1762790000": how, the seconds it
+ran, when) a session the login program told how the person's last one ended (docs/adr/0065-the-session-
+ending-because-of-a-problem.mdx). Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
+reopen file are `home.items` of the run's state folder, as the last session left them.
+
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
 as oxyos-session reads `oxyos.safe-mode=1` on the kernel's command line): nothing opened at login,
@@ -6765,6 +6771,13 @@ def main():
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
+    # How the last session ended, as the login program tells the session (docs/adr/0065): at a login
+    # screen, `last_session` "problem" (it ended because of one); in a session,
+    # `session_ended` ("signal 11 3600 1762790000": how, the seconds it ran, when).
+    if scenario.get("last_session") == "problem":
+        env["OXYOS_LAST_SESSION_ENDED"] = "problem"
+    if scenario.get("session_ended"):
+        env["OXYOS_SESSION_ENDED"] = scenario["session_ended"]
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
         if scenario["store"].get("offline_when_shown"):

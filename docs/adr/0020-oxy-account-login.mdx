@@ -10,6 +10,8 @@ Status: **accepted** (decisions 1 to 7, chosen with the platform's author; decis
 
 **9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** decision 5's sign out has a second door, the menu bar's Log Out *name*… (and Shift+Super+Q), which asks every application to quit first; and the login screen has Sleep, Restart and Shut Down at its foot, acting at once through logind as its own session, and shows the power key's choice itself.
 
+**10 November 2026 ([ADR 0065](./0065-the-session-ending-because-of-a-problem)):** a worker now watches the program it started through a heartbeat (a datagram socket in the person's runtime directory, `OXYOS_HEARTBEAT`): one silent for ten seconds is sent `SIGABRT`, then killed, so a hung session never holds the seat (or the power key) for ever; the worker tells the login program how the session ended (`FromWorker::Ended`), and one that ended because of a problem is said on the login screen and told to its account's next session (`OXYOS_LAST_SESSION_ENDED`, `OXYOS_SESSION_ENDED`). `oxyos-login --dev` still never starts a session.
+
 ## Problem
 
 OxyOS requires an Oxy account, as a Chromebook requires a Google account. The account is set up on the machine online, through the Oxy SDK's own sign-in, and from then on works offline: cold boot, sign-in and unlock with no network. There is no local-only account, no guest and no anonymous desktop.
