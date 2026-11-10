@@ -620,7 +620,7 @@
             "interrupting": true
           },
           {
-            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
+            "text": "La pantalla vuelve a sus ajustes anteriores en 15 segundos.",
             "interrupting": false
           },
           {
@@ -783,7 +783,7 @@
             "interrupting": true
           },
           {
-            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
+            "text": "La pantalla vuelve a sus ajustes anteriores en 15 segundos.",
             "interrupting": false
           },
           {
@@ -946,7 +946,7 @@
             "interrupting": true
           },
           {
-            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
+            "text": "La pantalla vuelve a sus ajustes anteriores en 15 segundos.",
             "interrupting": false
           },
           {
@@ -1002,11 +1002,11 @@
         },
         "spoken": [
           {
-            "text": "La pantalla vuelve a su configuración anterior en 10 segundos.",
+            "text": "La pantalla vuelve a sus ajustes anteriores en 10 segundos.",
             "interrupting": true
           },
           {
-            "text": "La pantalla vuelve a su configuración anterior en 5 segundos.",
+            "text": "La pantalla vuelve a sus ajustes anteriores en 5 segundos.",
             "interrupting": true
           },
           {
@@ -1021,11 +1021,11 @@
         "announcements": [
           {
             "politeness": "assertive",
-            "text": "La pantalla vuelve a su configuración anterior en 10 segundos."
+            "text": "La pantalla vuelve a sus ajustes anteriores en 10 segundos."
           },
           {
             "politeness": "assertive",
-            "text": "La pantalla vuelve a su configuración anterior en 5 segundos."
+            "text": "La pantalla vuelve a sus ajustes anteriores en 5 segundos."
           },
           {
             "politeness": "assertive",
@@ -1132,7 +1132,7 @@
             "interrupting": true
           },
           {
-            "text": "La pantalla vuelve a su configuración anterior en 15 segundos.",
+            "text": "La pantalla vuelve a sus ajustes anteriores en 15 segundos.",
             "interrupting": false
           },
           {

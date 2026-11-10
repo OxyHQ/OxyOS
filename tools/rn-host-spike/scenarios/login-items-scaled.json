@@ -122,7 +122,7 @@
         "in_shell": {
           "texts": [
             "Ítems en segundo plano añadidos",
-            "«Chat» ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
+            "“Chat” ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
           ]
         },
         "notifications": [
@@ -333,7 +333,7 @@
       "name": "Turned off by the person: ended at once",
       "do": [
         "press_named",
-        "Permitir Chat en segundo plano"
+        "Permitir a Chat funcionar en segundo plano"
       ],
       "allow_unchanged": true,
       "expect": {
