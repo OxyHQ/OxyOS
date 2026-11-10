@@ -63,7 +63,7 @@ A Mac's applications commit their layer trees to a render server, which runs the
 
 ## Steps
 
-1. **JavaScript on a thread of its own**, in lockstep with the loop (every order as it was). *Done* (#506).
+1. **JavaScript on a thread of its own**, in lockstep with the loop (every order as it was). *In the merge queue* (#527).
 2. **The UI thread apart** (decisions 2 to 10), `stall.json` and `perf-stall.json`. *In review.*
 3. **The numbers** in docs/performance.mdx and `perf.py stall`, on seldon and on the ThinkPad.
 4. **ThreadSanitizer over the gate's scenarios** (docs/bloom-host-sanitizers.mdx): a host and a Hermes built with it, every scenario run without a race reported.
