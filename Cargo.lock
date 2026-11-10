@@ -2616,9 +2616,12 @@ dependencies = [
 name = "oxyos-accountd"
 version = "0.1.0"
 dependencies = [
+ "futures-lite",
  "oxyos-account",
  "oxyos-auth",
+ "oxyos-seat",
  "rustix",
+ "zbus",
  "zeroize",
 ]
 

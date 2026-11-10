@@ -4,7 +4,9 @@
 # that needs: its own state, the user database, the homes it makes, the network to Oxy's API,
 # logind (to end a signed-out account's sessions), the accounts' pictures, reading which program a session's process
 # runs, and systemd, to start oxyos-erase.service and restart the machine when an administrator
-# erases it (docs/adr/0054-recovery-and-erasing.mdx). That unit writes the erase request and the
+# erases it (docs/adr/0054-recovery-and-erasing.mdx), and to weigh the user slice of the person at
+# seat0 above other users' (docs/adr/0066-quality-of-service.mdx, decision 8: SetUnitProperties,
+# runtime, on the system bus; root's calls need no capability and no polkit). That unit writes the erase request and the
 # firmware's next boot with its own privileges: this one never writes to the EFI system partition
 # or the firmware's variables, and the sandbox below gives it neither.
 #
