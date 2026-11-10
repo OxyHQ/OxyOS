@@ -6195,24 +6195,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let places = oxyos_compositor::places::Places::of_user();
         places.start(&mut session.compositor.scene);
         session.places = Some(places);
-        // The applications the person opens at login (docs/adr/0034-the-dock.mdx), as a session
-        // starts them; none in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
-        let open_at_login = session.settings.preferences().open_at_login.clone();
+        // In Safe Mode nothing is opened at login (docs/adr/0054-recovery-and-erasing.mdx,
+        // decision 10), below, nor run in the background.
         if launch.safe_mode {
             eprintln!("[launch] Safe Mode: nothing opened at login");
             if let Some(background) = session.background.as_mut() {
                 background.set_safe_mode();
-            }
-        } else if let Some(launcher) = session.launcher.as_mut() {
-            for id in &open_at_login {
-                match launcher.launch(id) {
-                    Ok(_) => {
-                        if let Some(places) = session.places.as_mut() {
-                            places.opened_at_login(id);
-                        }
-                    }
-                    Err(error) => eprintln!("[launch] {id} not opened at login: {error}"),
-                }
             }
         }
     }
@@ -6433,6 +6421,24 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
+    // The applications the person opens at login (docs/adr/0034-the-dock.mdx), once the shell is
+    // up, as `oxyos-session` starts them after its shells: their windows open in the work area
+    // the panels leave, where they were (docs/adr/0070). None in Safe Mode.
+    if !launch.safe_mode {
+        let open_at_login = session.settings.preferences().open_at_login.clone();
+        if let Some(launcher) = session.launcher.as_mut() {
+            for id in &open_at_login {
+                match launcher.launch(id) {
+                    Ok(_) => {
+                        if let Some(places) = session.places.as_mut() {
+                            places.opened_at_login(id);
+                        }
+                    }
+                    Err(error) => eprintln!("[launch] {id} not opened at login: {error}"),
+                }
+            }
+        }
+    }
     // Resume (docs/adr/0065, decision 3), as the session starts it once its shell is shown: what the run's state folder
     // says the last session left, opened again or asked; and how the last session ended,
     // as the login program tells it (`OXYOS_SESSION_ENDED`).

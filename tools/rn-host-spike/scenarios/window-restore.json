@@ -121,7 +121,7 @@
       }
     },
     {
-      "name": "a second later the record keeps Inbox's window as it was when it quit",
+      "name": "a second later the record keeps Inbox's window as it was when it quit, behind it Allo's",
       "do": [
         "wait",
         1500
@@ -129,7 +129,7 @@
       "allow_unchanged": true,
       "expect": {
         "home": {
-          ".local/state/oxyos/windows": "FILL"
+          ".local/state/oxyos/windows": "{\"desktops\":1,\"windows\":[{\"application\":\"so.oxy.allo\",\"x\":340,\"y\":166,\"width\":600,\"height\":360,\"desktop\":0},{\"application\":\"so.oxy.inbox\",\"x\":100,\"y\":60,\"width\":600,\"height\":520,\"desktop\":0}]}"
         }
       }
     },
