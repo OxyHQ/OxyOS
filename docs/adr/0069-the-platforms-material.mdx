@@ -1,0 +1,87 @@
+---
+title: "ADR 0069: The platform's material"
+description: How OxyOS blurs what is behind a menu, a popover, a sheet or a tooltip, as a Mac's vibrancy does. Bloom's `material` capability is answered by a host view whose shape the client tells the compositor with each frame. The compositor blurs and saturates what it has composed beneath that shape, behind the window as well as within it, and then draws the surface's own tint over it. The CPU reference and the GPU shader do the same integer arithmetic, Reduce Transparency turns it off, and no client ever reads the pixels.
+order: 78
+---
+
+# ADR 0069: The platform's material
+
+Status: **proposed**. Bloom 17.42.0 ([OxyHQ/Bloom#723](https://github.com/OxyHQ/Bloom/pull/723)) asks for the material, and OxyOS does not provide it yet. Builds on:
+
+- [ADR 0001](./0001-native-platform-boundaries) (what a client may see)
+- [ADR 0011](./0011-transitions) (the compositor's renderers and their byte-for-byte agreement)
+- [ADR 0018](./0018-several-displays) (scale)
+- [ADR 0019](./0019-settings) (`reduce_transparency`)
+- [ADR 0031](./0031-gpu-buffers) (the GPU path)
+- [ADR 0033](./0033-protocol-versions) (a new version)
+
+## Problem
+
+A Mac draws its menus, popovers, sheets, tooltips, the Dock and Control Center in a *material*: what lies behind them (other windows, the desktop, the window's own content) is blurred and saturated, and the surface's tint goes over it (`NSVisualEffectView`). OxyOS's surfaces draw an opaque or translucent fill. The shell's `glass()` is a translucent colour with nothing blurred under it, so a menu over a busy window shows that window sharply through it, or shows an opaque slab.
+
+Bloom 17.42.0 defines the platform's part (`src/platform-surface/types.ts`):
+
+- The `material` capability.
+- `PlatformSurfaceAdapter.Material`, a view with no content of its own that the platform fills with "what is behind it, blurred and saturated, … behind the window as well as within it".
+- `PlatformMaterialProps`: `style` (the surface's frame and corner radii) and `appearance` (`light` | `dark`).
+
+A floating surface (`SurfacePaint floating`) mounts `Material` and lays its own tint and edge over it. Bloom stops mounting it while transparency is reduced. Without the capability, Bloom draws its opaque fills. That is what OxyOS shows today.
+
+## Decision
+
+1. **Two parts, one look.** What lies behind a material comes from two places: the client's own window under it, and other surfaces under the window. Each owner blurs its own pixels. Neither ever reads the other's.
+   - **The host blurs its own content.** An `OxyOSMaterial` view in the Bloom host draws a backdrop blur of what the host has already drawn beneath it in the same surface, with Skia's backdrop image filter (`SkCanvas::saveLayer` with a backdrop `SkImageFilters::Blur`, the proven engine, as `expo-blur.h`'s target blur). Then it applies a saturation colour matrix, and clips to the view's rounded shape. Where nothing of the surface lies beneath (a popup surface's transparent back), the result is transparent, and the compositor's part shows through.
+   - **The compositor blurs the other surfaces.** With each frame the client tells the compositor its *material regions*: rectangles in surface coordinates, each with its four corner radii and an appearance (decision 3). Before drawing that surface, the compositor replaces what it has composed beneath each region, clipped to the region's rounded shape and the surface's own clip, by the same blur and saturation. Then it draws the surface over it as it does today. The surface's tint, and the host's blurred content where the window had any, cover the blurred backdrop exactly as a Mac's layers do.
+
+   A menu, a tooltip or a popover is a popup surface (ADR 0021, `popup-surface`) with nothing of its own under its material. It is blurred entirely by the compositor. A dialog drawn inside a window over that window's content is blurred entirely by the host, because the window beneath is opaque. A translucent window gets both, each over the part it owns.
+
+2. **One blur, defined once.** The material is a Gaussian with σ = 20 logical pixels times the output's scale, followed by saturation × 1.8 (the luminance-preserving colour matrix with Rec. 709 weights). These are a Mac's `menu` / `popover` materials as measured. Both are done in integer arithmetic on premultiplied pixels:
+   - Downsample by 4 with a box filter.
+   - Three box passes per axis whose widths approximate the Gaussian (W3C Filter Effects' algorithm).
+   - Bilinear upsample back to the region, clamped at the output's edges.
+
+   The CPU reference (`oxyos-gpu`, beside `filter.rs`) and the compositor's WGSL shader do the same operations in the same order, so the two agree byte for byte, as `filter.rs` and `compose.wgsl` already do (ADR 0011, step 5). The host's Skia blur uses the same σ and matrix. The two parts differ only below a pixel's rounding, and only where one meets the other.
+
+3. **Protocol (the next version: 40 as this is written; whichever version it lands in, ADR 0033).** A new request, `MaterialRegions { surface, regions: [ { rect, radii: [4], appearance } ] }`, sent with the frame it belongs to (before its commit). An empty list removes them. At most 16 regions per surface, each inside the surface. A request that breaks a rule is refused like any malformed request and changes nothing. The compositor keeps them per surface in the scene (`oxyos-compositor-core`), moves them with the surface, and drops them when the surface goes. A transition that scales or fades a surface (ADR 0011) scales its regions too, and fades the blur with the surface's opacity. A surface with regions on a client of an older version is not possible: the client library sends the request only to a compositor of version 40 or later, and on an older one the host reports no `material` capability, so Bloom draws its fills.
+
+4. **Damage.** A region's blurred pixels depend on everything composed within its reach (3σ, rounded up to the downsample grid) around it. The compositor damages a region whenever something beneath it within that reach changes, or the region itself moves or changes. It does not damage the region when only the surface's own pixels inside it change: those are drawn over the blur, which stays as it was and is kept from the last frame. A region never widens damage beyond its reach. Nothing of a hidden or fully occluded surface is blurred.
+
+5. **Reduce Transparency, and its cost.**
+   - With `reduce_transparency` on, the compositor ignores every region, and the host draws `OxyOSMaterial` as nothing. Bloom does not mount it then, so neither path runs. This is a second guard. The surface's tint is then drawn opaque, as Bloom already draws it, and as a Mac draws its materials then.
+   - The compositor also skips regions on an output whose frame budget (ADR 0011's latency target) the previous frame missed for this reason. It does so until a frame meets the budget, drawing those regions' surfaces over what is beneath unblurred. That degradation is visible but never stalls a frame. The gate's timing scenarios assert that it does not happen on the reference machine.
+
+6. **Privacy (ADR 0001).** No pixel of another surface reaches a client. The compositor composes the blur into the output and nowhere else. A capture of one window (screenshots, `compose_capture`) blurs only what that capture already includes. A client learns nothing back from `MaterialRegions`.
+
+7. **The host and `@oxyos/platform`.**
+   - The host registers the `OxyOSMaterial` component.
+   - On every frame the host sends the surface's regions: the view's frame in surface pixels and its radii resolved from its style.
+   - The OxyOS platform-surface adapter adds `material` to its capabilities and gives `Material` as that view when the compositor's version is 40 or later.
+   - The shell's `glass()` (`apps/shell/src/components/glass.ts`) becomes Bloom's floating surface on that capability, so its panels (Control Center, Notification Center, the banners and the dock) take the same material instead of a translucent fill.
+
+## Tests
+
+- **`oxyos-gpu`.**
+  - The CPU blur against hand-computed values.
+  - The Vulkan shader against the CPU reference, byte for byte, at scales 1, 1.25 and 2 and at every corner radius.
+  - A flat colour stays that colour. An opaque pixel stays opaque.
+- **`oxyos-compositor-core`.**
+  - Regions are refused past 16 or outside the surface.
+  - Regions follow their surface through moves and transitions.
+  - The damage reach is right: a change of the surface's own pixels inside a region does not damage the region, and a change beneath within reach does.
+- **Scenarios.** `material-menu`, `material-menu-scaled` and `material-reduce-transparency`:
+  - A Bloom menu (a popup) opened over a window of four colour bands shows, by output pixel samples, the bands' colours mixed under the menu's tint, and sharp outside it.
+  - The same at 1.25.
+  - With Reduce Transparency on, the tint alone, opaque.
+  - A dialog inside a window blurs that window's content (the host's part).
+  - The dock's and the Control Center's material blur the wallpaper and the window beneath them.
+
+## Consequences
+
+- Menus, popovers, tooltips, sheets and the shell's panels look like a Mac's, and Bloom's fills stop being OxyOS's only answer.
+- Each part blurs only what it owns, so the client never sees other surfaces' pixels and the compositor never needs the client's.
+- The blur is the costliest pass the compositor makes. It runs only where a region is, is downsampled by 4, and its damage is bounded by its reach. The budget rule (decision 5) keeps a slow output from stalling frames.
+- Staged in four pull requests, each verified on its own:
+  1. This ADR.
+  2. The protocol request, the scene, the CPU reference and the client library (version 40).
+  3. The Vulkan shader and its agreement tests.
+  4. The host view, the adapter's capability, the shell's `glass()` and the scenarios. This one needs the Bloom pin at 17.42.0 or later (OxyOS #540).
