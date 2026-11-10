@@ -155,6 +155,35 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
 
 
+class AStallsMotionsAreOneTurns(unittest.TestCase):
+    """`react`'s {"turns": count} (desktop-drag.json): a press's motions the host read at once after
+    a stall come in one turn and reach JavaScript together; the drag it starts on the first takes
+    the press, so no turn after delivers another."""
+
+    def check(self, turns, wanted):
+        report = [dict(deliver(10, "touchStart", "View#406", "desktop"), turn=1)]
+        report += [dict(deliver(20 + i, "touchMove", "View#406", "desktop"), turn=turn) for i, turn in enumerate(turns)]
+        report.append(dict(deliver(90, "touchCancel", "View#406", "desktop"), turn=9))
+        step = {"name": "drag", "do": ["wait", 0], "expect": {"react": {
+            "touchStart@desktop": 1, "touchMove@desktop": wanted, "touchCancel@desktop": 1}}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": 100}, report, 0, failures)
+        return failures
+
+    def test_four_motions_read_at_once_are_one_turn(self):
+        self.assertEqual(self.check([3, 3, 3, 3], {"turns": [1, 2]}), [])
+        self.assertEqual(regress.react_events([dict(deliver(20, "touchMove", "V", "desktop"), turn=3)] * 4, 0, 100,
+                                              turns=True), {"touchMove@desktop": 1})
+
+    def test_a_motion_in_a_turn_after_the_drag_began_fails(self):
+        failures = self.check([3, 3, 5, 7], {"turns": [1, 2]})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'touchMove@desktop': {'turns': 3, 'events': 4}", failures[0])
+
+    def test_a_plain_count_still_counts_every_delivery(self):
+        self.assertEqual(len(self.check([3, 3, 3], [1, 2])), 1)
+
+
 class ActivityIsCountedPerStep(unittest.TestCase):
     """`activity` and `processes` (docs/adr/0063-activity-monitor.mdx): counts in the step, from the
     step before's settling, and the signals a known process received between them."""
@@ -209,6 +238,15 @@ class DeliveredCounts(unittest.TestCase):
         self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [10, 30]}}))
         self.assertFalse(regress.counts_match({**got, "2": {"focus.in": 1}}, {"1": got["1"]}))
         self.assertTrue(regress.counts_match({}, {}))
+
+    def test_an_event_given_none_at_least_may_not_have_come(self):
+        # desktop-drag.json's Dropsea dragging out: its drag began over its window, or (late, on a
+        # loaded machine) once the pointer had left it, never entering it.
+        wanted = {"1": {"press": 1, "drag.enter": [0, 1], "drag.leave": [0, 1]}}
+        self.assertTrue(regress.counts_match({"1": {"press": 1}}, wanted))
+        self.assertTrue(regress.counts_match({"1": {"press": 1, "drag.enter": 1, "drag.leave": 1}}, wanted))
+        self.assertFalse(regress.counts_match({"1": {"press": 1, "drag.enter": 2}}, wanted))
+        self.assertFalse(regress.counts_match({"1": {"drag.enter": 1}}, wanted))
 
 
 class SpokenExactly(unittest.TestCase):
