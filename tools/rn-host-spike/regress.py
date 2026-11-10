@@ -19,8 +19,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   never its tag, which every view mounted before it moves; two scroll views under one name in a
   step fail it (as in scroll_offset, scroll_moved and glide). Any delivered event the step does not list fails it, which catches
   duplicated and leaked events; a count may be [least, most] for events one a frame (a glide's
-  scroll events), and [0, most] for events that may not come;
-- delivered: compositor input routed to the application per surface (exact), plus `leaked`
+  scroll events), and [0, most] for events that may not come; {"turns": count} counts the host's
+  turns that delivered the event instead (each delivery says its turn): a press's motions the host
+  read at once after a stall come in one turn and reach JavaScript together, so how many there were
+  is the machine's load, not the application's (a drag starts on the first past its threshold);
+- delivered: compositor input routed to the application per surface (exact; a count may be
+  [least, most], and [0, most] for an event that may not come), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
   launched received, by kind (exact; "close.requested" among them; a list of them: any one, for
@@ -71,6 +75,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   nested in that group (at any depth), the items in order, each to the right of or below the last,
   inside the group's rectangle: one control, never an empty group beside loose buttons, nor a second copy
   elsewhere. With "only": true the buttons the group holds are exactly its items;
+- at_apart: by "window", "shell", "launched" or a popup's, node names each held exactly once
+  whose rectangles no two overlap: controls laid out apart (the login screen's Add Account and its
+  power buttons at any size);
 - at_hit: what a press lands on, by the tree's geometry: "x,y" (the window's coordinates, as
   `press` takes them) -> the node matching the keys given is the innermost one whose rectangle holds it;
 - announcements: what the assistive technology would have said in the step, exactly and in
@@ -81,7 +88,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
-  minute it was said or the one before);
+  minute it was said or the one before); spoken_any_order: the same, each said once, in either
+  order, for a step whose one input makes two processes speak (a source switched mid-composition:
+  the field's commit, echoed as the application's tree comes, and the source's name, said by the
+  shell), whose order the machine decides;
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
@@ -214,6 +224,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - window_states: every window as the shell is told of it once the step settled, by its number,
   exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
   matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+- tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
+  (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
+  exactly how many configures the director's window was sent in the step (a window tiled is told
+  its new size once); companion_rect, where the companion's window is once the step settled;
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
@@ -323,6 +337,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   motions at a rate, no button held, the compositor serving the application between them, as a
   hand moves across a list): "presented_min", the fewest frames the window showed;
   "latency_max_ms", the longest from a motion to the frame that followed it;
+- typed: for a `type_paced` step (text typed key by key at a rate, each key carrying its time, the
+  compositor serving the application between them): "presented_min", the fewest frames the window
+  showed. Each paced step's record has `device_latency_ms`, every input's latency from its device's
+  time to the frame answering it (perf.py saturation's measure);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - transactions: the text-input transactions the application was given in the step (ADR 0008),
@@ -441,6 +459,10 @@ what it composes (ADR 0041: twelve, five a page, which the session's shell draws
 and turning the page across it, a digit choosing that candidate of the page, Space the highlighted
 one, Escape cancelling; the shell's presses choose one or turn the page.
 
+A `grab_hold` step ([x, y, dx, dy]) is a `grab` whose button stays held: the window goes on
+moving with the pointer into the steps after it (`move_output`, `key_down`), until a
+`release_output` releases it, where a tile it previews is taken (ADR 0016, decision 12).
+
 A `drag_hold` step ([x0, y0, x1, y1, motions, hz]) is a `drag_paced` whose button stays held: the
 drag goes on into the steps after it, each step's frame showing it midway (`move_output` moves it,
 `key_down` holds a modifier that changes its action), until a `release_output` ([x, y]) moves the
@@ -532,6 +554,14 @@ service writes (`oxyos-pack entry`, beside the offscreen compositor) with the li
 account's decisions on its capabilities; the development compositor takes it as the service's
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
+
+A scenario with `last_session` "problem" runs a login screen (`login`) the login program told the last
+session ended because of a problem, and `session_ended` ("signal 11 3600 1762790000": how, the seconds it
+ran, when) a session the login program told how the person's last one ended (docs/adr/0065-the-session-
+ending-because-of-a-problem.mdx). A scenario with `panics` ({NAME: TEXT}) runs a session after the
+computer restarted because of a kernel panic, those its accounts as oxyos-recovery wrote them
+(docs/adr/0068-crash-evidence-and-kernel-panics.mdx); every run's folder of them is its own. Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
+reopen file are `home.items` of the run's state folder, as the last session left them.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
@@ -815,9 +845,9 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
+             "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -874,6 +904,25 @@ def package_size(package):
         value, unit = value / 1000, unit + 1
     digits = 0 if unit == 0 or value >= 10 else 1
     return f"{value:,.{digits}f} {units[unit]}"
+
+
+def spoken_matches(said, wanted, any_order=False):
+    """Whether the utterances `said` are those `wanted` (each a text, or keys matching an
+    utterance), each once: in order, or with `any_order` in either."""
+    wanted = [w if isinstance(w, dict) else {"text": w} for w in wanted]
+    if len(said) != len(wanted):
+        return False
+    def matches(u, w):
+        return all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
+    if not any_order:
+        return all(matches(u, w) for u, w in zip(said, wanted))
+    left = list(said)
+    for w in wanted:
+        match = next((u for u in left if matches(u, w)), None)
+        if match is None:
+            return False
+        left.remove(match)
+    return True
 
 
 def same_text(got, wanted, t_ns):
@@ -1148,9 +1197,16 @@ def director_args(step, out):
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
+    if kind == "type_paced":
+        # Text typed key by key at a person's pace into the focused field: [text, keys a second].
+        return args + ["--type-paced", str(value[1]), value[0]]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
+    if kind == "grab_hold":
+        # The same, its button still held: the move goes on into the next steps (`move_output`,
+        # `key_down`, `release_output`), a window dragged to a display's edge showing its tile.
+        return args + ["--grab-hold", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
     if kind in ("keyboard", "compose_keys"):
@@ -1199,6 +1255,13 @@ def director_args(step, out):
     if kind == "idle":
         # Seconds with no input, which the idle lock counts as passed at once (ADR 0010).
         return args + ["--idle", str(value)]
+    if kind == "signal":
+        # A part of the session ended as a crash or a `kill` would, [SIGNAL, PART] ("SEGV",
+        # "reader"): the session then does what it does when that part ends on its own.
+        signal, part = value
+        if signal not in ("SEGV", "ABRT", "KILL", "TERM") or part not in ("reader",):
+            raise ValueError(f"signal: {value}: a signal of SEGV, ABRT, KILL or TERM to the reader")
+        return args + ["--signal", signal, part]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
     if kind == "expect-popup":
@@ -3429,10 +3492,11 @@ def scroll_view_name(line):
     return line.get("target")
 
 
-def react_events(report, start, end):
+def react_events(report, start, end, turns=False):
     """The events delivered to React in a step, as "event@name" -> count (`react`): a view named by
     its testID, else the nearest ancestor's (`within`), as the host reports them; a scroll view by
-    `scroll_view_name`."""
+    `scroll_view_name`. With `turns`, each one's count is of the host's turns that delivered it
+    (Report::beginTurn): what a turn delivers reaches JavaScript together, at the next turn's start."""
     got = {}
     for line in report:
         # Hover follows every pointer motion: the W3C events it makes are checked by what the
@@ -3440,8 +3504,11 @@ def react_events(report, start, end):
         if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
             name = scroll_view_name(line) if line["event"] in SCROLL_EVENTS else line.get("within") or line["target"]
             key = f"{line['event']}@{name}"
-            got[key] = got.get(key, 0) + 1
-    return got
+            if turns:
+                got.setdefault(key, set()).add(line.get("turn"))
+            else:
+                got[key] = got.get(key, 0) + 1
+    return {key: len(seen) for key, seen in got.items()} if turns else got
 
 
 def check_scroll_names(report, start, end, fail):
@@ -4297,10 +4364,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "react" in expect:
         got = react_events(report, start, end)
         wanted = expect["react"]
-        within = lambda count, want: count == want if isinstance(want, int) else want[0] <= count <= want[1]
+        # An event given {"turns": count} is counted by the host's turns that delivered it: a
+        # press's motions the host read at once (after a stall, under load) are one turn's, which
+        # JavaScript takes together, acting on the first; how many motions waited is the machine's.
+        by_turns = react_events(report, start, end, turns=True)
+        counted = {k: by_turns.get(k, 0) if isinstance(want, dict) else got.get(k, 0) for k, want in wanted.items()}
+        def within(count, want):
+            if isinstance(want, dict):
+                want = want["turns"]
+            return count == want if isinstance(want, int) else want[0] <= count <= want[1]
         # An event a range lets be absent ([0, most]) may not have come at all.
-        if not set(got) <= set(wanted) or not all(within(got.get(k, 0), want) for k, want in wanted.items()):
-            fail(f"React received {got}, expected exactly {wanted}")
+        if not set(got) <= set(wanted) or not all(within(counted[k], want) for k, want in wanted.items()):
+            shown = {k: {"turns": by_turns[k], "events": n} if isinstance(wanted.get(k), dict) else n
+                     for k, n in got.items()}
+            fail(f"React received {shown}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
     if "crash_reports" in expect:
@@ -5105,6 +5182,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if got is None or not matches(got, node):
                 fail(f"a press at {point} lands on {got and {k: got[k] for k in ('role', 'name', 'rect')}}, "
                      f"expected {node}")
+    if "at_apart" in expect:
+        for role, names in expect["at_apart"].items():
+            nodes = held_nodes(role)
+            found = []
+            for label in names:
+                named = [n for n in nodes if n.get("name") == label]
+                if len(named) != 1:
+                    fail(f"the assistive technology holds {len(named)} {role} nodes named {label!r}, expected one")
+                else:
+                    found.append(named[0])
+            for i, a in enumerate(found):
+                for b in found[i + 1:]:
+                    if overlaps(a["rect"], b["rect"]):
+                        fail(f"{a['name']!r} {a['rect']} and {b['name']!r} {b['rect']} overlap")
     if "at" in expect:
         for role, wanted in expect["at"].items():
             nodes = held_nodes(role)
@@ -5117,14 +5208,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if len(said) != len(wanted) or not all(all(a.get(k) == v for k, v in w.items())
                                                for a, w in zip(said, wanted)):
             fail(f"the assistive technology would have said {said}, expected {wanted}")
-    if "spoken" in expect:
-        # What the screen reader said between the step's input and its settling.
-        said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
-        wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
-        if len(said) != len(wanted) or not all(all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
-                                               for u, w in zip(said, wanted)):
-            fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
-                 f"expected {expect['spoken']}")
+    for key in ("spoken", "spoken_any_order"):
+        if key in expect:
+            # What the screen reader said between the step's input and its settling.
+            said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
+            if not spoken_matches(said, expect[key], key == "spoken_any_order"):
+                fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
+                     f"expected {'in any order ' if key == 'spoken_any_order' else ''}{expect[key]}")
     if "at_absent" in expect:
         # Nodes it must not hold ({} matches any node: none at all there).
         for role, unwanted in expect["at_absent"].items():
@@ -5270,6 +5360,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         scrolled, wanted = result.get("scrolled") or {}, expect["scrolled"]
         if scrolled.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {scrolled.get('presented', 0)} frames in the scroll, expected at least "
+                 f"{wanted['presented_min']}")
+    if "typed" in expect:
+        # Paced typing (`type_paced`): the frames the window showed while the keys came.
+        typed, wanted = result.get("typed") or {}, expect["typed"]
+        if typed.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {typed.get('presented', 0)} frames as the keys were typed, expected at least "
                  f"{wanted['presented_min']}")
     if "moved" in expect:
         # A paced pointer motion (`move_paced`): the frames the window showed while the mouse
@@ -5475,6 +5571,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
+    # Tiling (docs/adr/0016-windows.mdx, decision 12).
+    if "tile_preview" in expect and result.get("tile_preview") != expect["tile_preview"]:
+        fail(f"the tile previewed is {result.get('tile_preview')}, expected {expect['tile_preview']}")
+    if "window_configures" in expect and result.get("window_configures") != expect["window_configures"]:
+        fail(f"the window was sent {result.get('window_configures')} configures, expected {expect['window_configures']}")
+    if "companion_rect" in expect and result.get("companion_rect") != expect["companion_rect"]:
+        fail(f"the companion's window is at {result.get('companion_rect')}, expected {expect['companion_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
         fail(f"popups at {result.get('popups')}, expected [{expect['popup_rect']}]")
     if "popup_rects" in expect and result.get("popups", []) != expect["popup_rects"]:
@@ -6119,11 +6222,14 @@ def counts_match(got, wanted):
     """Whether what the compositor delivered (`got`: by window, each event's count) is `wanted`
     exactly: the same windows and events, each count the same, or within the [least, most] a step
     gives for it (a pinch through libinput, which reports as many updates as it recognized frames
-    of the fingers)."""
+    of the fingers); an event given [0, most] may not have come at all."""
     if isinstance(wanted, list) and len(wanted) == 2 and isinstance(got, int):
         return wanted[0] <= got <= wanted[1]
     if isinstance(wanted, dict) and isinstance(got, dict):
-        return wanted.keys() == got.keys() and all(counts_match(got[key], wanted[key]) for key in wanted)
+        absent = lambda want: isinstance(want, list) and len(want) == 2 and want[0] == 0
+        return (got.keys() <= wanted.keys()
+                and all(key in got or absent(want) for key, want in wanted.items())
+                and all(counts_match(got.get(key, 0), want) for key, want in wanted.items()))
     return got == wanted
 
 
@@ -6290,6 +6396,38 @@ def power_services(spec, out, offscreen):
                 process.kill()
         log.close()
     return ["--power-bus", address], stop
+
+
+def desktop_quoted(word):
+    """`word` as an `Exec` key holds one word (oxyos-apps' `exec`): quoted, a backslash and a quote
+    escaped, `%` doubled."""
+    escaped = str(word).replace(BACKSLASH, BACKSLASH * 2).replace('"', BACKSLASH + '"').replace("%", "%%")
+    return f'"{escaped}"'
+
+
+BACKSLASH = chr(92)
+
+
+def also_launch_registry(apps, into, machine, offscreen):
+    """The development registry of a scenario's `also_launch` in `into`: each {"id", "name"} with
+    "exec" (a program and its arguments, "{offscreen}" in them the development compositor, whose
+    `--load` is the benchmark's loads) or "module" (a Bloom module of the packages or the probes,
+    run with its runtime), and "minimized" for one whose window is minimized once shown."""
+    target = into / "oxyos" / "applications"
+    shutil.rmtree(into, ignore_errors=True)
+    target.mkdir(parents=True)
+    for app in apps:
+        lines = ["[Desktop Entry]", "Type=Application", f"Name={app.get('name', app['id'])}"]
+        if "exec" in app:
+            program = str(pathlib.Path(offscreen).resolve())
+            lines.append("Exec=" + " ".join(desktop_quoted(str(word).replace("{offscreen}", program))
+                                            for word in app["exec"]))
+        else:
+            host, bundle, _ = machine.run(app["module"])
+            lines += [f"X-OxyOS-Bloom-Module={app['module']}", f"X-OxyOS-Bloom-Bundle={bundle}",
+                      f"X-OxyOS-Runtime={host.parent.name}"]
+        (target / f"{app['id']}.desktop").write_text("\n".join(lines) + "\n")
+    return into
 
 
 def install_arguments(scenario, out, machine=None, offscreen=None):
@@ -6656,6 +6794,15 @@ def main():
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's, each packaged one from its package.
         env["XDG_DATA_DIRS"] = str(machine.registry(out / "registry", options.offscreen))
+    if scenario.get("also_launch"):
+        # Applications the session starts once the window is shown, through its launcher as the
+        # dock starts them (`--also-launch`): the saturation benchmark's loads (perf.py), each a
+        # development entry of the run's own, in front of the registry.
+        also = also_launch_registry(scenario["also_launch"], out / "also-registry", machine, options.offscreen)
+        env["XDG_DATA_DIRS"] = os.pathsep.join([str(also)] + ([env["XDG_DATA_DIRS"]] if scenario.get("shell") else []))
+        command[2:2] = ["--also-launch", ",".join(app["id"] + (":minimized" if app.get("minimized") else "")
+                                                   for app in scenario["also_launch"]),
+                        "--also-launch-lead", str(scenario.get("also_launch_lead_ms", 0))]
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
@@ -6720,6 +6867,22 @@ def main():
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
+    # How the last session ended, as the login program tells the session (docs/adr/0065): at a login
+    # screen, `last_session` "problem" (it ended because of one); in a session,
+    # `session_ended` ("signal 11 3600 1762790000": how, the seconds it ran, when).
+    if scenario.get("last_session") == "problem":
+        env["OXYOS_LAST_SESSION_ENDED"] = "problem"
+    if scenario.get("session_ended"):
+        env["OXYOS_SESSION_ENDED"] = scenario["session_ended"]
+    # The accounts of kernel panics oxyos-recovery wrote after a restart (docs/adr/0068): `panics`
+    # ({NAME: TEXT}), written into a folder of the run's own, never the machine's.
+    problems = out / "problems"
+    shutil.rmtree(problems, ignore_errors=True)
+    if scenario.get("panics"):
+        problems.mkdir(parents=True)
+        for name, text in scenario["panics"].items():
+            (problems / name).write_text(text)
+    env["OXYOS_PROBLEMS"] = str(problems.resolve())
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
         if scenario["store"].get("offline_when_shown"):

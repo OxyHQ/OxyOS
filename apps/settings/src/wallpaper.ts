@@ -77,6 +77,7 @@ function utf8Bytes(text: string): number {
 export function validPath(path: string): boolean {
   if (!path.startsWith("/") || path === "/" || path.endsWith("/")) return false;
   if (utf8Bytes(path) > MAX_PATH_BYTES) return false;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: a path with a control character is refused
   if (/[\u0000-\u001f\u007f]/.test(path)) return false;
   return path
     .slice(1)

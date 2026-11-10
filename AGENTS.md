@@ -14,7 +14,11 @@ Merging: `gh pr merge N --auto` puts a pull request in the merge queue once its 
 
 Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxyos-platform-probe`; `oxyos-offscreen` is a CPU fixture, not DRM/KMS. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
 
+TS/JS: `npx --yes @biomejs/biome@2.5.15 ci apps tools/rn-host-spike/sample tools/shell-preview scripts` (`biome.jsonc`: lint only, existing violations baselined to `warn`; formatting lands per directory later, `~/Oxy/docs/lint-and-format.md`).
+
 Image: `python3 scripts/check-image-config.py` (`config/` and workflows; the boundary script audits Cargo). Locally, never in CI: `tools/image/build.sh` builds the console base in a privileged Trixie container under `~/oxyos-build` (never `/tmp`) and runs `scripts/check-image-contents.py`, the built image's audit; `python3 tools/image/acceptance ISO [--firmware uefi|secureboot|bios]` boot-tests it in QEMU (`docs/iso-build.mdx`; `--recovery`: install, recovery and erase on a virtual disk). Installing: ADR 0023; recovery and erasing: ADR 0054. Destructive steps (install, erase) run only in QEMU disk images, never on a real disk.
+
+Python: `pipx run ruff==0.17.4 check .` (`ruff.toml`: lint only, its baseline per file; formatting lands later).
 
 ## Image rules (`config/`, see `docs/iso-build.mdx`)
 

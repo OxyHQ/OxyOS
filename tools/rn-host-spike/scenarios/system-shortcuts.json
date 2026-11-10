@@ -53,7 +53,7 @@
         "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"},
         "in_shell": {"texts": ["Inbox"], "absent": ["Allo"]},
         "at": {"shell": [
-          {"role": "List", "name": "Cambiar de aplicación"},
+          {"role": "List", "name": "Selector de apps"},
           {"role": "Button", "name": "Allo", "state": []},
           {"role": "Button", "name": "Inbox", "state": ["selected"]}
         ]}
@@ -88,7 +88,7 @@
         "react": {},
         "delivered": {"1": {"focus.out": 1}, "launched": {"focus.in": 1}},
         "output_pixels": {"900,480": "#fff7f9", "650,385": "#f0e7eb"},
-        "at_absent": {"shell": [{"role": "List", "name": "Cambiar de aplicación"}]}
+        "at_absent": {"shell": [{"role": "List", "name": "Selector de apps"}]}
       }
     },
     {

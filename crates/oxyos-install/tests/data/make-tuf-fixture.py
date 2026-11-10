@@ -9,15 +9,14 @@ Run with python-tuf 6.0.0 and securesystemslib[crypto] 1.6.0 (a virtual environm
 Keys come from fixed seeds (the same as the Rust tests': byte N repeated), so the output is the
 same every run but for the signatures' bytes, which Ed25519 makes deterministic too.
 """
-import json
 import os
 import shutil
 from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from securesystemslib.signer import CryptoSigner, SSlibKey
+from securesystemslib.signer import CryptoSigner
 from tuf.api.metadata import (
-    Metadata, Root, Snapshot, Targets, Timestamp, TargetFile, MetaFile, Key,
+    Metadata, Root, Snapshot, Targets, Timestamp, TargetFile, MetaFile,
 )
 from tuf.api.serialization.json import JSONSerializer
 

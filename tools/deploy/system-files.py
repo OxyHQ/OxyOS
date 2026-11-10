@@ -31,6 +31,8 @@ POLKIT = "config/includes.chroot_after_packages/etc/polkit-1/rules.d"
 BACKUPS = ("oxyos-backupd", "target/release/oxyos-backupd", "/usr/libexec/oxyos-backupd")
 BACKUP_UNITS = "tools/oxyos-backupd"
 BACKUP_PACKAGES = ("restic", "rclone")
+# Crash evidence (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): a native crash's backtrace.
+EVIDENCE_PACKAGES = ("systemd-coredump",)
 IMAGE_MANIFEST = "config/package-lists/live.list.chroot"
 
 
@@ -87,14 +89,48 @@ def backup_errors():
             if start != BACKUPS[2]:
                 errors.append(f"{path.relative_to(ROOT)} starts {start}, not {BACKUPS[2]}")
     image = {line.strip() for line in (ROOT / IMAGE_MANIFEST).read_text().splitlines() if not line.startswith("#")}
-    errors += [f"{package} is not in {IMAGE_MANIFEST}" for package in BACKUP_PACKAGES if package not in image]
+    errors += [f"{package} is not in {IMAGE_MANIFEST}" for package in BACKUP_PACKAGES + EVIDENCE_PACKAGES
+               if package not in image]
+    return errors
+
+
+# What makes a system service of OxyOS never given up on (docs/adr/0061-crashes-and-resetting-an-
+# application.mdx, decision 6, amended): no start limit, and restarts throttled, never stopped.
+NEVER_GIVEN_UP = {
+    "Unit": ["StartLimitIntervalSec=0"],
+    "Service": ["Restart=always", "RestartSteps=", "RestartMaxDelaySec="],
+}
+
+
+def given_up_errors():
+    """Every OxyOS unit that runs a service (tools/oxyos-*/*.service with an ExecStart= and no
+    Type=oneshot, and not started by a socket for one conversation) is never given up on."""
+    errors = []
+    for path in sorted(ROOT.glob("tools/oxyos-*/*.service")):
+        text = path.read_text()
+        if "ExecStart=" not in text or re.search(r"^Type=oneshot", text, re.M):
+            continue
+        # A socket's service (StandardInput=socket) is started again by its socket, per connection.
+        if re.search(r"^StandardInput=socket", text, re.M):
+            continue
+        sections = {}
+        section = None
+        for line in text.splitlines():
+            if line.startswith("["):
+                section = line.strip("[]")
+            elif line and not line.startswith("#"):
+                sections.setdefault(section, []).append(line.strip())
+        for section, keys in NEVER_GIVEN_UP.items():
+            for key in keys:
+                if not any(line.startswith(key) for line in sections.get(section, [])):
+                    errors.append(f"{path.relative_to(ROOT)} is given up on: no {key} in [{section}]")
     return errors
 
 
 def main():
     entries = manifest()
     have = {source: (target, mode) for source, target, mode in entries}
-    errors = backup_errors()
+    errors = backup_errors() + given_up_errors()
     for source, (target, mode) in required().items():
         if source not in have:
             errors.append(f"{source} is not in tools/deploy/system-files")
@@ -115,6 +151,8 @@ def main():
         print(" ".join(f"-p {package}" for package in (*STACKS, RECOVERY[0], BACKUPS[0])))
     elif sys.argv[1:] == ["--apt"]:
         print(" ".join(BACKUP_PACKAGES))
+    elif sys.argv[1:] == ["--apt-evidence"]:
+        print(" ".join(EVIDENCE_PACKAGES))
     else:
         print(f"tools/deploy/system-files: {len(entries)} files, as the tree has them")
 

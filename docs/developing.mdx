@@ -104,7 +104,9 @@ a run that passes leaves nothing there.
 
 A pull request is merged by putting it in the merge queue: `gh pr merge N --auto` (or the merge
 button), once its fast checks pass: the **Native foundation** jobs (`verify` and `passwd-tools`, on
-x86-64 and AArch64, required). The queue then runs the gate, the **Scenarios** check
+x86-64 and AArch64) and the **Applications** job (`apps-tests`, `.github/workflows/apps.yml`: the
+applications' and the platform API's type check and unit tests, and the browser preview's build),
+all required and run on every pull request, whatever it touches. The queue then runs the gate, the **Scenarios** check
 (`.github/workflows/scenarios.yml`), on each entry's combined tree: main with the pull requests
 ahead of it and its own, so pull requests merged separately cannot break main together. A run that
 passes merges the entry (a merge commit); one that fails takes the pull request out of the queue, its
@@ -141,8 +143,11 @@ sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each t
 `tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
 units, PAM services, sysusers, tmpfiles and the ptrace scope), Safe Mode's parts (the recovery's
 program, the kernel-install plugin, the polkit rule) and, where the machine boots systemd-boot with
-kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
-safe-mode-entry sync` with what `kernel-install inspect` says; run again, it changes nothing), backups
+kernel-install's entries, OxyOS's kernel parameters (`crates/oxyos-recovery/kernel-parameters`: the
+boot logo's and full preemption, ADR 0066) on `/etc/kernel/cmdline` and on every kernel's entry and
+the recovery's (`oxyos-recovery kernel-parameters sync`, from the machine's next boot, which the
+deploy never causes) and a Safe Mode entry beside each installed kernel's (`oxyos-recovery
+safe-mode-entry sync` with what `kernel-install inspect` says; run again, either changes nothing), backups
 (Debian's restic and rclone from apt, `oxyos-backupd` enabled, restarted and asked its state, the
 migration's socket enabled; no destination, which is the person's to add), Inbox and
 Allo as development packages in `~/oxyos-validation`,
@@ -212,14 +217,18 @@ On 8 November 2026 four such jobs held the queue for hours.
 - A runner is restarted or stopped only once idle: `sudo sh tools/gate/restart-runner.sh N
   [restart|stop]` waits until runner N has no job (no `Runner.Worker` in its service), then acts. Never
   move a runner's directory or cache, or register it again, but after stopping it through this.
-- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, every ten minutes, on a
-  GitHub-hosted runner with that run's token: Actions on this repository alone, no secret on the
-  gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
+- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, on a GitHub-hosted runner
+  with that run's token: Actions on this repository alone, no secret on the gate's machine) runs
+  whenever the merge queue changes (a group built, an entry taken out) and on a ten-minute schedule
+  as a backstop: GitHub ran that schedule every four to eight hours, and on 10 November 2026 four
+  superseded merge queue runs held four of the five merge runners for 80 minutes. It force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
   one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
   started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
   runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
   for any more (a group superseded when the queue changed: an entry removed or another put ahead),
-  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
+  which GitHub leaves running on runners the queue needs: a run whose commit no entry's group has,
+  never the run asking, one younger than two minutes or any when the queue cannot be read
+  (`tools/gate/test_watchdog.py`, on GitHub's recorded answers). `--dry-run` says what it would end.
 
 ### Images on the gate's machine
 

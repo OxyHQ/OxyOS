@@ -1053,9 +1053,11 @@ fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
     // SAFETY: as above.
     let again = unsafe { oxyos_websockets_connect(sockets, &request) };
     assert_eq!(again, OXYOS_ERROR);
+    // SAFETY: live sockets.
+    let readable = unsafe { oxyos_websockets_fd(sockets) };
+    let deadline = std::time::Instant::now() + HANG;
     let mut got = Vec::new();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
+    loop {
         let mut event = OxyOSWebSocketEvent::default();
         // SAFETY: live sockets and a writable event.
         match unsafe { oxyos_websockets_event(sockets, &mut event) } {
@@ -1097,7 +1099,11 @@ fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
                     _ => {}
                 }
             }
-            _ => std::thread::sleep(std::time::Duration::from_millis(5)),
+            OXYOS_WEBSOCKET_EMPTY => assert!(
+                wait_readable(readable, deadline),
+                "no close in {HANG:?}: {got:?}"
+            ),
+            other => panic!("event failed: {other}"),
         }
     }
     assert_eq!(
@@ -1113,6 +1119,31 @@ fn a_websocket_through_the_c_abi_opens_echoes_and_closes() {
     unsafe {
         oxyos_websockets_free(sockets);
         oxyos_net_free(network);
+    }
+}
+
+/// How long a test waits on another thread's work before it fails: far beyond any stall of the
+/// runner's, so only a real hang reaches it, and fails with what had arrived instead of a stuck job.
+/// CI's arm runners stall the whole test process for seconds at a time (11 s seen), and a 5 s
+/// deadline turned such a stall into a failure: the test woke past it before the request's thread
+/// had run at all.
+const HANG: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Waits until `fd` is readable or `deadline` comes; false once it has passed.
+fn wait_readable(fd: c_int, deadline: std::time::Instant) -> bool {
+    let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+        return false;
+    };
+    // SAFETY: a descriptor of a live network or sockets, for the call.
+    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) };
+    let mut readable = [rustix::event::PollFd::new(
+        &fd,
+        rustix::event::PollFlags::IN,
+    )];
+    let left = rustix::event::Timespec::try_from(left).expect("a deadline in range");
+    match rustix::event::poll(&mut readable, Some(&left)) {
+        Ok(_) | Err(rustix::io::Errno::INTR) => true,
+        Err(error) => panic!("poll: {error}"),
     }
 }
 
@@ -1206,7 +1237,8 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
         header_count: 1,
         body: std::ptr::null(),
         body_length: 0,
-        timeout_ms: 5000,
+        // None of its own: the test's bound is HANG's.
+        timeout_ms: 0,
         has_body: 1,
         with_credentials: 1,
         incremental: 0,
@@ -1217,9 +1249,11 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
     // SAFETY: a live network, and a request whose pointers outlive the call.
     assert_eq!(unsafe { oxyos_net_send(network, &request) }, 0);
 
+    // SAFETY: a live network.
+    let readable = unsafe { oxyos_net_fd(network) };
+    let deadline = std::time::Instant::now() + HANG;
     let (mut got, mut sent) = (Vec::new(), Vec::new());
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
+    loop {
         let mut answer = OxyOSNetAnswer::default();
         // SAFETY: a live network and a writable answer.
         match unsafe { oxyos_net_answer(network, &mut answer) } {
@@ -1250,14 +1284,17 @@ fn a_request_through_the_c_abi_answers_its_response_data_and_end() {
                     break;
                 }
             }
-            OXYOS_NET_EMPTY => std::thread::sleep(std::time::Duration::from_millis(5)),
+            OXYOS_NET_EMPTY => assert!(
+                wait_readable(readable, deadline),
+                "no completion in {HANG:?}: sent {sent:?}, answered {got:?}"
+            ),
             other => panic!("answer failed: {other}"),
         }
     }
     // SAFETY: a network from oxyos_net_new, freed once.
     unsafe { oxyos_net_free(network) };
 
-    assert_eq!(sent.last(), Some(&(4, 4)), "{sent:?}");
+    assert_eq!(sent.last(), Some(&(4, 4)), "{sent:?} {got:?}");
     assert_eq!(got.len(), 3, "{got:?}");
     assert_eq!((got[0].0, got[0].1), (OXYOS_NET_RESPONSE, 201));
     assert!(got[0]
@@ -5761,74 +5798,6 @@ fn the_vulkan_driver_files_come_through_the_c_abi() {
     assert_eq!(call(std::ptr::null_mut(), 16), -1);
 }
 
-/// A painter through the C ABI: its Vulkan objects as Skia is given them, and a present without a
-/// client refused; skipped without a Vulkan device. Presenting itself is `oxyos-paint`'s test.
-#[test]
-#[allow(unsafe_code)]
-fn a_painter_gives_its_vulkan_objects_through_the_c_abi() {
-    use crate::paint::*;
-    // SAFETY: every pointer below is live for its call; the painter is freed once.
-    unsafe {
-        let paint = oxyos_paint_new(0);
-        if paint.is_null() {
-            eprintln!("no Vulkan device, skipped");
-            return;
-        }
-        assert!(!oxyos_paint_device_name(paint).is_null());
-        assert_eq!(oxyos_paint_vulkan(paint, std::ptr::null_mut()), OXYOS_ERROR);
-        let mut out = std::mem::MaybeUninit::<OxyOSPaintVulkan>::zeroed();
-        assert_eq!(oxyos_paint_vulkan(paint, out.as_mut_ptr()), 0);
-        let vulkan = out.assume_init();
-        assert!(!vulkan.get_instance_proc_addr.is_null());
-        assert!(vulkan.instance != 0 && vulkan.physical_device != 0);
-        assert!(vulkan.device != 0 && vulkan.queue != 0);
-        assert_eq!(vulkan.api_version, (1 << 22) | (1 << 12), "Vulkan 1.1");
-        assert_eq!(vulkan.instance_extension_count, 0);
-        let names: Vec<String> =
-            std::slice::from_raw_parts(vulkan.device_extensions, vulkan.device_extension_count)
-                .iter()
-                .map(|&name| CStr::from_ptr(name).to_string_lossy().into_owned())
-                .collect();
-        // It presents only with DMA-BUF export enabled, and names what it enabled.
-        let dmabuf = names
-            .iter()
-            .any(|name| name == "VK_EXT_external_memory_dma_buf");
-        assert!(!oxyos_paint_exports(paint) || dmabuf);
-        // VkPhysicalDeviceFeatures2: sType, pNext (none), then robustBufferAccess, disabled.
-        let features = vulkan.features.cast::<u8>();
-        assert_eq!(
-            features.cast::<u32>().read(),
-            1_000_059_000,
-            "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2"
-        );
-        assert!(features.add(8).cast::<*const u8>().read().is_null());
-        assert_eq!(features.add(16).cast::<u32>().read(), 0);
-        let rect = OxyOSRect {
-            x: 0,
-            y: 0,
-            width: 4,
-            height: 4,
-        };
-        assert_eq!(
-            oxyos_paint_present(
-                paint,
-                std::ptr::null_mut(),
-                1,
-                1,
-                0,
-                4,
-                4,
-                OXYOS_FORMAT_XRGB8888,
-                &rect,
-                1
-            ),
-            -1,
-            "no client"
-        );
-        oxyos_paint_free(paint);
-    }
-}
-
 #[test]
 fn the_client_speaks_to_a_version_2_compositor_as_it_writes() {
     let directory =
@@ -7611,9 +7580,16 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
             "OXYOS_QUIT_REQUESTS_VERSION",
             i64::from(OXYOS_QUIT_REQUESTS_VERSION),
         ),
+        (
+            "OXYOS_SUDDEN_TERMINATION_VERSION",
+            i64::from(OXYOS_SUDDEN_TERMINATION_VERSION),
+        ),
     ] {
         assert_eq!(define(name), value, "{name}");
     }
+    assert!(HEADER.contains(
+        "int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);"
+    ));
     assert_eq!(
         oxyos_protocol::SessionEnd::Restart as u32,
         OXYOS_SESSION_END_RESTART

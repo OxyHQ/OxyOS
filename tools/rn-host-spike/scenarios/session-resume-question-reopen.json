@@ -1,0 +1,69 @@
+{
+ "about": "As session-resume-question, answered Reopen (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 4): Return presses it (the keyboard starts on it), Inbox is opened again, once, and Resume's record says it was reopened, so ending again within a minute asks again.",
+ "locale": "en_US.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "installed": [
+  {
+   "package": "so.oxy.inbox"
+  }
+ ],
+ "home": {
+  "items": {
+   ".local/state/oxyos/session": "{\"running\":[\"so.oxy.inbox\"],\"reopened\":[\"so.oxy.inbox\"],\"steady\":false}"
+  }
+ },
+ "applications_launched": [],
+ "steps": [
+  {
+   "name": "the question, the keyboard on Reopen",
+   "do": [
+    "wait_named",
+    [
+     "Don’t Reopen",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "Reopen",
+      "Don’t Reopen"
+     ],
+     "keyboard_focus": {
+      "target": "system-sheet-accept"
+     }
+    }
+   }
+  },
+  {
+   "name": "Return: Inbox opened again, once, and recorded as reopened",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "absent": [
+      "Don’t Reopen"
+     ]
+    },
+    "home": {
+     ".local/state/oxyos/session": "{\"running\":[\"so.oxy.inbox\"],\"reopened\":[\"so.oxy.inbox\"],\"steady\":false}"
+    }
+   }
+  }
+ ]
+}

@@ -218,6 +218,12 @@ fn main() -> Result<()> {
     // Before any thread or child: nothing the session starts inherits the service manager's
     // socket.
     let notify = oxyos_seat::notify::Notify::take();
+    // And the login program's worker's heartbeat (docs/adr/0065), kept from what it starts.
+    let mut heartbeat = oxyos_seat::heartbeat::Heartbeat::take();
+    // How the person's last session ended because of a problem, and, at the login screen, whether
+    // the last one did (docs/adr/0065, decision 2), as the login program tells it.
+    let session_ended = oxyos_compositor::crashes::SessionEnded::take();
+    let last_session_problem = oxyos_compositor::login::last_session_problem();
     let mut args = std::env::args_os().skip(1);
     let mut layout: Option<oxyos_input::Layout> = None;
     let mut command: Vec<OsString> = Vec::new();
@@ -274,6 +280,26 @@ fn main() -> Result<()> {
     // The login screen is its shell alone.
     if greeter && (shell_command.is_none() || !command.is_empty()) {
         return Err(USAGE.into());
+    }
+    // This thread is the turn (it reads input, serves clients, composes and flips): above every
+    // application (docs/adr/0066-quality-of-service.mdx, decision 2), rtkit's nice −15 and a 1 ms
+    // slice, asked from a thread of its own so the first frame never waits for rtkit's answer.
+    // What the turn starts from here (threads, the shell, applications) begins at nice 0.
+    if let Err(error) = oxyos_priority::raise_calling_thread(
+        oxyos_priority::Rtkit::System,
+        oxyos_priority::TURN_NICE,
+        oxyos_priority::SLICE,
+        "session",
+    ) {
+        eprintln!("[session] the turn's priority: {error}; it runs as an application does");
+    }
+    // A crash of the person's session, or of what it starts, leaves its backtrace
+    // (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): its core limit raised to all it may
+    // (the soft limit to the hard one, which the login program's unit leaves unlimited), so
+    // systemd-coredump reads the core, logs the backtrace and keeps nothing else. The login
+    // screen's session keeps the limit it was given: it holds passwords as they are typed.
+    if !greeter {
+        raise_core_limit();
     }
     // The user's preferences; what the file does not say (or is not there) is the default.
     // The login screen has no person's preferences to speak: its locale is the system's alone
@@ -442,9 +468,10 @@ fn main() -> Result<()> {
     match gpu {
         Ok(gpu) if gpu.exports_dma_buf() => {
             eprintln!(
-                "[session] composing on {} ({:?}) into the displays' buffers, {}",
+                "[session] composing on {} ({:?}), {}, into the displays' buffers, {}",
                 gpu.device_name(),
                 gpu.device_kind(),
+                gpu.queue_priority(),
                 if gpu.exports_sync_file() {
                     "each handed to the display with its completion (IN_FENCE_FD)"
                 } else {
@@ -590,10 +617,10 @@ fn main() -> Result<()> {
         reader_listener.set_nonblocking(true)?;
         compositor.reader_listener = Some(reader_listener);
     }
-    let mut reader = match (&reader_program, reader_on) {
-        (Some(program), true) => Some(spawn_reader(&reader_socket, program)?),
-        _ => None,
-    };
+    let mut reader = Reader::new(reader_program.clone(), reader_socket.clone());
+    if reader_on {
+        reader.switch(true, Instant::now())?;
+    }
     // The session is on screen: the mark fades out over it.
     compositor.end_splash();
     let mut application = match command.first() {
@@ -811,7 +838,7 @@ fn main() -> Result<()> {
         oxyos_compositor::crashes::system_description(),
     );
     crashes.set_locale(&settings.locale());
-    let mut shell_restarts = oxyos_compositor::crashes::ShellRestarts::default();
+    let mut shell_restarts = oxyos_seat::restarts::Restarts::default();
     // What an erasure a crash interrupted left aside (docs/adr/0061, decision 5), deleted off the
     // turn; never at the login screen, whose user is no one.
     if !greeter {
@@ -826,29 +853,49 @@ fn main() -> Result<()> {
     // passed over.
     // In Safe Mode none is (docs/adr/0054-recovery-and-erasing.mdx, decision 10), and the list stays
     // the person's for the next normal start.
-    if safe_mode && !greeter {
-        eprintln!("[session] Safe Mode: nothing opened at login");
-    } else if !greeter {
+    // Resume (docs/adr/0065, decision 3): what the last session leaves to open, whatever ended it
+    // (the person's own end's reopen file, else what ran, as the person's latest choice of Reopen
+    // windows says), and the record of this one begun. Never at the login screen; in Safe Mode
+    // nothing is opened, and what runs there is what the next start reopens. After the person's
+    // login items, which are not opened twice.
+    if !greeter && !safe_mode {
         for id in &settings.preferences().open_at_login {
             match launcher.launch(id) {
                 Ok(pid) => eprintln!("[session] opened {id} at login ({pid})"),
                 Err(error) => eprintln!("[session] {id} not opened at login: {error}"),
             }
         }
-        // Reopen windows when logging back in (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
-        // what ran as the person last logged out, restarted or shut down, read once; what was
-        // opened at login already is not opened twice.
-        if let Some(path) = oxyos_compositor::session_end::reopen_path() {
-            for id in oxyos_compositor::session_end::take_reopen(&path) {
-                if settings.preferences().open_at_login.contains(&id) {
-                    continue;
-                }
-                match launcher.launch(&id) {
-                    Ok(pid) => eprintln!("[session] reopened {id} at login ({pid})"),
-                    Err(error) => eprintln!("[session] {id} not reopened at login: {error}"),
-                }
-            }
+    }
+    let mut reopened_any = false;
+    let mut resume = (!greeter)
+        .then(oxyos_compositor::resume::path)
+        .flatten()
+        .map(|path| {
+            let (resume, reopened) = oxyos_compositor::resume::Resume::at_login(
+                path,
+                oxyos_compositor::session_end::reopen_path().as_deref(),
+                settings.preferences(),
+                safe_mode,
+                &mut launcher,
+                &mut compositor.scene,
+                Instant::now(),
+            );
+            reopened_any = reopened;
+            resume
+        });
+    // The last session ended because of a problem: its report, and the person told.
+    if let Some(ended) = session_ended.as_ref().filter(|_| !greeter) {
+        crashes.session_ended(&mut compositor.scene, ended, reopened_any);
+    }
+    // The computer restarted because of a kernel panic since the person was last told
+    // (docs/adr/0068, decision 3).
+    if !greeter {
+        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
+            crashes.restarted(&mut compositor.scene, &problems, &told);
         }
+    }
+    if safe_mode && !greeter {
+        eprintln!("[session] Safe Mode: nothing opened at login");
     }
     // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
     // logind on a thread of its own, its power key held from now on, so logind never turns the
@@ -979,12 +1026,28 @@ fn main() -> Result<()> {
                 .running()
                 .map(|(_, launched)| launched.id.clone())
                 .collect();
+            // What the session started it can end at once, as an end begins, those that said they
+            // may be (docs/adr/0064, decision 10).
+            let pids: BTreeMap<ClientId, u32> = compositor
+                .peers
+                .iter()
+                .filter_map(|(client, peer)| Some((*client, u32::try_from(peer.pid).ok()?)))
+                .filter(|(_, pid)| launcher.application_of(*pid).is_some())
+                .collect();
+            ending.set_endable(pids.keys().copied());
             let served = ending.serve(
                 &mut compositor,
                 &mut settings,
                 &|client| names.get(&client).cloned().unwrap_or_default(),
                 &running,
             );
+            for client in ending.take_ended_at_once() {
+                if let Some(pid) = pids.get(&client) {
+                    if launcher.kill(*pid) {
+                        eprintln!("[session] ended {pid} at once: nothing unsaved");
+                    }
+                }
+            }
             if served.log_out {
                 eprintln!("[session] logging out, as the person asked");
                 compositor.flush();
@@ -1000,6 +1063,13 @@ fn main() -> Result<()> {
         // Resetting an application and the crash notices' answers (docs/adr/0061), before the
         // store, which takes the requests left: what the person reopens is started as any launch.
         crashes.set_locale(&settings.locale());
+        // The login screen asks whether the last session ended because of a problem.
+        if greeter {
+            oxyos_compositor::login::answer_last_session(
+                &mut compositor.scene,
+                last_session_problem,
+            );
+        }
         let served = crashes.serve(&mut compositor.scene, &mut launcher, greeter);
         // What a reset application donated to the index goes with its data (decision 5).
         if let Some(search) = search.as_mut() {
@@ -1316,19 +1386,14 @@ fn main() -> Result<()> {
                 compositor.scene.notification_launch_failed(&id);
             }
         }
-        if let Some(status) = reader
-            .as_mut()
-            .map(|reader| reader.try_wait())
-            .transpose()?
-            .flatten()
-        {
-            eprintln!("[session] the screen reader exited ({status})");
-            reader = None;
-        }
+        // The screen reader ending on its own while the person has it on is started again
+        // (docs/adr/0014-screen-reader.mdx, amended): a blind person is never left in silence.
+        reader.reap(Instant::now(), &mut crashes, greeter)?;
         if compositor.take_reader_toggle() {
-            let on = reader.is_none();
-            switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;
+            let on = !reader.wanted();
+            reader.switch(on, Instant::now())?;
         }
+        reader.serve(Instant::now());
         // The changes Settings asked for, and the sun an automatic appearance follows.
         // Each display's wallpaper is kept by its identity (docs/adr/0048-wallpapers.mdx).
         settings.set_display_identities(displays.identities());
@@ -1347,7 +1412,7 @@ fn main() -> Result<()> {
             }
             if key == "screen_reader" {
                 let on = settings.preferences().screen_reader;
-                switch_reader(&mut reader, reader_program.as_ref(), &reader_socket, on)?;
+                reader.switch(on, Instant::now())?;
             }
         }
         // The displays' changes Settings asked for, and a mode on trial going back once its time
@@ -1420,7 +1485,7 @@ fn main() -> Result<()> {
             // ever later, never in a loop (docs/adr/0061, decision 6). Locked, it fails closed: the
             // session stays locked, under the covers, until the shell is back and shows the lock
             // screen.
-            let wait = shell_restarts.quit(ran);
+            let wait = shell_restarts.ended(ran);
             shell_due = Instant::now() + wait;
             eprintln!(
                 "[session] the shell of output {output} exited ({status}){}: started again in {} ms",
@@ -1428,7 +1493,7 @@ fn main() -> Result<()> {
                 wait.as_millis()
             );
             if !status.success() && !greeter {
-                crashes.note_shell(&oxyos_apps::Exited {
+                crashes.note_part(&oxyos_apps::Exited {
                     pid: shell.child.id(),
                     launched: shell_launched(),
                     status: Some(status),
@@ -1506,15 +1571,39 @@ fn main() -> Result<()> {
         if let Some(deadline) = crashes.deadline() {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
+        // The screen reader started again after its wait.
+        if let Some(due) = reader.deadline() {
+            wait = wait.min(due.saturating_duration_since(Instant::now()));
+        }
         if let Some(crossing) = settings.next_crossing() {
             let seconds = u64::try_from(crossing.saturating_sub(settings::now())).unwrap_or(0);
             wait = wait.min(Duration::from_secs(seconds));
+        }
+        // Resume's record follows what runs (docs/adr/0065, decision 3), and the person's answer to
+        // reopening again is taken.
+        if let Some(resume) = resume.as_mut() {
+            resume.serve(
+                &mut compositor.scene,
+                &mut launcher,
+                settings.preferences(),
+                Instant::now(),
+            );
+        }
+        // The worker's heartbeat (docs/adr/0065, decision 1): said as each turn ends, and a turn
+        // waits at most `heartbeat::WAIT`, so a session that runs says it; one that stops is ended.
+        if let Some(heartbeat) = heartbeat.as_mut() {
+            heartbeat.beat(Instant::now());
+            wait = wait.min(oxyos_seat::heartbeat::WAIT);
         }
         compositor.idle_wait = wait;
         if let Err(error) = compositor.serve(&listener) {
             break Err(error);
         }
     };
+    // Ending in order: the worker gives its applications their time to quit.
+    if let Some(heartbeat) = heartbeat.as_mut() {
+        heartbeat.ending();
+    }
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
@@ -1531,9 +1620,7 @@ fn main() -> Result<()> {
     for shell in shells.values_mut() {
         end(&mut shell.child)?;
     }
-    if let Some(reader) = reader.as_mut() {
-        end(reader)?;
-    }
+    reader.end()?;
     compositor.shell_listener = None;
     compositor.reader_listener = None;
     // The last frame completes before the display and the devices are given back.
@@ -1544,6 +1631,19 @@ fn main() -> Result<()> {
     }
     compositor.seat = None;
     ended
+}
+
+/// The core limit's soft value raised to its hard one (see its call).
+fn raise_core_limit() {
+    use rustix::process::{getrlimit, setrlimit, Resource};
+    let mut limit = getrlimit(Resource::Core);
+    if limit.current == limit.maximum {
+        return;
+    }
+    limit.current = limit.maximum;
+    if let Err(error) = setrlimit(Resource::Core, limit) {
+        eprintln!("[session] its crashes leave no backtrace: the core limit: {error}");
+    }
 }
 
 /// Reads what woke a turn from a waker (`Compositor::wakers`) until nothing is left.
@@ -1732,47 +1832,145 @@ impl ShellSpawner {
 
 /// The shell, as its reports name it.
 fn shell_launched() -> oxyos_apps::Launched {
-    oxyos_apps::Launched {
-        id: SHELL_ID.to_string(),
-        name: "OxyOS".to_string(),
-        grants: oxyos_apps::Grants::default(),
-        origin: oxyos_apps::Origin::System,
-        capabilities: BTreeMap::new(),
-        opened: None,
-        chooser: false,
-        url: None,
-    }
+    oxyos_apps::Launched::part(SHELL_ID, "OxyOS")
 }
 
-/// Starts the screen reader (`on`) or stops it, if it is not so already: the user's switch
-/// (Super+F5) or the preference.
-fn switch_reader(
-    reader: &mut Option<std::process::Child>,
-    program: Option<&OsString>,
-    socket: &std::path::Path,
-    on: bool,
-) -> Result<()> {
-    match (reader.take(), program, on) {
-        (Some(mut running), _, false) => {
-            eprintln!("[session] stopping the screen reader");
-            end(&mut running)?;
+/// The session's screen reader (docs/adr/0014-screen-reader.mdx): on while the person has it on
+/// (Super+F5, the preference), and started again when it ends on its own, with the shell's
+/// doubling wait (`oxyos_seat::restarts::Kept`; docs/adr/0061, decision 6), its report written
+/// as the shell's. As it starts it says it is on ("Screen reader on"), so the person hears that it
+/// came back. Turned off, nothing starts it again.
+struct Reader {
+    program: Option<OsString>,
+    socket: PathBuf,
+    child: Option<(std::process::Child, Instant)>,
+    /// The person's switch: on, whether it runs now or is waiting to start again.
+    wanted: bool,
+    kept: oxyos_seat::restarts::Kept,
+}
+
+impl Reader {
+    fn new(program: Option<OsString>, socket: PathBuf) -> Self {
+        Self {
+            program,
+            socket,
+            child: None,
+            wanted: false,
+            kept: Default::default(),
         }
-        (None, Some(program), true) => {
-            eprintln!("[session] starting the screen reader");
-            // A reader that cannot start leaves the switch off, never the session ended: the
-            // login screen's session lasts while no one has signed in.
-            match spawn_reader(socket, program) {
-                Ok(started) => *reader = Some(started),
-                Err(error) => eprintln!(
-                    "[session] cannot start the screen reader {}: {error}",
-                    program.to_string_lossy()
-                ),
+    }
+
+    fn wanted(&self) -> bool {
+        self.wanted
+    }
+
+    /// The person's switch or the preference: starts it (`on`) or stops it, if it is not so
+    /// already.
+    fn switch(&mut self, on: bool, now: Instant) -> Result<()> {
+        if on == self.wanted {
+            return Ok(());
+        }
+        match (&self.program, on) {
+            (None, true) => {
+                eprintln!("[session] no screen reader (--reader)");
+                return Ok(());
+            }
+            (Some(_), true) => {
+                self.wanted = true;
+                self.start(now);
+            }
+            (_, false) => {
+                self.wanted = false;
+                self.kept.stopped();
+                if let Some((mut running, _)) = self.child.take() {
+                    eprintln!("[session] stopping the screen reader");
+                    end(&mut running)?;
+                }
             }
         }
-        (None, None, true) => eprintln!("[session] no screen reader (--reader)"),
-        (running, _, _) => *reader = running,
+        Ok(())
     }
-    Ok(())
+
+    /// Starts it. A reader that cannot start never ends the session (the login screen's lasts
+    /// while no one has signed in): it is tried again after the wait, as if it had ended.
+    fn start(&mut self, now: Instant) {
+        let Some(program) = &self.program else {
+            return;
+        };
+        eprintln!("[session] starting the screen reader");
+        match spawn_reader(&self.socket, program) {
+            Ok(started) => {
+                self.child = Some((started, now));
+                self.kept.started(now);
+            }
+            Err(error) => {
+                let wait = self.kept.ended(now);
+                eprintln!(
+                    "[session] cannot start the screen reader {}: {error}: tried again in {} ms",
+                    program.to_string_lossy(),
+                    wait.as_millis()
+                );
+            }
+        }
+    }
+
+    /// Whether it ended on its own: then, still wanted, it is started again after the wait,
+    /// and its report is written as the shell's (the reader writes none of its own: what is
+    /// known is how it ended).
+    fn reap(
+        &mut self,
+        now: Instant,
+        crashes: &mut oxyos_compositor::crashes::Crashes,
+        greeter: bool,
+    ) -> Result<()> {
+        let Some((child, started)) = self.child.as_mut() else {
+            return Ok(());
+        };
+        let Some(status) = child.try_wait()? else {
+            return Ok(());
+        };
+        let (pid, ran) = (child.id(), now.saturating_duration_since(*started));
+        self.child = None;
+        let wait = self.kept.ended(now);
+        eprintln!(
+            "[session] the screen reader exited ({status}): started again in {} ms",
+            wait.as_millis()
+        );
+        if !status.success() && !greeter {
+            crashes.note_part(&oxyos_apps::Exited {
+                pid,
+                launched: oxyos_apps::Launched::part(
+                    oxyos_compositor::crashes::READER,
+                    oxyos_compositor::crashes::READER_NAME,
+                ),
+                status: Some(status),
+                ran,
+                asked: false,
+                report: None,
+            });
+        }
+        Ok(())
+    }
+
+    /// When it is to be started again, for the turn to wake then.
+    fn deadline(&self) -> Option<Instant> {
+        self.kept.deadline()
+    }
+
+    /// Starts it again once its wait is over.
+    fn serve(&mut self, now: Instant) {
+        if self.wanted && self.child.is_none() && self.kept.take_due(now) {
+            self.start(now);
+        }
+    }
+
+    /// The session ends: it ends with it.
+    fn end(&mut self) -> Result<()> {
+        if let Some((mut running, _)) = self.child.take() {
+            end(&mut running)?;
+        }
+        Ok(())
+    }
 }
 
 /// The session's screen reader, on `socket`, in the session's language.
@@ -2116,15 +2314,51 @@ fn asker(launched: Option<&oxyos_apps::Launched>) -> oxyos_compositor::installs:
 
 #[cfg(test)]
 mod tests {
-    use super::switch_reader;
+    use super::Reader;
     use std::ffi::OsString;
+    use std::time::{Duration, Instant};
 
     #[test]
-    fn a_reader_that_cannot_start_leaves_the_switch_off_and_the_session_on() {
-        let mut reader = None;
+    fn a_reader_that_cannot_start_leaves_the_session_on_and_is_tried_again_until_turned_off() {
         let missing = OsString::from("/nonexistent/oxyos-reader");
         let socket = std::env::temp_dir().join("oxyos-reader-test.socket");
-        assert!(switch_reader(&mut reader, Some(&missing), &socket, true).is_ok());
-        assert!(reader.is_none());
+        let mut reader = Reader::new(Some(missing), socket);
+        let now = Instant::now();
+        assert!(reader.switch(true, now).is_ok());
+        assert!(reader.wanted());
+        // Tried again at once, then a second later, never in a loop.
+        assert_eq!(reader.deadline(), Some(now));
+        reader.serve(now);
+        assert_eq!(reader.deadline(), Some(now + Duration::from_secs(1)));
+        // Turned off: never tried again.
+        assert!(reader.switch(false, now).is_ok());
+        assert!(!reader.wanted());
+        assert_eq!(reader.deadline(), None);
+        reader.serve(now + Duration::from_secs(3600));
+        assert_eq!(reader.deadline(), None);
+    }
+
+    #[test]
+    fn a_reader_that_ends_on_its_own_is_started_again_and_one_turned_off_is_not() {
+        let socket = std::env::temp_dir().join("oxyos-reader-test-true.socket");
+        // A reader that ends at once, successfully or not: either way it went on its own.
+        let mut reader = Reader::new(Some(OsString::from("/bin/true")), socket);
+        let mut crashes = oxyos_compositor::crashes::Crashes::new(None, None);
+        let now = Instant::now();
+        reader.switch(true, now).unwrap();
+        let deadline = now + Duration::from_secs(10);
+        while reader.deadline().is_none() {
+            assert!(Instant::now() < deadline, "it never ended");
+            reader.reap(Instant::now(), &mut crashes, false).unwrap();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // The first end: at once.
+        let due = reader.deadline().unwrap();
+        assert!(due <= Instant::now());
+        reader.serve(Instant::now());
+        assert_eq!(reader.deadline(), None, "started again");
+        reader.switch(false, Instant::now()).unwrap();
+        assert_eq!(reader.deadline(), None);
+        reader.end().unwrap();
     }
 }

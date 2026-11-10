@@ -18,6 +18,10 @@
 //!   kernel's own or removed with it (ADR 0054, decision 10), by OxyOS's kernel-install plugin
 //!   (`91-oxyos-safe-mode.install`); `safe-mode-entry sync`: every installed kernel's, as their
 //!   entries are (a deploy to a converted machine, `tools/deploy/remote.sh`).
+//! - `kernel-parameters sync`: OxyOS's kernel parameters (`crates/oxyos-recovery/kernel-parameters`:
+//!   the boot logo's, full preemption) on kernel-install's command line (`/etc/kernel/cmdline`) and
+//!   on every kernel's entry already written and the recovery's (a deploy to a converted machine,
+//!   before `safe-mode-entry sync`); they take effect at the next boot.
 
 mod console;
 mod messages;
@@ -46,7 +50,9 @@ fn main() -> ExitCode {
         Some("recovery-entry") => recovery_entry(&arguments[1..]),
         Some("rearm") => rearm(&arguments[1..]),
         Some("safe-mode-entry") => safe_mode_entry(&arguments[1..]),
-        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY | safe-mode-entry add|remove VERSION | sync [--boot-root DIRECTORY] [--entry-token TOKEN]".into()),
+        Some("kernel-parameters") => kernel_parameters(&arguments[1..]),
+        Some("panic-report") => panic_report(),
+        _ => Err("usage: oxyos-recovery install --developer --disk DISK [--no-encrypt] [--developer-user NAME] | console | boot-tries | panic-report | arm-erase | recovery-entry [--system-root PARTUUID] | rearm --esp DIRECTORY | safe-mode-entry add|remove VERSION | sync [--boot-root DIRECTORY] [--entry-token TOKEN] | kernel-parameters sync [--boot-root DIRECTORY] [--entry-token TOKEN] [--cmdline FILE]".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -55,6 +61,20 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Each kernel panic systemd-pstore brought back, its account for the person
+/// (docs/adr/0068-crash-evidence-and-kernel-panics.mdx; `oxyos-panic-report.service`).
+fn panic_report() -> Result<(), String> {
+    let written = oxyos_recovery::panics::report(
+        Path::new(oxyos_recovery::panics::PSTORE),
+        Path::new(oxyos_recovery::panics::PROBLEMS),
+    )
+    .map_err(|e| format!("the panics' accounts: {e}"))?;
+    for name in written {
+        println!("A kernel panic's account: {name}");
+    }
+    Ok(())
 }
 
 fn now() -> u64 {
@@ -119,6 +139,59 @@ fn safe_mode_entry(arguments: &[String]) -> Result<(), String> {
             }
         }
         _ => return Err(usage.into()),
+    }
+    Ok(())
+}
+
+/// OxyOS's kernel parameters (ADR 0066, decision 2; ADR 0017) on kernel-install's command line
+/// (`--cmdline`, /etc/kernel/cmdline by default, made from the running kernel's where there is
+/// none, as kernel-install would read it) and on the command line of every OxyOS entry already
+/// written on the boot loader's partition at `--boot-root` (the kernels', named by
+/// `--entry-token`, and the recovery's). A parameter of another value is given OxyOS's; nothing
+/// else changes. Run again, nothing is written. They take effect at the next boot.
+fn kernel_parameters(arguments: &[String]) -> Result<(), String> {
+    let usage = "usage: oxyos-recovery kernel-parameters sync [--boot-root DIRECTORY] [--entry-token TOKEN] [--cmdline FILE]";
+    let mut rest = match arguments {
+        [command, rest @ ..] if command == "sync" => rest,
+        _ => return Err(usage.into()),
+    };
+    let (mut boot_root, mut token, mut cmdline) = (
+        ESP.to_string(),
+        "oxyos".to_string(),
+        "/etc/kernel/cmdline".to_string(),
+    );
+    while let [flag, value, more @ ..] = rest {
+        match flag.as_str() {
+            "--boot-root" => boot_root = value.clone(),
+            "--entry-token" => token = value.clone(),
+            "--cmdline" => cmdline = value.clone(),
+            _ => return Err(usage.into()),
+        }
+        rest = more;
+    }
+    if !rest.is_empty() {
+        return Err(usage.into());
+    }
+    let required = layout::kernel_parameters();
+    let running = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    let mut changed = false;
+    if entries::sync_command_line_file(Path::new(&cmdline), &running, &required)
+        .map_err(|e| format!("{cmdline}: {e}"))?
+    {
+        println!("{cmdline} written.");
+        changed = true;
+    }
+    for name in Entries::new(Path::new(&boot_root))
+        .sync_kernel_parameters(&token, &required)
+        .map_err(|e| format!("the entries: {e}"))?
+    {
+        println!("{name} written.");
+        changed = true;
+    }
+    if changed {
+        println!("From the next boot: {}.", required.join(" "));
+    } else {
+        println!("OxyOS's kernel parameters are on every command line.");
     }
     Ok(())
 }

@@ -98,7 +98,7 @@
             {
               "role": "Button",
               "name": "Copias de seguridad",
-              "value": "Todavía no hay copias de seguridad"
+              "value": "Aún no hay copias de seguridad"
             }
           ]
         },
@@ -126,7 +126,7 @@
         "react": {},
         "in_shell": {
           "texts": [
-            "Todavía no hay copias de seguridad",
+            "Aún no hay copias de seguridad",
             "Esperando a que se desactive el modo de bajo consumo",
             "Hacer copia de seguridad ahora",
             "Explorar copias de seguridad",
@@ -276,7 +276,7 @@
         "react": {},
         "in_shell": {
           "texts": [
-            "Todavía no hay copias de seguridad",
+            "Aún no hay copias de seguridad",
             "Hacer copia de seguridad ahora"
           ]
         }

@@ -57,10 +57,18 @@
             "oxy-"
           ]
         },
+        "at_apart": {
+          "shell": [
+            "Añadir cuenta",
+            "Reposo",
+            "Reiniciar",
+            "Apagar"
+          ]
+        },
         "output_pixels": {
-          "581,469": "#1f9e5a",
-          "570,460": "#1f9e5a",
-          "709,469": "!#1f9e5a"
+          "581,435": "#1f9e5a",
+          "570,426": "#1f9e5a",
+          "709,435": "!#1f9e5a"
         }
       }
     },
@@ -79,7 +87,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field",
           "never": [
@@ -101,7 +109,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field"
         }
@@ -121,7 +129,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field"
         }
@@ -141,7 +149,7 @@
         },
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "shaken": "login-field"
         }
@@ -164,6 +172,14 @@
             "Vuelve a intentarlo en"
           ],
           "shaken": "login-field"
+        },
+        "at_apart": {
+          "shell": [
+            "Añadir cuenta",
+            "Reposo",
+            "Reiniciar",
+            "Apagar"
+          ]
         }
       },
       "allow_unchanged": true
@@ -191,7 +207,7 @@
           ],
           "absent": [
             "Ada Lovelace",
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ]
         }
       }
@@ -259,11 +275,11 @@
         },
         "in_shell": {
           "texts": [
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ],
           "absent": [
             "Vuelve a intentarlo en",
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ]
         }
       }

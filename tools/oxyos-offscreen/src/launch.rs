@@ -170,8 +170,15 @@ pub enum Step {
     DragOutput { from: (i32, i32), to: (i32, i32) },
     /// A press at a window-local point held while the application answers it (a window's drag
     /// region asks the compositor to move the window, ADR 0016), then a drag by `by` in eight even
-    /// steps and the release, as a hand grabs a window by its toolbar.
-    Grab { from: (i32, i32), by: (i32, i32) },
+    /// steps and the release, as a hand grabs a window by its toolbar. `held`: no release, the
+    /// drag going on into the next steps (`move_output`, `key_down`, `release_output`), as a
+    /// window dragged to a display's edge shows its tile before the release (ADR 0016,
+    /// decision 12).
+    Grab {
+        from: (i32, i32),
+        by: (i32, i32),
+        held: bool,
+    },
     /// A press on the output held and moved to `to` in `motions` even steps, `hz` of them a
     /// second, the compositor serving the application between them, then the release: a hand
     /// dragging (a window's edge) at a mouse's pace. What the window showed meanwhile is measured
@@ -235,6 +242,11 @@ pub enum Step {
         motions: u32,
         hz: u32,
     },
+    /// Text typed key by key at a person's pace, `hz` keys a second, each key's press and release
+    /// injected when its time comes and carrying that time (the compositor serving the application
+    /// until then), on the keys `--keyboard` types: what the window showed meanwhile is measured
+    /// (`type_paced`), each key's latency from its device's time.
+    TypePaced { text: String, hz: u32 },
     /// Press and release of a key or a chord (Linux input codes): pressed in order, released in
     /// reverse, so `42+106` is Shift+Right.
     Key(Vec<u32>),
@@ -280,6 +292,12 @@ pub enum Step {
     /// No input for this many seconds: the idle lock counts them as passed at once, as if the
     /// person had left the machine alone that long (ADR 0010). Its own time; nothing waits.
     Idle(u64),
+    /// A part of the session sent a signal, as a crash (`SEGV`) or the person's `kill` would:
+    /// the session then does what it does when that part ends on its own.
+    Signal {
+        signal: rustix::process::Signal,
+        part: Part,
+    },
     /// Milliseconds of real time with no input, the session served all along: what fades on its
     /// own clock (a hardware key's bezel, ADR 0025) has the time to.
     Wait(u64),
@@ -431,6 +449,7 @@ impl Step {
             Step::Keyboard { text, compose } => {
                 format!("keys {text:?}{}", if *compose { ", composed" } else { "" })
             }
+            Step::TypePaced { text, hz } => format!("{text:?} typed at {hz} keys a second"),
             Step::ImChange {
                 delete,
                 commit,
@@ -442,7 +461,10 @@ impl Step {
             ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::DragOutput { from, to } => format!("drag from {from:?} to {to:?} on the output"),
-            Step::Grab { from, by } => format!("grab at {from:?}, moved by {by:?}"),
+            Step::Grab { from, by, held } => format!(
+                "grab at {from:?}, moved by {by:?}{}",
+                if *held { ", held" } else { "" }
+            ),
             Step::DragPaced {
                 from,
                 to,
@@ -517,6 +539,7 @@ impl Step {
             Step::ExpectPopup => "a popup beyond the window".to_string(),
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
+            Step::Signal { signal, part } => format!("{signal:?} sent to the {}", part.name()),
             Step::Wait(ms) => format!("{ms} ms waited"),
             Step::TransitionClock(TransitionClock::Hold) => "the transitions' clock held".to_string(),
             Step::TransitionClock(TransitionClock::At(ms)) => {
@@ -659,6 +682,9 @@ impl Step {
                 if *compose { "compose_keys" } else { "keyboard" },
                 json_string(text)
             ),
+            Step::TypePaced { text, hz } => {
+                format!("\"type_paced\":[{},{hz}]", json_string(text))
+            }
             Step::ImChange {
                 delete,
                 commit,
@@ -677,9 +703,14 @@ impl Step {
             Step::DragOutput { from, to } => {
                 format!("\"drag_output\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
-            Step::Grab { from, by } => {
-                format!("\"grab\":[{},{},{},{}]", from.0, from.1, by.0, by.1)
-            }
+            Step::Grab { from, by, held } => format!(
+                "\"{}\":[{},{},{},{}]",
+                if *held { "grab_hold" } else { "grab" },
+                from.0,
+                from.1,
+                by.0,
+                by.1
+            ),
             Step::DragPaced {
                 from,
                 to,
@@ -775,6 +806,9 @@ impl Step {
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
+            Step::Signal { signal, part } => {
+                format!("\"signal\":[{:?},{:?}]", signal_name(*signal), part.name())
+            }
             Step::Network(what) => format!("\"network\":{}", json_string(what)),
             Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
             Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
@@ -1089,10 +1123,20 @@ pub struct Launch {
     /// all there is, and its passwords go to the login program listening at SOCKET (`oxyos-login
     /// --dev`), for the account its lock surface names, never to this fixture or to PAM here.
     pub login: Option<PathBuf>,
+    /// `--also-launch ID[:minimized],...`: once the application's window is shown, before the
+    /// steps, the registry's applications started through the session's launcher
+    /// (`oxyos_apps::Launcher`) as the dock starts them, so they are wherever the session puts
+    /// what it launches: the saturation benchmark's loads (perf.py, docs/performance.mdx). A
+    /// `:minimized` one's window is minimized once shown, the application's window then active
+    /// again. They end with the run.
+    pub also_launch: Vec<(String, bool)>,
+    /// `--also-launch-lead MS`: the session served this long after they are started, before the
+    /// steps: a load running before the input measured under it.
+    pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1238,6 +1282,8 @@ impl Launch {
         let mut input_methods = None;
         let mut input_sources_available = None;
         let (mut grants, mut installd) = (Vec::new(), None);
+        let mut also_launch: Vec<(String, bool)> = Vec::new();
+        let mut also_launch_lead = Duration::ZERO;
         let mut trash = false;
         let mut safe_mode = false;
         let mut storage = None;
@@ -1320,6 +1366,27 @@ impl Launch {
                 Some("--companion-app") => {
                     let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     companion_app = Some(value.to_string());
+                    continue;
+                }
+                Some("--also-launch") => {
+                    let value = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    for item in value.split(',').filter(|item| !item.is_empty()) {
+                        also_launch.push(match item.split_once(':') {
+                            Some((id, "minimized")) => (id.to_string(), true),
+                            Some(_) => {
+                                return Err(
+                                    format!("--also-launch {item}: ID or ID:minimized").into()
+                                )
+                            }
+                            None => (item.to_string(), false),
+                        });
+                    }
+                    continue;
+                }
+                Some("--also-launch-lead") => {
+                    let n = numbers(args.next(), 1)?;
+                    also_launch_lead =
+                        Duration::from_millis(u64::try_from(n[0]).map_err(|_| USAGE)?);
                     continue;
                 }
                 Some("--reader") => {
@@ -1724,11 +1791,12 @@ impl Launch {
                         to: (n[2], n[3]),
                     }
                 }
-                Some("--grab") => {
+                Some(flag @ ("--grab" | "--grab-hold")) => {
                     let n = numbers(args.next(), 4)?;
                     Step::Grab {
                         from: (n[0], n[1]),
                         by: (n[2], n[3]),
+                        held: flag == "--grab-hold",
                     }
                 }
                 Some(flag @ ("--drag-paced" | "--drag-hold")) => {
@@ -1954,6 +2022,16 @@ impl Launch {
                     let seconds = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Idle(seconds.parse()?)
                 }
+                Some("--signal") => {
+                    let signal = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let part = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Signal {
+                        signal: signal_named(signal)
+                            .ok_or_else(|| format!("--signal: no signal {signal}"))?,
+                        part: Part::named(part)
+                            .ok_or_else(|| format!("--signal: no part {part}"))?,
+                    }
+                }
                 Some("--wait") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Wait(ms.parse()?)
@@ -1990,6 +2068,20 @@ impl Launch {
                 Some("--preedit") => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
                     Step::Preedit(text.to_string())
+                }
+                Some("--type-paced") => {
+                    let hz = numbers(args.next(), 1)?[0];
+                    let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
+                    if hz < 1 || text.is_empty() {
+                        return Err("--type-paced needs keys at 1 Hz or more, and a text".into());
+                    }
+                    for c in text.chars() {
+                        key_for(c)?;
+                    }
+                    Step::TypePaced {
+                        text: text.to_string(),
+                        hz: hz as u32,
+                    }
                 }
                 Some(flag @ ("--keyboard" | "--compose-keys")) => {
                     let text = args.next().and_then(|t| t.to_str()).ok_or(USAGE)?;
@@ -2106,6 +2198,8 @@ impl Launch {
                 outputs: screens,
                 displays,
                 login,
+                also_launch,
+                also_launch_lead,
             },
         ))
     }
@@ -2394,42 +2488,178 @@ fn start_reader(
     Ok(child)
 }
 
-/// Super+F5 (`Action::ToggleReader`, which the compositor keeps for the program running it):
-/// starts the screen reader if it is off and stops it if it is on, as `oxyos-session` does
-/// (`switch_reader`), whether the session is locked or not. Without a reader named, nothing.
-fn toggle_reader(
-    session: &mut Session,
-    running: &mut Children,
-    reader: Option<(&Path, &Path, Option<&str>)>,
-    record: &Path,
-) -> Result<()> {
-    if !session.compositor.take_reader_toggle() {
-        return Ok(());
+/// A part of the session a scenario can end (`--signal SIGNAL PART`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// The screen reader (`--reader`).
+    Reader,
+}
+
+impl Part {
+    fn named(name: &str) -> Option<Self> {
+        match name {
+            "reader" => Some(Self::Reader),
+            _ => None,
+        }
     }
-    let Some((socket, program, locale)) = reader else {
-        eprintln!("[reader] no screen reader (--reader)");
-        return Ok(());
-    };
-    match running.0.pop() {
-        Some(mut child) => {
-            eprintln!("[reader] stopping");
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Reader => "reader",
+        }
+    }
+}
+
+/// The signals a scenario may send, by their names without `SIG`: each ends the part.
+const SIGNALS: [(&str, rustix::process::Signal); 4] = [
+    ("SEGV", rustix::process::Signal::SEGV),
+    ("ABRT", rustix::process::Signal::ABORT),
+    ("KILL", rustix::process::Signal::KILL),
+    ("TERM", rustix::process::Signal::TERM),
+];
+
+fn signal_named(name: &str) -> Option<rustix::process::Signal> {
+    SIGNALS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}
+
+fn signal_name(signal: rustix::process::Signal) -> &'static str {
+    SIGNALS
+        .iter()
+        .find(|(_, s)| *s == signal)
+        .map_or("?", |(n, _)| n)
+}
+
+/// The scenario's screen reader, kept as `oxyos-session` keeps it (its `Reader`): on while the
+/// person has it on, started again when it ends on its own after the shell's doubling wait
+/// (`oxyos_seat::restarts::Kept`, the session's own decisions; docs/adr/0014-screen-reader.mdx,
+/// amended), and never once turned off.
+struct ScreenReader<'a> {
+    /// Its socket, program and locale, when the scenario has one (`--reader`).
+    named: Option<(&'a Path, &'a Path, Option<&'a str>)>,
+    /// What it says, recorded.
+    record: &'a Path,
+    child: Option<std::process::Child>,
+    /// When it was started, while it runs.
+    since: Option<Instant>,
+    wanted: bool,
+    kept: oxyos_seat::restarts::Kept,
+}
+
+impl ScreenReader<'_> {
+    /// Starts it, serving the session until it is connected.
+    fn start(&mut self, session: &mut Session) -> Result<()> {
+        let Some((socket, program, locale)) = self.named else {
+            eprintln!("[reader] no screen reader (--reader)");
+            return Ok(());
+        };
+        eprintln!("[reader] starting");
+        self.wanted = true;
+        self.child = Some(start_reader(session, socket, program, locale, self.record)?);
+        self.since = Some(Instant::now());
+        self.kept.started(Instant::now());
+        Ok(())
+    }
+
+    /// Super+F5 (`Action::ToggleReader`, which the compositor keeps for the program running
+    /// it): starts it if it is off and stops it if it is on, as `oxyos-session` does, whether the
+    /// session is locked or not. Without a reader named, nothing.
+    fn toggle(&mut self, session: &mut Session) -> Result<()> {
+        if !session.compositor.take_reader_toggle() {
+            return Ok(());
+        }
+        if !self.wanted {
+            return self.start(session);
+        }
+        eprintln!("[reader] stopping");
+        self.wanted = false;
+        self.since = None;
+        self.kept.stopped();
+        if let Some(mut child) = self.child.take() {
             child.kill()?;
             child.wait()?;
-            // Its connection's end, as the scene sees it go.
-            let deadline = Instant::now() + LAUNCH_DEADLINE;
-            while session.compositor.scene.screen_reader().is_some() {
-                if Instant::now() > deadline {
-                    return Err("deadline exceeded waiting for the screen reader to go".into());
-                }
-                session.compositor.serve(&session.listener)?;
+            gone(session)?;
+        }
+        Ok(())
+    }
+
+    /// The `signal` step: the reader is sent `signal` as a crash or the person's `kill` would,
+    /// and the session sees it end (its process and its connection).
+    fn signal(&mut self, session: &mut Session, signal: rustix::process::Signal) -> Result<()> {
+        let child = self
+            .child
+            .as_mut()
+            .ok_or("--signal SIGNAL reader: no reader runs")?;
+        let raw = child.id();
+        let pid = rustix::process::Pid::from_raw(raw as i32).ok_or("the reader's pid")?;
+        rustix::process::kill_process(pid, signal)?;
+        // A program may take the signal (a Rust program's own SIGSEGV handler returns from one no
+        // fault raised): it must end, or the step fails rather than waiting for ever.
+        let deadline = Instant::now() + LAUNCH_DEADLINE;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if Instant::now() > deadline {
+                return Err(format!("the reader did not end on {signal:?}").into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        eprintln!("[reader] ended by {signal:?} ({status})");
+        self.ended(session, raw, status);
+        gone(session)
+    }
+
+    /// It ended on its own: started again after the wait, its report written as the session
+    /// writes it.
+    fn ended(&mut self, session: &mut Session, pid: u32, status: std::process::ExitStatus) {
+        let now = Instant::now();
+        let ran = self
+            .since
+            .take()
+            .map_or(Duration::ZERO, |since| now.saturating_duration_since(since));
+        self.child = None;
+        let wait = self.kept.ended(now);
+        eprintln!("[reader] started again in {} ms", wait.as_millis());
+        if !status.success() {
+            session.crashes.note_part(&oxyos_apps::Exited {
+                pid,
+                launched: oxyos_apps::Launched::part(
+                    oxyos_compositor::crashes::READER,
+                    oxyos_compositor::crashes::READER_NAME,
+                ),
+                status: Some(status),
+                ran,
+                asked: false,
+                report: None,
+            });
+        }
+    }
+
+    /// The reader ended on its own is noticed, and one waiting is started again once its wait
+    /// is over: the session's turn, at each step.
+    fn keep(&mut self, session: &mut Session) -> Result<()> {
+        if let Some(child) = self.child.as_mut() {
+            if let Some(status) = child.try_wait()? {
+                eprintln!("[reader] exited ({status})");
+                let pid = child.id();
+                self.ended(session, pid, status);
             }
         }
-        None => {
-            eprintln!("[reader] starting");
-            running
-                .0
-                .push(start_reader(session, socket, program, locale, record)?);
+        if self.wanted && self.child.is_none() && self.kept.take_due(Instant::now()) {
+            self.start(session)?;
         }
+        Ok(())
+    }
+}
+
+/// Serves the session until the reader's connection's end, as the scene sees it go.
+fn gone(session: &mut Session) -> Result<()> {
+    let deadline = Instant::now() + LAUNCH_DEADLINE;
+    while session.compositor.scene.screen_reader().is_some() {
+        if Instant::now() > deadline {
+            return Err("deadline exceeded waiting for the screen reader to go".into());
+        }
+        session.compositor.serve(&session.listener)?;
     }
     Ok(())
 }
@@ -2537,6 +2767,38 @@ fn median(values: &[f64]) -> Option<f64> {
 /// The frames composed since `from_ns` (CLOCK_MONOTONIC), as JSON: each [ms from then to when its
 /// composition started, how long composing it took, how long of that reading the clients'
 /// buffers, in ms] (`Compositor::frame_times`).
+/// Each paced input's latency from its device's time to its answer on the screen, in
+/// milliseconds: from `due[k]` (the time the input carried, as libinput's would, whenever the
+/// compositor got to it) to the first of `shown` at or after it was injected (`injected[k]`), and
+/// before the next input was with `bounded` (a motion that may change nothing: a frame after the
+/// next one answers that one). An input no frame answered has none. Under load the compositor's
+/// own wait to run is in it, as a person sees it: the saturation benchmark's measure (perf.py).
+fn device_latencies(
+    due: &[Duration],
+    injected: &[Duration],
+    shown: &[Duration],
+    bounded: bool,
+) -> Vec<f64> {
+    due.iter()
+        .zip(injected)
+        .enumerate()
+        .filter_map(|(k, (&due, &at))| {
+            let next = match bounded {
+                true => injected.get(k + 1).copied().unwrap_or(Duration::MAX),
+                false => Duration::MAX,
+            };
+            let answer = shown.iter().find(|&&s| s >= at && s < next)?;
+            Some(answer.saturating_sub(due).as_secs_f64() * 1e3)
+        })
+        .collect()
+}
+
+/// `device_latencies` as a JSON list, in input order, to a tenth of a millisecond.
+fn latencies_json(latencies: &[f64]) -> String {
+    let each: Vec<String> = latencies.iter().map(|ms| format!("{ms:.1}")).collect();
+    format!("[{}]", each.join(","))
+}
+
 fn composed_since(compositor: &Compositor, from_ns: i64) -> String {
     let frames: Vec<String> = compositor
         .frame_times
@@ -2613,6 +2875,70 @@ fn serve_session(session: &mut Session) -> Result<()> {
     session.serve_background();
     session.serve_preferences();
     session.reader.absorb(&mut session.compositor);
+    Ok(())
+}
+
+/// The applications `--also-launch` names, started through the session's launcher as the dock
+/// starts them, so they run wherever the session puts what it launches; each `:minimized` one's
+/// window minimized once shown and the application's window then the active one again; then the
+/// session served for `lead` (a load running before the input measured under it).
+fn also_launch(session: &mut Session, apps: &[(String, bool)], lead: Duration) -> Result<()> {
+    let launcher = session
+        .launcher
+        .as_mut()
+        .ok_or("--also-launch needs the session's launcher")?;
+    let mut hidden: Vec<(String, u32)> = Vec::new();
+    for (id, minimized) in apps {
+        let pid = launcher
+            .launch(id)
+            .map_err(|error| format!("--also-launch {id}: {error}"))?;
+        eprintln!("[launch] {id} also launched (pid {pid})");
+        if *minimized {
+            hidden.push((id.clone(), pid));
+        }
+    }
+    let deadline = Instant::now() + LAUNCH_DEADLINE;
+    while !hidden.is_empty() {
+        serve_session(session)?;
+        let windows: Vec<(usize, SurfaceKey)> = hidden
+            .iter()
+            .enumerate()
+            .filter_map(|(index, (_, pid))| {
+                let client = session
+                    .compositor
+                    .peers
+                    .iter()
+                    .find(|(_, peer)| peer.pid as u32 == *pid)
+                    .map(|(client, _)| *client)?;
+                session
+                    .compositor
+                    .scene
+                    .render_list()
+                    .into_iter()
+                    .find_map(|item| match item {
+                        RenderItem::Surface { key, .. } if key.client == client => Some(key),
+                        _ => None,
+                    })
+                    .map(|key| (index, key))
+            })
+            .collect();
+        for (index, key) in windows.iter().rev() {
+            session.compositor.scene.minimize(*key);
+            eprintln!("[launch] {} minimized", hidden[*index].0);
+            hidden.remove(*index);
+        }
+        if Instant::now() > deadline {
+            return Err(format!("--also-launch: no window shown by {hidden:?}").into());
+        }
+    }
+    session.compositor.scene.activate(SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    });
+    let until = Instant::now() + lead;
+    while Instant::now() < until {
+        serve_session(session)?;
+    }
     Ok(())
 }
 
@@ -4431,8 +4757,15 @@ fn composed(compositor: &Compositor) -> Vec<u32> {
 /// Injects one step's input into the scene.
 /// A grab (`Step::Grab`): the press, then the compositor serving the application until it is
 /// moving the window or two seconds have passed (it never asked: the drag then moves nothing),
-/// then the drag and the release. On the scene, with or without the virtual devices.
-fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -> Result<()> {
+/// then the drag and the release (none when `held`). On the scene, with or without the virtual
+/// devices.
+fn grab(
+    session: &mut Session,
+    window: Rect,
+    from: (i32, i32),
+    by: (i32, i32),
+    held: bool,
+) -> Result<()> {
     let start = (window.x + from.0, window.y + from.1);
     if !window.contains_point(start.0, start.1) {
         return Err(format!("({}, {}) is outside {window:?}", from.0, from.1).into());
@@ -4447,7 +4780,9 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
     for (x, y) in drag_points(start, (start.0 + by.0, start.1 + by.1)) {
         session.compositor.scene.pointer_motion(x, y);
     }
-    session.compositor.scene.pointer_button(BUTTON, false);
+    if !held {
+        session.compositor.scene.pointer_button(BUTTON, false);
+    }
     Ok(())
 }
 
@@ -4560,6 +4895,7 @@ fn drag_paced(
     session.compositor.scene.pointer_button(BUTTON, true);
     let interval = Duration::from_secs(1) / hz;
     let mut moved: Vec<Duration> = Vec::new();
+    let mut dues: Vec<Duration> = Vec::new();
     let steps = i64::from(motions);
     // Each motion when its time comes: the turns before it wait at most until then, and the turn
     // the motion wakes composes its frame at once, as a device's event wakes a session's turn.
@@ -4573,6 +4909,7 @@ fn drag_paced(
         }
         let at = |a: i32, b: i32| (i64::from(a) + (i64::from(b) - i64::from(a)) * i / steps) as i32;
         moved.push(start.elapsed());
+        dues.push(due);
         session
             .compositor
             .scene
@@ -4677,8 +5014,11 @@ fn drag_paced(
         }
     };
     let last = displayed(&session.compositor).map(|(_, _, rect)| rect);
+    // From each motion's device time to the first frame composed after it: the window, or what
+    // the drag moves, where the hand is.
+    let device = latencies_json(&device_latencies(&dues, &moved, &composed_at, false));
     Ok(format!(
-        "{{\"motions\":{motions},\"bytes_read\":{},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"composed_gap_ms\":{{\"median\":{},\"max\":{}}},\"scaled\":{scaled},\"shown\":[{}]}}",
+        "{{\"motions\":{motions},\"device_latency_ms\":{device},\"bytes_read\":{},\"configures\":{},\"answered\":{answered},\"presented\":{},\"sizes\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"edges\":{{\"left\":{},\"top\":{},\"right\":{},\"bottom\":{}}},\"final\":{},\"composed\":{composed},\"composed_gap_ms\":{{\"median\":{},\"max\":{}}},\"scaled\":{scaled},\"shown\":[{}]}}",
         read(&session.compositor) - bytes_before,
         sent.len(),
         frames.len(),
@@ -4849,8 +5189,10 @@ fn scroll_paced(
         (total * i / events - total * (i - 1) / events) as i32
     };
     let mut scrolled: Vec<Duration> = Vec::new();
+    let mut dues: Vec<Duration> = Vec::new();
     for i in 1..=events {
         let due = interval * i;
+        dues.push(due);
         inject(session, &mut shown, due, &mut |scene| {
             scrolled.push(start.elapsed());
             scene.pointer_scroll(
@@ -4942,8 +5284,9 @@ fn scroll_paced(
         .filter_map(|&t| shown.iter().find(|&&s| s >= t).map(|&s| ms(s - t)))
         .collect();
     latencies.sort_by(f64::total_cmp);
+    let device = latencies_json(&device_latencies(&dues, &scrolled, &shown, false));
     Ok(format!(
-        "{{\"events\":{events},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}}}}",
+        "{{\"events\":{events},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"device_latency_ms\":{device}}}",
         shown.len(),
         median(&latencies).map_or("null".to_string(), |ms| format!("{ms:.1}")),
         latencies
@@ -4992,6 +5335,7 @@ fn move_paced(
     };
     let idle_wait = session.compositor.idle_wait;
     let mut moved: Vec<Duration> = Vec::new();
+    let mut dues: Vec<Duration> = Vec::new();
     let (dx, dy) = (i64::from(to.0 - from.0), i64::from(to.1 - from.1));
     for i in 1..=i64::from(motions) {
         let due = interval * i as u32;
@@ -5003,6 +5347,7 @@ fn move_paced(
         let x = i64::from(from.0) + dx * i / i64::from(motions);
         let y = i64::from(from.1) + dy * i / i64::from(motions);
         moved.push(start.elapsed());
+        dues.push(due);
         session
             .compositor
             .scene
@@ -5039,8 +5384,82 @@ fn move_paced(
         })
         .collect();
     latencies.sort_by(f64::total_cmp);
+    let device = latencies_json(&device_latencies(&dues, &moved, &shown, true));
     Ok(format!(
-        "{{\"motions\":{motions},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}}}}",
+        "{{\"motions\":{motions},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"device_latency_ms\":{device}}}",
+        shown.len(),
+        median(&latencies).map_or("null".to_string(), |ms| format!("{ms:.1}")),
+        latencies
+            .last()
+            .map_or("null".to_string(), |ms| format!("{ms:.1}")),
+    ))
+}
+
+/// Paced typing (`Step::TypePaced`) into the focused field: each key's press and release when its
+/// time comes, `hz` a second, with the compositor serving the application until then and the turn
+/// the key wakes served at once, as a keyboard's wakes a session's; then the compositor serving it
+/// until its window shows no new frame for SETTLE (or five seconds pass). Returns what the window
+/// did, as JSON: `keys`; `presented`, the frames it showed meanwhile; `latency_ms` (median and max),
+/// from each key's injection to the first frame shown after it; and `device_latency_ms`, each
+/// key's from its device's time (`device_latencies`).
+fn type_paced(session: &mut Session, text: &str, hz: u32) -> Result<String> {
+    if let Some(ime) = session.ime.as_mut() {
+        ime.takes_keys = false;
+    }
+    let sequence = |compositor: &Compositor| compositor.surface_sequence(CLIENT, WINDOW);
+    let start = Instant::now();
+    let origin = monotonic_ns();
+    let interval = Duration::from_secs(1) / hz;
+    let mut last = sequence(&session.compositor);
+    let mut shown: Vec<Duration> = Vec::new();
+    let mut observe = |compositor: &Compositor, shown: &mut Vec<Duration>| {
+        let now = sequence(compositor);
+        if now != last {
+            last = now;
+            shown.push(start.elapsed());
+        }
+    };
+    let idle_wait = session.compositor.idle_wait;
+    let (mut typed, mut dues): (Vec<Duration>, Vec<Duration>) = (Vec::new(), Vec::new());
+    for (i, c) in (1u32..).zip(text.chars()) {
+        let due = interval * i;
+        while start.elapsed() < due {
+            session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
+            session.compositor.serve(&session.listener)?;
+            observe(&session.compositor, &mut shown);
+        }
+        let (code, text) = key_for(c)?;
+        typed.push(start.elapsed());
+        dues.push(due);
+        let scene = &mut session.compositor.scene;
+        scene.set_input_time(paced_time(origin, due));
+        scene.keyboard(code, true, text.as_deref());
+        scene.keyboard(code, false, None);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+    }
+    session.compositor.idle_wait = idle_wait;
+    let deadline = start.elapsed() + Duration::from_secs(5);
+    let mut quiet_since = start.elapsed();
+    while start.elapsed() < deadline && start.elapsed() - quiet_since < SETTLE {
+        let before = shown.len();
+        session.compositor.serve(&session.listener)?;
+        observe(&session.compositor, &mut shown);
+        if shown.len() != before {
+            quiet_since = start.elapsed();
+        }
+    }
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    let mut latencies: Vec<f64> = typed
+        .iter()
+        .filter_map(|&t| shown.iter().find(|&&s| s >= t).map(|&s| ms(s - t)))
+        .collect();
+    latencies.sort_by(f64::total_cmp);
+    let device = latencies_json(&device_latencies(&dues, &typed, &shown, false));
+    Ok(format!(
+        "{{\"keys\":{},\"presented\":{},\"latency_ms\":{{\"median\":{},\"max\":{}}},\"device_latency_ms\":{device}}}",
+        typed.len(),
         shown.len(),
         median(&latencies).map_or("null".to_string(), |ms| format!("{ms:.1}")),
         latencies
@@ -5425,7 +5844,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             .map_err(|code| format!("scale {scale}: {code:?}"))?,
         // Handled by the step loop: no input to inject, the session's input method's, or the
         // assistive technology's.
-        Step::ExpectPopup
+        Step::Signal { .. }
+        | Step::ExpectPopup
         | Step::Wait(_)
         | Step::WaitNamed { .. }
         | Step::WaitSheetKeyboard(_)
@@ -5444,6 +5864,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Swipe { .. }
         | Step::ScrollPaced { .. }
         | Step::MovePaced { .. }
+        | Step::TypePaced { .. }
         | Step::HoldOutput { .. }
         | Step::DoubleClick { .. }
         | Step::PressPaced { .. } => {}
@@ -5459,6 +5880,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
 
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
+    // The turn above the applications as a session's is (docs/adr/0066-quality-of-service.mdx,
+    // decision 2): a 1 ms slice, and the nice a played rtkit gives (`OXYOS_RTKIT_BUS`, the
+    // saturation benchmark's), never the system's. Asked before the session counts its
+    // descriptors (D-Bus's runtime stays), and waited for: a run is measured as it starts.
+    let raised = oxyos_priority::raise(
+        oxyos_priority::tid(),
+        &oxyos_priority::Rtkit::played_from_env(),
+        oxyos_priority::TURN_NICE,
+        oxyos_priority::SLICE,
+    );
+    eprintln!("[offscreen] the turn's priority: {}", raised.describe());
     // Before the session counts its descriptors: logind's connection lives as long as the
     // process. What is opened through it is closed before the count is checked.
     let seat = match (&launch.kms, launch.seat) {
@@ -5854,12 +6286,44 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }
         }
     }
+    // The applications `--also-launch` starts, through a launcher of the session's own where it
+    // has no shell to start them (the registry's entries name their runtime).
+    if session.launcher.is_none() && !launch.also_launch.is_empty() {
+        session.launcher = Some(
+            oxyos_apps::Launcher::new(
+                oxyos_apps::Runtime {
+                    socket: session.socket.clone(),
+                    bloom_host: None,
+                    bloom_bundle: None,
+                    runtimes: launch
+                        .runtimes
+                        .clone()
+                        .unwrap_or_else(|| PathBuf::from(oxyos_apps::RUNTIMES)),
+                    window: (600, 360),
+                    // A Bloom host's report beside the application's, never into it.
+                    env: std::env::var_os("OXYOS_HOST_REPORT")
+                        .map(|mut report| {
+                            report.push(".also");
+                            vec![("OXYOS_HOST_REPORT".into(), report)]
+                        })
+                        .unwrap_or_default(),
+                },
+                oxyos_apps::directories(),
+                oxyos_apps::languages(),
+            )
+            .with_installed(None)
+            .with_crash_reports(session.directory().join("reports"))?,
+        );
+    }
     if let Some(password) = &launch.lock_password {
         session.compositor.authentication = Some(Box::new(
             crate::lock::Fixture::new(password.clone())?.with_pin(launch.lock_pin.clone()),
         ));
     }
     // A login screen: locked before any client connects, its passwords the login program's.
+    if launch.login.is_some() {
+        session.last_session_problem = Some(oxyos_compositor::login::last_session_problem());
+    }
     if let Some(socket) = &launch.login {
         let greeter = oxyos_auth::greeter::Greeter::connect(socket)
             .map_err(|error| format!("the login program at {}: {error}", socket.display()))?;
@@ -6020,9 +6484,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => oxyos_gpu::VulkanCompositor::new()?,
         };
         eprintln!(
-            "[gpu] composing on {} ({:?})",
+            "[gpu] composing on {} ({:?}), {}",
             compositor.device_name(),
-            compositor.device_kind()
+            compositor.device_kind(),
+            compositor.queue_priority()
         );
         let mut compositor = compositor;
         // On a display, compose straight into DMA-BUF scanout buffers it imports.
@@ -6068,6 +6533,34 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
+    // Resume (docs/adr/0065, decision 3), as the session starts it once its shell is shown: what the run's state folder
+    // says the last session left, opened again or asked; and how the last session ended,
+    // as the login program tells it (`OXYOS_SESSION_ENDED`).
+    if let (Some(path), Some(launcher)) =
+        (oxyos_compositor::resume::path(), session.launcher.as_mut())
+    {
+        let (resume, reopened) = oxyos_compositor::resume::Resume::at_login(
+            path,
+            oxyos_compositor::session_end::reopen_path().as_deref(),
+            session.settings.preferences(),
+            launch.safe_mode,
+            launcher,
+            &mut session.compositor.scene,
+            Instant::now(),
+        );
+        session.resume = Some(resume);
+        if let Some(ended) = oxyos_compositor::crashes::SessionEnded::take() {
+            session
+                .crashes
+                .session_ended(&mut session.compositor.scene, &ended, reopened);
+        }
+        // A kernel panic's account (docs/adr/0068): the scenario's own folder of them.
+        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
+            session
+                .crashes
+                .restarted(&mut session.compositor.scene, &problems, &told);
+        }
+    }
     // The screen reader before the application, as a session that runs one starts it; off, only
     // its socket, for Super+F5 to start it on.
     let speech = out.join("speech.jsonl");
@@ -6081,15 +6574,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .zip(reader_socket.as_deref())
         .map(|(program, socket)| (socket, program, launch.reader_locale.as_deref()));
     // Held apart from the other children: Super+F5 may stop it, and start it again.
-    let mut screen_reader = Children(Vec::new());
-    if let Some((socket, program, locale)) = reader_named.filter(|_| !launch.reader_off) {
-        screen_reader.0.push(start_reader(
-            &mut session,
-            socket,
-            program,
-            locale,
-            &speech,
-        )?);
+    let mut screen_reader = ScreenReader {
+        named: reader_named,
+        record: &speech,
+        child: None,
+        since: None,
+        wanted: false,
+        kept: Default::default(),
+    };
+    if reader_named.is_some() && !launch.reader_off {
+        screen_reader.start(&mut session)?;
     }
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
@@ -6157,6 +6651,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             launch.companion_app.as_deref(),
         )?;
     }
+    if !launch.also_launch.is_empty() {
+        also_launch(&mut session, &launch.also_launch, launch.also_launch_lead)?;
+    }
     if !login
         && (window.y..window.bottom() as i32).all(|y| {
             (window.x..window.right() as i32).all(|x| session.compositor.pixel(x, y) == DESKTOP)
@@ -6177,6 +6674,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     };
     dump(&session.compositor, 1)?;
     let mut answered = Vec::new();
+    // The configures the director's window was sent before the step (`window_configures`).
+    let mut configures_sent = session.compositor.scene.configures_sent(SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    });
 
     session.compositor.log_input = true;
     for (index, (step, settling)) in launch.steps.iter().enumerate() {
@@ -6227,6 +6729,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             continue;
         }
         let before = shown(&session.compositor);
+        // The tile a window being dragged would take (ADR 0016, decision 12), before the step.
+        let preview_before = session.compositor.scene.tile_preview();
         // What a step's transitions are is what the step started.
         transitions_json(&mut session.compositor);
         // What the reader says in a step is what the step made it say.
@@ -6241,6 +6745,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let mut dragged = None;
         let mut scrolled = None;
         let mut moved = None;
+        let mut typed = None;
         if let Some(ime) = session.ime.as_mut() {
             (ime.keys, ime.given_back) = (0, 0);
             ime.chosen.clear();
@@ -6376,8 +6881,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
             _ if matches!(step, Step::Grab { .. }) => {
-                if let Step::Grab { from, by } = step {
-                    grab(&mut session, window, *from, *by)?;
+                if let Step::Grab { from, by, held } = step {
+                    grab(&mut session, window, *from, *by, *held)?;
                 }
                 0
             }
@@ -6497,6 +7002,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::TypePaced { .. }) => {
+                if let Step::TypePaced { text, hz } = step {
+                    typed = Some(type_paced(&mut session, text, *hz)?);
+                }
+                0
+            }
             _ if matches!(step, Step::MovePaced { .. }) => {
                 if let Step::MovePaced {
                     from,
@@ -6566,17 +7077,27 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let (Step::Idle(seconds), Some(ending)) = (step, session.ending.as_mut()) {
             ending.pass(Duration::from_secs(*seconds));
         }
+        // A part of the session ended by the scenario (`signal`), as a crash would.
+        if let Step::Signal { signal, part } = step {
+            match part {
+                Part::Reader => screen_reader.signal(&mut session, *signal)?,
+            }
+        }
         // Super+F5 typed: the reader started or stopped before the step settles, as the session
-        // switches it on its next turn.
-        toggle_reader(&mut session, &mut screen_reader, reader_named, &speech)?;
+        // switches it on its next turn; one that ended is started again after its wait.
+        screen_reader.toggle(&mut session)?;
+        screen_reader.keep(&mut session)?;
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
+        // The tile previewed changed as the input arrived (Alt pressed mid-drag): the compositor
+        // draws it at once, no client's frame, so it is the step's answer already.
+        let previewed = session.compositor.scene.tile_preview() != preview_before;
         let answer = settle(
             &mut session,
             &mut children,
             &before,
             // A swipe answers as it is paced, the compositor drawing the windows as the fingers
             // go: what settles is that nothing moves any more.
-            *may_stay || matches!(step, Step::Swipe { .. }),
+            *may_stay || matches!(step, Step::Swipe { .. }) || previewed,
             Wait {
                 deadline: Instant::now()
                     + settling
@@ -6620,7 +7141,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let sounds = sounds_json(&session);
         let transactions = transactions_json(&session);
         answered.push(format!(
-            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"logged_out\":{logged_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"backup\":{},\"activity\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
+            "{{{},\"transactions\":{transactions},\"screenshots\":{screenshots},\"urls_opened\":{urls},\"files_opened\":{files_opened},\"signed_out\":{signed_out},\"logged_out\":{logged_out},\"background\":{background},\"notifications\":{notifications},\"sounds\":{sounds},\"changed_pixels\":{changed},\"t_inject\":{injected_ns},\"t_settled\":{},\"latency_ms\":{latency},\"flip_latency_ms\":{flip_latency},\"focus\":{},\"input_focus\":{},\"delivered\":{},\"popups\":{},\"window\":[{},{},{},{}],\"a11y\":{},\"announcements\":{announcements},\"typed_as_text\":{typed_as_text},\"field\":{},\"im\":{},\"input_sources\":{},\"autofill\":{},\"shell\":{},\"window_shown\":{},\"minimize_target\":{},\"window_states\":{},\"pointer_shape\":\"{:?}\",\"pointer_image\":{},\"transitions\":{},\"controls\":{},\"network\":{},\"sound\":{},\"bluetooth\":{},\"power\":{},\"backup\":{},\"activity\":{},\"displays_off\":{},\"preferences_file\":{},\"clipboard\":{clipboard},\"menus\":{},\"companion_menus\":{},\"chooser\":{},\"composed\":{}{},\"menu_frames\":{}{}{}{}{},\"drag_icons\":{},\"gpu_frames\":{{\"latched\":{},\"waited\":{}}}}}",
             step.json(),
             answer.settled_ns,
             focus_json(&session.compositor),
@@ -6673,6 +7194,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             dragged.map_or(String::new(), |drag| format!(",\"drag\":{drag}")),
             scrolled.map_or(String::new(), |scroll| format!(",\"scrolled\":{scroll}")),
             moved.map_or(String::new(), |motion| format!(",\"moved\":{motion}")),
+            typed.map_or(String::new(), |keys| format!(",\"typed\":{keys}")),
             drag_icons_json(&session.compositor),
             // Frames of the application's GPU buffers so far (docs/adr/0031-gpu-buffers.mdx).
             session.compositor.gpu_frames(CLIENT).0,
@@ -6680,6 +7202,32 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ));
         // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
         // added to the step's result as one more field.
+        // Tiling (ADR 0016, decision 12): the tile a drag previews, how many configures the window
+        // was sent in the step, and where the companion's window is.
+        if let Some(step) = answered.last_mut() {
+            let director = SurfaceKey {
+                client: CLIENT,
+                id: WINDOW,
+            };
+            let sent = session.compositor.scene.configures_sent(director);
+            let rect = |r: Option<Rect>| {
+                r.map_or("null".to_string(), |r| {
+                    format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)
+                })
+            };
+            let companion = companion_window(&session)
+                .and_then(|key| session.compositor.scene.global_rect(key));
+            step.insert_str(
+                step.len() - 1,
+                &format!(
+                    ",\"tile_preview\":{},\"window_configures\":{},\"companion_rect\":{}",
+                    rect(session.compositor.scene.tile_preview()),
+                    sent - configures_sent,
+                    rect(companion)
+                ),
+            );
+            configures_sent = sent;
+        }
         if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
             if step.ends_with('}') {
                 step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
@@ -6838,7 +7386,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .collect::<Vec<_>>()
         .join(",");
     // The reader, if on, ends with the session as the other clients do.
-    children.0.append(&mut screen_reader.0);
+    children.0.extend(screen_reader.child.take());
     // What was routed until the session ends; finishing it ends the clients, whose last input
     // has been read by then.
     let deliveries = deliveries_json(&session.compositor);
@@ -7201,6 +7749,67 @@ mod tests {
         ] {
             assert!(Launch::parse(&args(bad)).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn loads_launched_beside_and_keys_typed_at_a_pace() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--also-launch",
+            "so.oxy.perf.spin,so.oxy.perf.animation:minimized",
+            "--also-launch-lead",
+            "5000",
+            "--type-paced",
+            "10",
+            "the quick brown fox.",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        assert_eq!(
+            launch.also_launch,
+            [
+                ("so.oxy.perf.spin".to_string(), false),
+                ("so.oxy.perf.animation".to_string(), true)
+            ]
+        );
+        assert_eq!(launch.also_launch_lead, Duration::from_millis(5000));
+        assert_eq!(
+            launch.steps[0].0,
+            Step::TypePaced {
+                text: "the quick brown fox.".into(),
+                hz: 10
+            }
+        );
+        assert_eq!(
+            launch.steps[0].0.json(),
+            "\"type_paced\":[\"the quick brown fox.\",10]"
+        );
+        for bad in [
+            &["--also-launch", "so.oxy.perf.spin:hidden", "--", "app"][..],
+            &["--also-launch-lead", "-1", "--", "app"],
+            &["--type-paced", "0", "abc", "--", "app"],
+            &["--type-paced", "10", "", "--", "app"],
+            &["--type-paced", "10", "ABC", "--", "app"],
+        ] {
+            assert!(Launch::parse(&args(bad)).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_paced_input_waits_from_its_device_time_to_the_frame_after_it() {
+        let ms = Duration::from_millis;
+        // Due at 10, 20 and 30 ms; the second injected 6 ms late (the compositor was not running);
+        // frames shown at 12, 31 and 33 ms.
+        let due = [ms(10), ms(20), ms(30)];
+        let injected = [ms(10), ms(26), ms(30)];
+        let shown = [ms(12), ms(31), ms(33)];
+        assert_eq!(
+            device_latencies(&due, &injected, &shown, false),
+            [2.0, 11.0, 1.0]
+        );
+        // Bounded: the second's frame came after the third input, so it answered that one.
+        assert_eq!(device_latencies(&due, &injected, &shown, true), [2.0, 1.0]);
+        assert_eq!(latencies_json(&[2.0, 11.26]), "[2.0,11.3]");
     }
 
     #[test]

@@ -23,6 +23,13 @@ Two boots of the image as built, through its own firmware path and bootloader:
    system or user unit failed, the services the base needs are active, Plymouth is gone, and
    systemd's own boot time.
 
+With `--panic` (UEFI), instead: a kernel panic and what follows it (docs/adr/0068-crash-evidence-and-
+kernel-panics.mdx): the booted system's crash evidence set (cores reach systemd-coredump, which keeps
+none; the kernel restarts after a panic; systemd keeps the watchdog), then `echo c >
+/proc/sysrq-trigger`: the machine must restart by itself within 20 seconds of the panic, and the
+next boot must have the panic's record (efi-pstore, systemd-pstore) and its account for the person,
+without an address (oxyos-recovery panic-report). Only ever in QEMU.
+
 With `--recovery` (UEFI and Secure Boot), instead: an install onto a virtual disk, the installed
 system, the recovery reached by a key held at the boot menu and by failed starts, Erase All Content
 and Settings, and Erase and Reinstall from the recovery (recovery.py, ADR 0054).
@@ -248,8 +255,12 @@ def system(args, run):
         cmdline = machine.run("cat /proc/cmdline")
         run.facts["cmdline"] = cmdline
         run.check("the shipped command line, plus only the test's console",
-                  "quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles" in cmdline
-                  and arguments in cmdline, cmdline)
+                  "quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles preempt=full"
+                  in cmdline and arguments in cmdline, cmdline)
+        # Full preemption in effect (docs/adr/0066-quality-of-service.mdx, decision 2): the kernel
+        # says which model PREEMPT_DYNAMIC chose as it starts.
+        preemption = machine.run("journalctl -k -b --no-pager -q | grep -m1 'Dynamic Preempt' || true")
+        run.check("the kernel preempts fully", "Dynamic Preempt: full" in preemption, preemption.strip())
         state = machine.run("systemctl is-system-running --wait", timeout=args.timeout)
         run.check("the boot finishes running, not degraded", state.strip() == "running", state.strip())
         failed = machine.run("systemctl --failed --no-legend --plain")
@@ -257,12 +268,12 @@ def system(args, run):
         user_failed = machine.run("systemctl --user --failed --no-legend --plain")
         run.check("no failed user unit", not user_failed.strip(), user_failed.strip() or "none")
         active = machine.run("systemctl is-active " + " ".join(units)).split()
-        inactive = [u for u, s in zip(units, active) if s != "active"]
+        inactive = [u for u, s in zip(units, active, strict=False) if s != "active"]
         run.check("the base's services are active", len(active) == len(units) and not inactive,
-                  ", ".join(f"{u} {s}" for u, s in zip(units, active)))
+                  ", ".join(f"{u} {s}" for u, s in zip(units, active, strict=False)))
         user_active = machine.run("systemctl --user is-active " + " ".join(REQUIRED_USER_UNITS)).split()
         run.check("PipeWire listens in the user's session", user_active == ["active"] * len(REQUIRED_USER_UNITS),
-                  ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_USER_UNITS, user_active)))
+                  ", ".join(f"{u} {s}" for u, s in zip(REQUIRED_USER_UNITS, user_active, strict=False)))
         plymouth = machine.run("pidof plymouthd || echo gone")
         run.check("Plymouth has quit", plymouth.strip() == "gone", plymouth.strip())
         sources = machine.run("ls /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | tr '\\n' ' '")
@@ -293,6 +304,64 @@ def system(args, run):
         machine.stop()
 
 
+def boot_to_console(machine, screen, args, arguments, timeout):
+    """From the boot menu to the live user's shell on the serial console: the entry edited as a
+    person edits it (the test's console), and the user logged in. The serial log's offset."""
+    wait_for_menu(screen, timeout)
+    edit_entry(machine, args.firmware, arguments)
+    needle, offset = machine.wait_serial("login:", "$ ", timeout=timeout)
+    if needle == "login:":
+        machine.send_serial("user\r")
+        _, offset = machine.wait_serial("Password:", timeout=60, after=offset)
+        machine.send_serial("live\r")
+        _, offset = machine.wait_serial("$ ", timeout=60, after=offset)
+    machine.run("export SYSTEMD_PAGER= SYSTEMD_COLORS=0 TERM=dumb; stty cols 200", timeout=30)
+    return offset
+
+
+def panic(args, run):
+    """A kernel panic, in QEMU alone: the machine restarts by itself and says why after."""
+    machine = Machine(args.image, run.out / "panic", args.firmware, args.resolution, args.display, args.accel,
+                      architecture=args.arch, restarts=True)
+    machine.start()
+    screen = Screen(machine, machine.directory / "screen.ppm")
+    arguments = test_arguments(args.arch)
+    try:
+        boot_to_console(machine, screen, args, arguments, args.timeout)
+        machine.run("systemctl is-system-running --wait", timeout=args.timeout)
+        pattern = machine.run("cat /proc/sys/kernel/core_pattern").strip()
+        run.check("a crash reaches systemd-coredump", pattern.startswith("|/usr/lib/systemd/systemd-coredump"), pattern)
+        storage = machine.run("systemd-analyze cat-config systemd/coredump.conf | grep -E '^Storage='").strip()
+        run.check("no core is kept", storage.endswith("Storage=none"), storage)
+        settings = machine.run("cat /proc/sys/kernel/panic /proc/sys/kernel/panic_on_oops").split()
+        run.check("a panic restarts after 10 seconds, an oops is a panic", settings == ["10", "1"], " ".join(settings))
+        watchdog = machine.run("systemctl show -p RuntimeWatchdogUSec --value").strip()
+        run.check("systemd keeps the hardware watchdog", watchdog == "30s", watchdog)
+        backend = machine.run("cat /sys/module/pstore/parameters/backend 2>/dev/null || echo none").strip()
+        run.check("the panic's text is kept in the firmware (efi-pstore)", backend == "efi_pstore", backend)
+        before = machine.elapsed()
+        machine.send_serial("echo live | sudo -S sh -c 'echo c > /proc/sysrq-trigger'\r")
+        machine.wait_serial("Kernel panic", timeout=60)
+        panicked = machine.elapsed()
+        run.check("the panic happens", True, f"{panicked - before:.1f} s after it was asked")
+        wait_for_menu(screen, 60, settle=1.0)
+        restarted = machine.elapsed()
+        run.check("the machine restarts by itself within 20 seconds of the panic", restarted - panicked <= 20,
+                  f"{restarted - panicked:.1f} s")
+        boot_to_console(machine, screen, args, arguments, args.timeout)
+        machine.run("systemctl is-system-running --wait", timeout=args.timeout)
+        records = machine.run("echo live | sudo -S ls /var/lib/systemd/pstore 2>/dev/null | tr '\n' ' '").strip()
+        run.check("the next boot has the panic's record", bool(records), records or "none")
+        accounts = machine.run("ls /var/lib/oxyos/problems | tr '\n' ' '").strip()
+        run.check("and its account for the person", ".panic" in accounts, accounts or "none")
+        account = machine.run("cat /var/lib/oxyos/problems/*.panic")
+        run.facts["panic_account"] = account
+        run.check("the account says the panic and no address",
+                  "sysrq triggered crash" in account and "ffffffff" not in account, account.splitlines()[0:4])
+    finally:
+        machine.stop()
+
+
 def main():
     parser = argparse.ArgumentParser(prog="tools/image/acceptance", description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("image", type=pathlib.Path)
@@ -310,6 +379,8 @@ def main():
     parser.add_argument("--only", choices=["boot-logo", "system"])
     parser.add_argument("--recovery", action="store_true",
                         help="install onto a virtual disk, then the recovery and erasing (ADR 0054)")
+    parser.add_argument("--panic", action="store_true",
+                        help="a kernel panic in QEMU: the machine restarts by itself and says why after")
     parser.add_argument("--out", type=pathlib.Path)
     args = parser.parse_args()
     args.image = args.image.resolve()
@@ -318,6 +389,8 @@ def main():
         args.arch = next((a for a in FIRMWARE if args.image.stem.endswith("-" + a)), "amd64")
     if args.firmware not in FIRMWARE[args.arch]:
         parser.error(f"{args.arch} boots only through {' or '.join(FIRMWARE[args.arch])}")
+    if args.panic and args.firmware == "bios":
+        parser.error("the panic's text is kept in the firmware's variables (efi-pstore): --panic needs uefi or secureboot")
     if args.recovery and args.firmware == "bios":
         parser.error("an install is UEFI's (docs/adr/0023-installing-oxyos.mdx, decision 4): --recovery needs uefi or secureboot")
     if args.display is None:
@@ -328,11 +401,14 @@ def main():
         accel = args.accel or default_accel(args.arch)
         args.timeout = 240 if accel == "kvm" else 3000 if args.arch == "arm64" else 1500
     out = args.out or (args.image.parent.parent / "acceptance" / args.image.stem
-                       / (f"recovery-{args.firmware}" if args.recovery else args.firmware))
+                       / (f"recovery-{args.firmware}" if args.recovery
+                          else f"panic-{args.firmware}" if args.panic else args.firmware))
     run = Run(out.resolve())
     started = time.time()
     try:
-        if args.recovery:
+        if args.panic:
+            panic(args, run)
+        elif args.recovery:
             recovery.recovery(args, run, {"Screen": Screen, "wait_for_menu": wait_for_menu, "edit_entry": edit_entry,
                                           "test_arguments": test_arguments, "theme": THEME})
         else:
