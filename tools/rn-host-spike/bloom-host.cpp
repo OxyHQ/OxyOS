@@ -156,6 +156,7 @@ class Beat : public EventBeat {
     requested() = true;
   }
   static bool takeRequested() { return requested().exchange(false); }
+  static bool pendingRequest() { return requested().load(); }
 
  private:
   static inline thread_local bool tInduced = false;
@@ -807,8 +808,10 @@ int main(int argc, char** argv) {
   // once it is idle.
   std::atomic<bool> wakeUiWhenIdle{false};
   // JavaScript's thread (js-thread.h): React Native's queue and its timers. Each stretch of its work
-  // is said by the frame diagnostics and the report, named by what the loop's turn queued it for; as
-  // it is about to sleep it hands JavaScript what its commits dispatched (onLayout, Fabric's beat).
+  // is said by the frame diagnostics and the report, named by what the loop's turn queued it for.
+  // Fabric's beat is induced only by the loop, at the end of a turn: what one turn of the
+  // compositor's set off (its events, read whole) reaches JavaScript in one batch, never split
+  // between two of its stretches.
   std::shared_ptr<oxyos::JsThread> js;
   try {
     js = std::make_shared<oxyos::JsThread>(
@@ -826,11 +829,11 @@ int main(int argc, char** argv) {
           oxyos::FrameDiagnostics::get().javascriptWorked(stretch.span, started, stretch.cause.what, stretch.tasks);
           oxyos::Report::get().javascript(stretch.span, /* onItsThread */ true);
         },
-        [] { Beat::tickAll(); },
+        nullptr,
         // The loop is woken as JavaScript settles while it waits for that, or to hand over what came
-        // meanwhile.
+        // meanwhile (events dispatched as what JavaScript did was applied among it).
         [&wakeUiWhenIdle](bool waiting) {
-          if (waiting || wakeUiWhenIdle) oxyos::UiThread::wake();
+          if (waiting || wakeUiWhenIdle || Beat::pendingRequest()) oxyos::UiThread::wake();
         });
   } catch (const std::exception& error) {
     std::cerr << "[host] " << error.what() << "\n";
@@ -2651,11 +2654,16 @@ int main(int argc, char** argv) {
     // size, as AppKit lays a window out during a live resize before the frame is shown: the new
     // size's layout reaches JavaScript (onLayout, the dimensions), whose commits can size the
     // tree again (an app shell measuring its room, then a panel group measuring its own). Until
-    // JavaScript is quiet, or a frame of the display has passed (display-refresh.h: 16.7 ms at
-    // 60 Hz, 8.3 at 120) so that a slow app never stalls the resize past its next refresh, the
-    // window presents nothing and popups are not placed again.
+    // JavaScript is quiet the window presents nothing and popups are not placed again: a resize's
+    // first frame (a zoom, a window's size set, a live resize's start) carries the new layout,
+    // waiting for JavaScript as long as it takes (at most a second, as long as a hold); the frames of
+    // a live resize after it, at most a frame of the display (display-refresh.h: 16.7 ms at 60 Hz,
+    // 8.3 at 120), so that a slow app never stalls the resize past its next refresh.
     std::optional<Clock::time_point> settleBy;
     Clock::time_point settleFrom;
+    // Whether the resize under way has presented its first frame, and when its last configure came.
+    bool resizeShown = true;
+    std::optional<Clock::time_point> lastResized;
     uint64_t settleAfter = 0;  // what JavaScript was handed for the new size: settled once it ran
     bool firstShown = false;  // the window's first frame may be drawn (below)
     int settleTurns = 0;
@@ -3746,12 +3754,17 @@ int main(int argc, char** argv) {
         }
         // The new size's layout reaches JavaScript at once (its onLayout, through Fabric's beat, and the
         // dimensions): settled once JavaScript ran all of it and what that set off, its thread idle, and
-        // the loop applied what it committed; or once a refresh passed. JavaScript's thread wakes the
-        // loop as it settles.
+        // the loop applied what it committed; or, but for a resize's first frame, once a refresh
+        // passed. JavaScript's thread wakes the loop as it settles.
         if (resized) {
           toJavaScript.beat();
           settleFrom = Clock::now();
-          settleBy = settleFrom + refresh.period();
+          // A resize after a pause in configures (a live resize's come a frame apart) begins anew.
+          constexpr auto kResizeBegins = std::chrono::milliseconds(500);
+          if (!lastResized || settleFrom - *lastResized >= kResizeBegins) resizeShown = false;
+          lastResized = settleFrom;
+          settleBy = settleFrom + (resizeShown ? std::chrono::duration_cast<Clock::duration>(refresh.period())
+                                               : std::chrono::duration_cast<Clock::duration>(std::chrono::seconds(1)));
           settleAfter = js->batch();
           settleTurns = 0;
         } else if (settleBy) {
@@ -3760,6 +3773,7 @@ int main(int argc, char** argv) {
           bool timedOut = !quiet && Clock::now() >= *settleBy;
           if (quiet || timedOut) {
             settleBy.reset();
+            resizeShown = true;
             double settledMs = std::chrono::duration<double, std::milli>(Clock::now() - settleFrom).count();
             diagnostics.settled(settledMs, timedOut);
             oxyos::Report::get().settled(settledMs, settleTurns, timedOut);
