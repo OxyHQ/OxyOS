@@ -19,8 +19,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   never its tag, which every view mounted before it moves; two scroll views under one name in a
   step fail it (as in scroll_offset, scroll_moved and glide). Any delivered event the step does not list fails it, which catches
   duplicated and leaked events; a count may be [least, most] for events one a frame (a glide's
-  scroll events), and [0, most] for events that may not come;
-- delivered: compositor input routed to the application per surface (exact), plus `leaked`
+  scroll events), and [0, most] for events that may not come; {"turns": count} counts the host's
+  turns that delivered the event instead (each delivery says its turn): a press's motions the host
+  read at once after a stall come in one turn and reach JavaScript together, so how many there were
+  is the machine's load, not the application's (a drag starts on the first past its threshold);
+- delivered: compositor input routed to the application per surface (exact; a count may be
+  [least, most], and [0, most] for an event that may not come), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
   launched received, by kind (exact; "close.requested" among them; a list of them: any one, for
@@ -3477,10 +3481,11 @@ def scroll_view_name(line):
     return line.get("target")
 
 
-def react_events(report, start, end):
+def react_events(report, start, end, turns=False):
     """The events delivered to React in a step, as "event@name" -> count (`react`): a view named by
     its testID, else the nearest ancestor's (`within`), as the host reports them; a scroll view by
-    `scroll_view_name`."""
+    `scroll_view_name`. With `turns`, each one's count is of the host's turns that delivered it
+    (Report::beginTurn): what a turn delivers reaches JavaScript together, at the next turn's start."""
     got = {}
     for line in report:
         # Hover follows every pointer motion: the W3C events it makes are checked by what the
@@ -3488,8 +3493,11 @@ def react_events(report, start, end):
         if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
             name = scroll_view_name(line) if line["event"] in SCROLL_EVENTS else line.get("within") or line["target"]
             key = f"{line['event']}@{name}"
-            got[key] = got.get(key, 0) + 1
-    return got
+            if turns:
+                got.setdefault(key, set()).add(line.get("turn"))
+            else:
+                got[key] = got.get(key, 0) + 1
+    return {key: len(seen) for key, seen in got.items()} if turns else got
 
 
 def check_scroll_names(report, start, end, fail):
@@ -4345,10 +4353,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "react" in expect:
         got = react_events(report, start, end)
         wanted = expect["react"]
-        within = lambda count, want: count == want if isinstance(want, int) else want[0] <= count <= want[1]
+        # An event given {"turns": count} is counted by the host's turns that delivered it: a
+        # press's motions the host read at once (after a stall, under load) are one turn's, which
+        # JavaScript takes together, acting on the first; how many motions waited is the machine's.
+        by_turns = react_events(report, start, end, turns=True)
+        counted = {k: by_turns.get(k, 0) if isinstance(want, dict) else got.get(k, 0) for k, want in wanted.items()}
+        def within(count, want):
+            if isinstance(want, dict):
+                want = want["turns"]
+            return count == want if isinstance(want, int) else want[0] <= count <= want[1]
         # An event a range lets be absent ([0, most]) may not have come at all.
-        if not set(got) <= set(wanted) or not all(within(got.get(k, 0), want) for k, want in wanted.items()):
-            fail(f"React received {got}, expected exactly {wanted}")
+        if not set(got) <= set(wanted) or not all(within(counted[k], want) for k, want in wanted.items()):
+            shown = {k: {"turns": by_turns[k], "events": n} if isinstance(wanted.get(k), dict) else n
+                     for k, n in got.items()}
+            fail(f"React received {shown}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
     if "crash_reports" in expect:
@@ -6187,11 +6205,14 @@ def counts_match(got, wanted):
     """Whether what the compositor delivered (`got`: by window, each event's count) is `wanted`
     exactly: the same windows and events, each count the same, or within the [least, most] a step
     gives for it (a pinch through libinput, which reports as many updates as it recognized frames
-    of the fingers)."""
+    of the fingers); an event given [0, most] may not have come at all."""
     if isinstance(wanted, list) and len(wanted) == 2 and isinstance(got, int):
         return wanted[0] <= got <= wanted[1]
     if isinstance(wanted, dict) and isinstance(got, dict):
-        return wanted.keys() == got.keys() and all(counts_match(got[key], wanted[key]) for key in wanted)
+        absent = lambda want: isinstance(want, list) and len(want) == 2 and want[0] == 0
+        return (got.keys() <= wanted.keys()
+                and all(key in got or absent(want) for key, want in wanted.items())
+                and all(counts_match(got.get(key, 0), want) for key, want in wanted.items()))
     return got == wanted
 
 
