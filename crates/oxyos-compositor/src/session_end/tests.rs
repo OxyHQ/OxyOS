@@ -13,6 +13,7 @@ use oxyos_protocol::{
 };
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
+use std::time::Instant;
 
 const SHELL: ClientId = 1;
 const APP: ClientId = 2;
@@ -529,8 +530,17 @@ fn log_out_ends_the_session_once_every_application_has_quit() {
     assert!(s.logged_out);
     assert_eq!(s.part.state_name(), "ended");
     assert_eq!(s.logind()["calls"], json!([]));
-    // logind sees the session let the power key go as it ends.
-    assert_eq!(s.logind()["inhibitors"], json!([]));
+    // logind sees the session let the power key go as it ends: the session closes its descriptor
+    // at once, but the bus daemon and the played logind's connection let their copies of it go
+    // on their own threads, after the reply was delivered (a loaded machine sees them late).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while s.logind()["inhibitors"] != json!([]) {
+        assert!(
+            Instant::now() < deadline,
+            "the power key still held after five seconds"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[test]
