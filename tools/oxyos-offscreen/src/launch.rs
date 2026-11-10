@@ -6529,6 +6529,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 .crashes
                 .session_ended(&mut session.compositor.scene, &ended, reopened);
         }
+        // A kernel panic's account (docs/adr/0068): the scenario's own folder of them.
+        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
+            session
+                .crashes
+                .restarted(&mut session.compositor.scene, &problems, &told);
+        }
     }
     // The screen reader before the application, as a session that runs one starts it; off, only
     // its socket, for Super+F5 to start it on.

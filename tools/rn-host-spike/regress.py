@@ -550,7 +550,9 @@ where its entry came from (`system`, `installed N`, `development`) and whether i
 A scenario with `last_session` "problem" runs a login screen (`login`) the login program told the last
 session ended because of a problem, and `session_ended` ("signal 11 3600 1762790000": how, the seconds it
 ran, when) a session the login program told how the person's last one ended (docs/adr/0065-the-session-
-ending-because-of-a-problem.mdx). Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
+ending-because-of-a-problem.mdx). A scenario with `panics` ({NAME: TEXT}) runs a session after the
+computer restarted because of a kernel panic, those its accounts as oxyos-recovery wrote them
+(docs/adr/0068-crash-evidence-and-kernel-panics.mdx); every run's folder of them is its own. Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
 reopen file are `home.items` of the run's state folder, as the last session left them.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
@@ -6853,6 +6855,15 @@ def main():
         env["OXYOS_LAST_SESSION_ENDED"] = "problem"
     if scenario.get("session_ended"):
         env["OXYOS_SESSION_ENDED"] = scenario["session_ended"]
+    # The accounts of kernel panics oxyos-recovery wrote after a restart (docs/adr/0068): `panics`
+    # ({NAME: TEXT}), written into a folder of the run's own, never the machine's.
+    problems = out / "problems"
+    shutil.rmtree(problems, ignore_errors=True)
+    if scenario.get("panics"):
+        problems.mkdir(parents=True)
+        for name, text in scenario["panics"].items():
+            (problems / name).write_text(text)
+    env["OXYOS_PROBLEMS"] = str(problems.resolve())
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
         if scenario["store"].get("offline_when_shown"):
