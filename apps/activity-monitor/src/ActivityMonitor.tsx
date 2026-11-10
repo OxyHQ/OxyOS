@@ -309,6 +309,16 @@ export function ActivityMonitor({ source, locale }: ActivityMonitorProps) {
     if (row && may) setQuitting(row);
   }, []);
   const inspectSelected = React.useCallback(() => inspect(state.current.selected), [inspect]);
+  // Edit › Find… (Ctrl+F): the keyboard to the search field, its text selected to type over, as
+  // a Mac's Find takes its field.
+  const searchRef = React.useRef<React.ComponentRef<typeof Search>>(null);
+  const queryRef = React.useRef(query);
+  queryRef.current = query;
+  const findProcess = React.useCallback(() => {
+    const field = searchRef.current;
+    field?.focus();
+    field?.setSelection(0, queryRef.current.length);
+  }, []);
 
   const quit = React.useCallback(
     async (row: Row, force: boolean) => {
@@ -485,6 +495,7 @@ export function ActivityMonitor({ source, locale }: ActivityMonitorProps) {
             ))}
           </SegmentedControl>
           <Search
+            ref={searchRef}
             value={query}
             onChangeText={setQuery}
             onClearText={() => setQuery("")}
@@ -500,8 +511,28 @@ export function ActivityMonitor({ source, locale }: ActivityMonitorProps) {
 
   return (
     <Screen header={toolbar} scroll="none" testID="activity-monitor">
-      {/* The View menu: in the session's menu bar on OxyOS, in the window elsewhere (ADR 0021). */}
+      {/* Edit and View, in a Mac's order: in the session's menu bar on OxyOS, in the window
+          elsewhere (ADR 0021). The application's own menu (About, Hide, Quit) and the Window menu
+          are the platform's. */}
       <Menubar>
+        <MenubarMenu value="edit">
+          <MenubarTrigger>{words.edit.title}</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem action="undo">{words.edit.undo}</MenubarItem>
+            <MenubarItem action="redo">{words.edit.redo}</MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem action="cut">{words.edit.cut}</MenubarItem>
+            <MenubarItem action="copy">{words.edit.copy}</MenubarItem>
+            <MenubarItem action="paste">{words.edit.paste}</MenubarItem>
+            <MenubarItem action="pasteAndMatchStyle">{words.edit.pasteAndMatchStyle}</MenubarItem>
+            <MenubarItem action="delete">{words.edit.delete}</MenubarItem>
+            <MenubarItem action="selectAll">{words.edit.selectAll}</MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem shortcut="Mod+F" onPress={findProcess}>
+              {words.edit.find}
+            </MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
         <MenubarMenu value="view">
           <MenubarTrigger>{words.view}</MenubarTrigger>
           <MenubarContent>

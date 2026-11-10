@@ -33,14 +33,14 @@ FORBIDDEN = ("x11", "xcb", "wayland", "smithay", "winit", "tauri", "webkit", "gt
 LAYERS = {
     "leaf": (
         "oxyos-gestures", "oxyos-intl", "oxyos-package", "oxyos-preferences", "oxyos-solar",
-        "oxyos-vector",
+        "oxyos-splash", "oxyos-vector",
     ),
     "protocol": ("oxyos-ipc", "oxyos-protocol"),
     "system": (
         "oxyos-app-storage", "oxyos-apps", "oxyos-audio", "oxyos-auth", "oxyos-dmabuf",
         "oxyos-gpu", "oxyos-gpu-device", "oxyos-image", "oxyos-input", "oxyos-input-methods",
-        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-seat", "oxyos-seqpacket", "oxyos-sound",
-        "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
+        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-priority", "oxyos-seat", "oxyos-seqpacket",
+        "oxyos-sound", "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
     ),
     "service": (
         "oxyos-account", "oxyos-activity", "oxyos-backup", "oxyos-bluetooth", "oxyos-controls",
@@ -98,9 +98,6 @@ ALLOWED = {
     ("oxyos-speech", "oxyos-protocol"): (
         "AccessibleRole, AccessibleState and Politeness are defined in the wire crate; they move "
         "below it"
-    ),
-    ("oxyos-boot-logo", "oxyos-compositor"): (
-        "the boot logo draws the compositor's splash; the splash moves to a crate of its own"
     ),
 }
 

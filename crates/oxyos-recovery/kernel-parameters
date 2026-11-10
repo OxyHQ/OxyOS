@@ -1,0 +1,18 @@
+# The parameters every OxyOS kernel command line carries, one a line: the live medium's
+# (config/binary's LB_BOOTAPPEND_LIVE, which scripts/check-image-config.py holds to this list), an
+# installed system's (/etc/kernel/cmdline, which kernel-install writes into each kernel's entry),
+# the recovery's entry, and a converted machine's (`oxyos-recovery kernel-parameters sync`, which
+# the deploy runs: /etc/kernel/cmdline and the entries already written, from the next boot). A
+# `key=value` one replaces another value of its key.
+#
+# The boot logo's quiet console (docs/adr/0017-boot-logo.mdx, decision 3).
+quiet
+splash
+loglevel=3
+vt.global_cursor_default=0
+plymouth.ignore-serial-consoles
+# Full preemption (docs/adr/0066-quality-of-service.mdx, decision 2): Debian's kernel is built with
+# PREEMPT_DYNAMIC and voluntary preemption by default; with `full`, the compositor woken by input
+# preempts a busy task's long kernel paths (page faults, copies) instead of waiting for its next
+# cond_resched().
+preempt=full

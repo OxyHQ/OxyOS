@@ -481,7 +481,12 @@
           "anchor": 12,
           "cursor": 12
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "ニホンゴ",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     }

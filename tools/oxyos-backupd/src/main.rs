@@ -190,10 +190,12 @@ fn migration(arguments: Arguments) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // Before any thread or child: what the unit's manager listens on, and its watchdog.
+    let notify = oxyos_seat::notify::Notify::take();
     let result = arguments().and_then(|arguments| match arguments.client.clone() {
         Some(request) => client(&arguments, &request),
         None if arguments.migrate => migration(arguments),
-        None => oxyos_backup::daemon::run(arguments.service),
+        None => oxyos_backup::daemon::run(arguments.service, notify),
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,

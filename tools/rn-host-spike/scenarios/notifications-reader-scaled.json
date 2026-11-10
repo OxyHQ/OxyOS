@@ -1,5 +1,5 @@
 {
- "about": "Notifications with the screen reader on in Spanish and from the keyboard (docs/adr/0039-keyboard-access.mdx, docs/adr/0026-notifications.mdx): Allo (sample/NotificationProbe.tsx) posts; its banner is said politely once, its close named by the notification it closes (\"Ocultar la notificación de Allo: Ana\", not a bare verb). The banner stays while the pointer is on it and five seconds after it leaves, as a Mac's; while a reply is typed in it, it stays, Tab reaching its Enviar. Super+N, as a Mac's Fn-N, opens the Notification Center: a dialog said by its title, the keyboard on its first control said after it; Tab through a notification and its close, each said once; Escape closes it and gives Allo the keyboard back; Super+N again closes it. At 1.25 (1600 × 1000, 1280 × 800 logical).",
+ "about": "Notifications with the screen reader on in Spanish and from the keyboard (docs/adr/0039-keyboard-access.mdx, docs/adr/0026-notifications.mdx): Allo (sample/NotificationProbe.tsx) posts; its banner is said politely once, its close named by the notification it closes (\"Cerrar la notificación de Allo: Ana\", not a bare verb). The banner stays while the pointer is on it and five seconds after it leaves, as a Mac's; while a reply is typed in it, it stays, Tab reaching its Enviar. Super+N, as a Mac's Fn-N, opens the Notification Center: a dialog said by its title, the keyboard on its first control said after it; Tab through a notification and its close, each said once; Escape closes it and gives Allo the keyboard back; Super+N again closes it. At 1.25 (1600 × 1000, 1280 × 800 logical).",
  "locale": "es_ES.UTF-8",
  "module": "NotificationProbe",
  "window": [
@@ -31,7 +31,7 @@
        "name": "Allo. Ana. ¿Comemos juntos?"
       },
       {
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       }
      ]
     }
@@ -67,7 +67,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "Button",
@@ -78,7 +78,7 @@
     "at_absent": {
      "shell": [
       {
-       "name": "Ocultar"
+       "name": "Cerrar"
       }
      ]
     },
@@ -122,7 +122,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "Button",
@@ -158,7 +158,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "Button",
@@ -196,7 +196,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "Button",
@@ -232,7 +232,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "Button",
@@ -266,7 +266,7 @@
        "name": "Allo. Ana. ¿Comemos juntos?"
       },
       {
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       }
      ]
     },
@@ -299,7 +299,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "Button",
@@ -346,7 +346,7 @@
       },
       {
        "role": "Button",
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       },
       {
        "role": "TextInput",
@@ -358,7 +358,12 @@
       }
      ]
     },
-    "spoken": [],
+    "spoken": [
+     {
+      "text": "Responder, campo de texto",
+      "interrupting": true
+     }
+    ],
     "announcements": []
    }
   },
@@ -493,7 +498,7 @@
        "name": "Borrar"
       },
       {
-       "name": "Ocultar la notificación de Allo: Ana"
+       "name": "Cerrar la notificación de Allo: Ana"
       }
      ]
     },

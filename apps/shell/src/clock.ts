@@ -1,8 +1,9 @@
 /**
  * The shell's dates and times (docs/adr/0040-language-and-region.mdx, decision 5): `Intl` in the
  * session's locale, whose hour cycle (the region's, or the person's `-u-hc-h12`/`-u-hc-h23`) says
- * whether the clock counts 12 or 24 hours. A 24-hour clock shows two-digit hours ("09:41"), a
- * 12-hour one the hour as it is said ("9:41 AM"), as a Mac's menu bar does.
+ * whether the clock counts 12 or 24 hours. The time is the locale's own short time (CLDR's), as a
+ * Mac's menu bar shows it: the hour padded where the locale pads it ("09:41" in en-GB and, since
+ * CLDR 48, in es-ES; "9:41" in ja-JP; "9:41 AM" in en-US), never padded or unpadded by the shell.
  */
 
 const formats = new Map<string, Intl.DateTimeFormat>();
@@ -23,13 +24,12 @@ export function twelveHour(locale: string): boolean {
   return cycle === "h11" || cycle === "h12";
 }
 
-function timeFormat(locale: string): Intl.DateTimeFormatOptions {
-  return twelveHour(locale) ? { hour: "numeric", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" };
-}
+/** The locale's short time (`timeStyle: "short"`): its own pattern and hour cycle. */
+const SHORT_TIME: Intl.DateTimeFormatOptions = { timeStyle: "short" };
 
-/** The time as a clock shows it: "09:41", "9:41 AM". */
+/** The time as a clock shows it, in the locale's short time: "09:41" (en-GB), "9:41 AM" (en-US). */
 export function clockTime(now: Date, locale: string): string {
-  return format(locale, timeFormat(locale)).format(now);
+  return format(locale, SHORT_TIME).format(now);
 }
 
 /** The top bar's clock: the short weekday and date, then the time ("lun, 2 nov 09:41",
@@ -47,11 +47,11 @@ export function clockSaid(now: Date, locale: string): string {
   return `${date}, ${clockTime(now, locale)}`;
 }
 
-/** The lock screen's date, its first letter capitalized ("Lunes, 2 de noviembre",
+/** The lock screen's date, cased as the locale writes it, as a Mac's lock screen shows it: names
+    of days and months stay lower case where the language writes them so ("lunes, 2 de noviembre",
     "Monday, November 2"). */
 export function lockDate(now: Date, locale: string): string {
-  const date = format(locale, { weekday: "long", day: "numeric", month: "long" }).format(now);
-  return date.charAt(0).toUpperCase() + date.slice(1);
+  return format(locale, { weekday: "long", day: "numeric", month: "long" }).format(now);
 }
 
 /**
@@ -59,7 +59,7 @@ export function lockDate(now: Date, locale: string): string {
  * "9:41"; `said`, the whole time, for a screen reader ("9:41 AM").
  */
 export function lockTime(now: Date, locale: string): { shown: string; said: string } {
-  const time = format(locale, timeFormat(locale));
+  const time = format(locale, SHORT_TIME);
   const said = time.format(now);
   if (!twelveHour(locale)) return { shown: said, said };
   // The hour, the minutes and what is between them, whichever side the day period is on.

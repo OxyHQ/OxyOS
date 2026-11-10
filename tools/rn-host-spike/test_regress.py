@@ -5,7 +5,9 @@ Each test gives `check_input_delivery` the development compositor's record of wh
 decides about an ordering is decided the same way every time, whatever the machine's load."""
 
 import importlib.util
+import os
 import pathlib
+import secrets
 import subprocess
 import sys
 import unittest
@@ -155,6 +157,35 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
 
 
+class AStallsMotionsAreOneTurns(unittest.TestCase):
+    """`react`'s {"turns": count} (desktop-drag.json): a press's motions the host read at once after
+    a stall come in one turn and reach JavaScript together; the drag it starts on the first takes
+    the press, so no turn after delivers another."""
+
+    def check(self, turns, wanted):
+        report = [dict(deliver(10, "touchStart", "View#406", "desktop"), turn=1)]
+        report += [dict(deliver(20 + i, "touchMove", "View#406", "desktop"), turn=turn) for i, turn in enumerate(turns)]
+        report.append(dict(deliver(90, "touchCancel", "View#406", "desktop"), turn=9))
+        step = {"name": "drag", "do": ["wait", 0], "expect": {"react": {
+            "touchStart@desktop": 1, "touchMove@desktop": wanted, "touchCancel@desktop": 1}}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": 100}, report, 0, failures)
+        return failures
+
+    def test_four_motions_read_at_once_are_one_turn(self):
+        self.assertEqual(self.check([3, 3, 3, 3], {"turns": [1, 2]}), [])
+        self.assertEqual(regress.react_events([dict(deliver(20, "touchMove", "V", "desktop"), turn=3)] * 4, 0, 100,
+                                              turns=True), {"touchMove@desktop": 1})
+
+    def test_a_motion_in_a_turn_after_the_drag_began_fails(self):
+        failures = self.check([3, 3, 5, 7], {"turns": [1, 2]})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'touchMove@desktop': {'turns': 3, 'events': 4}", failures[0])
+
+    def test_a_plain_count_still_counts_every_delivery(self):
+        self.assertEqual(len(self.check([3, 3, 3], [1, 2])), 1)
+
+
 class ActivityIsCountedPerStep(unittest.TestCase):
     """`activity` and `processes` (docs/adr/0063-activity-monitor.mdx): counts in the step, from the
     step before's settling, and the signals a known process received between them."""
@@ -210,6 +241,33 @@ class DeliveredCounts(unittest.TestCase):
         self.assertFalse(regress.counts_match({**got, "2": {"focus.in": 1}}, {"1": got["1"]}))
         self.assertTrue(regress.counts_match({}, {}))
 
+    def test_an_event_given_none_at_least_may_not_have_come(self):
+        # desktop-drag.json's Dropsea dragging out: its drag began over its window, or (late, on a
+        # loaded machine) once the pointer had left it, never entering it.
+        wanted = {"1": {"press": 1, "drag.enter": [0, 1], "drag.leave": [0, 1]}}
+        self.assertTrue(regress.counts_match({"1": {"press": 1}}, wanted))
+        self.assertTrue(regress.counts_match({"1": {"press": 1, "drag.enter": 1, "drag.leave": 1}}, wanted))
+        self.assertFalse(regress.counts_match({"1": {"press": 1, "drag.enter": 2}}, wanted))
+        self.assertFalse(regress.counts_match({"1": {"drag.enter": 1}}, wanted))
+
+
+class SpokenExactly(unittest.TestCase):
+    # What the reader said is the step's exactly: in order, or with `spoken_any_order` in either
+    # (two processes speaking for one input), each utterance once.
+    SAID = [{"t": 1, "text": "EE. UU.", "interrupting": False}, {"t": 2, "text": "ni", "interrupting": True}]
+
+    def test_in_order(self):
+        self.assertTrue(regress.spoken_matches(self.SAID, ["EE. UU.", {"text": "ni", "interrupting": True}]))
+        self.assertFalse(regress.spoken_matches(self.SAID, ["ni", "EE. UU."]))
+
+    def test_in_any_order_each_once(self):
+        wanted = [{"text": "ni", "interrupting": True}, {"text": "EE. UU.", "interrupting": False}]
+        self.assertTrue(regress.spoken_matches(self.SAID, wanted, any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID, ["ni", "ni"], any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID + self.SAID[:1], wanted, any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID, [{"text": "ni", "interrupting": False}, "EE. UU."],
+                                                any_order=True))
+
 
 class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
     """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""
@@ -244,19 +302,38 @@ class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
             {"application": "so.oxy.crash_probe"}, {"application": "so.oxy.crash_probe"},
         ]))
 
-# A run's processes as its /proc shows them: those whose command is `sleep 7.31` (a twin's).
+# A twin: a run that starts `sleep MARKER`, says "ready" once the kernel shows that command, and
+# on "count" says how many processes its /proc shows with exactly that command, then on "end"
+# ends its sleep. The test tells both twins to count only once both are ready, and to end only
+# once both have counted, so each counts while both sleeps run, however loaded the machine; and
+# MARKER is this test's own, so a test run beside it (another checkout's, another agent's) never
+# shows a sleep of the same command.
 TWIN = """
-import os, subprocess, time
-twin = subprocess.Popen(["sleep", "7.31"])
-time.sleep(1.5)
+import os, subprocess, sys
+marker = sys.argv[1]
+command = b"sleep\\0" + marker.encode() + b"\\0"
+twin = subprocess.Popen(["sleep", marker])
+# The kernel names a process before it lays out its arguments: ready once they are there.
+while True:
+    if twin.poll() is not None:
+        sys.exit(f"sleep {marker} ended at once")
+    try:
+        if open(f"/proc/{twin.pid}/cmdline", "rb").read() == command:
+            break
+    except OSError:
+        pass
+print("ready", flush=True)
+sys.stdin.readline()
 seen = 0
 for entry in os.listdir("/proc"):
     try:
-        seen += open(f"/proc/{entry}/cmdline", "rb").read() == b"sleep\\x007.31\\x00"
+        seen += open(f"/proc/{entry}/cmdline", "rb").read() == command
     except OSError:
         pass
+print(seen, flush=True)
+sys.stdin.readline()
 twin.kill()
-print(seen)
+twin.wait()
 """
 
 
@@ -271,10 +348,31 @@ class ARunSeesOnlyItsOwnProcesses(unittest.TestCase):
             raise unittest.SkipTest(f"this machine gives no PID namespace of a run's own: {refused}")
 
     def twins(self, isolated):
-        command = [sys.executable, "-c", TWIN]
+        """What each of two twins at once counted of their two sleeps."""
+        # Seconds sleep takes, unique to this test (a day, and this process's id and a nonce as
+        # its fraction).
+        marker = f"86400.{os.getpid()}{secrets.randbelow(10**9):09d}"
+        command = [sys.executable, "-c", TWIN, marker]
         runs = [subprocess.Popen(regress.pid_namespace_command(command) if isolated else command,
-                                 stdout=subprocess.PIPE, text=True) for _ in range(2)]
-        return [int(run.communicate(timeout=30)[0]) for run in runs]
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) for _ in range(2)]
+        try:
+            for run in runs:
+                self.assertEqual(run.stdout.readline(), "ready\n")
+            for run in runs:
+                run.stdin.write("count\n")
+                run.stdin.flush()
+            counts = [int(run.stdout.readline()) for run in runs]
+            for run in runs:
+                run.stdin.write("end\n")
+                run.stdin.flush()
+            for run in runs:
+                self.assertEqual(run.wait(timeout=30), 0)
+            return counts
+        finally:
+            for run in runs:
+                if run.poll() is None:
+                    run.kill()
+                    run.wait()
 
     def test_two_runs_at_once_each_see_only_their_own(self):
         self.assertEqual(self.twins(isolated=False), [2, 2], "without namespaces each sees both")
@@ -490,6 +588,18 @@ class GlidesMeetInput(unittest.TestCase):
     def test_anything_after_its_momentum_ended_fails(self):
         lines, offset, ended, line = self.glide()
         self.assertTrue(self.check({}, lines + [line(ended + 20, "scroll", offset + 5)]))
+
+
+class SignalSteps(unittest.TestCase):
+    def test_a_part_is_sent_a_signal_that_ends_it(self):
+        self.assertEqual(regress.director_args({"do": ["signal", ["SEGV", "reader"]]}, None),
+                         ["--signal", "SEGV", "reader"])
+        self.assertIn("signal", regress.STEP_KEYS)
+
+    def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
+        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+            with self.assertRaises(ValueError):
+                regress.director_args({"do": ["signal", value]}, None)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,9 @@ export interface Spec extends TurboModule {
   handlesQuit(handles: boolean): void;
   /** Its answer to the request `serial`: whether it quits; whether the answer was sent. */
   replyToQuit(serial: number, quit: boolean): boolean;
+  /** Sudden Termination held off while it has unsaved work (+1), and let go (-1). */
+  disableSuddenTermination(): void;
+  enableSuddenTermination(): void;
   addListener(eventName: string): void;
   removeListeners(count: number): void;
 }

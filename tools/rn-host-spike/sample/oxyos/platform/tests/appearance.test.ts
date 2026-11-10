@@ -24,11 +24,21 @@ function played() {
       locale: { getLocale: () => tag },
       colorSchemes: {
         getColorScheme: () => 'light',
-        addChangeListener: (listener) => ((schemeListener = listener), { remove() {} }),
+        addChangeListener: (listener) => {
+          schemeListener = listener;
+          return { remove() {} };
+        },
       },
       motion: {
         isReduceMotionEnabled: async () => false,
-        addEventListener: (_event, listener) => ((motionListener = listener), { remove: () => (motionRemoved = true) }),
+        addEventListener: (_event, listener) => {
+          motionListener = listener;
+          return {
+            remove: () => {
+              motionRemoved = true;
+            },
+          };
+        },
       },
     },
     events,

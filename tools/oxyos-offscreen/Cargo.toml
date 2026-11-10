@@ -16,6 +16,8 @@ oxyos-kms = { path = "../../crates/oxyos-kms" }
 oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-vt = { path = "../../crates/oxyos-vt" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
+# The turn above every application: rtkit's high priority and a short slice (docs/adr/0066).
+oxyos-priority = { path = "../../crates/oxyos-priority" }
 # The power services played on a run's own bus (docs/adr/0057-battery-and-energy.mdx).
 oxyos-power = { path = "../../crates/oxyos-power" }
 # The development backup service, played on a run's own folders (`--play-backup`,
@@ -52,6 +54,8 @@ oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.
 evdev = "0.13"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "process"] }
+# A repeated load ends its group when the run ends it (`--load repeat`, load.rs).
+signal-hook = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 # The session's connection to BlueZ, tested against the played one (tests/bluetooth_*.rs).

@@ -149,8 +149,13 @@ test("a backup's moment is said as Time Machine says it, in the locale's date an
   assert.equal(backupWhen(local(11, 8, 14, 5), NOW, "es-ES", es), "Hoy, 14:05");
   assert.equal(plain(backupWhen(local(11, 8, 14, 5), NOW, "en-US", en)), "Today, 2:05 PM");
   assert.equal(backupWhen(local(11, 7, 9, 30), NOW, "en-GB", en), "Yesterday, 09:30");
-  assert.equal(backupWhen(local(11, 7, 9, 30), NOW, "es-ES", es), "Ayer, 09:30");
-  assert.equal(backupWhen(local(11, 9, 8, 0), NOW, "es-ES", es), "Mañana, 08:00");
+  // Spanish's own short time (CLDR 48 pads the hour, an older CLDR does not), never padded or
+  // trimmed here; ja-JP's hour unpadded.
+  const short = (hour: number, locale: string) =>
+    new Intl.DateTimeFormat(locale, { timeStyle: "short" }).format(new Date(2026, 10, 7, hour, hour === 9 ? 30 : 0));
+  assert.equal(backupWhen(local(11, 7, 9, 30), NOW, "es-ES", es), `Ayer, ${short(9, "es-ES")}`);
+  assert.equal(backupWhen(local(11, 9, 8, 0), NOW, "es-ES", es), `Mañana, ${short(8, "es-ES")}`);
+  assert.equal(backupWhen(local(11, 7, 9, 30), NOW, "ja-JP", en), "Yesterday, 9:30");
   assert.equal(backupWhen(local(11, 3, 10, 0), NOW, "en-GB", en, false), "3 November 2026");
   assert.equal(backupWhen(local(11, 3, 10, 0), NOW, "es-ES", es, false), "3 de noviembre de 2026");
   assert.equal(backupWhen(local(11, 3, 10, 0), NOW, "en-GB", en), "3 November 2026 at 10:00");
@@ -217,7 +222,7 @@ test("a destination's lines: its latest and oldest backups, its space, and why i
     "No se ha podido realizar la copia de seguridad. El disco de copia de seguridad está lleno.",
   );
   // A share that cannot be reached.
-  assert.equal(destinationSummary(destination({ kind: "share", url: "smb://nas/b", available: false }), NOW, "en", en).status, "Can't be reached");
+  assert.equal(destinationSummary(destination({ kind: "share", url: "smb://nas/b", available: false }), NOW, "en", en).status, "Can’t be reached");
 });
 
 test("a running backup says how far and how long is left, and each phase", () => {

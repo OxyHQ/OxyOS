@@ -95,6 +95,19 @@ void FrameDiagnostics::leave(Part previous) {
   current_ = previous;
 }
 
+void FrameDiagnostics::ranElsewhere(const ThreadSpan& span) {
+  if (!started_ || !tLoopThread || !turning_) return;
+  auto now = ThreadSample::now();
+  ThreadSpan waited = ThreadSpan::between(since_, now);
+  ThreadSpan charged;
+  charged.wallMs = waited.wallMs;
+  charged.cpuMs = std::min(span.cpuMs, charged.wallMs);
+  charged.preemptedMs = std::min(span.preemptedMs, charged.wallMs - charged.cpuMs);
+  charged.blockedMs = charged.wallMs - charged.cpuMs - charged.preemptedMs;
+  parts_[static_cast<size_t>(current_)] += charged;
+  since_ = now;
+}
+
 void FrameDiagnostics::beginTurn() {
   if (!started_) return;
   since_ = ThreadSample::now();

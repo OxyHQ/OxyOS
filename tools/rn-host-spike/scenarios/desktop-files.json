@@ -54,7 +54,7 @@
               "state": [],
               "custom": [
                 "Abrir",
-                "Trasladar a la papelera"
+                "Trasladar a la Papelera"
               ]
             },
             {
@@ -355,7 +355,7 @@
       "do": [
         "a11y-action",
         [
-          "custom:Trasladar a la papelera",
+          "custom:Trasladar a la Papelera",
           "foto.png"
         ]
       ],
