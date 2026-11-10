@@ -92,7 +92,7 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "shortcut@menu-bar": 8,
+     "shortcut@menu-bar": 9,
      "blur@settings-nav-appearance": 1,
      "focus@settings-nav-keyboard": 1
     },
