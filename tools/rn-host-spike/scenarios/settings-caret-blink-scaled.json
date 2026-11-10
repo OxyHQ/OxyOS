@@ -93,7 +93,7 @@
           ]
         },
         "at_hit": {
-          "890,382": {
+          "890,368": {
             "role": "Switch",
             "name": "Prefer non-blinking cursor"
           }
@@ -106,8 +106,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#dfdfdf",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         }
       }
     },
@@ -152,8 +152,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#dfdfdf",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -208,8 +208,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#9422ae",
-          "1730,779": "#dfdfdf"
+          "1690,761": "#9422ae",
+          "1730,761": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -323,8 +323,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#9422ae",
-          "1730,779": "#dfdfdf"
+          "1690,761": "#9422ae",
+          "1730,761": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -377,8 +377,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#dfdfdf",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -490,8 +490,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#dfdfdf",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -546,8 +546,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#9422ae",
-          "1730,779": "#dfdfdf"
+          "1690,761": "#9422ae",
+          "1730,761": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,

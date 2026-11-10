@@ -93,7 +93,7 @@
           ]
         },
         "at_hit": {
-          "890,382": {
+          "890,368": {
             "role": "Switch",
             "name": "Prefer non-blinking cursor"
           }
@@ -106,8 +106,8 @@
           }
         },
         "pixels": {
-          "872,383": "#dfdfdf",
-          "904,383": "#8c798d"
+          "872,369": "#dfdfdf",
+          "904,369": "#7f7f7f"
         }
       }
     },
@@ -152,8 +152,8 @@
           }
         },
         "pixels": {
-          "872,383": "#dfdfdf",
-          "904,383": "#8c798d"
+          "872,369": "#dfdfdf",
+          "904,369": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -208,8 +208,8 @@
           }
         },
         "pixels": {
-          "872,383": "#9422ae",
-          "904,383": "#dfdfdf"
+          "872,369": "#9422ae",
+          "904,369": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -323,8 +323,8 @@
           }
         },
         "pixels": {
-          "872,383": "#9422ae",
-          "904,383": "#dfdfdf"
+          "872,369": "#9422ae",
+          "904,369": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -377,8 +377,8 @@
           }
         },
         "pixels": {
-          "872,383": "#dfdfdf",
-          "904,383": "#8c798d"
+          "872,369": "#dfdfdf",
+          "904,369": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -490,8 +490,8 @@
           }
         },
         "pixels": {
-          "872,383": "#dfdfdf",
-          "904,383": "#8c798d"
+          "872,369": "#dfdfdf",
+          "904,369": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -546,8 +546,8 @@
           }
         },
         "pixels": {
-          "872,383": "#9422ae",
-          "904,383": "#dfdfdf"
+          "872,369": "#9422ae",
+          "904,369": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
