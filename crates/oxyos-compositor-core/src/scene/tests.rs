@@ -8437,6 +8437,7 @@ mod minimize_targets;
 mod notifications;
 /// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
 mod safe_mode;
+mod memory_pressure;
 mod screenshots;
 /// Search (docs/adr/0051-search.mdx).
 mod search;

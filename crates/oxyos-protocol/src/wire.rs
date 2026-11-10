@@ -110,6 +110,14 @@ wire_enum! {
     SessionEnd: u8 { LogOut = 1, Restart = 2, ShutDown = 3 }
 }
 wire_enum! {
+    /// How short of memory the machine is (version 40, docs/adr/0066-quality-of-service.mdx,
+    /// decision 7), as the kernel's pressure stall information says and Activity Monitor's graph
+    /// colours it (docs/adr/0063-activity-monitor.mdx, decision 4): normal again; a warning (a
+    /// tenth of the time some tasks wait for memory), drop what can be made again; critical (40 %
+    /// some, or a tenth all), drop everything that can.
+    MemoryPressureLevel: u8 { Normal = 0, Warning = 1, Critical = 2 }
+}
+wire_enum! {
     /// What an application asks of one of its background items (version 33): how it stands,
     /// registering it, unregistering it.
     BackgroundItemAction: u8 { Status = 1, Register = 2, Unregister = 3 }

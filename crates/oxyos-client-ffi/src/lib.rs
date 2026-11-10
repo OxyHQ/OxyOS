@@ -486,6 +486,16 @@ pub const OXYOS_SESSION_END_RESTART: u32 = 2;
 pub const OXYOS_SESSION_END_SHUT_DOWN: u32 = 3;
 /// The first version whose compositor asks applications to quit and takes their answer.
 pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSION as u32;
+/// To an application, and at critical to the shell (protocol version 40,
+/// docs/adr/0066-quality-of-service.mdx, decision 7): how short of memory the machine is, `detail`
+/// an OXYOS_MEMORY_PRESSURE_* level: give back what can be made again at a warning, everything
+/// that can at critical.
+pub const OXYOS_EVENT_MEMORY_PRESSURE: u32 = 175;
+pub const OXYOS_MEMORY_PRESSURE_NORMAL: u32 = 0;
+pub const OXYOS_MEMORY_PRESSURE_WARNING: u32 = 1;
+pub const OXYOS_MEMORY_PRESSURE_CRITICAL: u32 = 2;
+/// The first version whose compositor tells applications memory pressure.
+pub const OXYOS_MEMORY_PRESSURE_VERSION: u32 = oxyos_protocol::MEMORY_PRESSURE_VERSION as u32;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -1997,6 +2007,13 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 kind: OXYOS_EVENT_MODIFIERS,
                 surface,
                 modifiers,
+                ..out
+            }
+        }
+        Event::MemoryPressure { level } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MEMORY_PRESSURE,
+                detail: u32::from(level as u8),
                 ..out
             }
         }

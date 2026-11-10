@@ -19,6 +19,9 @@ mod users;
 
 pub use procfs::Procfs;
 pub use system::Level;
+/// The level of a share of the time some tasks, and all of them, waited for memory: Activity
+/// Monitor's graph's, and what the session tells applications (docs/adr/0066-quality-of-service.mdx).
+pub use system::level as pressure_level;
 
 use procfs::Stat;
 use serde::{Deserialize, Serialize};

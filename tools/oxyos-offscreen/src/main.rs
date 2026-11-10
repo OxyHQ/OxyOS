@@ -155,6 +155,9 @@ struct Session {
     /// at the first ask, so a run that never searches never starts it; and its waker among the
     /// compositor's, given back as the session finishes.
     pub search: Option<oxyos_compositor::search::Search>,
+    /// Memory pressure followed as the session follows it (docs/adr/0066-quality-of-service.mdx,
+    /// decision 7), on the files the environment names in a saturation benchmark's run.
+    pub memory_pressure: Option<oxyos_compositor::memory_pressure::MemoryPressure>,
     pub search_waker: Option<std::os::fd::RawFd>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
@@ -352,6 +355,7 @@ impl Session {
             installs_waker: None,
             trash_waker: None,
             search: None,
+            memory_pressure: None,
             search_waker: None,
             controls: None,
             networks: None,

@@ -14,6 +14,13 @@
 //   (offscreen layers, made again when a frame needs one) and the textures not drawn for
 //   kUnusedFor, malloc's free pages (malloc_trim), and Ganesh's Vulkan pipeline cache written to
 //   its persistent cache (skia-gpu.h) when it learned something.
+// - Memory pressure (Memory::relieve, docs/adr/0066-quality-of-service.mdx, decision 7): the
+//   session says the machine is short of memory, and what the host can make again is given back
+//   at once, whatever the window is doing: at a warning what an idle trim gives back, every GPU
+//   resource Skia holds unlocked, its decoded pictures, and a full collection of each runtime's
+//   garbage; at critical Skia's GPU resources and glyphs too. The images' memory cache is the
+//   host's to clear (images.h), and React Native's AppState tells JavaScript (`memoryWarning`),
+//   as iOS's didReceiveMemoryWarning does.
 // - The account (a `memory` line in the report, after each trim): Hermes' heaps (the application's
 //   runtime and worklets' UI runtime: their segments, what is allocated in them, the malloc'd
 //   memory their objects hold), malloc's (what is in use and what it holds free), Skia's GPU
@@ -59,6 +66,9 @@ class Memory {
   std::optional<Clock::time_point> nextDeadline() const;
   // Trims when due (the loop calls it every turn); true when it did.
   bool tick(Clock::time_point now);
+  // The machine is short of memory (`critical`: very): what can be made again given back now, on
+  // the loop's thread, outside JavaScript. The account is written to the report afterwards.
+  void relieve(bool critical);
 
   // The account, in MiB (rounded to a tenth): what the report's `memory` line holds.
   folly::dynamic account() const;

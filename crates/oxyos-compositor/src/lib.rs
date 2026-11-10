@@ -47,6 +47,7 @@ pub mod displays;
 pub mod genie;
 pub mod idle;
 pub mod input_methods;
+pub mod memory_pressure;
 pub mod installs;
 pub mod login;
 pub mod motion;

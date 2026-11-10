@@ -750,6 +750,19 @@ fn main() -> Result<()> {
         compositor.wakers.push(activity.wake_fd()?);
         Some(activity)
     };
+    // Memory pressure (docs/adr/0066-quality-of-service.mdx, decision 7): the machine's and the
+    // applications' pressure stall information followed on a thread of its own, waiting on its
+    // triggers alone, and the applications told how short of memory the machine is, those nobody
+    // sees first. The login screen has no application to tell.
+    let mut memory_pressure = if greeter {
+        None
+    } else {
+        let followed = oxyos_compositor::memory_pressure::MemoryPressure::new(
+            oxyos_compositor::memory_pressure::session_sources(),
+        )?;
+        compositor.wakers.push(followed.wake_fd()?);
+        Some(followed)
+    };
     // Backups (docs/adr/0059-backups.mdx): the menu bar's backup item and Settings › Backups,
     // over the system's backup service (followed on one connection, waited for while it is not
     // there), its scheduled backups held while Low Power Mode is on. The login screen has none.
@@ -1389,6 +1402,11 @@ fn main() -> Result<()> {
         if let Some(search) = search.as_mut() {
             search.set_locale(&settings.locale());
             search.serve(&mut compositor.scene);
+        }
+        // How short of memory the machine is, told as it changes and to an application hidden
+        // while it is short.
+        if let Some(memory_pressure) = memory_pressure.as_mut() {
+            memory_pressure.serve(&mut compositor.scene);
         }
         if let Some(status) = application
             .as_mut()
