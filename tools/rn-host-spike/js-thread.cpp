@@ -1,5 +1,6 @@
 #include "js-thread.h"
 
+#include "scheduling.h"
 #include "ui-thread.h"
 
 #include <algorithm>
@@ -49,6 +50,8 @@ void* JsThread::main(void* self) {
   // Its name, as the crash report and the profilers tell threads apart (docs/bloom-host-sanitizers.mdx).
   prctl(PR_SET_NAME, "oxyos-js", 0, 0, 0);
   tJsThread = true;
+  // Input waits on it as on the UI thread: its own short slice (scheduling.h).
+  requestInteractiveSlice();
   // The fatal signals' report runs on a stack of its own, so that a stack overflow here is reported
   // too (crash-report.h): an alternate stack is the thread's own, never inherited.
   static thread_local std::vector<char> alternate(std::max<size_t>(SIGSTKSZ, 64 * 1024));

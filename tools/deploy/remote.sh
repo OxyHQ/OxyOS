@@ -51,22 +51,29 @@ systemctl is-active -q oxyos-accountd || { echo "accounts: oxyos-accountd is not
 [ "$(cat /proc/sys/kernel/yama/ptrace_scope)" = 1 ] || { echo "accounts: ptrace scope is not 1"; exit 1; }
 getent passwd oxyos-login > /dev/null || { echo "accounts: no oxyos-login user"; exit 1; }
 echo "accounts: $(grep -vc '^#' $T/tools/deploy/system-files) files installed, oxyos-accountd active, ptrace scope 1 (tty1: $(systemctl is-enabled oxyos-login 2>/dev/null || true))"
-# Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10) where the machine boots systemd-boot
-# with kernel-install's entries (one converted to OxyOS, decision 9): the plugin installed above writes
-# each new kernel's Safe Mode entry beside its own; the kernels already installed get theirs here, from
-# their entries as they are, and one whose kernel is gone loses its own. Where kernel-install puts them
-# and what it names them by are its own (`kernel-install inspect`), as the plugin is told. Run again,
-# nothing changes. The boot loader's default and entries are otherwise left as they are.
+# OxyOS's kernel parameters (crates/oxyos-recovery/kernel-parameters: the boot logo's and full
+# preemption, docs/adr/0066-quality-of-service.mdx decision 2) and Safe Mode (docs/adr/0054-recovery-
+# and-erasing.mdx, decision 10) where the machine boots systemd-boot with kernel-install's entries (one
+# converted to OxyOS, decision 9). The parameters go on kernel-install's command line (/etc/kernel/
+# cmdline, so every kernel installed later has them) and on the entries already written (each
+# kernel's and the recovery's), from the next boot: the running kernel is never changed, and the
+# machine is never restarted for them. Then the plugin installed above writes each new kernel's Safe
+# Mode entry beside its own; the kernels already installed get theirs here, from their entries as
+# they are now, and one whose kernel is gone loses its own. Where kernel-install puts them and what it
+# names them by are its own (`kernel-install inspect`), as the plugin is told. Run again, nothing
+# changes. The boot loader's default and entries are otherwise left as they are.
 kernel=/boot/vmlinuz-$(uname -r)
 inspect=$(sudo -n kernel-install inspect "$kernel" 2>/dev/null || true)
 layout=$(echo "$inspect" | sed -n 's/.*KERNEL_INSTALL_LAYOUT=//p')
 boot_root=$(echo "$inspect" | sed -n 's/.*KERNEL_INSTALL_BOOT_ROOT=//p')
 token=$(echo "$inspect" | sed -n 's/.*KERNEL_INSTALL_ENTRY_TOKEN=//p')
 if [ "$layout" = bls ] && [ -n "$boot_root" ] && [ -n "$token" ]; then
+  synced=$(sudo -n /usr/sbin/oxyos-recovery kernel-parameters sync --boot-root "$boot_root" --entry-token "$token")
+  echo "$synced" | sed 's/^/kernel parameters: /'
   synced=$(sudo -n /usr/sbin/oxyos-recovery safe-mode-entry sync --boot-root "$boot_root" --entry-token "$token")
   echo "$synced" | sed 's/^/safe mode: /'
 else
-  echo "safe mode: no systemd-boot entries of kernel-install's here (layout '${layout:-none}'): none written"
+  echo "kernel parameters, safe mode: no systemd-boot entries of kernel-install's here (layout '${layout:-none}'): none written"
 fi
 # Backups (docs/adr/0059-backups.mdx) as the image has them: Debian's restic and rclone, the engine and
 # the SMB client the service runs (the image's manifest's, tools/deploy/system-files.py --apt), then the

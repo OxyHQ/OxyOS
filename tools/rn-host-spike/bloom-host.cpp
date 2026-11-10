@@ -37,6 +37,7 @@
 #include "shell-surface.h"
 #include "svg.h"
 #include "memory.h"
+#include "scheduling.h"
 #include "crash-report.h"
 #include "report.h"
 #include "skia-gpu.h"
@@ -732,6 +733,8 @@ std::vector<int> applicationFds(const oxyos::HostServices& services) {
 int main(int argc, char** argv) {
   // Before anything allocates much or a thread starts (memory.h).
   oxyos::configureProcessMemory();
+  // The UI thread's short slice, before any thread starts, so none inherits it (scheduling.h).
+  oxyos::requestInteractiveSlice();
   // A pipe or socket whose reader went away (a paste's receiver, a server) is an error on that
   // write, never a signal that ends the app.
   std::signal(SIGPIPE, SIG_IGN);

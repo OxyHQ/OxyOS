@@ -141,8 +141,11 @@ sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each t
 `tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
 units, PAM services, sysusers, tmpfiles and the ptrace scope), Safe Mode's parts (the recovery's
 program, the kernel-install plugin, the polkit rule) and, where the machine boots systemd-boot with
-kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
-safe-mode-entry sync` with what `kernel-install inspect` says; run again, it changes nothing), backups
+kernel-install's entries, OxyOS's kernel parameters (`crates/oxyos-recovery/kernel-parameters`: the
+boot logo's and full preemption, ADR 0066) on `/etc/kernel/cmdline` and on every kernel's entry and
+the recovery's (`oxyos-recovery kernel-parameters sync`, from the machine's next boot, which the
+deploy never causes) and a Safe Mode entry beside each installed kernel's (`oxyos-recovery
+safe-mode-entry sync` with what `kernel-install inspect` says; run again, either changes nothing), backups
 (Debian's restic and rclone from apt, `oxyos-backupd` enabled, restarted and asked its state, the
 migration's socket enabled; no destination, which is the person's to add), Inbox and
 Allo as development packages in `~/oxyos-validation`,
