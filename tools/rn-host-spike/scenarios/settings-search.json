@@ -66,7 +66,11 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "focus_input": "settings-search"
+    "focus_input": "settings-search",
+    "keyboard_focus": {
+     "target": "settings-search",
+     "ring": true
+    }
    }
   },
   {
@@ -144,6 +148,9 @@
      "ring": true
     },
     "react": {
+     "submitEditing@settings-search": 1,
+     "blur@settings-search": 1,
+     "endEditing@settings-search": 1,
      "focus@settings-nav-displays": 1
     },
     "menus": {
@@ -167,7 +174,11 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "focus_input": "settings-search"
+    "focus_input": "settings-search",
+    "keyboard_focus": {
+     "target": "settings-search",
+     "ring": true
+    }
    }
   },
   {
@@ -183,8 +194,9 @@
      "No Results"
     ],
     "absent": [
-     "Displays",
-     "Appearance"
+     "Keyboard",
+     "Appearance",
+     "Wallpaper"
     ]
    }
   },
@@ -242,6 +254,9 @@
      "ring": true
     },
     "react": {
+     "shortcut@menu-bar": 1,
+     "blur@settings-search": 1,
+     "endEditing@settings-search": 1,
      "focus@settings-nav-trackpad": 1
     }
    }
@@ -274,10 +289,15 @@
    "expect": {
     "delivered": {
      "1": {
+      "enter": 1,
+      "focus.in": 1,
       "menu.activated": 1
      }
     },
     "menus": {
+     "View > Back": {
+      "disabled": false
+     },
      "View > Forward": {
       "disabled": false
      }

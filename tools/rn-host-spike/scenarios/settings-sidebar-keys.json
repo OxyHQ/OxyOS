@@ -1,5 +1,5 @@
 {
- "about": "Settings' sidebar navigated with the arrows as ONE list, as a Mac's System Settings sidebar (docs/adr/0039-keyboard-access.mdx; Bloom's SettingsLayout rail): Settings with the shell, the screen reader on in Spanish. Tab lands on the sidebar once, on its selected row; ↓ ↑, End and Home select the rows and show their panes, the keyboard following the selection and each row said once, selected; ↓ at the end goes nowhere; Tab goes on to the pane's first control and Shift+Tab back to the selected row. The sidebar is one list of its rows, its group labels headings. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (1280 × 720).",
+ "about": "Settings' sidebar navigated with the arrows as ONE list, as a Mac's System Settings sidebar (docs/adr/0039-keyboard-access.mdx; Bloom's SettingsLayout rail): Settings with the shell, the screen reader on in Spanish. Tab lands on the sidebar once, on its selected row; ↓ ↑, End and Home select the rows and show their panes, the keyboard following the selection and each row said once, selected; ↓ at the end goes nowhere; Tab goes on to the pane's first control and Shift+Tab back to the selected row. The sidebar is one list of its rows, its groups apart by space alone (no headings, as a Mac’s); its search field is the first stop. Every step checks the keyboard's focus, what the assistive technology holds, what the reader says and what is announced. At 1 (1280 × 720).",
  "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
@@ -34,7 +34,7 @@
    }
   },
   {
-   "name": "Tab: the keyboard on the sidebar's selected row, Appearance, said once with its state; the sidebar is one list of its rows, its group labels headings",
+   "name": "Tab: the sidebar's search field first, as a Mac's System Settings has it at the sidebar's top, said once",
    "do": [
     "key",
     [
@@ -44,6 +44,35 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
+     "focus@settings-search": 1,
+     "selectionChange@settings-search": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-search",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Buscar, campo de búsqueda",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab again: the keyboard on the sidebar's selected row, Appearance, said once with its state; the sidebar is one list of its rows, its groups apart with no headings, as a Mac’s",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@settings-search": 1,
+     "endEditing@settings-search": 1,
      "focus@settings-nav-appearance": 1
     },
     "keyboard_focus": {
@@ -54,14 +83,6 @@
      "window": [
       {
        "role": "List"
-      },
-      {
-       "role": "Heading",
-       "name": "Personal"
-      },
-      {
-       "role": "Heading",
-       "name": "General"
       },
       {
        "role": "ListItem",
