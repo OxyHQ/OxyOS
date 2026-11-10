@@ -19,6 +19,9 @@
 //! - The accounts' PINs (`oxyos-account`'s `pin`): set at setup and by Settings, checked for PAM
 //!   by `oxyos-pin-check` (this package's other program, which `pam_exec` runs for the PIN
 //!   services), offline, with their own throttle and lockout.
+//! - The person at the seat ([`seat`], [ADR 0066](../../../docs/adr/0066-quality-of-service.mdx),
+//!   decision 8): the user slice of seat0's active session weighs 400 against every other user's
+//!   100, set through systemd as logind's seat changes, on a thread of its own.
 //!
 //! The first account set up on a machine is its administrator (a member of `sudo`); at its start
 //! the service makes the enrolled account with the lowest uid one where accounts are enrolled and
@@ -47,10 +50,16 @@
 //! - `--enroller`: the login program's user, `oxyos-login` by default, read from `/etc/passwd` at
 //!   each connection; while it has no entry, only root may enroll.
 //!
+//! `oxyos-accountd --apply-seat-weights USER_SLICES SEAT` gives a tree of slices that is not
+//! systemd's the seat's weights ([`seat::apply_to_tree`]): SEAT, a directory of USER_SLICES,
+//! the seat's holder's, every other `*.slice` there the default, each printed with its weight.
+//! The saturation benchmark's (`perf.py saturation`, S7) weighs its users so; it needs no root.
+//!
 //! It logs what each request came to (the account's user, the reason it was refused) on standard
 //! error, the journal's; never a password, a secret, a code or a token.
 
 mod passwords;
+mod seat;
 #[cfg(test)]
 mod unit_sandbox;
 
@@ -400,6 +409,11 @@ fn run() -> Result<(), String> {
     // last one read is shown.
     let pictures = Arc::clone(&platform);
     std::thread::spawn(move || pictures.refresh_pictures());
+    // The person at the seat above other users, followed on a thread of its own.
+    std::thread::Builder::new()
+        .name("oxyos-accountd-seat".into())
+        .spawn(|| seat::run(|line| eprintln!("oxyos-accountd: {line}")))
+        .map_err(|error| format!("following the seat: {error}"))?;
     let listener = Listener::bind(&options.socket)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;
     let session_listener = Listener::bind(&options.session_socket)
@@ -493,7 +507,31 @@ fn run() -> Result<(), String> {
     }
 }
 
+/// `--apply-seat-weights USER_SLICES SEAT` (the module's doc).
+fn apply_seat_weights(arguments: &[String]) -> ExitCode {
+    let [user_slices, seat] = arguments else {
+        eprintln!("usage: oxyos-accountd --apply-seat-weights USER_SLICES SEAT");
+        return ExitCode::from(2);
+    };
+    match seat::apply_to_tree(Path::new(user_slices), seat) {
+        Ok(applied) => {
+            for (slice, weight) in applied {
+                println!("{slice} {weight}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("oxyos-accountd: {user_slices}: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn main() -> ExitCode {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    if arguments.first().map(String::as_str) == Some("--apply-seat-weights") {
+        return apply_seat_weights(&arguments[1..]);
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
