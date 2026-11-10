@@ -7584,11 +7584,19 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
             "OXYOS_SUDDEN_TERMINATION_VERSION",
             i64::from(OXYOS_SUDDEN_TERMINATION_VERSION),
         ),
+        ("OXYOS_MATERIAL_VERSION", i64::from(OXYOS_MATERIAL_VERSION)),
+        (
+            "OXYOS_MAX_MATERIAL_REGIONS",
+            i64::from(OXYOS_MAX_MATERIAL_REGIONS),
+        ),
     ] {
         assert_eq!(define(name), value, "{name}");
     }
     assert!(HEADER.contains(
         "int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);"
+    ));
+    assert!(HEADER.contains(
+        "int oxyos_client_set_material_regions(OxyOSClient* client, uint32_t surface, const int32_t* regions, size_t count);"
     ));
     assert_eq!(
         oxyos_protocol::SessionEnd::Restart as u32,
@@ -7646,4 +7654,25 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn material_regions_past_the_limit_or_missing_are_refused_before_sending() {
+    // SAFETY: each call fails on its arguments before the client is touched.
+    unsafe {
+        assert_ne!(
+            oxyos_client_set_material_regions(std::ptr::null_mut(), 1, std::ptr::null(), 17),
+            0
+        );
+        assert_ne!(
+            oxyos_client_set_material_regions(std::ptr::null_mut(), 1, std::ptr::null(), 1),
+            0
+        );
+        let negative = [0, 0, -4, 10, 0];
+        assert_ne!(
+            oxyos_client_set_material_regions(std::ptr::null_mut(), 1, negative.as_ptr(), 1),
+            0
+        );
+    }
 }

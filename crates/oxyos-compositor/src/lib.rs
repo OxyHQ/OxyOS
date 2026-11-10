@@ -538,6 +538,82 @@ pub fn refresh_period(refresh_mhz: u32) -> std::time::Duration {
 }
 
 /// A logical length at a scale (in 120ths), in pixels, rounded to the nearest.
+/// A material region of `layer` (in its buffer's pixels) where the layer is drawn: its rectangle
+/// and radius scaled from the buffer's extent to the layer's rectangle and kept within its clip,
+/// its blur's σ of 20 logical pixels at the screen's scale (`scale_120`), at the layer's opacity
+/// (docs/adr/0069-the-platforms-material.mdx, decision 2). None for one off the layer.
+fn material_area(
+    layer: &oxyos_gpu::Layer<'_>,
+    region: &oxyos_compositor_core::MaterialRegion,
+    scale_120: u32,
+) -> Option<oxyos_gpu::material::MaterialArea> {
+    let (extent_width, extent_height) = layer.extent;
+    if extent_width == 0 || extent_height == 0 {
+        return None;
+    }
+    let across = |value: i64, length: u32, extent: u32| -> i64 {
+        value * i64::from(length) / i64::from(extent)
+    };
+    let x0 = i64::from(layer.x) + across(i64::from(region.rect.x), layer.width, extent_width);
+    let y0 = i64::from(layer.y) + across(i64::from(region.rect.y), layer.height, extent_height);
+    let x1 = i64::from(layer.x)
+        + across(
+            i64::from(region.rect.x) + i64::from(region.rect.width),
+            layer.width,
+            extent_width,
+        );
+    let y1 = i64::from(layer.y)
+        + across(
+            i64::from(region.rect.y) + i64::from(region.rect.height),
+            layer.height,
+            extent_height,
+        );
+    let rect = oxyos_gpu::Rect {
+        x: x0.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        y: y0.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        width: (x1 - x0).clamp(0, i64::from(u32::MAX)) as u32,
+        height: (y1 - y0).clamp(0, i64::from(u32::MAX)) as u32,
+    };
+    let layer_rect = oxyos_gpu::Rect {
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+    };
+    // Within the layer and its clip: a region never blurs beyond what its surface draws.
+    let within = layer
+        .clip
+        .map_or(Some(layer_rect), |clip| clip.intersect(&layer_rect))?;
+    if rect.intersect(&within) != Some(rect) {
+        // A region cut by the layer's edge or clip loses its corners there: drawn square where
+        // it is cut, as the surface's own pixels are.
+        let cut = rect.intersect(&within)?;
+        return Some(oxyos_gpu::material::MaterialArea {
+            rect: cut,
+            radius: 0,
+            sigma: (20 * scale_120 + 60) / 120,
+            opacity: layer.opacity,
+        });
+    }
+    Some(oxyos_gpu::material::MaterialArea {
+        rect,
+        radius: across(i64::from(region.radius), layer.width, extent_width) as u32,
+        sigma: (20 * scale_120 + 60) / 120,
+        opacity: layer.opacity,
+    })
+}
+
+/// `rect` grown by `by` pixels on every side.
+fn grow(rect: oxyos_gpu::Rect, by: u32) -> oxyos_gpu::Rect {
+    let by = by.min(1 << 20) as i32;
+    oxyos_gpu::Rect {
+        x: rect.x.saturating_sub(by),
+        y: rect.y.saturating_sub(by),
+        width: rect.width.saturating_add(2 * by as u32),
+        height: rect.height.saturating_add(2 * by as u32),
+    }
+}
+
 pub fn scaled(length: u32, scale_120: u32) -> u32 {
     ((u64::from(length) * u64::from(scale_120) * 2 + 120) / 240) as u32
 }
@@ -809,6 +885,8 @@ struct ScreenFrame<'a> {
     looks: &'a Looks,
     displayed: &'a HashMap<SurfaceKey, oxyos_compositor_core::Frame>,
     layers: &'a [oxyos_gpu::Layer<'a>],
+    /// The layers' material regions, by layer, in their buffers' pixels.
+    materials: &'a [(usize, Vec<oxyos_compositor_core::MaterialRegion>)],
     transition_drawn: &'a [oxyos_gpu::Rect],
     started: usize,
     locked: bool,
@@ -3003,6 +3081,17 @@ impl Compositor {
                 warp: content.warp.as_deref().map(|rows| oxyos_gpu::Warp { rows }),
             })
             .collect();
+        // Each surface's material regions (docs/adr/0069-the-platforms-material.mdx), by its
+        // layer: only its own pixels' layer, never a shadow, a cover or a copy shown live.
+        let materials: Vec<(usize, Vec<oxyos_compositor_core::MaterialRegion>)> = contents
+            .iter()
+            .enumerate()
+            .filter(|(_, content)| content.shadow.is_none() && content.shares.is_none())
+            .filter_map(|(index, content)| {
+                let regions = self.scene.material_regions(content.key?);
+                (!regions.is_empty()).then(|| (index, regions.to_vec()))
+            })
+            .collect();
         // Frames older than those composed are never shown again.
         self.versions.retain(|(key, sequence), _| {
             list.iter().all(|item| match item {
@@ -3038,6 +3127,7 @@ impl Compositor {
                     looks: &looks,
                     displayed: &displayed,
                     layers: &layers,
+                    materials: &materials,
                     transition_drawn: &transition_drawn,
                     started,
                     locked,
@@ -3465,12 +3555,44 @@ impl Compositor {
             }
             return;
         }
-        // The layers on the screen, in its pixels.
-        let layers: Vec<oxyos_gpu::Layer<'_>> = frame
-            .layers
+        // The layers on the screen, in its pixels, and where each of the frame's is among them.
+        let mut on_screen = vec![None; frame.layers.len()];
+        let mut layers: Vec<oxyos_gpu::Layer<'_>> = Vec::with_capacity(frame.layers.len());
+        for (index, layer) in frame.layers.iter().enumerate() {
+            if let Some(placed) = screen.layer(layer) {
+                on_screen[index] = Some(layers.len());
+                layers.push(placed);
+            }
+        }
+        // The material areas on the screen (docs/adr/0069-the-platforms-material.mdx): each
+        // region from its layer's buffer pixels to where the layer is drawn, within its clip.
+        let materials: Vec<(usize, oxyos_gpu::material::MaterialArea)> = frame
+            .materials
             .iter()
-            .filter_map(|layer| screen.layer(layer))
+            .filter_map(|(index, regions)| Some((on_screen[*index]?, regions)))
+            .flat_map(|(at, regions)| {
+                let layer = &layers[at];
+                regions
+                    .iter()
+                    .filter_map(move |region| material_area(layer, region, screen.scale_120))
+                    .map(move |area| (at, area))
+            })
             .collect();
+        // A region's pixels depend on what is beneath it within its reach: anything changed
+        // there redraws the whole region.
+        let damage = damage.map(|mut rects| {
+            let grown: Vec<oxyos_gpu::Rect> = materials
+                .iter()
+                .filter(|(_, area)| {
+                    let reach = oxyos_gpu::material::reach(area.sigma);
+                    let around = grow(area.rect, reach);
+                    rects.iter().any(|rect| rect.intersect(&around).is_some())
+                })
+                .map(|(_, area)| area.rect)
+                .collect();
+            rects.extend(grown);
+            rects
+        });
         if self.records {
             let area = |rects: &[oxyos_gpu::Rect]| {
                 let within: Vec<oxyos_gpu::Rect> = rects
@@ -3491,16 +3613,21 @@ impl Compositor {
             let framebuffer = &mut self.screens[index].framebuffer;
             match &damage {
                 Some(damage) if framebuffer.len() == width as usize * height as usize => {
-                    oxyos_gpu::compose_cpu_damaged(
+                    oxyos_gpu::compose_cpu_damaged_with_material(
                         framebuffer,
                         width,
                         height,
                         DESKTOP,
                         &layers,
+                        &materials,
                         damage,
                     )
                 }
-                _ => *framebuffer = oxyos_gpu::compose_cpu(width, height, DESKTOP, &layers),
+                _ => {
+                    *framebuffer = oxyos_gpu::compose_cpu_with_material(
+                        width, height, DESKTOP, &layers, &materials,
+                    )
+                }
             }
         }
         if self.keep_frame && index == 0 {
@@ -3520,6 +3647,9 @@ impl Compositor {
             self.gpu_holds = Some(id);
             match composed {
                 Ok(pixels) if pixels == self.screens[index].framebuffer => {}
+                // The shader does not draw the material yet (docs/adr/0069-the-platforms-material.mdx,
+                // the third step): a frame with any is the reference's alone, not a mismatch.
+                Ok(_) if !materials.is_empty() => {}
                 Ok(_) => gpu.mismatches += 1,
                 Err(error) => {
                     eprintln!("[gpu] {error}");
