@@ -97,6 +97,9 @@ INTERACTIONS = [
     ("typing", TYPING_SCENARIO, [2], "typed", "twenty keys typed into a field at ten a second"),
 ]
 
+# A run that lasts longer than this is ended (everything in the session's scope): it has hung.
+RUN_DEADLINE_S = 900
+
 # The pass rule (`--check`): under every load, p95 at most the unloaded p95 plus a refresh, and no
 # late frame in a drag.
 REFRESH_MS = 1000 / 60
@@ -389,6 +392,9 @@ class Watch:
     def __init__(self, fixture, sampler, progress_files):
         self.fixture, self.sampler, self.progress_files = fixture, sampler, progress_files
         self.samples = []
+        self.started = time.monotonic()
+        # The compositor's pid once seen, and the samples since it went.
+        self.compositor_pid, self.gone_for, self.swept = None, 0, False
         self.stopping = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
@@ -397,9 +403,40 @@ class Watch:
         with self.sampler.lock:
             return next((pid for pid, process in self.sampler.processes.items() if process.name == "compositor"), None)
 
+    def sweep(self, everything=False):
+        """What the run left running once its compositor went (an application it launched, a
+        load): every process of the session's scope that perf.py did not start itself (regress.py,
+        S5's index), and everything in the user manager's slices, so regress.py's output closes and
+        it ends. With `everything`, regress.py too: a run that hung."""
+        me = os.getpid()
+        for pid in (self.fixture.session / "cgroup.procs").read_text().split():
+            try:
+                parent = int(pathlib.Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+                if everything or parent != me:
+                    os.kill(int(pid), 9)
+            except (OSError, ValueError, IndexError):
+                pass
+        for slice_ in ("app.slice", "background.slice", "session.slice"):
+            try:
+                (self.fixture.manager / slice_ / "cgroup.kill").write_text("1")
+            except OSError:
+                pass
+
     def run(self):
         while not self.stopping.wait(0.1):
             pid = self.compositor()
+            if pid and self.compositor_pid is None:
+                self.compositor_pid = pid
+            if self.compositor_pid and not self.swept:
+                self.gone_for = 0 if pathlib.Path(f"/proc/{self.compositor_pid}").exists() else self.gone_for + 1
+                if self.gone_for >= 30:
+                    # Gone three seconds: what it launched should have ended with it.
+                    self.sweep()
+                    self.swept = True
+            if time.monotonic() - self.started > RUN_DEADLINE_S:
+                print(f"saturation: a run hung {RUN_DEADLINE_S} s; ended", file=sys.stderr, flush=True)
+                self.sweep(everything=True)
+                self.started = float("inf")
             self.samples.append({
                 "t": time.monotonic_ns(),
                 "compositor": thread_schedstat(pid) if pid else None,
