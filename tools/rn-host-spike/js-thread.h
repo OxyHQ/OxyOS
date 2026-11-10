@@ -81,10 +81,11 @@ class JsThread : public facebook::react::MessageQueueThread {
   // Whether the caller is this thread.
   bool isCurrent() const;
 
-  // The tasks queued so far and those run so far: a task queued when `queued()` was N has run once
-  // `ran()` reaches N.
-  uint64_t queued() const { return queued_.load(); }
-  uint64_t ran() const { return ran_.load(); }
+  // The loop's work comes in batches, one a hand-over: `batch()` is the one being queued now (what
+  // the loop queues goes into it), `done()` the last that JavaScript ran with all it set off, its
+  // thread idle after it. What the loop queued into batch N has been answered once `done()` reaches N.
+  uint64_t batch() const { return batch_.load(); }
+  uint64_t done() const { return done_.load(); }
   // Nothing queued, nothing running, no timer due.
   bool idle() const;
   // Waits until the thread is idle (ui-thread.h's state let go meanwhile), or until `deadline`.
@@ -141,7 +142,10 @@ class JsThread : public facebook::react::MessageQueueThread {
   std::condition_variable wake_, settled_;
   std::deque<Task> tasks_, staged_;
   bool running_ = false, quit_ = false, joined_ = false;
-  std::atomic<uint64_t> queued_{0}, ran_{0};
+  // The batch being queued (from 1), the last handed over and the last done.
+  std::atomic<uint64_t> batch_{1}, handed_{0}, done_{0};
+  // Hands the staged batch over (the lock held).
+  void handOverLocked();
   Timers* timers_ = nullptr;
   facebook::react::TimerManager* timerManager_ = nullptr;
   pthread_t thread_{};

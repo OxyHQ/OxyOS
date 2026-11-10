@@ -380,6 +380,32 @@ class ToJavaScript {
       instance.callFunctionOnModule(module, method, std::move(args));
     });
   }
+  // A state JavaScript is told whole (`RCTDeviceEventEmitter`'s `event` with `payload`: the session's
+  // preferences, the displays, the window's size, a "read again" signal): one not yet delivered is
+  // replaced by the newer, keeping its place, as Fabric coalesces a unique event (a scroll's). A
+  // state that changes several times while JavaScript works reaches it once, as it is then.
+  void tellState(const std::string& event, folly::dynamic payload) {
+    if (!oxyos::UiThread::isCurrent()) {
+      instance_.callFunctionOnModule("RCTDeviceEventEmitter", "emit", told(event, std::move(payload)));
+      return;
+    }
+    {
+      std::lock_guard lock(statesMutex_);
+      auto [it, added] = states_.insert_or_assign(event, std::move(payload));
+      if (!added) return;
+    }
+    run([this, event] {
+      folly::dynamic payload;
+      {
+        std::lock_guard lock(statesMutex_);
+        auto it = states_.find(event);
+        if (it == states_.end()) return;
+        payload = std::move(it->second);
+        states_.erase(it);
+      }
+      instance_.callFunctionOnModule("RCTDeviceEventEmitter", "emit", told(event, std::move(payload)));
+    });
+  }
   // A task of React Native's scheduler, at `priority`.
   void schedule(SchedulerPriority priority, std::function<void(jsi::Runtime&)> task) {
     run([scheduler = instance_.getRuntimeScheduler(), priority, task = std::move(task)]() mutable {
@@ -403,6 +429,8 @@ class ToJavaScript {
   // The loop's turn ends (or the offscreen settle's): what it handed over runs, once JavaScript is
   // idle.
   void handOver() { thread_.handOver(); }
+  // Whether the loop queued anything for JavaScript since the last call.
+  bool handed() { return std::exchange(handed_, false); }
 
  private:
   class Invoker : public CallInvoker {
@@ -426,11 +454,21 @@ class ToJavaScript {
   };
   void run(std::function<void()> task) {
     if (oxyos::UiThread::isCurrent()) {
+      handed_ = true;
       thread_.runOnQueue(std::move(task));
     } else {
       task();
     }
   }
+  bool handed_ = false;
+  static folly::dynamic told(const std::string& event, folly::dynamic payload) {
+    auto args = folly::dynamic::array(event);
+    if (!payload.isNull()) args.push_back(std::move(payload));
+    return args;
+  }
+  // The states told and not yet delivered, by event.
+  std::mutex statesMutex_;
+  std::map<std::string, folly::dynamic> states_;
   ReactInstance& instance_;
   oxyos::JsThread& thread_;
 };
@@ -2456,7 +2494,7 @@ int main(int argc, char** argv) {
         // What JavaScript handed over since the last turn (Mounter): its commits mounted, its view
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
         // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
-        diagnostics.javascriptApplied(js->ran());
+        diagnostics.javascriptApplied(js->done());
         bool pulled = (!mounter.applyWhenJavaScriptIdle || js->idle()) && mounter.apply();
         bool busy = pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
@@ -2787,9 +2825,9 @@ int main(int argc, char** argv) {
             replaying = nullptr;
           }
         }
-        // What JavaScript was handed until now: the inputs below that hand it more are answered once it
-        // ran past what it has then.
-        uint64_t queuedBeforeInput = js->queued();
+        // The inputs below that hand JavaScript something (an event dispatched to a view, a device
+        // event) are answered once it ran this turn's batch, and all it set off.
+        toJavaScript.handed();
         bool connected = window->dispatch([&](const OxyOSEvent& event) {
           // Window::dispatch reported it received just before.
           handlingSeq = oxyos::Report::get().receivedSeq();
@@ -2802,8 +2840,7 @@ int main(int argc, char** argv) {
         // What the events dispatched to views reaches JavaScript now (Fabric's beat), and the inputs are
         // its to answer.
         bool handed = toJavaScript.beat();
-        uint64_t queuedAfterInput = js->queued();
-        diagnostics.handedToJavaScript(handed || queuedAfterInput > queuedBeforeInput, queuedAfterInput);
+        diagnostics.handedToJavaScript(handed || toJavaScript.handed(), js->batch());
         diagnostics.leave(handling);
         // A drag that left this client's last surface in those events has left the window.
         dragDrop.observed();
@@ -2895,14 +2932,13 @@ int main(int argc, char** argv) {
             painterChanged = true;
             dirty = true;
           }
-          emit("OxyOSPreferencesChanged", services.settings.drawing());
+          toJavaScript.tellState("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;
         }
         if (window && window->preferences() != toldPreferences) {
           toldPreferences = window->preferences();
-          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSSettingsChanged", services.settings.values()));
+          toJavaScript.tellState("OxyOSSettingsChanged", services.settings.values());
         }
         // Settings' applications (`getApplications`): told to read them again as the registry
         // changes, and once as the watch begins, for a change before it.
@@ -2912,11 +2948,9 @@ int main(int argc, char** argv) {
           if (!settingsApplications) {
             std::cerr << "[host] Settings' applications are not followed: " << oxyos_last_error() << "\n";
           }
-          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+          toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
         } else if (settingsApplications && oxyos_applications_watch_changed(settingsApplications.get())) {
-          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSApplicationsChanged"));
+          toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
         }
         // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
         // Intl's default is already the new one (the window set it); JavaScript is told, and
@@ -2926,8 +2960,7 @@ int main(int argc, char** argv) {
           // The shell's applications by their names in the new language, and Settings'.
           if (shellMode) shellState.relocalize();
           if (settingsApplications) {
-            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                           folly::dynamic::array("OxyOSApplicationsChanged"));
+            toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
           }
           toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSLocaleChanged",
@@ -2939,8 +2972,7 @@ int main(int argc, char** argv) {
           auto displays = services.settings.displays();
           if (displays != toldDisplays) {
             toldDisplays = displays;
-            toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                           folly::dynamic::array("OxyOSDisplaysChanged", displays));
+            toJavaScript.tellState("OxyOSDisplaysChanged", displays);
             if (!displays.isNull()) oxyos::Report::get().input("displays", oxyos::Window::kToplevel, displays);
           }
         }
@@ -3314,8 +3346,7 @@ int main(int argc, char** argv) {
               auto payload = responderState();
               oxyos::Report::get().input("editing.responder", 0,
                                          folly::dynamic::object("state", payload));
-              toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                             folly::dynamic::array("OxyOSEditingChanged", payload));
+              toJavaScript.tellState("OxyOSEditingChanged", payload);
             }
           }
         }
@@ -3428,8 +3459,7 @@ int main(int argc, char** argv) {
           pointer.setScale(display.scale);
           // useWindowDimensions and Dimensions follow the window (a resize, the output's scale or
           // size changed in Settings), as Android tells them on a configuration change.
-          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("didUpdateDimensions", oxyos::deviceDimensions(display)));
+          toJavaScript.tellState("didUpdateDimensions", oxyos::deviceDimensions(display));
           auto laying = Clock::now();
           {
             Scope fabric(Part::Layout);
@@ -3478,11 +3508,11 @@ int main(int argc, char** argv) {
           toJavaScript.beat();
           settleFrom = Clock::now();
           settleBy = settleFrom + refresh.period();
-          settleAfter = js->queued();
+          settleAfter = js->batch();
           settleTurns = 0;
         } else if (settleBy) {
           ++settleTurns;
-          bool quiet = js->ran() >= settleAfter && js->idle() && !mounter.pending();
+          bool quiet = js->done() >= settleAfter && js->idle() && !mounter.pending();
           bool timedOut = !quiet && Clock::now() >= *settleBy;
           if (quiet || timedOut) {
             settleBy.reset();

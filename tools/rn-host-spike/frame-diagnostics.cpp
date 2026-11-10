@@ -171,15 +171,15 @@ void FrameDiagnostics::input(uint32_t kind, uint32_t detail, uint64_t timeNs) {
   inputs_.push_back(Input{.ns = timeNs != 0 ? timeNs : monotonicNs(), .name = name});
 }
 
-void FrameDiagnostics::handedToJavaScript(bool handed, uint64_t queued) {
+void FrameDiagnostics::handedToJavaScript(bool handed, uint64_t batch) {
   if (!started_) return;
   for (auto& input : inputs_) {
-    if (!input.javascript) input.javascript = handed ? queued : 0;
+    if (!input.javascript) input.javascript = handed ? batch : 0;
   }
 }
 
-void FrameDiagnostics::javascriptApplied(uint64_t ran) {
-  if (started_) javascriptApplied_ = ran;
+void FrameDiagnostics::javascriptApplied(uint64_t done) {
+  if (started_) javascriptApplied_ = done;
 }
 
 bool FrameDiagnostics::awaitingJavaScript() const {

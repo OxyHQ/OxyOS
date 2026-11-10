@@ -121,12 +121,12 @@ class FrameDiagnostics {
   const std::string& currentTrigger() const { return trigger_; }
   int currentRank() const { return triggerRank_; }
   // The inputs of the turn are handed to JavaScript, if `handed` (an event dispatched to a view, a
-  // device event), its thread having been given `queued` tasks by then: they are answered by the
-  // first frame presented once JavaScript has run those and the loop applied what they committed
+  // device event), in its thread's batch `batch` (js-thread.h): they are answered by the first frame
+  // presented once JavaScript has run that batch and the loop applied what it committed
   // (javascriptApplied). Inputs that handed it nothing are answered by the next frame.
-  void handedToJavaScript(bool handed, uint64_t queued);
-  // The loop is about to apply what JavaScript handed over: the tasks it had run by then, `ran`.
-  void javascriptApplied(uint64_t ran);
+  void handedToJavaScript(bool handed, uint64_t batch);
+  // The loop is about to apply what JavaScript handed over: the last batch it had run by then.
+  void javascriptApplied(uint64_t done);
   // Whether an input waits for JavaScript to run what it was handed: the loop is then woken as
   // JavaScript's thread settles, to time it, or to forget it if its answer drew nothing.
   bool awaitingJavaScript() const;

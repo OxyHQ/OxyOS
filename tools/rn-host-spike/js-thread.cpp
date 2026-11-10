@@ -62,7 +62,6 @@ void JsThread::runOnQueue(std::function<void()>&& task) {
   {
     std::lock_guard lock(mutex_);
     (staged ? staged_ : tasks_).push_back(Task{std::move(task), std::move(cause)});
-    ++queued_;
   }
   if (!staged) wake_.notify_one();
 }
@@ -71,10 +70,16 @@ void JsThread::handOver() {
   {
     std::lock_guard lock(mutex_);
     if (staged_.empty() || running_ || !tasks_.empty()) return;
-    for (auto& task : staged_) tasks_.push_back(std::move(task));
-    staged_.clear();
+    handOverLocked();
   }
   wake_.notify_one();
+}
+
+void JsThread::handOverLocked() {
+  if (staged_.empty()) return;
+  for (auto& task : staged_) tasks_.push_back(std::move(task));
+  staged_.clear();
+  handed_ = batch_.fetch_add(1);
 }
 
 void JsThread::runOnQueueSync(std::function<void()>&& task) {
@@ -89,8 +94,7 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
   {
     // Run whatever the thread is doing: it is waited for, the loop's work queued before it included.
     std::lock_guard lock(mutex_);
-    for (auto& staged : staged_) tasks_.push_back(std::move(staged));
-    staged_.clear();
+    handOverLocked();
     tasks_.push_back(Task{[&] {
                             try {
                               task();
@@ -102,7 +106,6 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
                             doneChanged.notify_all();
                           },
                           Cause{}});
-    ++queued_;
   }
   wake_.notify_one();
   {
@@ -124,8 +127,7 @@ bool JsThread::waitIdle(Clock::time_point deadline) {
   UiThread::Unlocked unlocked;
   std::unique_lock lock(mutex_);
   // What the loop queued runs too.
-  for (auto& staged : staged_) tasks_.push_back(std::move(staged));
-  staged_.clear();
+  handOverLocked();
   wake_.notify_one();
   return settled_.wait_until(lock, deadline, [this] { return quit_ || (!running_ && tasks_.empty()); });
 }
@@ -178,7 +180,6 @@ void JsThread::serve() {
     while (true) {
       task.run();
       task.run = nullptr;
-      ++ran_;
       ++stretch.tasks;
       lock.lock();
       bool more = next(task, lock);
@@ -200,6 +201,8 @@ void JsThread::serve() {
     if (worked_) worked_(stretch);
     lock.lock();
     running_ = false;
+    // Idle: every batch handed over has been run, with all it set off.
+    if (tasks_.empty()) done_ = handed_.load();
     settled_.notify_all();
     if (quit_) return;
     if (settledHook_ && tasks_.empty()) {
