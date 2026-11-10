@@ -57,26 +57,31 @@ def api(path, method="GET"):
                 raise
 
 
-def queue_commits():
-    """The commits the merge queue's entries are being tested on, or None if the queue cannot be
-    read (then no run is taken for superseded)."""
+def queue_entries():
+    """The merge queue's entries (queue_entries_of), or None if the queue cannot be read (then no run
+    is taken for superseded)."""
     owner, name = os.environ["GITHUB_REPOSITORY"].split("/")
     query = ('{repository(owner:"%s",name:"%s"){mergeQueue(branch:"main"){entries(first:100)'
-             '{nodes{headCommit{oid}}}}}}' % (owner, name))
+             '{nodes{headCommit{oid} pullRequest{number}}}}}}' % (owner, name))
     request = urllib.request.Request(
         "https://api.github.com/graphql", data=json.dumps({"query": query}).encode(), method="POST",
         headers={"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return waited_commits(json.loads(response.read()))
+            return queue_entries_of(json.loads(response.read()))
     except (OSError, ValueError):
         return None
 
 
-def waited_commits(answer):
-    """The entries' commits in a GraphQL answer for the merge queue, or None when the answer does not
-    say what the queue holds (an error, no queue, an unreadable one): an empty set would take every
-    merge queue run for superseded."""
+def queue_entries_of(answer):
+    """The entries in a GraphQL answer for the merge queue, each (its pull request's number, the
+    commit its group is tested on), either None when the answer leaves it out; or None when the
+    answer does not say what the queue holds (an error, no queue, an unreadable one): an empty list
+    would take every merge queue run for superseded.
+
+    An entry without a commit is waiting for its group to be built, as it is while GitHub builds
+    the queue's groups again, and until it is, the run of its previous group may still be the one
+    GitHub counts for it."""
     try:
         queue = answer["data"]["repository"]["mergeQueue"]
         nodes = queue["entries"]["nodes"]
@@ -84,26 +89,49 @@ def waited_commits(answer):
         return None
     if answer.get("errors") or not isinstance(nodes, list):
         return None
-    # An entry without a commit is waiting for its group to be built: no run is its yet.
-    return {node["headCommit"]["oid"] for node in nodes if node and node.get("headCommit")}
+    return [((node.get("pullRequest") or {}).get("number"), (node.get("headCommit") or {}).get("oid"))
+            for node in nodes if node]
 
 
 def when(text):
     return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")) if text else None
 
 
-def superseded(runs, waited, now, own=None):
+def pull_request_of(run):
+    """The number of the pull request a merge queue run tests last (its branch is
+    gh-readonly-queue/main/pr-NUMBER-BASE), or None."""
+    match = re.search(r"/pr-(\d+)-[0-9a-f]+$", run.get("head_branch") or "")
+    return int(match.group(1)) if match else None
+
+
+def superseded(runs, entries, now, own=None):
     """The merge queue's Scenarios runs, of those listed, that no entry of the queue waits for.
 
-    `waited` is the queue's commits (queue_commits), read after `runs` was listed: a run listed for a
-    group still in the queue then has its commit among them. A run younger than GRACE is left, in
-    case GitHub's queue answer lags its runs, and so is `own`, the run asking (GITHUB_RUN_ID)."""
-    if waited is None:
+    `entries` is the queue (queue_entries), read after `runs` was listed: a run listed for a group
+    still in the queue then has its commit among the entries'. A run is taken only when the queue
+    says it is no entry's: its commit is no entry's group's, and its pull request is out of the queue
+    or its entry's group is another, already built. A run whose entry is waiting for its group to be
+    built is left: GitHub may still count it for that entry, and a run cancelled then fails the
+    entry and takes it out of the queue (#543 on 10 November 2026, when the queue was built again
+    behind an entry taken out). So is a run younger than GRACE, in case GitHub's queue answer lags
+    its runs, and `own`, the run asking (GITHUB_RUN_ID)."""
+    if entries is None:
         return []
+    built = {commit for _, commit in entries if commit}
+    known = {number for number, _ in entries if number is not None}
+    unbuilt = {number for number, commit in entries if not commit}
+
+    def no_entrys(run):
+        number = pull_request_of(run)
+        if run["head_sha"] in built or number is None or number in unbuilt:
+            return False
+        # An entry without a group whose number the answer left out may be this run's.
+        return number in known or None not in unbuilt
+
     return [run for run in runs
             if run.get("event") == "merge_group" and run["name"] == WORKFLOW
             and run["status"] in ("queued", "in_progress", "waiting", "pending", "requested")
-            and run["head_sha"] not in waited
+            and no_entrys(run)
             and str(run["id"]) != str(own)
             and now - when(run["created_at"]) >= GRACE]
 
@@ -158,7 +186,7 @@ def cancel_superseded(now, dry):
     # after it, so only a group gone before that read is taken for superseded.
     runs = [run for status in ("queued", "in_progress")
             for run in api(f"actions/runs?status={status}&event=merge_group&per_page=100")["workflow_runs"]]
-    taken = superseded(runs, queue_commits(), now, os.environ.get("GITHUB_RUN_ID"))
+    taken = superseded(runs, queue_entries(), now, os.environ.get("GITHUB_RUN_ID"))
     for run in taken:
         print(f"run {run['id']} ({run['head_branch']}): no merge queue entry waits for it: "
               f"{'would cancel' if dry else 'cancelled'}")
