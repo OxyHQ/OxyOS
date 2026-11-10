@@ -3257,7 +3257,10 @@ fn version_40_memory_pressure_is_only_version_40s() {
         assert_eq!(read_event_for(&mut Cursor::new(new), 40).unwrap(), event);
     }
     assert!(MemoryPressureLevel::from_raw(3).is_none());
-    assert_eq!(MemoryPressureLevel::from_raw(0), Some(MemoryPressureLevel::Normal));
+    assert_eq!(
+        MemoryPressureLevel::from_raw(0),
+        Some(MemoryPressureLevel::Normal)
+    );
 }
 
 #[test]

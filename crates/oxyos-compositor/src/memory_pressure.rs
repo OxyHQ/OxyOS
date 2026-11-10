@@ -347,7 +347,8 @@ mod tests {
 
     #[test]
     fn a_file_without_triggers_is_left_out_and_nothing_waits() {
-        let missing = std::env::temp_dir().join(format!("oxyos-no-pressure-{}", std::process::id()));
+        let missing =
+            std::env::temp_dir().join(format!("oxyos-no-pressure-{}", std::process::id()));
         let followed = MemoryPressure::new(vec![missing]).unwrap();
         assert!(followed.followed().is_empty());
         assert_eq!(followed.level(), MemoryPressureLevel::Normal);

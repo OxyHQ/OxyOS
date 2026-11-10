@@ -94,10 +94,7 @@ fn an_application_hidden_while_memory_is_short_is_told_then_and_one_gone_forgott
     // The shown application minimized: told at the program's next turn.
     h.scene.minimize(key(APP, 1));
     h.scene.tell_memory_pressure();
-    assert_eq!(
-        told(&logged(&mut h)),
-        [(APP, MemoryPressureLevel::Warning)]
-    );
+    assert_eq!(told(&logged(&mut h)), [(APP, MemoryPressureLevel::Warning)]);
     // One that goes is not told it eased.
     h.scene.disconnect(HIDDEN);
     h.scene.set_memory_pressure(MemoryPressureLevel::Normal);

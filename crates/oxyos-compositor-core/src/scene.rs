@@ -5255,9 +5255,9 @@ pub use session_end::{QuitReplied, SessionKey, KEY_POWER};
 /// Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
 mod safe_mode;
 pub use safe_mode::SAFE_MODE_VERSION;
-mod memory_pressure;
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 mod choosers;
+mod memory_pressure;
 pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};
 mod displays;
 pub use displays::{
