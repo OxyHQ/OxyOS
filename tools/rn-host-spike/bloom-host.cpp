@@ -2629,7 +2629,9 @@ int main(int argc, char** argv) {
         bool waitedARefresh = applyWaited && Clock::now() - *applyWaited >=
                                                  std::chrono::duration<double, std::milli>(refresh.periodMs());
         bool keysAnswering = offeredKey.has_value() || !heldBehindKey.empty();
-        bool pulled = js->idle() && !keysAnswering && (js->stagedRank() < 1 || waitedARefresh) && mounter.apply();
+        // (The person's own input: what started its work ranks 2, FrameDiagnostics::trigger's; the
+        // compositor telling something, a session's state, is told after.)
+        bool pulled = js->idle() && !keysAnswering && (js->stagedRank() < 2 || waitedARefresh) && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
