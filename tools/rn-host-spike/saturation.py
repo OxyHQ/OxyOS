@@ -367,6 +367,13 @@ def turn_thread(pid):
     return {"nice": int(stat[16]), "policy": int(stat[38]), "slice_ns": slice_ns}
 
 
+def read_bytes(path):
+    try:
+        return int(pathlib.Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def read_progress(path):
     try:
         return json.loads(pathlib.Path(path).read_text())
@@ -400,6 +407,9 @@ class Watch:
                 "session": pressure(self.fixture.session),
                 "apps": pressure(self.fixture.manager / "app.slice"),
                 "loads": {name: read_progress(path) for name, path in self.progress_files.items()},
+                # The machine's memory compressed in zswap's pool and written to swap, in bytes.
+                "zswap": read_bytes(self.fixture.machine / "memory.zswap.current"),
+                "swap": read_bytes(self.fixture.machine / "memory.swap.current"),
             })
 
     def stop(self):
@@ -431,6 +441,11 @@ class Watch:
                 loads[name] = {"work_per_s": round((last["work"] - first["work"]) / seconds, 3),
                                "cores": round((last["cpu_ms"] - first["cpu_ms"]) / (seconds * 1000), 2)}
         result["loads"] = loads
+        within = [s for s in self.samples if a["t"] <= s["t"] <= b["t"]]
+        for kind in ("zswap", "swap"):
+            seen = [s[kind] for s in within if s.get(kind) is not None]
+            if seen:
+                result[f"{kind}_mib"] = round(max(seen) / (1 << 20), 1)
         return result
 
 
@@ -630,7 +645,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
     name, source, steps, key, what = interaction
     latencies, compose, js, late, frames = [], [], [], 0, 0
     waits, pressures, progress, failed, turns = [], [], [], [], []
-    kills, levels = {"machine": 0, "session": 0}, []
+    kills, levels, swapped = {"machine": 0, "session": 0}, [], []
     for run in range(options.runs):
         scenario = relaxed(scenario_of(source))
         # The application under the hand is one the session launched, with its id (its launch
@@ -692,6 +707,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
         if window.get("turn"):
             turns.append(window["turn"])
         pressures.append({where: window.get(f"{where}_pressure", {}) for where in ("session", "apps")})
+        swapped.append({kind: window.get(f"{kind}_mib") for kind in ("zswap", "swap")})
         progress.append(window.get("loads", {}))
 
     def mean_of(entries, *path):
@@ -721,6 +737,9 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
         "loads": loads_progress,
         "failed": failed,
         "oom_kills": kills,
+        # The most of the machine's memory in zswap's pool and in swap while the input was measured.
+        "zswap_mib": max((s["zswap"] for s in swapped if s.get("zswap") is not None), default=None),
+        "swap_mib": max((s["swap"] for s in swapped if s.get("swap") is not None), default=None),
         "memory_pressure_told": levels,
         # The turn thread as the last run left it: its nice, policy and slice.
         "turn": turns[-1] if turns else None,
@@ -834,6 +853,8 @@ def show(results, table):
             said.append(f"{kills['machine']} OOM kills ({kills.get('session', 0)} of the session's)")
         if highest:
             said.append(f"told {highest}")
+        if entry.get("swap_mib") or entry.get("zswap_mib"):
+            said.append(f"zswap {entry.get('zswap_mib') or 0} MiB, swap {entry.get('swap_mib') or 0} MiB")
         return ("; " + ", ".join(said)) if said else ""
 
     rows = []
