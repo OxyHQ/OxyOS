@@ -200,11 +200,14 @@ class Mounter : public SchedulerDelegate {
     }
     oxyos::UiThread::wake();
   }
-  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): what JavaScript handed over is
-  // applied only once JavaScript is idle, after everything it ran for its commits (their passive
-  // effects among it), so what an effect sends after its commit comes before the mount. A commit made
-  // on the UI thread waits for the loop's frame too.
+  // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): a commit made on the UI thread is
+  // applied only at the loop's frame too.
   bool mountAtFrame = false;
+  // A scenario's forced order (any OXYOS_HOST_TEST_ORDER): what JavaScript handed over is applied
+  // only once JavaScript is idle, after everything it ran with its commits (their passive effects
+  // among it), as the loop and JavaScript took turns: what an effect sends after its commit is
+  // handled with the mount, in the order the forced order is about.
+  bool applyWhenJavaScriptIdle = false;
   // Whether anything waits to be applied.
   bool pending() {
     std::lock_guard lock(mutex_);
@@ -874,6 +877,7 @@ int main(int argc, char** argv) {
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
+  mounter.applyWhenJavaScriptIdle = !testOrder.empty();
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -2360,7 +2364,7 @@ int main(int argc, char** argv) {
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
         // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
         diagnostics.javascriptApplied(js->ran());
-        bool pulled = (!mounter.mountAtFrame || js->idle()) && mounter.apply();
+        bool pulled = (!mounter.applyWhenJavaScriptIdle || js->idle()) && mounter.apply();
         bool busy = pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
         bool uiFrame = false;
@@ -3558,7 +3562,7 @@ int main(int argc, char** argv) {
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
         wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() ||
-                         (mounter.mountAtFrame && mounter.pending());
+                         (mounter.applyWhenJavaScriptIdle && mounter.pending());
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
