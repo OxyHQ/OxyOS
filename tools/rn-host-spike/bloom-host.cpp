@@ -654,8 +654,9 @@ int main(int argc, char** argv) {
       [&] { runtime = std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(runtimeConfig.build())); });
   // Counted on JavaScript's thread.
   std::atomic<int> jsErrors = 0;
-  // React Native's runtime, once its bundle is loading: set on its thread.
+  // React Native's runtime, once its bundle is loading, and whether the bundle ran: set on its thread.
   std::atomic<jsi::Runtime*> hermesRuntime = nullptr;
+  std::atomic<bool> bundleRan = false;
   auto instance = std::make_unique<ReactInstance>(
       std::move(runtime), js, std::move(ownedTimerManager),
       [&](jsi::Runtime&, const JsErrorHandler::ProcessedError& error) noexcept {
@@ -1028,7 +1029,7 @@ int main(int argc, char** argv) {
         runtime.evaluateJavaScript(framework, url);
         stage("bundle");
       },
-      nullptr);
+      [&bundleRan](jsi::Runtime&) { bundleRan = true; });
 
   stage("surface");
   SurfaceHandler surface(moduleName, 1);
@@ -2259,6 +2260,7 @@ int main(int argc, char** argv) {
     std::optional<Clock::time_point> settleBy;
     Clock::time_point settleFrom;
     uint64_t settleAfter = 0;  // what JavaScript was handed for the new size: settled once it ran
+    bool firstShown = false;  // the window's first frame may be drawn (below)
     int settleTurns = 0;
     try {
       // Where the turn's time goes, for the session's log (frame-diagnostics.h).
@@ -3365,7 +3367,12 @@ int main(int argc, char** argv) {
         }
         // Every configure is answered with a frame, even one that changes nothing it shows.
         if (!window->answered(oxyos::Window::kToplevel)) dirty = true;
-        if (dirty && !settling && window->ready(oxyos::Window::kToplevel)) {
+        // The window's first frame shows what the application first mounted, as the single thread's
+        // did: it waits for JavaScript's first commit, or for JavaScript to have run its bundle and
+        // gone idle without one (an application that draws nothing), never shows an empty window
+        // before JavaScript had its turn.
+        if (!firstShown && (mounter.transactions > 0 || (bundleRan && js->idle()))) firstShown = true;
+        if (dirty && !settling && firstShown && window->ready(oxyos::Window::kToplevel)) {
           Scope drawing(Part::Draw);
           auto started = Clock::now();
           auto damage = windowDamage.update(tree, display, drawn);
@@ -3463,7 +3470,7 @@ int main(int argc, char** argv) {
         dragDrop.ranJavaScript();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
-        wakeUiWhenIdle = settleBy.has_value() || diagnostics.awaitingJavaScript();
+        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript();
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
