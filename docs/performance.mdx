@@ -791,7 +791,9 @@ launches. Each load starts five seconds before the input and its progress is rec
 second and the cores it used): a load yields, it is not starved. For S6, `machine/`'s `memory.max`
 is the machine's memory, so the hog never touches anything outside the run. Where the tree has a
 played rtkit (`tools/rn-host-spike/played-rtkit.sh`), the run starts it for the compositor to ask,
-as the session asks the system's.
+as the session asks the system's; where the accounts' service weighs the users' slices
+(`oxyos-accountd --apply-seat-weights`, beside the development compositor), the run's are weighed
+by it, the person at the seat's and another user's, else both stay at 100 as on today's machine.
 
 Each row: the inputs measured over every run, their latency at p50, p95, p99 and its most, late
 frames (a drag's frames more than one and a half refreshes apart), composing at p95, the

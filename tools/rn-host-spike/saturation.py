@@ -661,6 +661,23 @@ class PlayedRtkit:
         os.environ.pop("OXYOS_RTKIT_BUS", None)
 
 
+def seat_weights(offscreen, fixture):
+    """The users' slices weighted as the machine weighs them (docs/adr/0066, decision 8): the
+    accounts' service's own rule (`oxyos-accountd --apply-seat-weights USERS SEAT`, beside the
+    development compositor) given the run's `user.slice`, the person at the seat's slice named. A
+    build without it leaves every user's slice at 100, as today's machine does. What it wrote."""
+    accountd = pathlib.Path(offscreen).resolve().parent / "oxyos-accountd"
+    users = fixture.machine / "user.slice"
+    if not accountd.exists():
+        return {"applied": False, "why": f"no {accountd.name} beside the development compositor"}
+    done = subprocess.run([str(accountd), "--apply-seat-weights", str(users), "user-seat.slice"],
+                          capture_output=True, text=True)
+    if done.returncode != 0:
+        return {"applied": False, "why": (done.stderr.strip() or done.stdout.strip())[-300:]}
+    weights = dict(line.split()[:2] for line in done.stdout.splitlines() if len(line.split()) >= 2)
+    return {"applied": True, "weights": weights}
+
+
 def run(options, out, run_scenario, search):
     """Every chosen load and interaction (`--loads`, `--interactions`); `search` is perf.py's search
     service and its home's maker, for S5's index."""
@@ -673,6 +690,7 @@ def run(options, out, run_scenario, search):
     results = {"cpus": fixture.cpus, "cgroup": str(fixture.root), "machine_mib": MACHINE_MIB,
                "kernel": platform.release(), "loads": {}, "what": dict(LOADS)}
     results["played_rtkit"] = rtkit.unit is not None
+    results["seat_weights"] = seat_weights(loads.offscreen, fixture)
     try:
         for load, what in chosen_loads:
             print(f"saturation: {load}, {what}", file=sys.stderr, flush=True)
@@ -711,8 +729,11 @@ def show(results, table):
                  if entry.get("turn")), None)
     said = "" if not turn else (f", the compositor's turn at nice {turn['nice']}, policy {turn['policy']}, "
                                 f"a {turn['slice_ns'] / 1e6:.2f} ms slice")
+    seat = results.get("seat_weights") or {}
+    users = (", users' slices " + " ".join(f"{k} {v}" for k, v in seat["weights"].items())
+             if seat.get("applied") else ", every user's slice at 100")
     print(f"saturation on {len(results['cpus'])} CPUs ({results['kernel']}){said}"
-          f"{', rtkit played' if results.get('played_rtkit') else ''}:")
+          f"{', rtkit played' if results.get('played_rtkit') else ''}{users}:")
     print(table(rows, ["load", "interaction", "inputs", "input to present ms p50 / p95 / p99 / max", "late frames",
                        "compose ms p95", "app JS ms p95", "compositor wait µs a run", "session pressure % cpu / mem / io",
                        "the load's progress"]))
