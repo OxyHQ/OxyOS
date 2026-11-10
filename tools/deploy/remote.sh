@@ -68,6 +68,17 @@ if [ "$layout" = bls ] && [ -n "$boot_root" ] && [ -n "$token" ]; then
 else
   echo "safe mode: no systemd-boot entries of kernel-install's here (layout '${layout:-none}'): none written"
 fi
+# Crash evidence (docs/adr/0068-crash-evidence-and-kernel-panics.mdx) as the image has it: Debian's
+# systemd-coredump (a native crash's backtrace in the journal, its core never kept: coredump.conf.d
+# above), and the kernel's panic settings applied now (sysctl --system above); the hardware watchdog
+# (system.conf.d above) is systemd's from the next boot: the machine's first process is never
+# re-executed under a signed-in person.
+pkgs=$(python3 $T/tools/deploy/system-files.py --apt-evidence)
+missing=$(for p in $pkgs; do dpkg-query -W -f="\${Status}" $p 2>/dev/null | grep -q "ok installed" || echo $p; done)
+[ -z "$missing" ] || sudo -n apt-get install -y -q --no-install-recommends $missing > /dev/null
+case $(cat /proc/sys/kernel/core_pattern) in "|/usr/lib/systemd/systemd-coredump"*) ;; *) echo "evidence: cores do not reach systemd-coredump"; exit 1 ;; esac
+[ "$(cat /proc/sys/kernel/panic)" = 10 ] && [ "$(cat /proc/sys/kernel/panic_on_oops)" = 1 ] || { echo "evidence: the kernel's panic settings are not applied"; exit 1; }
+echo "evidence: systemd-coredump catches crashes, a panic restarts in 10 s, the watchdog ($(cat /sys/class/watchdog/watchdog0/identity 2>/dev/null || echo none)) from the next boot"
 # Backups (docs/adr/0059-backups.mdx) as the image has them: Debian's restic and rclone, the engine and
 # the SMB client the service runs (the image's manifest's, tools/deploy/system-files.py --apt), then the
 # service installed above enabled and restarted onto its new program, and the migration's socket

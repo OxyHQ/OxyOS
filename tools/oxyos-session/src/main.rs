@@ -281,6 +281,14 @@ fn main() -> Result<()> {
     if greeter && (shell_command.is_none() || !command.is_empty()) {
         return Err(USAGE.into());
     }
+    // A crash of the person's session, or of what it starts, leaves its backtrace
+    // (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): its core limit raised to all it may
+    // (the soft limit to the hard one, which the login program's unit leaves unlimited), so
+    // systemd-coredump reads the core, logs the backtrace and keeps nothing else. The login
+    // screen's session keeps the limit it was given: it holds passwords as they are typed.
+    if !greeter {
+        raise_core_limit();
+    }
     // The user's preferences; what the file does not say (or is not there) is the default.
     // The login screen has no person's preferences to speak: its locale is the system's alone
     // (ADR 0040).
@@ -865,6 +873,13 @@ fn main() -> Result<()> {
     // The last session ended because of a problem: its report, and the person told.
     if let Some(ended) = session_ended.as_ref().filter(|_| !greeter) {
         crashes.session_ended(&mut compositor.scene, ended, reopened_any);
+    }
+    // The computer restarted because of a kernel panic since the person was last told
+    // (docs/adr/0068, decision 3).
+    if !greeter {
+        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
+            crashes.restarted(&mut compositor.scene, &problems, &told);
+        }
     }
     if safe_mode && !greeter {
         eprintln!("[session] Safe Mode: nothing opened at login");
@@ -1603,6 +1618,19 @@ fn main() -> Result<()> {
     }
     compositor.seat = None;
     ended
+}
+
+/// The core limit's soft value raised to its hard one (see its call).
+fn raise_core_limit() {
+    use rustix::process::{getrlimit, setrlimit, Resource};
+    let mut limit = getrlimit(Resource::Core);
+    if limit.current == limit.maximum {
+        return;
+    }
+    limit.current = limit.maximum;
+    if let Err(error) = setrlimit(Resource::Core, limit) {
+        eprintln!("[session] its crashes leave no backtrace: the core limit: {error}");
+    }
 }
 
 /// Reads what woke a turn from a waker (`Compositor::wakers`) until nothing is left.
