@@ -1223,6 +1223,12 @@ impl Session {
                 self.settings.preferences(),
                 std::time::Instant::now(),
             );
+            // Reopened on the person's answer: back whole where it was (docs/adr/0070).
+            if let Some(places) = self.places.as_mut() {
+                for id in resume.take_opened() {
+                    places.opened_at_login(&id);
+                }
+            }
         }
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {

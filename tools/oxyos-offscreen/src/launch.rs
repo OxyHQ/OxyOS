@@ -6445,7 +6445,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if let (Some(path), Some(launcher)) =
         (oxyos_compositor::resume::path(), session.launcher.as_mut())
     {
-        let (resume, reopened) = oxyos_compositor::resume::Resume::at_login(
+        let (mut resume, reopened) = oxyos_compositor::resume::Resume::at_login(
             path,
             oxyos_compositor::session_end::reopen_path().as_deref(),
             session.settings.preferences(),
@@ -6454,6 +6454,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             &mut session.compositor.scene,
             Instant::now(),
         );
+        // What it opened again comes back whole where it was, as the login items do (ADR 0070).
+        if let Some(places) = session.places.as_mut() {
+            for id in resume.take_opened() {
+                places.opened_at_login(&id);
+            }
+        }
         session.resume = Some(resume);
         if let Some(ended) = oxyos_compositor::crashes::SessionEnded::take() {
             session

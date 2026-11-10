@@ -885,6 +885,12 @@ fn main() -> Result<()> {
             reopened_any = reopened;
             resume
         });
+    // What Resume opened again comes back whole where it was, as the login items do (docs/adr/0070).
+    if let (Some(resume), Some(places)) = (resume.as_mut(), places.as_mut()) {
+        for id in resume.take_opened() {
+            places.opened_at_login(&id);
+        }
+    }
     // The last session ended because of a problem: its report, and the person told.
     if let Some(ended) = session_ended.as_ref().filter(|_| !greeter) {
         crashes.session_ended(&mut compositor.scene, ended, reopened_any);
@@ -1623,6 +1629,12 @@ fn main() -> Result<()> {
                 settings.preferences(),
                 Instant::now(),
             );
+            // Reopened on the person's answer: back whole where it was (docs/adr/0070).
+            if let Some(places) = places.as_mut() {
+                for id in resume.take_opened() {
+                    places.opened_at_login(&id);
+                }
+            }
         }
         // The worker's heartbeat (docs/adr/0065, decision 1): said as each turn ends, and a turn
         // waits at most `heartbeat::WAIT`, so a session that runs says it; one that stops is ended.
