@@ -58,7 +58,7 @@
    }
   },
   {
-   "name": "Ctrl+Alt+Right: the reader says the next element in English, with eSpeak's English voice",
+   "name": "Ctrl+Alt+Right: the reader starts in the window with the keyboard, Settings' (docs/adr/0014-screen-reader.mdx, decision 5 as amended), and says its first element in English, with eSpeak's English voice",
    "do": [
     "key",
     [
@@ -71,7 +71,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Wallpaper, image",
+      "text": "Settings",
       "interrupting": true,
       "voice": "en"
      }
