@@ -183,7 +183,7 @@ test("connection changes heard: paired devices that connected or disconnected, n
 test("Bluetooth's words in every language, as a Mac says them", () => {
   assert.equal(words.discoverable("ThinkPad"), "Now discoverable as “ThinkPad”.");
   assert.equal(words.forgetTitle("AirPods Pro"), "Forget “AirPods Pro”?");
-  assert.equal(words.forgetDescription, "You'll need to pair it again to use it.");
+  assert.equal(words.forgetDescription, "You’ll need to pair it again to use it.");
   assert.equal(words.forget, "Forget Device");
   assert.equal(words.connectLabel("JBL Flip 6"), "Connect “JBL Flip 6”");
   assert.equal(words.disconnectLabel("AirPods Pro"), "Disconnect “AirPods Pro”");

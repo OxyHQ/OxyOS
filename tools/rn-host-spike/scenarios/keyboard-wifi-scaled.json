@@ -292,6 +292,10 @@
      {
       "text": "La red Wi-Fi “Vecinos” requiere una contraseña WPA2., diálogo",
       "interrupting": true
+     },
+     {
+      "text": "Contraseña, campo de texto",
+      "interrupting": false
      }
     ]
    },
@@ -325,7 +329,7 @@
     "spoken": [
      {
       "text": "Mostrar contraseña, botón",
-      "interrupting": false
+      "interrupting": true
      }
     ],
     "announcements": []

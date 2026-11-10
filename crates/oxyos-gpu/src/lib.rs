@@ -635,7 +635,9 @@ pub use warp::{Warp, WarpRow};
 mod vulkan;
 #[cfg(target_os = "linux")]
 pub use vulkan::ScanoutTarget;
-pub use vulkan::{DeviceKind, DmaBufFormat, DmaBufPlane, Handovers, VulkanCompositor};
+pub use vulkan::{
+    DeviceKind, DmaBufFormat, DmaBufPlane, Handovers, QueuePriority, VulkanCompositor,
+};
 
 fn words(bytes: &[u8]) -> Vec<u32> {
     bytes

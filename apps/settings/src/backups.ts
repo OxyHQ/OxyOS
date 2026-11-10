@@ -309,18 +309,10 @@ export function backupBytes(bytes: number, locale: string, words: Pick<Words, "z
   }
 }
 
-/** Whether a locale's clock counts 12 hours, as the shell's clock reads it (apps/shell/src/clock.ts). */
-function twelveHour(locale: string): boolean {
-  const cycle = new Intl.DateTimeFormat(locale, { hour: "numeric" }).resolvedOptions().hourCycle;
-  return cycle === "h11" || cycle === "h12";
-}
-
-/** The time as the clock shows it: "14:05", "2:05 PM". */
+/** The time as the shell's clock shows it (apps/shell/src/clock.ts): the locale's short time,
+    "14:05", "2:05 PM". */
 function timeOfDay(at: Date, locale: string): string {
-  const options: Intl.DateTimeFormatOptions = twelveHour(locale)
-    ? { hour: "numeric", minute: "2-digit" }
-    : { hour: "2-digit", minute: "2-digit" };
-  return new Intl.DateTimeFormat(locale, options).format(at);
+  return new Intl.DateTimeFormat(locale, { timeStyle: "short" }).format(at);
 }
 
 function sameDay(a: Date, b: Date): boolean {

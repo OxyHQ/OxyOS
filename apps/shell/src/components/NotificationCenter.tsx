@@ -100,7 +100,9 @@ export const NotificationCenter = memo(function NotificationCenter({
                     size="sm"
                     appearance="plain"
                     accessibilityLabel={words.clearApp(group.name)}
-                    onPress={() => group.notifications.forEach((notification) => notifications.remove(notification.id))}
+                    onPress={() => {
+                      for (const notification of group.notifications) notifications.remove(notification.id);
+                    }}
                   >
                     {words.clear}
                   </Button>

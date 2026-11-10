@@ -8,6 +8,8 @@ order: 23
 
 Status: **accepted; first step implemented**. Builds on [ADR 0003](./0003-accessibility-protocol) (the accessibility protocol and its `accessibility` grant), [ADR 0001](./0001-native-platform-boundaries) (grants from the session authority) and [ADR 0010](./0010-lock-screen) (what the lock hides).
 
+**10 November 2026 ([ADR 0061](./0061-crashes-and-resetting-an-application), decision 6, amended):** **the screen reader is started again when it ends on its own** while the person has it on (Super+F5 or the preference): at once the first time, then after the shell's doubling wait, never in a loop and never given up on; its report is written as the shell's. As it starts it says it is on ("Screen reader on"), then the control that has focus, so the person hears it came back and where they are. Turned off, nothing starts it again. Before, the session logged its end and dropped it, leaving a blind person in silence until they found the switch. Scenario `screen-reader-crash`: SIGABRT to the reader, it is back at once saying so and saying Allo's focused field, Allo receiving nothing and keeping the keyboard, its report written; a second crash within a minute waits a second; turned off, nothing starts it.
+
 ## Problem
 
 ADR 0003 gave applications a way to publish their accessibility trees and an assistive technology a way to read them and act on them, but nothing speaks: the development compositor's reader only records what it would say. A person who cannot see the screen cannot use OxyOS. A Mac has VoiceOver, on from the keyboard (Cmd+F5), with keys of its own that move through what is on screen and activate it; OxyOS needs its own, without AT-SPI or D-Bus (ADR 0003), with a voice from Debian, and with keys no application can take or see.

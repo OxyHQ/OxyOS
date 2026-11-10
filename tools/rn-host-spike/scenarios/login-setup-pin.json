@@ -113,7 +113,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it."
+            "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it."
           ],
           "absent": [
             "Email or username",
@@ -177,7 +177,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "Those PINs don't match. Create it again."
+            "Those PINs don’t match. Create it again."
           ],
           "focus_input": "login-setup-pin-password"
         }

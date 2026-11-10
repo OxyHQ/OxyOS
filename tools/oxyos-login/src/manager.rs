@@ -28,19 +28,22 @@
 //!   ended (its logind session closed, the card's DRM master let go) is the person's session
 //!   opened. When that session ends (signing out), or fails to open, the login screen starts
 //!   again.
-//! - **A login screen that ends** while nobody signs in (it crashed) is started again, no sooner
-//!   than [`RESTART`] after it last started; a check it had going is abandoned.
+//! - **A login screen that ends** while nobody signs in (it crashed) is started again with the
+//!   shell's doubling wait (`oxyos_seat::restarts::Restarts`, docs/adr/0061, decision 6): at
+//!   once the first time, then after 1, 2, 4 … up to 60 s while it keeps ending within a minute
+//!   of its start, never given up on; a check it had going is abandoned. A session that ended
+//!   (signing out) brings it back at once.
 
+use crate::channel::End;
 use oxyos_auth::greeter::Verdict;
 use oxyos_auth::{Outcome, Throttle};
+use oxyos_seat::restarts::Restarts;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 /// How long the login screen has to end once someone signed in, before it is stopped (and as
 /// long again before it is killed).
 pub const GREETER_GRACE: Duration = Duration::from_secs(5);
-/// A login screen that ended is started again no sooner than this after it last started.
-pub const RESTART: Duration = Duration::from_secs(1);
 
 /// What a worker said of a password.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,13 +136,37 @@ pub enum State {
     Session { account: String },
 }
 
+/// A session that ended because of a problem (docs/adr/0065-the-session-ending-because-of-a-problem.mdx,
+/// decision 2): whose, how, after how long and when (seconds since the epoch).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Problem {
+    pub account: String,
+    pub end: End,
+    pub ran: u32,
+    pub at: u64,
+}
+
+impl Problem {
+    /// As the person's next session is told it (`OXYOS_SESSION_ENDED`): how, how many seconds it
+    /// ran, and when, `signal 11 3600 1762790000`.
+    pub fn told(&self) -> String {
+        format!("{} {} {}", self.end.word(), self.ran, self.at)
+    }
+}
+
 pub struct Manager {
     state: State,
+    /// The last session that ended because of a problem, until its account's next session is
+    /// told; and whether the login screen says so (until someone signs in).
+    problem: Option<Problem>,
+    problem_said: bool,
     /// Each enrolled account's throttle, its password's and its PIN's (`true`), and one for every
     /// name not enrolled.
     throttles: BTreeMap<(String, bool), Throttle>,
     unknown: Throttle,
     greeter_started: Option<Instant>,
+    /// The login screen's ends in a row without its having run a minute.
+    restarts: Restarts,
     /// The last online check asked: an answer to an earlier one is no answer.
     checks: u64,
 }
@@ -149,9 +176,12 @@ impl Manager {
     pub fn start(now: Instant) -> (Self, Vec<Action>) {
         let manager = Self {
             state: State::Greeter { checking: None },
+            problem: None,
+            problem_said: false,
             throttles: BTreeMap::new(),
             unknown: Throttle::default(),
             greeter_started: Some(now),
+            restarts: Restarts::default(),
             checks: 0,
         };
         (
@@ -394,25 +424,60 @@ impl Manager {
                     actions.push(Action::AbandonCheck);
                 }
                 self.state = State::Greeter { checking: None };
-                actions.push(self.restart(now));
+                let ran = self.greeter_started.map_or(Duration::ZERO, |started| {
+                    now.saturating_duration_since(started)
+                });
+                let after = self.restarts.ended(ran);
+                actions.push(self.start_greeter(now, after));
                 actions
             }
             State::Opening { .. } | State::Session { .. } => Vec::new(),
         }
     }
 
-    fn restart(&mut self, now: Instant) -> Action {
-        let after = self
-            .greeter_started
-            .map(|started| (started + RESTART).saturating_duration_since(now))
-            .unwrap_or_default();
+    /// The login screen started again `after` from `now`.
+    fn start_greeter(&mut self, now: Instant, after: Duration) -> Action {
         self.greeter_started = Some(now + after);
         Action::StartGreeter { after }
+    }
+
+    /// The session's worker said how it ended, at `at` (seconds since the epoch), after `ran`
+    /// seconds: one that ended because of a problem is said on the login screen, and told to its
+    /// account's next session.
+    pub fn session_ended(&mut self, end: End, ran: u32, at: u64) {
+        let (State::Session { account } | State::Opening { account }) = &self.state else {
+            return;
+        };
+        if end.problem() {
+            self.problem = Some(Problem {
+                account: account.clone(),
+                end,
+                ran,
+                at,
+            });
+            self.problem_said = true;
+        }
+    }
+
+    /// Whether the login screen says the last session ended because of a problem.
+    pub fn problem_said(&self) -> bool {
+        self.problem_said
+    }
+
+    /// How `account`'s last session ended because of a problem, to tell the session that starts
+    /// for it (its worker is started for the attempt, before anyone knows it will sign in).
+    pub fn problem_of(&self, account: &str) -> Option<&Problem> {
+        self.problem
+            .as_ref()
+            .filter(|problem| problem.account == account)
     }
 
     /// The worker that opened the session started it.
     pub fn session_started(&mut self) -> Vec<Action> {
         if let State::Opening { account } = &self.state {
+            // Told to it (its worker was started with it), and said no more on the login screen.
+            self.problem_said = false;
+            self.problem.take_if(|problem| problem.account == *account);
             self.state = State::Session {
                 account: account.clone(),
             };
@@ -461,7 +526,7 @@ impl Manager {
             // The session ended (signed out), or never opened: the login screen again.
             State::Opening { .. } | State::Session { .. } => {
                 self.state = State::Greeter { checking: None };
-                vec![self.restart(now)]
+                vec![self.start_greeter(now, Duration::ZERO)]
             }
             // The accepted worker went before its session opened: the login screen is ending,
             // and starts again once it has.
@@ -744,14 +809,14 @@ mod tests {
         let now = Instant::now();
         let (mut manager, _) = Manager::start(now);
         manager.attempt(ADA, false, true, now);
-        // Within a second of its start: started again once the second is over.
+        // The first end: started again at once.
         let soon = now + Duration::from_millis(300);
         assert_eq!(
             manager.greeter_ended(soon),
             [
                 Action::AbandonCheck,
                 Action::StartGreeter {
-                    after: Duration::from_millis(700)
+                    after: Duration::ZERO
                 }
             ]
         );
@@ -759,14 +824,114 @@ mod tests {
         // The abandoned check's answer, if it comes, signs nobody in.
         assert!(pam(&mut manager, Checked::Accepted, soon).is_empty());
         assert_eq!(manager.state(), &State::Greeter { checking: None });
-        // Later, at once.
-        let later = now + Duration::from_secs(60);
+        // Having run a minute, at once again.
+        let later = soon + Duration::from_secs(60);
         assert_eq!(
             manager.greeter_ended(later),
             [Action::StartGreeter {
                 after: Duration::ZERO
             }]
         );
+    }
+
+    /// The login screen of 7 November 2026 on the ThinkPad, ending 174 times in three minutes
+    /// (PAM failing to set its user's credentials): now 0, 1, 2, 4, 8 … 60 s apart, never given
+    /// up on, and a minute's steady run starts over.
+    #[test]
+    fn a_login_screen_that_keeps_crashing_waits_ever_longer_and_is_never_given_up_on() {
+        let start = Instant::now();
+        let (mut manager, _) = Manager::start(start);
+        let mut now = start;
+        let mut starts = Vec::new();
+        for _ in 0..10 {
+            // It ends a tenth of a second after each start.
+            now += Duration::from_millis(100);
+            match manager.greeter_ended(now).as_slice() {
+                [Action::StartGreeter { after }] => {
+                    starts.push(after.as_secs());
+                    now += *after;
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(starts, [0, 1, 2, 4, 8, 16, 32, 60, 60, 60]);
+        // A run of a minute: its end is a first one again.
+        now += Duration::from_secs(60);
+        assert_eq!(
+            manager.greeter_ended(now),
+            [Action::StartGreeter {
+                after: Duration::ZERO
+            }]
+        );
+        // Signing out brings it back at once, whatever came before.
+        now += Duration::from_millis(100);
+        assert_eq!(
+            manager.greeter_ended(now),
+            [Action::StartGreeter {
+                after: Duration::from_secs(1)
+            }]
+        );
+        signed_in(&mut manager, now + Duration::from_secs(1));
+        manager.greeter_ended(now + Duration::from_secs(1));
+        assert_eq!(
+            manager.worker_ended(now + Duration::from_secs(2)),
+            [Action::StartGreeter {
+                after: Duration::ZERO
+            }]
+        );
+    }
+
+    #[test]
+    fn a_session_that_ends_because_of_a_problem_is_said_and_told_to_its_next_session() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        signed_in(&mut manager, now);
+        manager.greeter_ended(now);
+        manager.session_started();
+        assert!(!manager.problem_said());
+        manager.session_ended(End::Signal(11), 3600, 1_762_790_000);
+        assert_eq!(
+            manager.worker_ended(now + Duration::from_secs(3600)),
+            [Action::StartGreeter {
+                after: Duration::ZERO
+            }]
+        );
+        // The login screen says it until someone signs in; its account's next session is told.
+        assert!(manager.problem_said());
+        assert_eq!(manager.problem_of("someone-else"), None);
+        assert_eq!(
+            manager.problem_of(ADA).map(Problem::told).as_deref(),
+            Some("signal 11 3600 1762790000")
+        );
+        // A wrong password changes nothing.
+        let later = now + Duration::from_secs(7200);
+        manager.attempt(ADA, false, true, later);
+        pam(&mut manager, Checked::Rejected, later);
+        assert!(manager.problem_said());
+        assert!(manager.problem_of(ADA).is_some());
+        // Once its session starts, it was told: nothing is said or told again.
+        signed_in(&mut manager, later + Duration::from_secs(60));
+        manager.greeter_ended(later + Duration::from_secs(60));
+        manager.session_started();
+        assert!(!manager.problem_said());
+        assert_eq!(manager.problem_of(ADA), None);
+    }
+
+    #[test]
+    fn signing_out_or_being_asked_to_end_is_no_problem() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        signed_in(&mut manager, now);
+        manager.greeter_ended(now);
+        manager.session_started();
+        manager.session_ended(End::Exited(0), 60, 0);
+        manager.session_ended(End::Asked, 60, 0);
+        assert!(!manager.problem_said());
+        assert_eq!(manager.problem_of(ADA), None);
+        // Nothing heard at the login screen counts either.
+        let (mut manager, _) = Manager::start(now);
+        manager.session_ended(End::Hung, 60, 0);
+        assert!(!manager.problem_said());
     }
 
     #[test]

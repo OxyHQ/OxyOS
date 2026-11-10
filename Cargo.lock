@@ -2618,6 +2618,7 @@ version = "0.1.0"
 dependencies = [
  "oxyos-account",
  "oxyos-auth",
+ "oxyos-seat",
  "rustix",
  "zeroize",
 ]
@@ -2692,6 +2693,7 @@ version = "0.1.0"
 dependencies = [
  "oxyos-backup",
  "oxyos-install",
+ "oxyos-seat",
  "rustix",
  "serde_json",
 ]
@@ -2940,6 +2942,7 @@ name = "oxyos-installd"
 version = "0.1.0"
 dependencies = [
  "oxyos-install",
+ "oxyos-seat",
  "rustix",
  "serde_json",
 ]
@@ -3035,6 +3038,7 @@ dependencies = [
 name = "oxyos-login"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "oxyos-account",
  "oxyos-auth",
  "oxyos-seat",
@@ -3103,6 +3107,7 @@ dependencies = [
  "oxyos-networks",
  "oxyos-power",
  "oxyos-preferences",
+ "oxyos-priority",
  "oxyos-protocol",
  "oxyos-search",
  "oxyos-seat",
@@ -3111,6 +3116,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "signal-hook",
  "zbus",
 ]
 
@@ -3171,6 +3177,16 @@ dependencies = [
 [[package]]
 name = "oxyos-preferences"
 version = "0.1.0"
+
+[[package]]
+name = "oxyos-priority"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "oxyos-seat",
+ "rustix",
+ "zbus",
+]
 
 [[package]]
 name = "oxyos-protocol"
@@ -3260,6 +3276,7 @@ dependencies = [
  "oxyos-kms",
  "oxyos-power",
  "oxyos-preferences",
+ "oxyos-priority",
  "oxyos-protocol",
  "oxyos-search",
  "oxyos-seat",
