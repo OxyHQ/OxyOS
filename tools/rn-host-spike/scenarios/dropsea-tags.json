@@ -262,7 +262,7 @@
         "press_named",
         {
           "role": "Button",
-          "name": "Home"
+          "name": "home"
         }
       ],
       "expect": {

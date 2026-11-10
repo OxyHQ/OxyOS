@@ -391,18 +391,18 @@
       "expect": {
         "popups": 1,
         "focus_surface": 7,
-        "popup_size": [266, 222],
+        "popup_size": [125, 166],
         "absent": ["Copy link"],
         "popup_events": {"open@message-actions": 1},
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
       }
     },
     {
-      "name": "More actions opens its submenu beside it, as a desktop's (Bloom 15.80.0): a popup of its own, a child of the menu's, its top at the row's and one 2px seam right of the menu",
+      "name": "More actions opens its submenu beside it, as a desktop's (Bloom 15.80.0): a popup of its own, a child of the menu's, its top at the row's and one 2px seam beside the menu (on its left: the menu, at its trigger's right, leaves no room on the output to its right)",
       "do": ["press-popup", [60, 148]],
       "expect": {
         "popups": 2,
-        "popup_rects": [[745, 473, 266, 222], [1013, 648, 266, 72]],
+        "popup_rects": [[1123, 473, 125, 166], [1001, 611, 120, 56]],
         "texts": ["Copy link", "Print"],
         "popup_events": {"open@Submenu": 1},
         "react": {"touchStart@more-actions": 1, "touchEnd@more-actions": 1},
@@ -411,7 +411,7 @@
     },
     {
       "name": "choose Print in the submenu: both popups close",
-      "do": ["press_output", [1073, 699]],
+      "do": ["press_named", {"role": "MenuItem", "name": "Print"}],
       "expect": {
         "popups": 0,
         "focus_surface": 1,
@@ -427,8 +427,8 @@
       "expect": {
         "popups": 1,
         "focus_surface": 9,
-        "popup_size": [266, 222],
-        "frame_px": {"window": [1024, 560], "popup": [266, 222]},
+        "popup_size": [125, 166],
+        "frame_px": {"window": [1024, 560], "popup": [125, 166]},
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1}
       }
     },
@@ -438,8 +438,8 @@
       "expect": {
         "popups": 1,
         "focus_surface": 9,
-        "popup_size": [266, 222],
-        "frame_px": {"window": [1536, 840], "popup": [399, 333]},
+        "popup_size": [125, 166],
+        "frame_px": {"window": [1536, 840], "popup": [188, 249]},
         "texts": ["Reply", "Move to folder", "Chosen: Print"],
         "popup_events": {},
         "react": {}
@@ -472,7 +472,7 @@
       "expect": {
         "scroll_offset": {"inbox": [0, 306]},
         "react": {"scroll@inbox": 1},
-        "delivered": {"1": {"scroll": 1}}
+        "delivered": {"1": {"enter": 1, "scroll": 1}}
       },
       "expect_devices": {
         "react": {"scroll@inbox": 7},
@@ -542,7 +542,7 @@
         "focus_surface": 11,
         "window_rect": [128, 80, 1024, 560],
         "react": {"touchStart@open-menu": 1, "touchEnd@open-menu": 1},
-        "popup_rect": [745, 473, 266, 222]
+        "popup_rect": [1123, 473, 125, 166]
       }
     },
     {
@@ -554,7 +554,7 @@
         "window_rect": [28, 60, 1024, 560],
         "popup_events": {},
         "react": {},
-        "popup_rect": [645, 453, 266, 222]
+        "popup_rect": [1023, 453, 125, 166]
       }
     },
     {
@@ -566,7 +566,7 @@
         "frame_px": {"window": [900, 520]},
         "popup_events": {"reposition@message-actions": 1},
         "react": {},
-        "popup_rect": [899, 453, 266, 222]
+        "popup_rect": [899, 453, 125, 166]
       }
     },
     {
@@ -578,7 +578,7 @@
         "frame_px": {"window": [1024, 560]},
         "popup_events": {"reposition@message-actions": 2},
         "react": {},
-        "popup_rect": [645, 453, 266, 222]
+        "popup_rect": [1023, 453, 125, 166]
       }
     },
     {

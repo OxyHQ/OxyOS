@@ -75,7 +75,10 @@ function PopupsPage() {
             <DropdownMenuTrigger asChild testID="menu-trigger">
               <Button appearance="outline">Actions</Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="start" label="Actions" testID="actions">
+            {/* As wide as it was before Bloom's desktop menus took their content's width: 266
+              logical pixels are no whole number of device pixels at 1.25, so a move onto such a
+              display still has the menu laid out again at 265 (popup-window-displays). */}
+            <DropdownMenuContent side="bottom" align="start" label="Actions" testID="actions" minWidth={266}>
               {['Archive', 'Delete'].map((action) => (
                 <DropdownMenuItem key={action} testID={`action-${action}`} onPress={() => setChosen(action)}>
                   {action}

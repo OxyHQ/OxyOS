@@ -1118,7 +1118,7 @@ def director_args(step, out):
         # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
         # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
         # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
-        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
+        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), named(value[0]), named(value[1])]
     if kind in ("press_named", "press_secondary_named", "double_press_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
         # its label, an icon on the desktop by its name), wherever it is when the step runs.

@@ -393,7 +393,7 @@
       "do": [
         "press_named",
         {
-          "role": "MenuItem",
+          "role": "CheckBox",
           "name": "Wrap Lines"
         }
       ],
@@ -447,7 +447,7 @@
       "do": [
         "press_named",
         {
-          "role": "MenuItem",
+          "role": "CheckBox",
           "name": "Wrap Lines"
         }
       ],

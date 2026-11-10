@@ -1,5 +1,5 @@
 {
-  "about": "popup-window-displays.json with the displays the other way round: the primary a 1600x1000 display at 1.25 (1280x800 logical, the ThinkPad's panel) and, right of it, a 1280x720 display at 1. The window and its menu start at 1.25 (the menu 265 logical pixels wide, 332 by 90 device pixels), go across to 1 (266 by 72) at the same place against the trigger, and come back; the tooltip goes across to 1.",
+  "about": "popup-window-displays.json with the displays the other way round: the primary a 1600x1000 display at 1.25 (1280x800 logical, the ThinkPad's panel) and, right of it, a 1280x720 display at 1. The window and its menu start at 1.25 (the menu 265 logical pixels wide, 332 by 70 device pixels), go across to 1 (266 by 56) at the same place against the trigger, and come back; the tooltip goes across to 1.",
   "module": "PopupWindowProbe",
   "window": [
     900,
@@ -50,14 +50,14 @@
             524,
             272,
             265,
-            72
+            56
           ]
         ],
         "focus_surface": 2,
         "frame_px": {
           "popup": [
             332,
-            90
+            70
           ]
         },
         "react": {
@@ -104,7 +104,7 @@
             1724,
             272,
             266,
-            72
+            56
           ]
         ],
         "focus_surface": 2,
@@ -115,7 +115,7 @@
           ],
           "popup": [
             266,
-            72
+            56
           ]
         },
         "react": {},
@@ -162,14 +162,14 @@
             1724,
             272,
             266,
-            72
+            56
           ]
         ],
         "focus_surface": 3,
         "frame_px": {
           "popup": [
             266,
-            72
+            56
           ]
         },
         "react": {
@@ -205,7 +205,7 @@
             524,
             272,
             265,
-            72
+            56
           ]
         ],
         "focus_surface": 3,
@@ -216,7 +216,7 @@
           ],
           "popup": [
             332,
-            90
+            70
           ]
         },
         "react": {},
@@ -255,7 +255,7 @@
       "expect": {
         "popup_rects": [
           [
-            605,
+            596,
             271,
             240,
             37
@@ -292,7 +292,7 @@
         ],
         "popup_rects": [
           [
-            1805,
+            1796,
             271,
             240,
             37
