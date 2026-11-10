@@ -102,10 +102,6 @@ ALLOWED = {
     ("oxyos-boot-logo", "oxyos-compositor"): (
         "the boot logo draws the compositor's splash; the splash moves to a crate of its own"
     ),
-    ("oxyos-offscreen", "oxyos-backupd"): (
-        "the development compositor runs the backup service in process from its program crate; the "
-        "service's run moves into oxyos-backup"
-    ),
 }
 
 
