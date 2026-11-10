@@ -348,6 +348,18 @@ fn a_process_of_the_persons_is_inspected_and_quit_and_the_session_never() {
         .spawn()
         .unwrap();
     let pid = child.id();
+    // Asked once its exec has finished: `spawn` returns when the child's new memory is in place,
+    // before the kernel names it (`comm`) and lays out its arguments, so a child read at once
+    // could still bear this thread's name (`activity::tests`).
+    let cmdline = format!("/proc/{pid}/cmdline");
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while std::fs::read(&cmdline).unwrap_or_default() != b"sleep\x0030\x00" {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the child never ran sleep 30"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
     let started = {
         let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
         let after = &text[text.rfind(')').unwrap() + 1..];
