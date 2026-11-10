@@ -78,7 +78,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
   exactly and in order: each a text, or keys matching an utterance (text, interrupting, voice:
-  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040); in a
+  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040), or
+  "typed", the echo of text typed at once, said as the field took it: whole, or in the pieces it
+  took one after another, which join to it (each matching the other keys): a field takes a key
+  once JavaScript has answered it (docs/adr/0067-the-ui-thread.mdx, decision 6); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
   minute it was said or the one before);
@@ -899,6 +902,32 @@ def same_text(got, wanted, t_ns):
     if not isinstance(wanted, str) or "{clock}" not in wanted:
         return got == wanted
     return any(got == wanted.replace("{clock}", clock_said(t_ns - back * 60_000_000_000)) for back in (0, 1))
+
+
+def spoken_as_wanted(said, wanted):
+    """Whether the utterances `said` are those `wanted` (`spoken`), in order: each wanted one keys an
+    utterance matches, or "typed", a text said by one utterance or by several in a row joining to it,
+    each matching the other keys."""
+    def matches(utterance, keys):
+        return all(same_text(utterance.get(k), v, utterance["t"]) for k, v in keys.items() if k != "typed")
+
+    def match(i, j):
+        if j == len(wanted):
+            return i == len(said)
+        if "typed" not in wanted[j]:
+            return i < len(said) and matches(said[i], wanted[j]) and match(i + 1, j + 1)
+        text, joined = wanted[j]["typed"], ""
+        for end in range(i, len(said)):
+            if not matches(said[end], wanted[j]):
+                return False
+            joined += said[end]["text"]
+            if not text.startswith(joined):
+                return False
+            if joined == text and match(end + 1, j + 1):
+                return True
+        return False
+
+    return match(0, 0)
 
 
 # Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
@@ -5279,8 +5308,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # What the screen reader said between the step's input and its settling.
         said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
         wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
-        if len(said) != len(wanted) or not all(all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
-                                               for u, w in zip(said, wanted)):
+        if not spoken_as_wanted(said, wanted):
             fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
                  f"expected {expect['spoken']}")
     if "at_absent" in expect:

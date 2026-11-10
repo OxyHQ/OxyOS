@@ -538,6 +538,29 @@ class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
         self.assertTrue(self.check(self.report(frames, block=(1000.0, 1200.0))))
 
 
+class TypedTextEchoedAsTheFieldTookIt(unittest.TestCase):
+    """`spoken`'s "typed": text typed at once is echoed whole or in pieces, as the field took each key
+    (a field takes a key once JavaScript answered it, docs/adr/0067-the-ui-thread.mdx)."""
+
+    wanted = [{"typed": "ada", "interrupting": True}, {"text": "Ese nombre ya está en uso", "interrupting": True}]
+
+    @staticmethod
+    def said(*texts, interrupting=True):
+        return [{"text": text, "interrupting": interrupting, "t": 0} for text in texts]
+
+    def test_whole_or_in_pieces(self):
+        for pieces in (["ada"], ["a", "d", "a"], ["ad", "a"], ["a", "da"]):
+            self.assertTrue(regress.spoken_as_wanted(self.said(*pieces, "Ese nombre ya está en uso"), self.wanted))
+
+    def test_pieces_that_do_not_join_to_it(self):
+        for pieces in (["a", "d"], ["a", "d", "a", "a"], ["ad", "d"]):
+            self.assertFalse(regress.spoken_as_wanted(self.said(*pieces, "Ese nombre ya está en uso"), self.wanted))
+
+    def test_each_piece_matches_the_other_keys(self):
+        said = self.said("a") + self.said("d", interrupting=False) + self.said("a", "Ese nombre ya está en uso")
+        self.assertFalse(regress.spoken_as_wanted(said, self.wanted))
+
+
 class EachThreadsDiagnostics(unittest.TestCase):
     """check_diagnostics with JavaScript on its own thread: each frame counts its stretches."""
 

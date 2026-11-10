@@ -3231,7 +3231,8 @@ int main(int argc, char** argv) {
                                          folly::dynamic::array("OxyOSShellShortcut", payload));
         }
         // The candidates to show, or none (docs/adr/0041-input-methods.mdx): { candidates, aux,
-        // highlighted (-1: none), previous, next, vertical }.
+        // highlighted (-1: none), previous, next, vertical }. A whole state: those not yet delivered
+        // give way to the newer.
         if (candidates) {
           folly::dynamic texts = folly::dynamic::array();
           for (const auto& text : candidates->candidates) texts.push_back(text);
@@ -3239,8 +3240,7 @@ int main(int argc, char** argv) {
               "highlighted", candidates->highlighted)("previous", candidates->previous)("next", candidates->next)(
               "vertical", candidates->vertical);
           oxyos::Report::get().input("candidates", 0, payload);
-          toJavaScript.callFunctionOnModule("RCTDeviceEventEmitter", "emit",
-                                         folly::dynamic::array("OxyOSShellCandidates", payload));
+          toJavaScript.tellState("OxyOSShellCandidates", std::move(payload));
         }
         // The screenshot interface (docs/adr/0024-system-shortcuts.mdx, decision 10): its changes
         // and the window under the pointer, to JavaScript in order; then the screenshots saved.
