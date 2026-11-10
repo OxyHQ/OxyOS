@@ -85,7 +85,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
-/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
+/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
+/// version 41 is every application's own menu's (OxyOS #521);
+/// version 42, a surface's material regions (`MaterialRegion`, docs/adr/0069-the-platforms-material.mdx).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -134,6 +136,7 @@ const REQUESTS_ADDED: Added = &[
     (38, 168..=168),
     (39, 70..=70),
     (40, 169..=169),
+    (42, 71..=71),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

@@ -489,6 +489,11 @@ pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSI
 /// The first version whose compositor takes `oxyos_client_set_sudden_termination`
 /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
 pub const OXYOS_SUDDEN_TERMINATION_VERSION: u32 = oxyos_protocol::SUDDEN_TERMINATION_VERSION as u32;
+/// The first version whose compositor takes `oxyos_client_set_material_regions`
+/// (docs/adr/0069-the-platforms-material.mdx).
+pub const OXYOS_MATERIAL_VERSION: u32 = oxyos_protocol::MATERIAL_VERSION as u32;
+/// The most material regions a surface has.
+pub const OXYOS_MAX_MATERIAL_REGIONS: u32 = oxyos_protocol::MAX_MATERIAL_REGIONS as u32;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -3550,6 +3555,72 @@ pub unsafe extern "C" fn oxyos_client_set_size_limits(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// A surface's material regions for its next Submit (docs/adr/0069-the-platforms-material.mdx):
+/// `count` rounded rectangles in its buffer pixels, five values each in `regions` (x, y, width,
+/// height, radius), under which the compositor blurs what it has composed beneath the surface;
+/// `count` 0: none. Kept until another list replaces it. 0 on success; an error, sending nothing,
+/// past OXYOS_MAX_MATERIAL_REGIONS, with a negative size or radius, or to a compositor of a version
+/// before OXYOS_MATERIAL_VERSION.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `regions` holds `count` × 5 values
+/// (it may be null when `count` is 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_material_regions(
+    client: *mut OxyOSClient,
+    surface: u32,
+    regions: *const i32,
+    count: usize,
+) -> c_int {
+    if count > oxyos_protocol::MAX_MATERIAL_REGIONS {
+        return fail("too many material regions");
+    }
+    if count > 0 && regions.is_null() {
+        return fail("null material regions");
+    }
+    let values: &[i32] = if count == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller's contract: `regions` holds `count` × 5 values.
+        unsafe { std::slice::from_raw_parts(regions, count * 5) }
+    };
+    let mut requests = Vec::with_capacity(count.max(1));
+    for (index, region) in values.chunks_exact(5).enumerate() {
+        let (Ok(width), Ok(height), Ok(radius)) = (
+            u32::try_from(region[2]),
+            u32::try_from(region[3]),
+            u32::try_from(region[4]),
+        ) else {
+            return fail("a negative material region size or radius");
+        };
+        requests.push(Request::MaterialRegion {
+            surface,
+            index: index as u8,
+            last: index + 1 == count,
+            rect: Rect::new(region[0], region[1], width, height),
+            radius,
+        });
+    }
+    if requests.is_empty() {
+        requests.push(Request::MaterialRegion {
+            surface,
+            index: 0,
+            last: true,
+            rect: Rect::new(0, 0, 0, 0),
+            radius: 0,
+        });
+    }
+    for request in requests {
+        // SAFETY: forwarded caller contract.
+        let sent = unsafe { send(client, request) };
+        if sent != 0 {
+            return sent;
+        }
+    }
+    0
 }
 
 /// Limits where a surface takes pointer and touch input to a surface-local logical rectangle
