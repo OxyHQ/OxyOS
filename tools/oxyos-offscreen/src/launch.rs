@@ -280,6 +280,12 @@ pub enum Step {
     /// No input for this many seconds: the idle lock counts them as passed at once, as if the
     /// person had left the machine alone that long (ADR 0010). Its own time; nothing waits.
     Idle(u64),
+    /// A part of the session sent a signal, as a crash (`SEGV`) or the person's `kill` would:
+    /// the session then does what it does when that part ends on its own.
+    Signal {
+        signal: rustix::process::Signal,
+        part: Part,
+    },
     /// Milliseconds of real time with no input, the session served all along: what fades on its
     /// own clock (a hardware key's bezel, ADR 0025) has the time to.
     Wait(u64),
@@ -517,6 +523,7 @@ impl Step {
             Step::ExpectPopup => "a popup beyond the window".to_string(),
             Step::SwitchTerminal(number) => format!("a switch to terminal {number} and back"),
             Step::Idle(seconds) => format!("{seconds} s with no input"),
+            Step::Signal { signal, part } => format!("{signal:?} sent to the {}", part.name()),
             Step::Wait(ms) => format!("{ms} ms waited"),
             Step::TransitionClock(TransitionClock::Hold) => "the transitions' clock held".to_string(),
             Step::TransitionClock(TransitionClock::At(ms)) => {
@@ -775,6 +782,9 @@ impl Step {
             Step::ExpectPopup => "\"expect_popup\":true".to_string(),
             Step::SwitchTerminal(number) => format!("\"switch_terminal\":{number}"),
             Step::Idle(seconds) => format!("\"idle\":{seconds}"),
+            Step::Signal { signal, part } => {
+                format!("\"signal\":[{:?},{:?}]", signal_name(*signal), part.name())
+            }
             Step::Network(what) => format!("\"network\":{}", json_string(what)),
             Step::Sound(what) => format!("\"sound\":{}", json_string(what)),
             Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
@@ -1145,7 +1155,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -2015,6 +2025,16 @@ impl Launch {
                     let seconds = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Idle(seconds.parse()?)
                 }
+                Some("--signal") => {
+                    let signal = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let part = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Signal {
+                        signal: signal_named(signal)
+                            .ok_or_else(|| format!("--signal: no signal {signal}"))?,
+                        part: Part::named(part)
+                            .ok_or_else(|| format!("--signal: no part {part}"))?,
+                    }
+                }
                 Some("--wait") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Wait(ms.parse()?)
@@ -2455,42 +2475,178 @@ fn start_reader(
     Ok(child)
 }
 
-/// Super+F5 (`Action::ToggleReader`, which the compositor keeps for the program running it):
-/// starts the screen reader if it is off and stops it if it is on, as `oxyos-session` does
-/// (`switch_reader`), whether the session is locked or not. Without a reader named, nothing.
-fn toggle_reader(
-    session: &mut Session,
-    running: &mut Children,
-    reader: Option<(&Path, &Path, Option<&str>)>,
-    record: &Path,
-) -> Result<()> {
-    if !session.compositor.take_reader_toggle() {
-        return Ok(());
+/// A part of the session a scenario can end (`--signal SIGNAL PART`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// The screen reader (`--reader`).
+    Reader,
+}
+
+impl Part {
+    fn named(name: &str) -> Option<Self> {
+        match name {
+            "reader" => Some(Self::Reader),
+            _ => None,
+        }
     }
-    let Some((socket, program, locale)) = reader else {
-        eprintln!("[reader] no screen reader (--reader)");
-        return Ok(());
-    };
-    match running.0.pop() {
-        Some(mut child) => {
-            eprintln!("[reader] stopping");
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Reader => "reader",
+        }
+    }
+}
+
+/// The signals a scenario may send, by their names without `SIG`: each ends the part.
+const SIGNALS: [(&str, rustix::process::Signal); 4] = [
+    ("SEGV", rustix::process::Signal::SEGV),
+    ("ABRT", rustix::process::Signal::ABORT),
+    ("KILL", rustix::process::Signal::KILL),
+    ("TERM", rustix::process::Signal::TERM),
+];
+
+fn signal_named(name: &str) -> Option<rustix::process::Signal> {
+    SIGNALS.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}
+
+fn signal_name(signal: rustix::process::Signal) -> &'static str {
+    SIGNALS
+        .iter()
+        .find(|(_, s)| *s == signal)
+        .map_or("?", |(n, _)| n)
+}
+
+/// The scenario's screen reader, kept as `oxyos-session` keeps it (its `Reader`): on while the
+/// person has it on, started again when it ends on its own after the shell's doubling wait
+/// (`oxyos_seat::restarts::Kept`, the session's own decisions; docs/adr/0014-screen-reader.mdx,
+/// amended), and never once turned off.
+struct ScreenReader<'a> {
+    /// Its socket, program and locale, when the scenario has one (`--reader`).
+    named: Option<(&'a Path, &'a Path, Option<&'a str>)>,
+    /// What it says, recorded.
+    record: &'a Path,
+    child: Option<std::process::Child>,
+    /// When it was started, while it runs.
+    since: Option<Instant>,
+    wanted: bool,
+    kept: oxyos_seat::restarts::Kept,
+}
+
+impl ScreenReader<'_> {
+    /// Starts it, serving the session until it is connected.
+    fn start(&mut self, session: &mut Session) -> Result<()> {
+        let Some((socket, program, locale)) = self.named else {
+            eprintln!("[reader] no screen reader (--reader)");
+            return Ok(());
+        };
+        eprintln!("[reader] starting");
+        self.wanted = true;
+        self.child = Some(start_reader(session, socket, program, locale, self.record)?);
+        self.since = Some(Instant::now());
+        self.kept.started(Instant::now());
+        Ok(())
+    }
+
+    /// Super+F5 (`Action::ToggleReader`, which the compositor keeps for the program running
+    /// it): starts it if it is off and stops it if it is on, as `oxyos-session` does, whether the
+    /// session is locked or not. Without a reader named, nothing.
+    fn toggle(&mut self, session: &mut Session) -> Result<()> {
+        if !session.compositor.take_reader_toggle() {
+            return Ok(());
+        }
+        if !self.wanted {
+            return self.start(session);
+        }
+        eprintln!("[reader] stopping");
+        self.wanted = false;
+        self.since = None;
+        self.kept.stopped();
+        if let Some(mut child) = self.child.take() {
             child.kill()?;
             child.wait()?;
-            // Its connection's end, as the scene sees it go.
-            let deadline = Instant::now() + LAUNCH_DEADLINE;
-            while session.compositor.scene.screen_reader().is_some() {
-                if Instant::now() > deadline {
-                    return Err("deadline exceeded waiting for the screen reader to go".into());
-                }
-                session.compositor.serve(&session.listener)?;
+            gone(session)?;
+        }
+        Ok(())
+    }
+
+    /// The `signal` step: the reader is sent `signal` as a crash or the person's `kill` would,
+    /// and the session sees it end (its process and its connection).
+    fn signal(&mut self, session: &mut Session, signal: rustix::process::Signal) -> Result<()> {
+        let child = self
+            .child
+            .as_mut()
+            .ok_or("--signal SIGNAL reader: no reader runs")?;
+        let raw = child.id();
+        let pid = rustix::process::Pid::from_raw(raw as i32).ok_or("the reader's pid")?;
+        rustix::process::kill_process(pid, signal)?;
+        // A program may take the signal (a Rust program's own SIGSEGV handler returns from one no
+        // fault raised): it must end, or the step fails rather than waiting for ever.
+        let deadline = Instant::now() + LAUNCH_DEADLINE;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if Instant::now() > deadline {
+                return Err(format!("the reader did not end on {signal:?}").into());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        eprintln!("[reader] ended by {signal:?} ({status})");
+        self.ended(session, raw, status);
+        gone(session)
+    }
+
+    /// It ended on its own: started again after the wait, its report written as the session
+    /// writes it.
+    fn ended(&mut self, session: &mut Session, pid: u32, status: std::process::ExitStatus) {
+        let now = Instant::now();
+        let ran = self
+            .since
+            .take()
+            .map_or(Duration::ZERO, |since| now.saturating_duration_since(since));
+        self.child = None;
+        let wait = self.kept.ended(now);
+        eprintln!("[reader] started again in {} ms", wait.as_millis());
+        if !status.success() {
+            session.crashes.note_part(&oxyos_apps::Exited {
+                pid,
+                launched: oxyos_apps::Launched::part(
+                    oxyos_compositor::crashes::READER,
+                    oxyos_compositor::crashes::READER_NAME,
+                ),
+                status: Some(status),
+                ran,
+                asked: false,
+                report: None,
+            });
+        }
+    }
+
+    /// The reader ended on its own is noticed, and one waiting is started again once its wait
+    /// is over: the session's turn, at each step.
+    fn keep(&mut self, session: &mut Session) -> Result<()> {
+        if let Some(child) = self.child.as_mut() {
+            if let Some(status) = child.try_wait()? {
+                eprintln!("[reader] exited ({status})");
+                let pid = child.id();
+                self.ended(session, pid, status);
             }
         }
-        None => {
-            eprintln!("[reader] starting");
-            running
-                .0
-                .push(start_reader(session, socket, program, locale, record)?);
+        if self.wanted && self.child.is_none() && self.kept.take_due(Instant::now()) {
+            self.start(session)?;
         }
+        Ok(())
+    }
+}
+
+/// Serves the session until the reader's connection's end, as the scene sees it go.
+fn gone(session: &mut Session) -> Result<()> {
+    let deadline = Instant::now() + LAUNCH_DEADLINE;
+    while session.compositor.scene.screen_reader().is_some() {
+        if Instant::now() > deadline {
+            return Err("deadline exceeded waiting for the screen reader to go".into());
+        }
+        session.compositor.serve(&session.listener)?;
     }
     Ok(())
 }
@@ -5521,7 +5677,8 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
             .map_err(|code| format!("scale {scale}: {code:?}"))?,
         // Handled by the step loop: no input to inject, the session's input method's, or the
         // assistive technology's.
-        Step::ExpectPopup
+        Step::Signal { .. }
+        | Step::ExpectPopup
         | Step::Wait(_)
         | Step::WaitNamed { .. }
         | Step::WaitSheetKeyboard(_)
@@ -5555,6 +5712,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
 
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
+    // The turn above the applications as a session's is (docs/adr/0066-quality-of-service.mdx,
+    // decision 2): a 1 ms slice, and the nice a played rtkit gives (`OXYOS_RTKIT_BUS`, the
+    // saturation benchmark's), never the system's. Asked before the session counts its
+    // descriptors (D-Bus's runtime stays), and waited for: a run is measured as it starts.
+    let raised = oxyos_priority::raise(
+        oxyos_priority::tid(),
+        &oxyos_priority::Rtkit::played_from_env(),
+        oxyos_priority::TURN_NICE,
+        oxyos_priority::SLICE,
+    );
+    eprintln!("[offscreen] the turn's priority: {}", raised.describe());
     // Before the session counts its descriptors: logind's connection lives as long as the
     // process. What is opened through it is closed before the count is checked.
     let seat = match (&launch.kms, launch.seat) {
@@ -6116,9 +6284,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => oxyos_gpu::VulkanCompositor::new()?,
         };
         eprintln!(
-            "[gpu] composing on {} ({:?})",
+            "[gpu] composing on {} ({:?}), {}",
             compositor.device_name(),
-            compositor.device_kind()
+            compositor.device_kind(),
+            compositor.queue_priority()
         );
         let mut compositor = compositor;
         // On a display, compose straight into DMA-BUF scanout buffers it imports.
@@ -6177,15 +6346,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .zip(reader_socket.as_deref())
         .map(|(program, socket)| (socket, program, launch.reader_locale.as_deref()));
     // Held apart from the other children: Super+F5 may stop it, and start it again.
-    let mut screen_reader = Children(Vec::new());
-    if let Some((socket, program, locale)) = reader_named.filter(|_| !launch.reader_off) {
-        screen_reader.0.push(start_reader(
-            &mut session,
-            socket,
-            program,
-            locale,
-            &speech,
-        )?);
+    let mut screen_reader = ScreenReader {
+        named: reader_named,
+        record: &speech,
+        child: None,
+        since: None,
+        wanted: false,
+        kept: Default::default(),
+    };
+    if reader_named.is_some() && !launch.reader_off {
+        screen_reader.start(&mut session)?;
     }
     // A login screen has no application: its shell is the first child, which must not exit.
     let mut children = Children(Vec::new());
@@ -6663,9 +6833,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let (Step::Idle(seconds), Some(ending)) = (step, session.ending.as_mut()) {
             ending.pass(Duration::from_secs(*seconds));
         }
+        // A part of the session ended by the scenario (`signal`), as a crash would.
+        if let Step::Signal { signal, part } = step {
+            match part {
+                Part::Reader => screen_reader.signal(&mut session, *signal)?,
+            }
+        }
         // Super+F5 typed: the reader started or stopped before the step settles, as the session
-        // switches it on its next turn.
-        toggle_reader(&mut session, &mut screen_reader, reader_named, &speech)?;
+        // switches it on its next turn; one that ended is started again after its wait.
+        screen_reader.toggle(&mut session)?;
+        screen_reader.keep(&mut session)?;
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
         let answer = settle(
             &mut session,
@@ -6941,7 +7118,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .collect::<Vec<_>>()
         .join(",");
     // The reader, if on, ends with the session as the other clients do.
-    children.0.append(&mut screen_reader.0);
+    children.0.extend(screen_reader.child.take());
     // What was routed until the session ends; finishing it ends the clients, whose last input
     // has been read by then.
     let deliveries = deliveries_json(&session.compositor);
