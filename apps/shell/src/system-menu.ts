@@ -16,6 +16,7 @@ export type SystemMenuCommand =
   | "system.aboutThisComputer"
   | "system.settings"
   | "system.store"
+  | "system.forceQuit"
   | "power.sleep"
   | "power.restart"
   | "power.shutDown"
@@ -43,7 +44,8 @@ export function chordLabel(keys: readonly string[], messages: ShellMessages): st
 /**
  * The Oxy menu's rows, a Mac's Apple menu's in its order: About This Computer; System Settings…
  * and, where the App Store is installed (Atlas), its row named as the registry names it; then,
- * where the platform ends the session (`power`), Sleep, Restart… and Shut Down…; then Lock Screen
+ * where the platform ends the session (`power`), Force Quit… (Alt+Super+Esc, a Mac's ⌥⌘⎋, ADR 0067),
+ * then Sleep, Restart… and Shut Down…; then Lock Screen
  * (Ctrl+Super+Q, a Mac's ⌃⌘Q) where it locks, and Log Out *name*… (Shift+Super+Q, ⇧⌘Q) where it
  * ends the session, always naming the person, as a Mac's does ("Oxy Account" for an account with
  * no name). With `option` held, as a Mac's alternates: Restart, Shut Down and Log Out *name* lose
@@ -51,7 +53,7 @@ export function chordLabel(keys: readonly string[], messages: ShellMessages): st
  *
  * Launchpad and Mission Control are not in it, as they are not in a Mac's: they are the dock's
  * (its Applications and Show Desktops), their keys' (Super, Super+↑) and the desktop's View menu's.
- * A Mac's Recent Items has no OxyOS equal yet, and Force Quit… comes with its window.
+ * A Mac's Recent Items has no OxyOS equal yet.
  */
 export function systemMenuRows(
   messages: ShellMessages,
@@ -82,6 +84,19 @@ export function systemMenuRows(
     { kind: "item", id: "system.settings", label: messages.topBar.systemSettings },
   ];
   if (store) rows.push({ kind: "item", id: "system.store", label: messages.topBar.appStore(store) });
+  // Force Quit… (Alt+Super+Esc, a Mac's ⌥⌘⎋), where the session shows it
+  // (docs/adr/0067-hangs-and-force-quit.mdx), as the Apple menu's.
+  if (power) {
+    rows.push(
+      { kind: "separator", id: "system.forceQuitSeparator" },
+      {
+        kind: "item",
+        id: "system.forceQuit",
+        label: messages.topBar.forceQuit,
+        chord: chordLabel(["Alt", "Super", "Esc"], messages),
+      },
+    );
+  }
   if (power) {
     rows.push(
       { kind: "separator", id: "power.separator" },

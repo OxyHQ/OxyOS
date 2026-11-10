@@ -19,7 +19,7 @@
   "locale": "es_ES.UTF-8",
   "steps": [
     {
-      "name": "the Oxy menu: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out (Shift+Super+Q), never Launchpad's or Mission Control's",
+      "name": "the Oxy menu: About This Computer, System Settings…, Force Quit… (Alt+Super+Esc), Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out (Shift+Super+Q), never Launchpad's or Mission Control's",
       "do": [
         "press_named",
         "Menú de Oxy"
@@ -30,6 +30,8 @@
           "texts": [
             "Acerca de este ordenador",
             "Ajustes del Sistema…",
+            "Forzar salida…",
+            "Alt+Super+Esc",
             "Reposo",
             "Reiniciar…",
             "Apagar equipo…",
@@ -86,6 +88,8 @@
           "texts": [
             "Acerca de este ordenador",
             "Ajustes del Sistema…",
+            "Forzar salida…",
+            "Alt+Super+Esc",
             "Reposo",
             "Reiniciar…",
             "Apagar equipo…",

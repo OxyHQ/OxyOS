@@ -18,7 +18,7 @@
   },
   "steps": [
     {
-      "name": "the Oxy menu, a Mac's Apple menu: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out Ada Lovelace… (Shift+Super+Q), never Launchpad's or Mission Control's; the application not asked anything, the power key's inhibitor held",
+      "name": "the Oxy menu, a Mac's Apple menu: About This Computer, System Settings…, Force Quit… (Alt+Super+Esc), Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out Ada Lovelace… (Shift+Super+Q), never Launchpad's or Mission Control's; the application not asked anything, the power key's inhibitor held",
       "do": [
         "press_named",
         "Oxy Menu"
@@ -33,6 +33,8 @@
           "texts": [
             "About This Computer",
             "System Settings…",
+            "Force Quit…",
+            "Alt+Super+Esc",
             "Sleep",
             "Restart…",
             "Shut Down…",
@@ -354,6 +356,8 @@
             "System Settings…",
             "Restart",
             "Shut Down",
+            "Force Quit…",
+            "Alt+Super+Esc",
             "Sleep",
             "Log Out Ada Lovelace",
             "Alt+Shift+Super+Q",

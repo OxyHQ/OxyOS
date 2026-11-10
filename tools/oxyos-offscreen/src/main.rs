@@ -146,6 +146,9 @@ struct Session {
     /// At a login screen (`--login`): whether the login program said the last session ended
     /// because of a problem (`OXYOS_LAST_SESSION_ENDED`), which the login screen asks.
     pub last_session_problem: Option<bool>,
+    /// Force Quit Applications and hung applications' reports, as the session has them
+    /// (docs/adr/0067-hangs-and-force-quit.mdx).
+    pub force_quit: oxyos_compositor::force_quit::ForceQuit,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -363,6 +366,7 @@ impl Session {
             ),
             resume: None,
             last_session_problem: None,
+            force_quit: Default::default(),
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
@@ -1181,6 +1185,8 @@ impl Session {
         }
         // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
         self.crashes.exited(&mut self.compositor.scene, &exits);
+        // Those force-quit while hung: their reports (docs/adr/0067).
+        self.force_quit.exited(&mut self.crashes, &exits);
         // Resume follows what runs, and takes the person's answer to reopening again (ADR 0065).
         if let Some(resume) = self.resume.as_mut() {
             resume.serve(
@@ -1260,11 +1266,11 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, opened);
         }
-        for pid in self.compositor.take_force_quits() {
-            if launcher.force_quit(pid) {
-                eprintln!("[launch] force quit {pid}");
-            }
-        }
+        // The person's force quits, as the session ends them (docs/adr/0067-hangs-and-force-
+        // quit.mdx): the dock's, Super+Alt+Escape's and the Oxy menu's; a hung one asked for its
+        // report first.
+        self.force_quit
+            .serve(&mut self.compositor, launcher, std::time::Instant::now());
         // Files dropped on an application's icon in the dock (ADR 0034), opened with it as the
         // session opens them: from the run's own home.
         let requests = self.compositor.scene.take_open_files();
@@ -1772,7 +1778,7 @@ fn main() -> Result<()> {
         [flag, state, volumes, socket, cache, sources @ ..]
             if flag == "--play-backup" && !sources.is_empty() =>
         {
-            oxyos_backupd::run(oxyos_backupd::Arguments {
+            oxyos_backup::daemon::run(oxyos_backup::daemon::Arguments {
                 development: true,
                 state: state.into(),
                 socket: Some(socket.into()),

@@ -41,6 +41,7 @@ import type {
   ShellApplication,
 } from "../model";
 import { belongsTo } from "../model";
+import { shownTitle } from "../expose";
 import type { WindowSize, WindowViewProps } from "../platform";
 import { useShellMessages } from "../useShellMessages";
 import { useReducedTransparency } from "@oxy.so/bloom/theme";
@@ -80,7 +81,10 @@ function WindowThumbnail({
   /** The platform's live window (ADR 0022), preferred to a still thumbnail. */
   WindowView?: ComponentType<WindowViewProps>;
 }) {
-  const words = useShellMessages().overview;
+  const messages = useShellMessages();
+  const words = messages.overview;
+  // "(Not Responding)" while its application does not answer (docs/adr/0067).
+  const title = shownTitle(window, messages.common);
   const width = contentHeight * ratio;
   const id = window.id;
   const gesture = useMemo(
@@ -129,7 +133,7 @@ function WindowThumbnail({
       <PressArea
         testID={`overview-window-${window.id}-focus`}
         accessibilityRole="button"
-        accessibilityLabel={window.title}
+        accessibilityLabel={title}
         onPress={focus}
       >
         <Box className="h-6 flex-row items-center gap-1.5 bg-[#d0e5f3] pl-2 pr-7">
@@ -138,7 +142,7 @@ function WindowThumbnail({
             numberOfLines={1}
             className="min-w-0 flex-1 text-[12px] font-normal text-[#526672]"
           >
-            {window.title}
+            {title}
           </Text>
         </Box>
         <Box

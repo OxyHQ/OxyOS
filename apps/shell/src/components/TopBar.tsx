@@ -868,6 +868,8 @@ const BarMenus = memo(function BarMenus({
   const systemRows = systemMenuRows(messages, { canLock, power: !!powerActions, name: userName, store, option });
   const systemCommand = (id: SystemMenuCommand, confirm: boolean) => {
     switch (id) {
+      case "system.forceQuit":
+        return choose(() => powerActions?.forceQuit?.())();
       case "power.sleep":
         return choose(() => powerActions?.sleep())();
       case "power.restart":

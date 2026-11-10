@@ -19,7 +19,7 @@
   "outputs": "1600x1000@1.25",
   "steps": [
     {
-      "name": "the Oxy menu: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out (Shift+Super+Q), never Launchpad's or Mission Control's",
+      "name": "the Oxy menu: About This Computer, System Settings…, Force Quit… (Alt+Super+Esc), Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out (Shift+Super+Q), never Launchpad's or Mission Control's",
       "do": [
         "press_named",
         "Oxy Menu"
@@ -30,6 +30,8 @@
           "texts": [
             "About This Computer",
             "System Settings…",
+            "Force Quit…",
+            "Alt+Super+Esc",
             "Sleep",
             "Restart…",
             "Shut Down…",
@@ -86,6 +88,8 @@
           "texts": [
             "About This Computer",
             "System Settings…",
+            "Force Quit…",
+            "Alt+Super+Esc",
             "Sleep",
             "Restart…",
             "Shut Down…",
