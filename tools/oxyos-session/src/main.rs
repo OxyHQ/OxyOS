@@ -141,7 +141,7 @@ const PAM_PIN_SERVICE: &str = "oxyos-pin";
 /// appearance follows, a shell started again); this only bounds a wait that something missed.
 const IDLE_WAIT: Duration = Duration::from_secs(60);
 /// The shell's desktop entry id, as the accounts' service knows it: OxyOS itself.
-const SHELL_ID: &str = "so.oxy.shell";
+const SHELL_ID: &str = oxyos_compositor::crashes::SHELL;
 
 /// The session's registrar (docs/adr/0020-oxy-account-login.mdx, step 5): every application it
 /// launches and every shell it starts is registered with the accounts' service, which gives the
@@ -827,6 +827,8 @@ fn main() -> Result<()> {
     );
     crashes.set_locale(&settings.locale());
     let mut shell_restarts = oxyos_seat::restarts::Restarts::default();
+    // The shells watched (docs/adr/0061, decision 6): one that stops answering is ended.
+    let mut shell_watch = oxyos_compositor::shell_watch::ShellWatch::default();
     // What an erasure a crash interrupted left aside (docs/adr/0061, decision 5), deleted off the
     // turn; never at the login screen, whose user is no one.
     if !greeter {
@@ -1455,6 +1457,12 @@ fn main() -> Result<()> {
             );
             break Ok(());
         }
+        // A shell that stopped answering is asked for its report and ended; it is then started
+        // again below as one that crashed (docs/adr/0061, decision 6).
+        let pids: Vec<u32> = shells.values().map(|shell| shell.child.id()).collect();
+        for (pid, signal) in shell_watch.serve(&mut compositor, &pids, Instant::now()) {
+            signal_shell(pid, signal);
+        }
         let mut exited = None;
         for (output, shell) in shells.iter_mut() {
             if let Some(status) = shell.child.try_wait()? {
@@ -1465,6 +1473,7 @@ fn main() -> Result<()> {
         if let Some((output, status)) = exited {
             let shell = shells.remove(&output).expect("it exited");
             let ran = shell.started.elapsed();
+            let hung = shell_watch.ended(shell.child.id());
             if status.success() && !compositor.scene.is_locked() {
                 eprintln!("[session] the shell of output {output} exited ({status})");
                 break Ok(());
@@ -1481,14 +1490,17 @@ fn main() -> Result<()> {
                 wait.as_millis()
             );
             if !status.success() && !greeter {
-                crashes.note_part(&oxyos_apps::Exited {
-                    pid: shell.child.id(),
-                    launched: shell_launched(),
-                    status: Some(status),
-                    ran,
-                    asked: false,
-                    report: shell.report.as_ref().and_then(oxyos_apps::ReportFile::read),
-                });
+                crashes.note_part(
+                    &oxyos_apps::Exited {
+                        pid: shell.child.id(),
+                        launched: shell_launched(),
+                        status: Some(status),
+                        ran,
+                        asked: false,
+                        report: shell.report.as_ref().and_then(oxyos_apps::ReportFile::read),
+                    },
+                    hung,
+                );
             }
         }
         if let Some(shell_command) = &shell_command {
@@ -1557,6 +1569,10 @@ fn main() -> Result<()> {
         }
         // A reset waiting for its application to quit (docs/adr/0061, decision 5).
         if let Some(deadline) = crashes.deadline() {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
+        // The shells' next Ping, or a hung one's end.
+        if let Some(deadline) = shell_watch.deadline() {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
         // The screen reader started again after its wait.
@@ -1661,14 +1677,36 @@ fn start_shells(
         shells.insert(screen.id, spawner.spawn(command, screen.id)?);
     }
     let deadline = Instant::now() + SHELL_DEADLINE;
+    // A shell that ends before its panels are shown is started again with the shell's wait, at
+    // once and then ever later, until the deadline (docs/adr/0061, decision 6): a shell that fails
+    // once as the session starts never ends the session.
+    let mut restarts = oxyos_seat::restarts::Restarts::default();
+    let mut due: BTreeMap<OutputId, Instant> = BTreeMap::new();
     loop {
+        let mut ended = Vec::new();
         for (output, shell) in shells.iter_mut() {
             if let Some(status) = shell.child.try_wait()? {
-                return Err(format!(
-                    "the shell of output {output} exited ({status}) before its panels were shown"
-                )
-                .into());
+                ended.push((*output, status, shell.started.elapsed()));
             }
+        }
+        for (output, status, ran) in ended {
+            shells.remove(&output);
+            let wait = restarts.ended(ran);
+            eprintln!(
+                "[session] the shell of output {output} exited ({status}) before its panels were shown: started again in {} ms",
+                wait.as_millis()
+            );
+            due.insert(output, Instant::now() + wait);
+        }
+        let now = Instant::now();
+        let ready: Vec<OutputId> = due
+            .iter()
+            .filter(|(_, at)| now >= **at)
+            .map(|(output, _)| *output)
+            .collect();
+        for output in ready {
+            due.remove(&output);
+            shells.insert(output, spawner.spawn(command, output)?);
         }
         if Instant::now() > deadline {
             for shell in shells.values_mut() {
@@ -1822,9 +1860,28 @@ impl ShellSpawner {
     }
 }
 
+/// Sends a shell the watch's signal: its report (`SIGQUIT`, and `SIGCONT` for one stopped), or
+/// its end (`SIGKILL`).
+fn signal_shell(pid: u32, signal: oxyos_compositor::shell_watch::ShellSignal) {
+    use oxyos_compositor::shell_watch::ShellSignal;
+    use rustix::process::{kill_process, Pid, Signal};
+    let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
+        return;
+    };
+    let result = match signal {
+        ShellSignal::Report => {
+            kill_process(pid, Signal::QUIT).and_then(|()| kill_process(pid, Signal::CONT))
+        }
+        ShellSignal::End => kill_process(pid, Signal::KILL),
+    };
+    if let Err(error) = result {
+        eprintln!("[session] the shell {pid:?} is not sent {signal:?}: {error}");
+    }
+}
+
 /// The shell, as its reports name it.
 fn shell_launched() -> oxyos_apps::Launched {
-    oxyos_apps::Launched::part(SHELL_ID, "OxyOS")
+    oxyos_apps::Launched::part(SHELL_ID, oxyos_compositor::crashes::SHELL_NAME)
 }
 
 /// The session's screen reader (docs/adr/0014-screen-reader.mdx): on while the person has it on
@@ -1929,17 +1986,20 @@ impl Reader {
             wait.as_millis()
         );
         if !status.success() && !greeter {
-            crashes.note_part(&oxyos_apps::Exited {
-                pid,
-                launched: oxyos_apps::Launched::part(
-                    oxyos_compositor::crashes::READER,
-                    oxyos_compositor::crashes::READER_NAME,
-                ),
-                status: Some(status),
-                ran,
-                asked: false,
-                report: None,
-            });
+            crashes.note_part(
+                &oxyos_apps::Exited {
+                    pid,
+                    launched: oxyos_apps::Launched::part(
+                        oxyos_compositor::crashes::READER,
+                        oxyos_compositor::crashes::READER_NAME,
+                    ),
+                    status: Some(status),
+                    ran,
+                    asked: false,
+                    report: None,
+                },
+                None,
+            );
         }
         Ok(())
     }

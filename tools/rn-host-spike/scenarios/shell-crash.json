@@ -1,0 +1,126 @@
+{
+  "about": "The shell crashing (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6), as a Mac's Dock relaunches: Allo has the keyboard; the shell ends on SIGSEGV. The session starts it again at once, its panels come back as they were, Allo keeps the keyboard and receives nothing, and the shell's report is written (OxyOS quit unexpectedly, SIGSEGV), the person told nothing. Without the development compositor keeping its shells as the session does, the run ends with the shell. At 1 (1280 × 720).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "notes.txt": "keep me"
+    }
+  },
+  "steps": [
+    {
+      "name": "Allo has the keyboard; the shell's panels are shown",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        }
+      }
+    },
+    {
+      "name": "the shell ends on SIGSEGV",
+      "do": [
+        "signal",
+        [
+          "SEGV",
+          "shell"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "started again at once: its panels back as they were, Allo still with the keyboard, the shell's report written",
+      "do": [
+        "wait",
+        20000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        },
+        "delivered": {},
+        "crash_reports": [
+          {
+            "application": "so.oxy.shell",
+            "contains": [
+              "OxyOS quit unexpectedly.",
+              "Identifier:   so.oxy.shell",
+              "Reason:       signal 11 (SIGSEGV)"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

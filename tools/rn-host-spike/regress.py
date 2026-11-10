@@ -1235,10 +1235,13 @@ def director_args(step, out):
         return args + ["--idle", str(value)]
     if kind == "signal":
         # A part of the session ended as a crash or a `kill` would, [SIGNAL, PART] ("SEGV",
-        # "reader"): the session then does what it does when that part ends on its own.
+        # "reader"; "shell", the primary output's): the session then does what it does when that
+        # part ends on its own. "STOP" hangs the shell (it answers nothing), for its watch.
         signal, part = value
-        if signal not in ("SEGV", "ABRT", "KILL", "TERM") or part not in ("reader",):
-            raise ValueError(f"signal: {value}: a signal of SEGV, ABRT, KILL or TERM to the reader")
+        if (part not in ("reader", "shell") or signal not in ("SEGV", "ABRT", "KILL", "TERM", "STOP")
+                or signal == "STOP" and part != "shell"):
+            raise ValueError(f"signal: {value}: SEGV, ABRT, KILL or TERM to the reader or the shell, "
+                             "or STOP to the shell")
         return args + ["--signal", signal, part]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
