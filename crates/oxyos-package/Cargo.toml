@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# A package's id: the application id's rule.
+oxyos-names = { path = "../oxyos-names" }
 # Ed25519 (signing and strict verification) and SHA-256, from the crate rustls already brings:
 # no second implementation of either in the workspace.
 ring = "0.17"

@@ -620,7 +620,7 @@ fn registry(scratch: &Scratch) -> Launcher {
 fn own_data_in(root: &Path) -> impl Fn(&str) -> Option<OwnData> {
     let root = root.to_path_buf();
     move |id| {
-        oxyos_apps::valid_id(id).then(|| OwnData {
+        oxyos_names::valid_app_id(id).then(|| OwnData {
             data: root.join("data/oxyos/apps").join(id),
             caches: root.join("cache/oxyos/apps").join(id),
         })

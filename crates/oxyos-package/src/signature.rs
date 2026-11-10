@@ -8,7 +8,7 @@
 //! (the malleable spelling).
 
 use crate::json::{self, Value};
-use crate::manifest::{valid_package_id, Architecture, Manifest, Runtime, Sha256};
+use crate::manifest::{Architecture, Manifest, Runtime, Sha256};
 use crate::{base64url, canonical_document, Error, Fields};
 use ring::signature::{Ed25519KeyPair, KeyPair, UnparsedPublicKey, ED25519};
 use std::collections::HashSet;
@@ -443,7 +443,7 @@ impl ReleaseStatement {
     fn from_value(value: Value) -> Result<Self, Error> {
         let mut fields = Fields::of("the statement", value)?;
         let package_id = fields.string("packageId")?;
-        if !valid_package_id(&package_id) {
+        if !oxyos_names::valid_app_id(&package_id) {
             return Err(Error::InvalidId(package_id));
         }
         let version_code = fields.integer("versionCode")?;

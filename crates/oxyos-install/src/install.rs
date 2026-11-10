@@ -2139,18 +2139,10 @@ fn names_of(manifest: &Manifest) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// A package id this service keeps files under: the package format's own rule.
+/// A package id this service keeps files under: an application id ([`oxyos_names::valid_app_id`],
+/// the package format's rule).
 fn valid_id(id: &str) -> Result<(), InstallError> {
-    let ok = !id.is_empty()
-        && id.len() <= 128
-        && id.split('.').count() >= 2
-        && id.split('.').all(|label| {
-            !label.is_empty()
-                && label
-                    .bytes()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
-        });
-    if ok {
+    if oxyos_names::valid_app_id(id) {
         Ok(())
     } else {
         Err(InstallError::Package(oxyos_package::Error::InvalidId(

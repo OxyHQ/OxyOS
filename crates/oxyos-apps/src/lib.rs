@@ -19,6 +19,7 @@ mod watch;
 pub use runtimes::{installed as installed_runtimes, runtime, InstalledRuntime, RUNTIMES};
 pub use watch::Watch;
 
+use oxyos_names::valid_app_id;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -247,7 +248,7 @@ impl Policy {
         let mut applications = BTreeMap::new();
         let mut refused = BTreeMap::new();
         for (id, raw) in file.applications {
-            if !valid_id(&id) {
+            if !valid_app_id(&id) {
                 return Err(Error(format!("{id:?} is not an application id")));
             }
             let runs = match (raw.exec, raw.bloom) {
@@ -477,17 +478,6 @@ pub fn opens_type(declared: &[String], kind: &str) -> bool {
         .any(|media| media == kind || media.strip_suffix("/*").is_some_and(|wild| wild == top))
 }
 
-/// An application id: a reverse domain name, as the Desktop Entry Specification recommends,
-/// of ASCII letters, digits, `.`, `-` and `_`, at most 128 bytes.
-pub fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && !id.starts_with('.')
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
-}
-
 /// The `[Desktop Entry]` group's keys.
 fn keys(text: &str) -> BTreeMap<String, String> {
     let mut group = None;
@@ -595,7 +585,7 @@ pub fn parse(
     directory: &Path,
     languages: &[String],
 ) -> Result<Option<Application>, Error> {
-    if !valid_id(id) {
+    if !valid_app_id(id) {
         return Err(Error(format!("{id:?} is not an application id")));
     }
     let keys = keys(text);
@@ -767,7 +757,7 @@ pub fn directories() -> Vec<PathBuf> {
 /// An application's own data directory (`so.oxy.dropsea`'s, for its storage and its documents):
 /// `oxyos/apps/<id>` under `$XDG_DATA_HOME` (`~/.local/share`), as Android gives each
 /// application `/data/data/<package>` (docs/adr/0030-installing-applications.mdx: an
-/// application's data is the account's; the host gives it as Expo's document directory). None for an id that is not one ([`valid_id`]), or without
+/// application's data is the account's; the host gives it as Expo's document directory). None for an id that is not one ([`valid_app_id`]), or without
 /// a home. A relative `XDG_DATA_HOME` is ignored, as the base directory specification says.
 pub fn data_directory(id: &str) -> Option<PathBuf> {
     base_directory(
@@ -825,7 +815,7 @@ fn base_directory(
     fallback: &str,
     id: &str,
 ) -> Option<PathBuf> {
-    if !valid_id(id) {
+    if !valid_app_id(id) {
         return None;
     }
     let absolute =

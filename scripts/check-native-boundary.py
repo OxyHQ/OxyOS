@@ -32,8 +32,8 @@ FORBIDDEN = ("x11", "xcb", "wayland", "smithay", "winit", "tauri", "webkit", "gt
 #   program   a binary (tools/*): it may use any layer below, never another program
 LAYERS = {
     "leaf": (
-        "oxyos-gestures", "oxyos-intl", "oxyos-package", "oxyos-preferences", "oxyos-solar",
-        "oxyos-vector",
+        "oxyos-gestures", "oxyos-intl", "oxyos-names", "oxyos-package", "oxyos-preferences",
+        "oxyos-solar", "oxyos-vector",
     ),
     "protocol": ("oxyos-ipc", "oxyos-protocol"),
     "system": (

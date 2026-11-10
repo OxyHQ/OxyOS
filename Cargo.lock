@@ -2645,6 +2645,7 @@ name = "oxyos-apps"
 version = "0.1.0"
 dependencies = [
  "oxyos-install",
+ "oxyos-names",
  "oxyos-package",
  "rustix",
  "serde",
@@ -2786,6 +2787,7 @@ dependencies = [
  "oxyos-install",
  "oxyos-ipc",
  "oxyos-kms",
+ "oxyos-names",
  "oxyos-networks",
  "oxyos-power",
  "oxyos-preferences",
@@ -2843,6 +2845,7 @@ dependencies = [
  "oxyos-apps",
  "oxyos-backup",
  "oxyos-install",
+ "oxyos-names",
  "oxyos-net",
  "oxyos-preferences",
  "plist",
@@ -2927,6 +2930,7 @@ dependencies = [
 name = "oxyos-install"
 version = "0.1.0"
 dependencies = [
+ "oxyos-names",
  "oxyos-package",
  "oxyos-seqpacket",
  "ring",
@@ -3047,6 +3051,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-names"
+version = "0.1.0"
+
+[[package]]
 name = "oxyos-net"
 version = "0.1.0"
 dependencies = [
@@ -3129,6 +3137,7 @@ dependencies = [
 name = "oxyos-package"
 version = "0.1.0"
 dependencies = [
+ "oxyos-names",
  "ring",
  "rustix",
 ]
@@ -3171,6 +3180,9 @@ dependencies = [
 [[package]]
 name = "oxyos-preferences"
 version = "0.1.0"
+dependencies = [
+ "oxyos-names",
+]
 
 [[package]]
 name = "oxyos-protocol"

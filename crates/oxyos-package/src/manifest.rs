@@ -337,21 +337,6 @@ pub struct Manifest {
     pub files: Vec<FileEntry>,
 }
 
-/// A package id: a reverse domain name of lowercase ASCII letters, digits, `-` and `_`, at least
-/// two labels, at most 128 bytes. Every such id is one `oxyos_apps::valid_id` accepts (this is a
-/// stricter rule, copied rather than depended on: the registry's rule is for Desktop Entries,
-/// whose ids may be any case).
-pub(crate) fn valid_package_id(id: &str) -> bool {
-    id.len() <= 128
-        && id.split('.').count() >= 2
-        && id.split('.').all(|label| {
-            !label.is_empty()
-                && label
-                    .bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-        })
-}
-
 /// An Oxy id: a legacy 24-character hexadecimal id or a UUID, lowercase (the SDK's `ids.ts`).
 fn valid_application(id: &str) -> bool {
     let hex = |s: &str| {
@@ -486,7 +471,7 @@ impl Manifest {
         let mut fields = Fields::of("the manifest", value)?;
 
         let id = fields.string("id")?;
-        if !valid_package_id(&id) {
+        if !oxyos_names::valid_app_id(&id) {
             return Err(Error::InvalidId(id));
         }
         let application = fields.string("application")?;
