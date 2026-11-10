@@ -1011,6 +1011,15 @@ int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t qui
  * of a version before OXYOS_SUDDEN_TERMINATION_VERSION, which asks every application. */
 #define OXYOS_SUDDEN_TERMINATION_VERSION 40
 int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
+/* The platform's material (docs/adr/0069-the-platforms-material.mdx): a surface's material regions
+ * for its next Submit, `count` rounded rectangles in its buffer pixels, five values each in
+ * `regions` (x, y, width, height, radius), under which the compositor blurs what it has composed
+ * beneath the surface; `count` 0: none. Kept until another list replaces it. An error, sending
+ * nothing, past OXYOS_MAX_MATERIAL_REGIONS or to a compositor of a version before
+ * OXYOS_MATERIAL_VERSION. */
+#define OXYOS_MATERIAL_VERSION 45
+#define OXYOS_MAX_MATERIAL_REGIONS 16
+int oxyos_client_set_material_regions(OxyOSClient* client, uint32_t surface, const int32_t* regions, size_t count);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

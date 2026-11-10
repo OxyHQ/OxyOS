@@ -154,6 +154,8 @@ export type ShellPowerActions = {
   sleep: () => void;
   /** `confirm` false: Option's alternate, at once and with no question. */
   endSession: (action: "restart" | "shutDown" | "logOut", confirm: boolean) => void;
+  /** Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session shows it. */
+  forceQuit?: () => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is

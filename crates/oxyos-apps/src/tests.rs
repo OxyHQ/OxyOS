@@ -470,6 +470,23 @@ fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_onl
         assert!(std::time::Instant::now() < deadline, "it was not ended");
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    // A hung one is asked for its report (SIGQUIT), which a program without a handler ends on:
+    // asked, so never an unexpected quit (docs/adr/0067-hangs-and-force-quit.mdx).
+    let hung = launcher.launch("so.oxy.sleeper").unwrap();
+    assert!(!launcher.end_hung(std::process::id()));
+    assert!(launcher.end_hung(hung));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let exited = launcher.reap();
+        if let Some(ended) = exited.iter().find(|exited| exited.pid == hung) {
+            use std::os::unix::process::ExitStatusExt;
+            assert_eq!(ended.status.and_then(|status| status.signal()), Some(3));
+            assert!(ended.asked && !ended.abnormal());
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "it was not ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     assert_eq!(url_scheme("dropsea://trash").as_deref(), Some("dropsea"));
     assert_eq!(url_scheme("://x"), None);
     let _ = std::fs::remove_file(&out);

@@ -304,6 +304,13 @@ export function createShell(
       ask({ endSession: { action, confirm } }, options),
     /** Sleeps the computer at once (`{sleeping}`). */
     sleep: (options?: CallOptions) => ask({ sleep: {} }, options),
+    /** Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session shows its
+        sheet, citing the press or key that asked. */
+    forceQuit: (options?: CallOptions) => ask({ forceQuit: {} }, options),
+    /** Force Quit Applications' answer: the application chosen in the sheet `sheet`, which the
+        session ends (a hung one after its report), citing the press or key. */
+    forceQuitApplication: (sheet: number, id: string, options?: CallOptions) =>
+      ask({ forceQuitApplication: { sheet, id } }, options),
   };
 }
 

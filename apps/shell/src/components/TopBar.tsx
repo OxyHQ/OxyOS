@@ -876,6 +876,8 @@ const BarMenus = memo(function BarMenus({
         return choose(launcher)();
       case "view.overview":
         return choose(overview)();
+      case "system.forceQuit":
+        return choose(() => powerActions?.forceQuit?.())();
       case "power.sleep":
         return choose(() => powerActions?.sleep())();
       case "power.restart":

@@ -50,7 +50,7 @@
         "delivered": {"launched": {}},
         "focus_surface": 1,
         "announcements": [{"politeness": "assertive", "text": "Inbox"}],
-        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"},
+        "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"},
         "in_shell": {"texts": ["Inbox"]},
         "at": {"shell": [
           {"role": "List", "name": "Selector de apps"},
@@ -66,7 +66,7 @@
         "react": {},
         "delivered": {"launched": {}},
         "announcements": [{"politeness": "assertive", "text": "Allo"}],
-        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#e4e6ea"},
+        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#d3d7e0"},
         "in_shell": {"texts": ["Allo"], "absent": ["Inbox"]},
         "at": {"shell": [{"role": "Button", "name": "Allo", "state": ["selected"]}, {"role": "Button", "name": "Inbox", "state": []}]}
       }
@@ -78,7 +78,7 @@
         "react": {},
         "delivered": {"launched": {}},
         "announcements": [{"politeness": "assertive", "text": "Inbox"}],
-        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"}
+        "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"}
       }
     },
     {

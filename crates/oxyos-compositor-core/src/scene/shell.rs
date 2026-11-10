@@ -49,6 +49,8 @@ pub struct ShellWindowState {
     pub minimized: bool,
     pub hidden: bool,
     pub focused: bool,
+    /// Its application answers the compositor's pings (docs/adr/0067-hangs-and-force-quit.mdx).
+    pub responding: bool,
 }
 
 #[derive(Debug, Default)]
@@ -330,6 +332,7 @@ impl Scene {
                 minimized: window.minimized,
                 hidden: window.hidden,
                 focused: window.focused,
+                responding: window.responding,
             })
             .collect()
     }

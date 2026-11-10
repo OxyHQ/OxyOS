@@ -889,6 +889,8 @@ function SessionShell() {
     () => ({
       sleep: () => void platformShell.sleep().catch(() => {}),
       endSession: (action, confirm) => void platformShell.endSession(action, confirm).catch(() => {}),
+      // Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx), citing the menu's press.
+      forceQuit: () => void platformShell.forceQuit().catch(() => {}),
     }),
     [],
   );
@@ -908,6 +910,12 @@ function SessionShell() {
       answerCode: (code: string) => answerCode(first.sheet, code),
       // A passkey sheet's answer (ADR 0050): to the session alone.
       answerPasskey: (choice: number | undefined, password: string) => answerPasskey(first.sheet, choice, password),
+      // Force Quit Applications' answer (docs/adr/0067): the application chosen, citing the press.
+      answerChoice: (choice: number) => {
+        if (firstText.kind !== 'force-quit') return;
+        const chosen = firstText.applications[choice];
+        if (chosen) platformShell.forceQuitApplication(first.sheet, chosen.id).catch(() => {});
+      },
       // An application that quit (docs/adr/0061): Reset… asks the session to reset it.
       act: (action: string) => {
         if (action === 'reset' && firstText.kind === 'crash') resetApplication(first.sheet, firstText.id);

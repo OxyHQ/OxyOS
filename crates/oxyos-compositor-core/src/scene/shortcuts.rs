@@ -339,6 +339,13 @@ impl Scene {
             self.dismiss_grab(DismissReason::OutsidePress);
             return;
         }
+        // Force Quit Applications, as a Mac's ⌥⌘⎋ (docs/adr/0067-hangs-and-force-quit.mdx,
+        // decision 2): the program shows it. A menu open closes first.
+        if key == ESCAPE && alt && !ctrl && !shift && !self.capturing() {
+            self.dismiss_grab(DismissReason::OutsidePress);
+            self.force_quit_shortcut();
+            return;
+        }
         // Tiling, as a Mac's Fn-Control with the same keys (ADR 0016, decision 12): Super+Alt with
         // F fills, C centres, R returns to the previous size, an arrow tiles to that half, and with
         // Shift an arrow arranges the active window and the one behind it.

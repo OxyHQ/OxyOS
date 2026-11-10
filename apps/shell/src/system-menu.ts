@@ -12,6 +12,7 @@ export type SystemMenuCommand =
   | "system.settings"
   | "view.launcher"
   | "view.overview"
+  | "system.forceQuit"
   | "power.sleep"
   | "power.restart"
   | "power.shutDown"
@@ -63,6 +64,19 @@ export function systemMenuRows(
     { kind: "item", id: "view.launcher", label: messages.topBar.applications },
     { kind: "item", id: "view.overview", label: messages.common.showDesktops },
   ];
+  // Force Quit… (Alt+Super+Esc, a Mac's ⌥⌘⎋), where the session shows it
+  // (docs/adr/0067-hangs-and-force-quit.mdx), as the Apple menu's.
+  if (power) {
+    rows.push(
+      { kind: "separator", id: "system.separator" },
+      {
+        kind: "item",
+        id: "system.forceQuit",
+        label: messages.topBar.forceQuit,
+        chord: chordLabel(["Alt", "Super", "Esc"], messages),
+      },
+    );
+  }
   if (power) {
     rows.push(
       { kind: "separator", id: "power.separator" },

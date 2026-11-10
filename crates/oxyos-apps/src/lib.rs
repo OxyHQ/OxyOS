@@ -1835,6 +1835,16 @@ impl Launcher {
         self.signal(pid, rustix::process::Signal::KILL)
     }
 
+    /// Asks a process it started that stopped answering for its hang's report (SIGQUIT,
+    /// docs/adr/0067-hangs-and-force-quit.mdx, decision 4): the Bloom host writes its JavaScript
+    /// thread's stack into its report file and goes on; a program without a handler ends with a
+    /// core, its backtrace systemd-coredump's. The session asked it to end: its end is no
+    /// unexpected quit. The caller kills it ([`Launcher::kill`]) once the host has had its moment
+    /// to write. False for a process it did not start.
+    pub fn end_hung(&mut self, pid: u32) -> bool {
+        self.signal(pid, rustix::process::Signal::QUIT)
+    }
+
     /// Asks every process it started for the application `id` to end (SIGTERM), as the session
     /// ending does: a quit before its data is erased (docs/adr/0061-crashes-and-resetting-an-
     /// application.mdx, decision 5), every one of its processes by its launch record, never by a

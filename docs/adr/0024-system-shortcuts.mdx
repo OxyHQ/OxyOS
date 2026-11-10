@@ -8,6 +8,8 @@ order: 33
 
 Status: **accepted; implemented** (the scene, the protocol, the C ABI, the Bloom host and the shell; screenshots, decision 10, in the compositor, the session and the development compositor too). Builds on [ADR 0009](./0009-session-shell) (the shell and its `shortcuts` grant), [ADR 0010](./0010-lock-screen) (the lock and Ctrl+Super+Q), [ADR 0014](./0014-screen-reader) (keys taken before everything else), [ADR 0016](./0016-windows) (windows: minimize, zoom, the close request, the active window), [ADR 0018](./0018-several-displays) (a shell per display) and [ADR 0021](./0021-menu-bar) (applications' own shortcuts).
 
+**10 November 2026 ([ADR 0067](./0067-hangs-and-force-quit)):** **Super+Alt+Escape opens Force Quit Applications**, a Mac's ⌥⌘⎋: taken by the compositor before the input method and every application (`take_force_quit_shortcut`), as the window's own shortcuts are (decision 4), so it works whatever the shell or a hung application is doing, and handed to the program, which shows the session's sheet; locked, nothing. It leaves decision 2's "Not in this decision".
+
 **10 November 2026 ([ADR 0016](./0016-windows), decision 12):** tiling's keys are a Mac's Fn-Control ones with Super+Alt for Fn-Control: Super+Alt+F fills, Super+Alt+C centres, Super+Alt+R returns to the previous size, Super+Alt with an arrow tiles the active window to that half, and Super+Alt+Shift with an arrow arranges it with the window behind it. The compositor's own, as its other window actions (decision 4); they never repeat.
 
 **9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** Super+Shift+Q logs out after the session's question and Super+Alt+Shift+Q at once, as a Mac's ⇧⌘Q and ⌥⇧⌘Q: taken by the compositor as system shortcuts, reaching no application, handed to the session (`take_session_keys`); locked, nothing, as every system shortcut.
@@ -65,7 +67,7 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
 
    Screenshots, Super+Shift+3, 4 and 5, are decision 10's.
 
-   **Not in this decision:** Super+Alt+M (minimize all), Super+Alt+Esc (force quit), Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)), and a window's own minimize-all or close-all variants. (Alt+Super+H, hide the others, came with [ADR 0021](./0021-menu-bar), step 5.)
+   **Not in this decision:** Super+Alt+M (minimize all), Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)), and a window's own minimize-all or close-all variants. (Alt+Super+H, hide the others, came with [ADR 0021](./0021-menu-bar), step 5; Super+Alt+Esc, Force Quit, with [ADR 0067](./0067-hangs-and-force-quit); tiling's keys with [ADR 0016](./0016-windows), decision 12.)
 
 3. **Keys by their place.** The scene has no keymap: keys are Linux key codes and are matched by place, named as on the US layout, as Bloom matches applications' chords (ADR 0021). So the two can never meet on any layout, and \` is the key above Tab, left of 1 (º on the Spanish layout), as a Mac's ⌘\` is on most ISO keyboards. On a layout that moves letters (AZERTY), Super+W is the key where W is on a US keyboard; when the compositor's keymap reaches the scene, system shortcuts and Bloom's chords move to the layout's characters together.
 

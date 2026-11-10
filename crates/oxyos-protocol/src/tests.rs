@@ -444,6 +444,13 @@ fn requests() -> Vec<Request> {
             quit: true,
         },
         Request::SuddenTermination { enabled: true },
+        Request::MaterialRegion {
+            surface: 3,
+            index: 1,
+            last: true,
+            rect: Rect::new(8, 12, 240, 160),
+            radius: 12,
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -3253,6 +3260,19 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_45_material_regions_are_only_version_45s() {
+    let region = Request::MaterialRegion {
+        surface: 1,
+        index: 0,
+        last: true,
+        rect: Rect::new(0, 0, 0, 0),
+        radius: 0,
+    };
+    assert_eq!(request_since(&region), 45);
+    assert_eq!(MATERIAL_VERSION, 45);
 }
 
 #[test]

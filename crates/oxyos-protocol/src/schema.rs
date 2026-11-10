@@ -168,6 +168,13 @@ messages! {
         // is, applied at TextInputCommit: chunks of none could not say so, and a commit keeps the
         // text it does not describe again, so a field emptied stayed told as it was.
         70 => TextInputEmpty { surface: u32 },
+        // The surface's material regions (version 45, docs/adr/0069-the-platforms-material.mdx):
+        // the rounded rectangles, in buffer pixels, under which the compositor blurs and saturates
+        // what it has composed beneath the surface before drawing it, as a Mac's vibrancy. Sent
+        // in order before the Submit they belong to: `index` 0 begins the list, `last` ends it and
+        // makes it the next Submit's. One with an empty `rect` at index 0, last, means none. At
+        // most 16; `radius` at most half the shorter side. Kept until another list replaces it.
+        71 => MaterialRegion { surface: u32, index: u8, last: bool, rect: Rect, radius: u32 },
         // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
         // `index` 0 begins it, `last` applies it. The application id is the application's own
         // claim until launch records give it; the shell shows it, nothing is authorized by it.
