@@ -1153,7 +1153,7 @@ fn main() -> Result<()> {
             let mut busy = sound.state().audible.clone();
             busy.extend(compositor.inhibiting.iter().copied());
             naps.serve(
-                &mut compositor,
+                &compositor,
                 &launched,
                 &in_background,
                 &busy,
