@@ -1035,6 +1035,16 @@ int main(int argc, char** argv) {
   std::unique_ptr<OxyOSApplicationsWatch, void (*)(OxyOSApplicationsWatch*)> settingsApplications{
       nullptr, oxyos_applications_watch_free};
   bool settingsApplicationsAsked = false;
+  // The registry's listing as Settings was last told to read it (oxyos_applications' JSON).
+  std::string toldApplications;
+  auto applicationsListing = [] {
+    int64_t length = oxyos_applications(nullptr, 0);
+    if (length < 0) return std::string();
+    std::string json(static_cast<size_t>(length) + 1, '\0');
+    oxyos_applications(json.data(), json.size());
+    json.resize(static_cast<size_t>(length));
+    return json;
+  };
   if (windowed) {
     // Ganesh's compiled pipelines are kept in the application's cache directory (skia-gpu.h); the
     // shell's and the login screen's, by their package's id (the manifest beside the bundle).
@@ -2954,16 +2964,22 @@ int main(int argc, char** argv) {
           toJavaScript.tellState("OxyOSSettingsChanged", services.settings.values());
         }
         // Settings' applications (`getApplications`): told to read them again as the registry
-        // changes, and once as the watch begins, for a change before it.
+        // changes, and once as the watch begins, for a change before it. The watch says they may
+        // have changed (a file of its directories written): told only when the listing did, so a
+        // preference written beside them re-renders nothing.
         if (window && !shellMode && !settingsApplicationsAsked && window->settingsGranted()) {
           settingsApplicationsAsked = true;
           settingsApplications.reset(oxyos_applications_watch_new());
           if (!settingsApplications) {
             std::cerr << "[host] Settings' applications are not followed: " << oxyos_last_error() << "\n";
           }
+          toldApplications = applicationsListing();
           toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
         } else if (settingsApplications && oxyos_applications_watch_changed(settingsApplications.get())) {
-          toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
+          if (auto listing = applicationsListing(); listing != toldApplications) {
+            toldApplications = std::move(listing);
+            toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
+          }
         }
         // A change of the session's locale (docs/adr/0040-language-and-region.mdx, decision 4):
         // Intl's default is already the new one (the window set it); JavaScript is told, and
