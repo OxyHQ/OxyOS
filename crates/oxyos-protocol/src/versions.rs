@@ -86,7 +86,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
 /// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
-/// version 41, kept for the memory pressure told to applications (ADR 0066, decision 7);
+/// versions 41 to 46, allocated to work in flight;
 /// `APP_VISIBILITY_VERSION`, how the session presents an application (`AppVisibility`,
 /// docs/adr/0066-quality-of-service.mdx), told to it unasked.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
