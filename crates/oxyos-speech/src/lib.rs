@@ -6,7 +6,7 @@
 //! language changes while the reader runs, as the session's locale does
 //! (docs/adr/0040-language-and-region.mdx): each utterance is said with its language's voice.
 
-use oxyos_protocol::{AccessibleRole, AccessibleState, Politeness};
+use oxyos_session_types::{AccessibleRole, AccessibleState, Politeness};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::{self, Write};

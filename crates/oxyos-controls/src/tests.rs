@@ -1,7 +1,7 @@
 use super::*;
 use crate::backlight::{level_of, raw_of, Setter};
 use oxyos_audio::Audio;
-use oxyos_protocol::{BatteryState, BluetoothState, WifiState};
+use oxyos_session_types::{BatteryState, BluetoothState, WifiState};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

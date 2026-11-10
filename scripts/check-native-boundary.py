@@ -32,8 +32,8 @@ FORBIDDEN = ("x11", "xcb", "wayland", "smithay", "winit", "tauri", "webkit", "gt
 #   program   a binary (tools/*): it may use any layer below, never another program
 LAYERS = {
     "leaf": (
-        "oxyos-gestures", "oxyos-intl", "oxyos-package", "oxyos-preferences", "oxyos-solar",
-        "oxyos-vector",
+        "oxyos-gestures", "oxyos-intl", "oxyos-package", "oxyos-preferences",
+        "oxyos-session-types", "oxyos-solar", "oxyos-vector",
     ),
     "protocol": ("oxyos-ipc", "oxyos-protocol"),
     "system": (
@@ -87,17 +87,6 @@ ALLOWED = {
     ("oxyos-client-ffi", "oxyos-files"): (
         "the app runtime serves an application's file access in process (oxyos_files::service, "
         "ADR 0028); that part moves below the services"
-    ),
-    ("oxyos-controls", "oxyos-protocol"): (
-        "Control, FULL_LEVEL, BatteryState, WifiState and BluetoothState are defined in the wire "
-        "crate; they move below it"
-    ),
-    ("oxyos-sound", "oxyos-protocol"): (
-        "SystemSound is defined in the wire crate; it moves below it"
-    ),
-    ("oxyos-speech", "oxyos-protocol"): (
-        "AccessibleRole, AccessibleState and Politeness are defined in the wire crate; they move "
-        "below it"
     ),
     ("oxyos-boot-logo", "oxyos-compositor"): (
         "the boot logo draws the compositor's splash; the splash moves to a crate of its own"

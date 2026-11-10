@@ -5,7 +5,7 @@
 
 use crate::bus::{absent, failed, proxy};
 use crate::Network;
-use oxyos_protocol::WifiState;
+use oxyos_session_types::WifiState;
 use std::io;
 use zbus::blocking::Connection;
 use zbus::zvariant::OwnedObjectPath;

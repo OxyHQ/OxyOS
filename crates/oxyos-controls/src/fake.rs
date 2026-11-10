@@ -4,7 +4,7 @@
 //! scenario checks what the session did to the system.
 
 use crate::{Battery, Bluetooth, Control, Level, Network, System, Warning, FULL_LEVEL, STEPS};
-use oxyos_protocol::{BatteryState, BluetoothState, WifiState};
+use oxyos_session_types::{BatteryState, BluetoothState, WifiState};
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

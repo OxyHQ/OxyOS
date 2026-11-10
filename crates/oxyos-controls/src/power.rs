@@ -6,7 +6,7 @@
 
 use crate::bus::{absent, failed, proxy};
 use crate::{Battery, Warning};
-use oxyos_protocol::BatteryState;
+use oxyos_session_types::BatteryState;
 use std::io;
 use zbus::blocking::Connection;
 

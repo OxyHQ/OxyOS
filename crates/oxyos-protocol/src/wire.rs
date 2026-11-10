@@ -40,6 +40,24 @@ impl Wire for bool {
     }
 }
 
+/// A closed set's encoding: its value as the integer, any other integer an invalid message. A
+/// `wire_enum!`'s, and that of the sets the session's services name too, defined with their values
+/// in `oxyos-session-types` (docs/native-architecture.mdx, Crate layers).
+macro_rules! wire_encoding {
+    ($($name:ident: $repr:ty),* $(,)?) => {$(
+        impl Wire for $name {
+            const SIZE: usize = std::mem::size_of::<$repr>();
+            fn put(&self, out: &mut Vec<u8>) {
+                (*self as $repr).put(out);
+            }
+            fn get(bytes: &[u8]) -> io::Result<Self> {
+                Self::from_raw(<$repr>::get(bytes)?)
+                    .ok_or_else(|| invalid(concat!("invalid ", stringify!($name))))
+            }
+        }
+    )*};
+}
+
 /// Wire enums: a closed set of u8 or u16 values; anything else is an invalid message.
 macro_rules! wire_enum {
     ($(#[$meta:meta])* $name:ident: $repr:ty { $($variant:ident = $value:literal),* $(,)? }) => {
@@ -58,17 +76,19 @@ macro_rules! wire_enum {
             }
         }
 
-        impl Wire for $name {
-            const SIZE: usize = std::mem::size_of::<$repr>();
-            fn put(&self, out: &mut Vec<u8>) {
-                (*self as $repr).put(out);
-            }
-            fn get(bytes: &[u8]) -> io::Result<Self> {
-                Self::from_raw(<$repr>::get(bytes)?)
-                    .ok_or_else(|| invalid(concat!("invalid ", stringify!($name))))
-            }
-        }
+        wire_encoding! { $name: $repr }
     };
+}
+
+// The sets the session's services name too, without the display protocol: theirs, encoded here.
+pub use oxyos_session_types::{
+    AccessibleRole, AccessibleState, BatteryState, BluetoothState, Control, Politeness,
+    SystemSound, WifiState,
+};
+
+wire_encoding! {
+    SystemSound: u8, AccessibleRole: u8, Politeness: u8, Control: u8, BatteryState: u8,
+    WifiState: u8, BluetoothState: u8,
 }
 
 wire_enum! {
@@ -123,12 +143,6 @@ wire_enum! {
     BackgroundStatus: u8 { NotRegistered = 1, Enabled = 2, RequiresApproval = 3, NotPermitted = 4 }
 }
 wire_enum! {
-    /// A sound of the system's (docs/adr/0044-system-sounds.mdx), by what it means: items put in
-    /// the Trash, the Trash emptied, a notification arriving. The session plays each from its
-    /// sound theme; an application never sends one.
-    SystemSound: u8 { MoveToTrash = 1, EmptyTrash = 2, Notification = 3 }
-}
-wire_enum! {
     PanelEdge: u8 { None = 0, Top = 1, Bottom = 2, Left = 3, Right = 4 }
 }
 wire_enum! {
@@ -174,20 +188,6 @@ wire_enum! {
     Clock: u8 { Synthetic = 1, Monotonic = 2 }
 }
 wire_enum! {
-    /// What an accessible node is, for an assistive technology (ADR 0003). Unknown roles are
-    /// published as `Generic`, never guessed. `ColumnHeader` is version 14's (ADR 0039): a
-    /// table's or a list's column header, never sent to a peer of version 13 or older. `Meter`
-    /// is version 15's: a level in a known range that is no progress (a battery's charge, ARIA's
-    /// `meter`, VoiceOver's level indicator), never sent to a peer of version 14 or older.
-    AccessibleRole: u8 {
-        Generic = 0, Button = 1, Link = 2, Text = 3, Heading = 4, Image = 5, TextInput = 6,
-        Menu = 7, MenuItem = 8, CheckBox = 9, Radio = 10, Switch = 11, Tab = 12, TabList = 13,
-        List = 14, ListItem = 15, Dialog = 16, Alert = 17, ProgressBar = 18, Slider = 19,
-        Search = 20, Toolbar = 21, ScrollView = 22, Group = 23, ComboBox = 24, Summary = 25,
-        Grid = 26, ColumnHeader = 27, Meter = 28,
-    }
-}
-wire_enum! {
     /// Which text of an accessible node a chunk belongs to: its name, its value, the labels of
     /// its custom actions (one per line, in order: `Custom` action `n` is line `n`), or its hint,
     /// what activating it does when its name does not say (version 13; React Native's
@@ -203,11 +203,6 @@ wire_enum! {
         Activate = 1, Focus = 2, Increment = 3, Decrement = 4, ScrollForward = 5,
         ScrollBackward = 6, Dismiss = 7, Custom = 8, SetSelection = 9,
     }
-}
-wire_enum! {
-    /// How an announcement interrupts an assistive technology: after what it is saying
-    /// (`Polite`), or at once (`Assertive`), as Android's live regions.
-    Politeness: u8 { Polite = 1, Assertive = 2 }
 }
 wire_enum! {
     /// A screen reader's command from its keys (ADR 0014): move its cursor to the next or the
@@ -274,27 +269,6 @@ wire_enum! {
     /// Where a screenshot is saved (ADR 0024, decision 10): the user's Desktop or Documents
     /// folder, as xdg-user-dirs names them.
     CaptureDestination: u8 { Desktop = 1, Documents = 2 }
-}
-wire_enum! {
-    /// A level the session controls (ADR 0025): the volume of the default output and of the
-    /// default input (the microphone), and the backlight of the built-in display and of the
-    /// keyboard.
-    Control: u8 { OutputVolume = 1, InputVolume = 2, DisplayBrightness = 3, KeyboardBrightness = 4 }
-}
-wire_enum! {
-    /// The battery, as the session finds it (ADR 0025): none, discharging, charging, full, or on
-    /// AC power and not charging.
-    BatteryState: u8 { Absent = 0, Discharging = 1, Charging = 2, Full = 3, NotCharging = 4 }
-}
-wire_enum! {
-    /// Wi-Fi, as the session finds it (ADR 0025): no Wi-Fi device (or nothing managing one),
-    /// turned off, on and not connected, connecting, connected.
-    WifiState: u8 { Unavailable = 0, Off = 1, Disconnected = 2, Connecting = 3, Connected = 4 }
-}
-wire_enum! {
-    /// Bluetooth, as the session finds it (ADR 0025): no adapter (or nothing managing one), its
-    /// adapter off, or on.
-    BluetoothState: u8 { Unavailable = 0, Off = 1, On = 2 }
 }
 wire_enum! {
     /// Which text of a notification a chunk belongs to (ADR 0026): the posting application's own
@@ -447,50 +421,10 @@ impl Wire for Rect {
     }
 }
 
-/// An accessible node's states, as bits. Unknown bits are invalid.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct AccessibleState(u16);
-
-impl AccessibleState {
-    pub const DISABLED: u16 = 1 << 0;
-    pub const SELECTED: u16 = 1 << 1;
-    pub const CHECKED: u16 = 1 << 2;
-    /// Checked and unchecked at once (a partly checked group).
-    pub const MIXED: u16 = 1 << 3;
-    pub const EXPANDED: u16 = 1 << 4;
-    /// Expandable and not expanded.
-    pub const COLLAPSED: u16 = 1 << 5;
-    pub const BUSY: u16 = 1 << 6;
-    /// The node with the application's accessibility focus.
-    pub const FOCUSED: u16 = 1 << 7;
-    /// A live region (Android's `accessibilityLiveRegion`): an assistive technology announces
-    /// what changes in it, after what it is saying or at once.
-    pub const LIVE_POLITE: u16 = 1 << 8;
-    pub const LIVE_ASSERTIVE: u16 = 1 << 9;
-    const ALL: u16 = (1 << 10) - 1;
-
-    /// The state with these bits, if every bit is known.
-    pub const fn new(bits: u16) -> Option<Self> {
-        if bits & !Self::ALL == 0 {
-            Some(Self(bits))
-        } else {
-            None
-        }
-    }
-
-    pub const fn bits(self) -> u16 {
-        self.0
-    }
-
-    pub const fn contains(self, bit: u16) -> bool {
-        self.0 & bit == bit
-    }
-}
-
 impl Wire for AccessibleState {
     const SIZE: usize = 2;
     fn put(&self, out: &mut Vec<u8>) {
-        self.0.put(out);
+        self.bits().put(out);
     }
     fn get(bytes: &[u8]) -> io::Result<Self> {
         Self::new(u16::get(bytes)?).ok_or_else(|| invalid("unknown accessible state"))

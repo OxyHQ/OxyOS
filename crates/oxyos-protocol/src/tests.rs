@@ -3243,3 +3243,55 @@ fn session_ends_are_a_closed_set() {
     assert_eq!(SessionEnd::from_raw(2), Some(SessionEnd::Restart));
     assert_eq!(SessionEnd::from_raw(3), Some(SessionEnd::ShutDown));
 }
+
+/// The sets `oxyos-session-types` defines for the services (docs/native-architecture.mdx, Crate
+/// layers) are the protocol's own, encoded as every wire enum is: each number of the set is its
+/// value, in one byte, and every other number is an invalid message.
+#[test]
+fn the_session_types_sets_encode_as_wire_enums() {
+    use crate::wire::Wire;
+    fn closed<T: Wire + Copy + PartialEq + std::fmt::Debug>(
+        from_raw: fn(u8) -> Option<T>,
+    ) -> usize {
+        let mut values = 0;
+        for raw in 0..=u8::MAX {
+            match from_raw(raw) {
+                Some(value) => {
+                    values += 1;
+                    assert_eq!(T::get(&[raw]).unwrap(), value);
+                    let mut out = Vec::new();
+                    value.put(&mut out);
+                    assert_eq!(out, [raw]);
+                }
+                None => assert!(T::get(&[raw]).is_err()),
+            }
+        }
+        values
+    }
+    assert_eq!(closed(SystemSound::from_raw), 3);
+    assert_eq!(closed(AccessibleRole::from_raw), 29);
+    assert_eq!(closed(Politeness::from_raw), 2);
+    assert_eq!(closed(Control::from_raw), 4);
+    assert_eq!(closed(BatteryState::from_raw), 5);
+    assert_eq!(closed(WifiState::from_raw), 5);
+    assert_eq!(closed(BluetoothState::from_raw), 3);
+    // The numbers a peer of an earlier build sends.
+    assert_eq!(SystemSound::Notification as u8, 3);
+    assert_eq!(AccessibleRole::Meter as u8, 28);
+    assert_eq!(Politeness::Assertive as u8, 2);
+    assert_eq!(Control::KeyboardBrightness as u8, 4);
+    assert_eq!(BatteryState::NotCharging as u8, 4);
+    assert_eq!(WifiState::Connected as u8, 4);
+    assert_eq!(BluetoothState::On as u8, 2);
+    assert_eq!(FULL_LEVEL, 65_536);
+
+    let all = AccessibleState::LIVE_ASSERTIVE * 2 - 1;
+    let state = AccessibleState::get(&all.to_le_bytes()).unwrap();
+    assert_eq!(state.bits(), all);
+    let mut out = Vec::new();
+    state.put(&mut out);
+    assert_eq!(out, all.to_le_bytes());
+    assert!(AccessibleState::get(&(all + 1).to_le_bytes()).is_err());
+    // One type, named by both crates.
+    let _: oxyos_session_types::BatteryState = BatteryState::Full;
+}

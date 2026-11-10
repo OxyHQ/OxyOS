@@ -4,7 +4,7 @@
 
 use crate::bus::{absent, failed, proxy};
 use crate::Bluetooth;
-use oxyos_protocol::BluetoothState;
+use oxyos_session_types::BluetoothState;
 use std::collections::HashMap;
 use std::io;
 use zbus::blocking::Connection;

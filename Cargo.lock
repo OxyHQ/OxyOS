@@ -2817,8 +2817,8 @@ dependencies = [
  "async-io",
  "futures-lite",
  "oxyos-audio",
- "oxyos-protocol",
  "oxyos-seat",
+ "oxyos-session-types",
  "rustix",
  "serde_json",
  "zbus",
@@ -3175,6 +3175,9 @@ version = "0.1.0"
 [[package]]
 name = "oxyos-protocol"
 version = "0.1.0"
+dependencies = [
+ "oxyos-session-types",
+]
 
 [[package]]
 name = "oxyos-reader"
@@ -3270,6 +3273,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-session-types"
+version = "0.1.0"
+
+[[package]]
 name = "oxyos-solar"
 version = "0.1.0"
 dependencies = [
@@ -3281,7 +3288,7 @@ name = "oxyos-sound"
 version = "0.1.0"
 dependencies = [
  "lewton",
- "oxyos-protocol",
+ "oxyos-session-types",
  "pipewire",
 ]
 
@@ -3289,7 +3296,7 @@ dependencies = [
 name = "oxyos-speech"
 version = "0.1.0"
 dependencies = [
- "oxyos-protocol",
+ "oxyos-session-types",
  "rustix",
 ]
 
