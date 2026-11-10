@@ -1,0 +1,70 @@
+{
+ "about": "The next login after the computer restarted because of a kernel panic (docs/adr/0068-crash-evidence-and-kernel-panics.mdx, decision 3), as a Mac says it: the kernel restarted the machine by itself (kernel.panic), efi-pstore kept the panic's text across the restart, systemd-pstore brought it back and oxyos-recovery wrote its account for the person, without an address (the scenario's `panics`). As the session starts the person is told once: \"Your computer restarted because of a problem.\" with Report…, its report written into their crash reports (so.oxy.system_<time>.crash) and the account named as told in their state folder, so the next login says nothing. Report… shows what the kernel said.",
+ "locale": "en_US.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "home": {
+  "items": {
+   "notes.txt": "keep me"
+  }
+ },
+ "panics": {
+  "1762790000000000001.panic": "Your computer restarted because of a problem.\n\nThe kernel's last words before it restarted:\n\n<0>[  812.330101] Kernel panic - not syncing: sysrq triggered crash\n<4>[  812.330300] Call Trace:\n<4>[  812.330304]  sysrq_handle_crash+0x1a/0x20\n"
+ },
+ "steps": [
+  {
+   "name": "the person told once: the notification with Report…, the report written, the account named as told",
+   "do": [
+    "wait_named",
+    [
+     "Report…",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "Your computer restarted because of a problem.",
+      "Report…"
+     ]
+    },
+    "crash_reports": [
+     {
+      "application": "so.oxy.system",
+      "contains": [
+       "Kernel panic - not syncing: sysrq triggered crash",
+       "sysrq_handle_crash+0x1a/0x20"
+      ]
+     }
+    ],
+    "home": {
+     ".local/state/oxyos/restarts-told": "1762790000000000001.panic\n"
+    }
+   }
+  },
+  {
+   "name": "Report…: what the kernel said, in the sheet",
+   "do": [
+    "press_named",
+    "Report…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts_matching": [
+      "Kernel panic - not syncing: sysrq triggered crash"
+     ]
+    }
+   }
+  }
+ ]
+}

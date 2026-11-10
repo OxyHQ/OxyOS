@@ -40,6 +40,30 @@ pub const SESSION: &str = "so.oxy.session";
 /// The session's notification after it ended because of a problem.
 pub const SESSION_NOTIFICATION: &str = "oxyos.session-ended";
 
+/// The computer itself, as a kernel panic's report and notification name it
+/// (docs/adr/0068-crash-evidence-and-kernel-panics.mdx, decision 3).
+pub const SYSTEM: &str = "so.oxy.system";
+/// The notification after the computer restarted because of a problem.
+pub const RESTARTED_NOTIFICATION: &str = "oxyos.restarted";
+/// Where the accounts of kernel panics are (`oxyos-recovery panic-report`, readable by everyone).
+pub const PROBLEMS: &str = "/var/lib/oxyos/problems";
+
+/// The accounts' folder: [`PROBLEMS`], or another named by `OXYOS_PROBLEMS` (development: a
+/// scenario's own), and the file in the person's state folder naming the last one they were told.
+pub fn restarts() -> (PathBuf, Option<PathBuf>) {
+    let problems = std::env::var_os("OXYOS_PROBLEMS")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| PROBLEMS.into());
+    let told = Reports::of_user().and_then(|reports| {
+        reports
+            .directory()
+            .parent()
+            .map(|state| state.join("restarts-told"))
+    });
+    (problems, told)
+}
+
 /// How the person's last session ended because of a problem, as the login program tells their
 /// next one (`OXYOS_SESSION_ENDED`: how, the seconds it ran, when, in seconds since the epoch):
 /// `signal 11 3600 1762790000`, `exit 1 2 1762790000`, `hang 12 1762790000`.
@@ -696,6 +720,79 @@ impl Crashes {
         }
     }
 
+    /// The computer restarted because of a kernel panic since this person was last told
+    /// (docs/adr/0068, decision 3), as a Mac says it at the next login: the newest account in
+    /// `problems` (`<record>.panic`, by name) that `told` (a file in the person's state folder)
+    /// does not name already. Its report is written into their crash reports (`so.oxy.system_…`)
+    /// and the session's notification posted, *Your computer restarted because of a problem.*,
+    /// with *Report…*; `told` then names it. Whether one was told.
+    pub fn restarted(&mut self, scene: &mut Scene, problems: &Path, told: &Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(problems) else {
+            return false;
+        };
+        let newest = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".panic") && !name.starts_with('.'))
+            .max();
+        let Some(newest) = newest else {
+            return false;
+        };
+        let already = std::fs::read_to_string(told).unwrap_or_default();
+        if already.trim() >= newest.as_str() {
+            return false;
+        }
+        let path = problems.join(&newest);
+        let Ok(account) = std::fs::read_to_string(&path) else {
+            return false;
+        };
+        let wall = std::fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .ok()
+            .and_then(|modified| jiff::Timestamp::try_from(modified).ok())
+            .unwrap_or_else(jiff::Timestamp::now)
+            .to_zoned(jiff::tz::TimeZone::system());
+        let mut text: String = account.chars().take(oxyos_apps::REPORT_BYTES).collect();
+        if let Some(system) = &self.system {
+            text.push_str(&format!("\nSystem:       {system}\n"));
+        }
+        let file = self
+            .reports
+            .as_ref()
+            .and_then(|reports| reports.write(SYSTEM, &wall, &text).ok());
+        self.latest.insert(
+            SYSTEM.to_string(),
+            Latest {
+                name: "OxyOS".to_string(),
+                times: 1,
+                report: text,
+                file,
+            },
+        );
+        if let Some(folder) = told.parent() {
+            let _ = std::fs::create_dir_all(folder);
+        }
+        if let Err(error) = std::fs::write(told, format!("{newest}\n")) {
+            eprintln!("[crashes] {}: {error}", told.display());
+        }
+        let (title, report) = if self.spanish {
+            ("Tu ordenador se reinició debido a un problema.", "Informe…")
+        } else {
+            ("Your computer restarted because of a problem.", "Report…")
+        };
+        eprintln!("[crashes] the computer restarted because of a problem: {newest}");
+        if let Err(outcome) = scene.post_session_notification(
+            SYSTEM,
+            RESTARTED_NOTIFICATION,
+            title,
+            "",
+            &[("report", report)],
+        ) {
+            eprintln!("[crashes] the restart's notification is not posted: {outcome:?}");
+        }
+        true
+    }
+
     /// A part of OxyOS the session keeps running quit unexpectedly (its shell, its screen
     /// reader): its report is written, and the person is told nothing, the part being started
     /// again (decision 6) and the shell being what would tell them.
@@ -773,7 +870,7 @@ impl Crashes {
                 let id = self.notices.remove(&number).expect("shown");
                 // Reopen: unless the person opened it meanwhile (the session itself is no
                 // application to open).
-                if accepted && id != SESSION && !launcher.runs(&id) {
+                if accepted && id != SESSION && id != SYSTEM && !launcher.runs(&id) {
                     served.open.push(id);
                 }
             }
@@ -821,10 +918,13 @@ impl Crashes {
             action,
         } in scene.take_session_activations()
         {
-            // The session's own: pressed, or its Report…, its report.
-            if identifier == SESSION_NOTIFICATION {
-                if application == SESSION && !self.notices.values().any(|shown| shown == SESSION) {
-                    self.show_notice(scene, SESSION, true);
+            // The session's own, and the computer's restart: pressed, or their Report…, their
+            // report.
+            if identifier == SESSION_NOTIFICATION || identifier == RESTARTED_NOTIFICATION {
+                if (application == SESSION || application == SYSTEM)
+                    && !self.notices.values().any(|shown| *shown == application)
+                {
+                    self.show_notice(scene, &application, true);
                 }
                 continue;
             }
