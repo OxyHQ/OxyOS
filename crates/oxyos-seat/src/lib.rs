@@ -33,6 +33,7 @@
 //! logind's part is the default feature `logind` (the system bus); a system service that only
 //! speaks to its unit (accountd, installd, backupd) takes [`notify`] and [`restarts`] without it.
 
+pub mod heartbeat;
 pub mod notify;
 pub mod restarts;
 

@@ -267,7 +267,7 @@
       "do": [
         "wait_named",
         [
-          "Couldn't connect to “Far Speaker”.",
+          "Couldn’t connect to “Far Speaker”.",
           8000
         ]
       ],
@@ -275,7 +275,7 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Make sure it's turned on, nearby and in pairing mode."
+            "Make sure it’s turned on, nearby and in pairing mode."
           ]
         },
         "bluetooth": {
@@ -393,7 +393,7 @@
       "do": [
         "wait_named",
         [
-          "Don't Allow",
+          "Don’t Allow",
           5000
         ]
       ],
@@ -404,7 +404,7 @@
       "name": "Don't Allow",
       "do": [
         "press_named",
-        "Don't Allow"
+        "Don’t Allow"
       ],
       "allow_unchanged": true,
       "expect": {}

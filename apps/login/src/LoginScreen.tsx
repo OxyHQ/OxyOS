@@ -52,6 +52,9 @@ export type LoginActions = {
   /** Rises at each press of the power key the session told (`{"powerKey": {}}`): the choice of
       Restart, Sleep, Cancel and Shut Down is shown. */
   powerKey?: number;
+  /** The last session ended because of a problem (docs/adr/0065): said quietly under the field
+      until someone signs in. */
+  lastSessionProblem?: boolean;
 };
 
 const white = (size: number, weight: "400" | "600" = "400", alpha = 1) => ({
@@ -460,6 +463,14 @@ export function LoginScreen({
             focusRequest={toPassword}
           />
         )}
+        {actions.lastSessionProblem ? (
+          <Text
+            testID="login-session-ended"
+            style={{ ...white(13, "400", 0.8), marginTop: 12, maxWidth: 320, textAlign: "center" }}
+          >
+            {words.sessionEnded}
+          </Text>
+        ) : null}
         <Link testID="login-add" label={words.addAccount} onPress={() => setSettingUp({ first: false })} />
       </>
     );

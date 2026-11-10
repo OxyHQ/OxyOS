@@ -79,14 +79,14 @@
     },
     "spoken": [
      {
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "interrupting": true
      }
     ],
     "announcements": [
      {
       "politeness": "assertive",
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "live": false
      }
     ]
@@ -121,7 +121,7 @@
     "announcements": [
      {
       "politeness": "assertive",
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "live": false
      }
     ]
