@@ -72,6 +72,16 @@ void JsThread::runOnQueue(std::function<void()>&& task) {
   if (!staged) wake_.notify_one();
 }
 
+void JsThread::runOnQueueNow(std::function<void()>&& task) {
+  Cause cause = tQueuedFor ? *tQueuedFor : cause_ ? cause_() : Cause{};
+  {
+    std::lock_guard lock(mutex_);
+    handOverLocked();
+    tasks_.push_back(Task{std::move(task), std::move(cause)});
+  }
+  wake_.notify_one();
+}
+
 bool JsThread::handOver() {
   {
     std::lock_guard lock(mutex_);

@@ -472,11 +472,18 @@ class ToJavaScript {
   // Fabric's beat asked for by what the loop dispatched to views: induced on JavaScript's thread (it
   // queues the beat's callback there), handed over with the rest. Whether any was asked for.
   bool beat();
-  // A key is offered next (its listener's answer awaited): a beat goes before it, for whatever views
-  // were dispatched by the time it runs, so that the key reaches JavaScript after the events the
-  // loop dispatched before it (a focus the key before moved).
-  void offeringKey() {
-    run([] { Beat::tickAll(); });
+  // A key offered (Bloom's PlatformKeyboard listener, its answer awaited by the loop's input behind
+  // it): handed over at once with what the loop queued before it, whatever JavaScript is doing, a
+  // beat first for the events the loop dispatched before it, and run at the priority of the events
+  // JavaScript is handed, before the renders it has scheduled: keys typed together are answered one
+  // after another, then rendered together, as when the loop asked JavaScript for each answer in its
+  // turn.
+  void offerKey(std::function<void(jsi::Runtime&)> listen) {
+    handed_ = true;
+    thread_.runOnQueueNow([] { Beat::tickAll(); });
+    thread_.runOnQueueNow([scheduler = instance_.getRuntimeScheduler(), listen = std::move(listen)]() mutable {
+      scheduler->scheduleTask(SchedulerPriority::ImmediatePriority, std::move(listen));
+    });
   }
   // The loop's turn ends (or the offscreen settle's): what it handed over runs, once JavaScript is
   // idle.
@@ -2525,15 +2532,7 @@ int main(int argc, char** argv) {
     auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
       auto answer = std::make_shared<std::atomic<int>>(-1);
       offeredKey = OfferedKey{event, handlingSeq, answer, offered};
-      // After what the keys before it set off (a focus moved by the key before, its onFocus): the
-      // listener answers from what it learned of them, as when each key was answered in its turn.
-      toJavaScript.offeringKey();
-      // After what JavaScript has scheduled already (React's render of what the key before changed,
-      // at its normal priority): the listener answers from the state that key left, as when each
-      // key was answered by a task queued behind it. What the loop hands after the key waits for
-      // the answer (heldBehindKey).
-      toJavaScript.schedule(
-          SchedulerPriority::NormalPriority,
+      toJavaScript.offerKey(
           [listener = services.keyboard.listener, offered = std::move(offered), answer](jsi::Runtime& rt) {
             bool taken = false;
             try {
@@ -2586,16 +2585,17 @@ int main(int argc, char** argv) {
         // JavaScript did, never a step of it, as when the two took turns. What the UI thread moves
         // meanwhile (an animation, a scroll) goes on being drawn. (A commit made on the UI thread
         // applies the queue at once, being behind it.) The person's input that came while it worked
-        // is part of that work, as the keys typed together are until JavaScript answered the last
-        // (the events held behind a key): handed to it first, the frame showing the answer to all of
-        // it (a quick Super+Tab never flashes the switcher it opened and closed; eight arrows typed
-        // at once move the selection once, said once), unless what JavaScript did has waited a
-        // refresh (input that never stops is shown answered a refresh at a time).
+        // is part of that work: handed to it first, the frame showing the answer to all of it (a
+        // quick Super+Tab never flashes the switcher it opened and closed), unless what JavaScript
+        // did has waited a refresh (input that never stops is shown answered a refresh at a time).
+        // Keys typed together are, until JavaScript has answered the last (the events held behind a
+        // key): eight arrows typed at once move the selection once, said once, as when the loop
+        // asked JavaScript for each key's answer in its turn and mounted what it did after.
         auto applyWaited = mounter.waitingSince();
-        bool inputPending = offeredKey.has_value() || !heldBehindKey.empty() || js->stagedRank() >= 1;
         bool waitedARefresh = applyWaited && Clock::now() - *applyWaited >=
                                                  std::chrono::duration<double, std::milli>(refresh.periodMs());
-        bool pulled = js->idle() && (!inputPending || waitedARefresh) && mounter.apply();
+        bool keysAnswering = offeredKey.has_value() || !heldBehindKey.empty();
+        bool pulled = js->idle() && !keysAnswering && (js->stagedRank() < 1 || waitedARefresh) && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
