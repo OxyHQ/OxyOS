@@ -3284,6 +3284,11 @@ int main(int argc, char** argv) {
         }
         // Every configure is answered with a frame, even one that changes nothing it shows.
         if (!window->answered(oxyos::Window::kToplevel)) dirty = true;
+        // A window closed to run on in the background (docs/adr/0060-login-items-and-background-activity.mdx)
+        // is never drawn again: what changed in its tree waits for no frame. Left set, `dirty`
+        // counted every turn as work, so the memory trim due a second after the last work was
+        // armed again at each wake and woke the idle application once a second, for good.
+        if (window->toplevelClosed()) dirty = false;
         if (dirty && !settling && window->ready(oxyos::Window::kToplevel)) {
           Scope drawing(Part::Draw);
           auto started = Clock::now();

@@ -63,7 +63,8 @@ class JsThread : public facebook::react::MessageQueueThread {
     bool ran = false;
     ThreadSpan span;
   };
-  // Runs every task queued, those they queue included, on the thread; returns once they ran.
+  // Runs every task queued, those they queue included, on the thread; returns once they ran. With
+  // none queued, it returns at once and the thread sleeps on.
   Work drain();
 
   // React Native's timers (TimerManager's platform registry). The loop fires those due; firing one
