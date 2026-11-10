@@ -85,6 +85,9 @@ class Report {
   // is the loop thread's CPU time (thread-clock.h), the measure of JavaScript's work however
   // loaded the machine, and `js_blocked_ms` the time it was blocked (waiting for another thread, a
   // lock, a file), so that a wait is said, not hidden in the CPU's time.
+  // Each delivery also says the turn it came in (`turn`, counted from the first):
+  // what one turn delivers reaches JavaScript together, at the next turn's start, so a press's
+  // motions the loop read at once after a stall are one turn's (regress.py's `react` turns).
   void beginTurn();
   void endTurn();
   void javascript(const ThreadSpan& span);
@@ -234,6 +237,7 @@ class Report {
   std::map<uint32_t, folly::dynamic> accessibility_;  // the tree last written per surface
   std::chrono::steady_clock::time_point turn_{};  // when the work not yet counted began
   bool turning_ = false;
+  uint64_t turns_ = 0;  // the loop's turns begun
   double busyMs_ = 0;  // work since the last frame written
   ThreadSpan js_;      // JavaScript since the last frame written
   int reactCommits_ = 0;          // React's commits since the last frame written
