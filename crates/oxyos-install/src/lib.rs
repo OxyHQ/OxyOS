@@ -18,7 +18,6 @@ pub mod fetch;
 pub mod install;
 pub mod ipc;
 pub mod repository;
-pub mod socket;
 pub mod state;
 pub mod time;
 pub mod tuf;

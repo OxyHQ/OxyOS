@@ -66,7 +66,7 @@ fn directory(name: &str) -> PathBuf {
 
 /// Whether `listener` (the install service) is connected to within `within` (a deadline that only
 /// says it never was); the connection is closed at once, as a service that goes.
-fn accepted(listener: oxyos_install::socket::Listener, within: Duration) -> bool {
+fn accepted(listener: oxyos_service_socket::Listener, within: Duration) -> bool {
     let (accepted, heard) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = accepted.send(listener.accept().is_ok());
@@ -184,12 +184,12 @@ fn the_parts_following_the_system_do_not_wake_while_nothing_happens() {
     // as it starts; one that goes (its connection closed, its socket left there) is followed again
     // once its socket is made anew, whenever the watcher looks.
     std::fs::create_dir_all(installd.parent().unwrap()).unwrap();
-    let first = oxyos_install::socket::Listener::bind(&installd, 0o600).unwrap();
+    let first = oxyos_service_socket::Listener::bind(&installd, 0o600).unwrap();
     assert!(
         accepted(first, Duration::from_secs(10)),
         "the install service was not followed once its socket was made"
     );
-    let again = oxyos_install::socket::Listener::bind(&installd, 0o600).unwrap();
+    let again = oxyos_service_socket::Listener::bind(&installd, 0o600).unwrap();
     assert!(
         accepted(again, Duration::from_secs(10)),
         "the install service was not followed again once its socket was made anew"

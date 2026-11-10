@@ -39,8 +39,8 @@ LAYERS = {
     "system": (
         "oxyos-app-storage", "oxyos-apps", "oxyos-audio", "oxyos-auth", "oxyos-dmabuf",
         "oxyos-gpu", "oxyos-gpu-device", "oxyos-image", "oxyos-input", "oxyos-input-methods",
-        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-seat", "oxyos-seqpacket", "oxyos-sound",
-        "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
+        "oxyos-keychain", "oxyos-kms", "oxyos-net", "oxyos-seat", "oxyos-seqpacket",
+        "oxyos-service-socket", "oxyos-sound", "oxyos-speech", "oxyos-vt", "oxyos-wallpaper",
     ),
     "service": (
         "oxyos-account", "oxyos-activity", "oxyos-backup", "oxyos-bluetooth", "oxyos-controls",
@@ -79,10 +79,6 @@ ALLOWED = {
     ("oxyos-client-ffi", "oxyos-account"): (
         "the app runtime reuses the accounts service's socket listener, PIN and store types and "
         "Secret; they move to small crates of their own"
-    ),
-    ("oxyos-client-ffi", "oxyos-install"): (
-        "the app runtime reuses the install service's socket wrapper (oxyos_install::socket); it "
-        "moves to a service-socket crate"
     ),
     ("oxyos-client-ffi", "oxyos-files"): (
         "the app runtime serves an application's file access in process (oxyos_files::service, "

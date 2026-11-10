@@ -25,7 +25,7 @@
 //!   CDN, through `oxyos-net`'s client, is a later step; the install service's side does not
 //!   change with it.
 
-use crate::socket::{Connection, Peer};
+use oxyos_service_socket::{Connection, Peer};
 use rustix::fd::{AsFd, BorrowedFd};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -274,7 +274,7 @@ impl ThreadFetcher {
     /// Serves `repository` at a socket in `directory`, for this process's own user.
     pub fn start(directory: &Path, repository: LocalRepository) -> io::Result<Self> {
         let socket = directory.join("fetch.socket");
-        let listener = crate::socket::Listener::bind(&socket, 0o600)?;
+        let listener = oxyos_service_socket::Listener::bind(&socket, 0o600)?;
         let uid = rustix::process::getuid().as_raw();
         let thread = std::thread::spawn(move || {
             while let Ok(connection) = listener.accept() {

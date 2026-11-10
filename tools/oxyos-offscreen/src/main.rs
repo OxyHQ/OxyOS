@@ -1632,7 +1632,7 @@ mod checks {
 
 /// One request of the development backup service and its answer, as `oxyos-backupd --client`.
 fn backup_ask(socket: &Path, request: &serde_json::Value) -> Result<serde_json::Value> {
-    let connection = oxyos_install::socket::Connection::connect(socket)?;
+    let connection = oxyos_service_socket::Connection::connect(socket)?;
     connection.set_timeout(Duration::from_secs(120))?;
     connection.send(request)?;
     match connection.receive::<serde_json::Value>()? {

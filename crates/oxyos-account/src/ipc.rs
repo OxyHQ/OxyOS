@@ -119,26 +119,17 @@
 use crate::api::{DeviceCredential, OxyApi, Profile};
 use crate::pin::{PinCheck, PinState};
 use crate::platform::{Checked, Local, Platform};
-use crate::secret::{self, Secret};
+use crate::secret::Secret;
 use crate::setup::{
     Appearance, Attempt, Enrolled, Event, Request as SetupRequest, SetupError, Stage, Step,
 };
 use crate::store::State;
 use crate::users::Users;
-use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
-use rustix::net::{
-    AddressFamily, RecvFlags, SendAncillaryBuffer, SendAncillaryMessage, SendFlags, SocketAddrUnix,
-    SocketFlags, SocketType,
-};
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::io;
-use std::mem::MaybeUninit;
-use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use zeroize::Zeroizing;
 
 /// Where the service listens.
 pub const SOCKET: &str = "/run/oxyos/accountd/socket";
@@ -657,241 +648,18 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Drop
     }
 }
 
-/// The service's listening socket.
-pub struct Listener {
-    fd: OwnedFd,
-}
+/// The service's socket's mode: any process may connect; the peer's credentials decide what it
+/// may do.
+pub const MODE: u32 = 0o666;
 
-impl Listener {
-    /// Listens at `path`, replacing a socket an earlier run left there (never another file). Its
-    /// mode lets any process connect: the peer's credentials decide what it may do. The socket
-    /// is made listening under a name of its own beside `path` and renamed into place, so `path`
-    /// is never a socket that refuses: a client that connects as the name appears (the login
-    /// program, the login screen) would otherwise be refused between the bind and the listen.
-    pub fn bind(path: &Path) -> io::Result<Self> {
-        match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => {}
-            Ok(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    format!("{} exists and is not a socket", path.display()),
-                ))
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        let name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "a socket needs a name"))?;
-        let making = path.with_file_name(format!(
-            ".{}.{}",
-            name.to_string_lossy(),
-            std::process::id()
-        ));
-        // A run of this process's that ended between its bind and its rename left it.
-        if std::fs::symlink_metadata(&making).is_ok_and(|metadata| metadata.file_type().is_socket())
-        {
-            std::fs::remove_file(&making)?;
-        }
-        let fd = rustix::net::socket_with(
-            AddressFamily::UNIX,
-            SocketType::SEQPACKET,
-            SocketFlags::CLOEXEC,
-            None,
-        )?;
-        let made = (|| -> io::Result<()> {
-            rustix::net::bind(&fd, &SocketAddrUnix::new(&making)?)?;
-            std::fs::set_permissions(&making, std::fs::Permissions::from_mode(0o666))?;
-            rustix::net::listen(&fd, 16)?;
-            std::fs::rename(&making, path)
-        })();
-        if let Err(error) = made {
-            let _ = std::fs::remove_file(&making);
-            return Err(error);
-        }
-        Ok(Self { fd })
-    }
+/// The service's listening socket: the services' own (`oxyos-service-socket`), at this service's
+/// bound, [`MAX_MESSAGE`]. Bound with [`MODE`].
+pub type Listener = oxyos_service_socket::BoundedListener<MAX_MESSAGE>;
 
-    pub fn accept(&self) -> io::Result<Connection> {
-        let fd = rustix::net::accept_with(&self.fd, SocketFlags::CLOEXEC)?;
-        Ok(Connection { fd })
-    }
-}
+/// A connection to or from the service, at its bound.
+pub type Connection = oxyos_service_socket::BoundedConnection<MAX_MESSAGE>;
 
-impl AsFd for Listener {
-    fn as_fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
-    }
-}
-
-/// The peer's identity, from the kernel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Peer {
-    pub pid: i32,
-    pub uid: u32,
-    pub gid: u32,
-}
-
-pub struct Connection {
-    fd: OwnedFd,
-}
-
-impl Connection {
-    pub fn connect(path: &Path) -> io::Result<Self> {
-        let fd = rustix::net::socket_with(
-            AddressFamily::UNIX,
-            SocketType::SEQPACKET,
-            SocketFlags::CLOEXEC,
-            None,
-        )?;
-        rustix::net::connect(&fd, &SocketAddrUnix::new(path)?)?;
-        Ok(Self { fd })
-    }
-
-    /// Two connected ends (the tests' stand-in for a peer).
-    #[cfg(test)]
-    pub(crate) fn pair() -> io::Result<(Self, Self)> {
-        let (a, b) = rustix::net::socketpair(
-            AddressFamily::UNIX,
-            SocketType::SEQPACKET,
-            SocketFlags::CLOEXEC,
-            None,
-        )?;
-        Ok((Self { fd: a }, Self { fd: b }))
-    }
-
-    /// A connection on a descriptor the tests made.
-    #[cfg(test)]
-    pub(crate) fn from_fd(fd: OwnedFd) -> Self {
-        Self { fd }
-    }
-
-    /// Another handle on the same connection (a duplicated descriptor), to send from one thread
-    /// while another waits to receive.
-    pub fn try_clone(&self) -> io::Result<Self> {
-        Ok(Self {
-            fd: rustix::io::fcntl_dupfd_cloexec(&self.fd, 0)?,
-        })
-    }
-
-    /// Waits at most `timeout` to send each message.
-    pub fn set_send_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-        use rustix::net::sockopt::{set_socket_timeout, Timeout};
-        set_socket_timeout(&self.fd, Timeout::Send, timeout)?;
-        Ok(())
-    }
-
-    pub fn peer(&self) -> io::Result<Peer> {
-        let credentials = rustix::net::sockopt::socket_peercred(&self.fd)?;
-        Ok(Peer {
-            pid: credentials.pid.as_raw_nonzero().get(),
-            uid: credentials.uid.as_raw(),
-            gid: credentials.gid.as_raw(),
-        })
-    }
-
-    /// The peer, as a pidfd of the process that connected (`SO_PEERPIDFD`).
-    pub fn peer_pidfd(&self) -> io::Result<OwnedFd> {
-        crate::pidfd::peer_pidfd(self.fd.as_fd())
-    }
-
-    /// Waits at most `timeout` for each message (none: as long as it takes).
-    pub fn set_receive_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-        use rustix::net::sockopt::{set_socket_timeout, Timeout};
-        set_socket_timeout(&self.fd, Timeout::Recv, timeout)?;
-        Ok(())
-    }
-
-    /// Sends `message` with a descriptor (`SCM_RIGHTS`).
-    pub fn send_with(&self, message: &impl Serialize, fd: BorrowedFd<'_>) -> io::Result<()> {
-        let packet = secret::json(message).map_err(io::Error::other)?;
-        if packet.len() > MAX_MESSAGE {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "message too long",
-            ));
-        }
-        let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
-        let mut control = SendAncillaryBuffer::new(&mut space);
-        let fds = [fd];
-        if !control.push(SendAncillaryMessage::ScmRights(&fds)) {
-            return Err(io::Error::other("no room for the descriptor"));
-        }
-        rustix::net::sendmsg(
-            &self.fd,
-            &[io::IoSlice::new(&packet)],
-            &mut control,
-            SendFlags::NOSIGNAL,
-        )?;
-        Ok(())
-    }
-
-    /// The next message and the descriptors it carried (`SCM_RIGHTS`, close-on-exec): `None` once
-    /// the peer has closed, a `None` message for one that is too long, is not a message, or
-    /// carried more descriptors than one (those are closed).
-    pub fn receive_with<T: DeserializeOwned>(
-        &self,
-    ) -> io::Result<Option<(Option<T>, Vec<OwnedFd>)>> {
-        let mut packet = Zeroizing::new(vec![0u8; MAX_MESSAGE + 1]);
-        let Some(received) =
-            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], true, RecvFlags::empty())?
-        else {
-            return Ok(None);
-        };
-        if received.length > MAX_MESSAGE
-            || received.truncated
-            || received.descriptors_truncated
-            || received.descriptors.len() > 1
-        {
-            return Ok(Some((None, Vec::new())));
-        }
-        let message = serde_json::from_slice(&packet[..received.length]).ok();
-        Ok(Some((message, received.descriptors)))
-    }
-
-    pub fn set_timeout(&self, timeout: Duration) -> io::Result<()> {
-        use rustix::net::sockopt::{set_socket_timeout, Timeout};
-        set_socket_timeout(&self.fd, Timeout::Recv, Some(timeout))?;
-        set_socket_timeout(&self.fd, Timeout::Send, Some(timeout))?;
-        Ok(())
-    }
-
-    pub fn send(&self, message: &impl Serialize) -> io::Result<()> {
-        let packet = secret::json(message).map_err(io::Error::other)?;
-        if packet.len() > MAX_MESSAGE {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "message too long",
-            ));
-        }
-        rustix::net::send(&self.fd, &packet, SendFlags::NOSIGNAL)?;
-        Ok(())
-    }
-
-    /// The next message: `None` once the peer has closed, `Some(None)` for one that is too long
-    /// or is not a message.
-    pub fn receive<T: DeserializeOwned>(&self) -> io::Result<Option<Option<T>>> {
-        let mut packet = Zeroizing::new(vec![0u8; MAX_MESSAGE + 1]);
-        // A packet longer than the buffer is cut to it: one byte more than a message can be.
-        let Some(received) =
-            oxyos_seqpacket::receive(self.fd.as_fd(), &mut packet[..], false, RecvFlags::empty())?
-        else {
-            return Ok(None);
-        };
-        if received.length > MAX_MESSAGE || received.truncated {
-            return Ok(Some(None));
-        }
-        Ok(Some(
-            serde_json::from_slice(&packet[..received.length]).ok(),
-        ))
-    }
-}
-
-impl AsFd for Connection {
-    fn as_fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
-    }
-}
+pub use oxyos_service_socket::Peer;
 
 /// Answers a connection's first message with a refusal, without looking at it; if the peer sends
 /// nothing within [`REFUSAL_WAIT`] or closes, nothing is answered.

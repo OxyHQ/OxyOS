@@ -40,7 +40,7 @@ use crate::fetch::Fetch;
 use crate::install::{
     Committed, InstallError, Installer, Listed, Plan, Prepared, Progress, UpdateState, Updated,
 };
-use crate::socket::{Connection, Peer};
+use oxyos_service_socket::{Connection, Peer};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io;
@@ -519,7 +519,7 @@ impl<'a, F: Fetch, C: Compile, A: Accounts> Conversation<'a, F, C, A> {
                 };
                 // A send's timeout alone: the clone shares the socket, and a receive timeout here
                 // would close the watch once it had been quiet for that long.
-                let _ = on.set_send_timeout(WATCH_SEND);
+                let _ = on.set_send_timeout(Some(WATCH_SEND));
                 // The answer goes first: the state follows it, now and at each change.
                 if let Err(e) = send(&Answer::Watching) {
                     return refusal(

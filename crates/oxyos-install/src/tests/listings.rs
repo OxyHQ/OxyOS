@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::ipc::{self as service, Answer, Reason, Request};
-use crate::socket::Connection;
+use oxyos_service_socket::Connection;
 use std::collections::BTreeMap;
 
 fn listings(names: &[&str]) -> Vec<String> {

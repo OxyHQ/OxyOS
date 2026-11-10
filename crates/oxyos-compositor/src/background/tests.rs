@@ -6,9 +6,9 @@
 use super::*;
 use oxyos_compositor_core::{Grants, Scene};
 use oxyos_install::ipc::{Answer, Request};
-use oxyos_install::socket::Listener;
 use oxyos_preferences::Preferences;
 use oxyos_protocol::{Event, NotificationField};
+use oxyos_service_socket::Listener;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 

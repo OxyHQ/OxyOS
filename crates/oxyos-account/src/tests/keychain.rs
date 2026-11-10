@@ -1803,7 +1803,7 @@ fn only_root_unlocks_on_the_services_own_socket() {
     use crate::ipc::{serve, Enrollers, Listener};
     let socket_dir = TempDir::new("keychain-ipc");
     let path = socket_dir.path().join("socket");
-    let listener = Listener::bind(&path).unwrap();
+    let listener = Listener::bind(&path, crate::ipc::MODE).unwrap();
     let machine = super::platform::machine_as(FakeApi::default(), PASSWORD, Some(sockets::me()));
     let platform = machine.platform.clone();
     let (_oxy, base) = Oxy::start();

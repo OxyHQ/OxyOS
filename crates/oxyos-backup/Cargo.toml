@@ -7,8 +7,8 @@ publish.workspace = true
 
 [dependencies]
 # The service's socket (SOCK_SEQPACKET, one JSON message per packet, the peer's credentials from
-# the kernel, a descriptor handed over with a message), as the install service's.
-oxyos-install = { path = "../oxyos-install" }
+# the kernel, a descriptor handed over with a message): the services' own.
+oxyos-service-socket = { path = "../oxyos-service-socket" }
 # The enrolled accounts and the administrators, for the manifest and who may change settings.
 oxyos-account = { path = "../oxyos-account", default-features = false }
 serde = { version = "1", features = ["derive"] }

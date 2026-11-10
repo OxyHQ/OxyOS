@@ -400,9 +400,9 @@ fn run() -> Result<(), String> {
     // last one read is shown.
     let pictures = Arc::clone(&platform);
     std::thread::spawn(move || pictures.refresh_pictures());
-    let listener = Listener::bind(&options.socket)
+    let listener = Listener::bind(&options.socket, ipc::MODE)
         .map_err(|error| format!("{}: {error}", options.socket.display()))?;
-    let session_listener = Listener::bind(&options.session_socket)
+    let session_listener = Listener::bind(&options.session_socket, ipc::MODE)
         .map_err(|error| format!("{}: {error}", options.session_socket.display()))?;
     eprintln!(
         "oxyos-accountd: listening on {} and {}, accounts in {}, keychains in {}, Oxy at {}, \

@@ -359,7 +359,7 @@ fn played_backup_service(
     socket: &std::path::Path,
     home: &std::path::Path,
 ) -> std::thread::JoinHandle<usize> {
-    use oxyos_install::socket::Listener;
+    use oxyos_service_socket::Listener;
     use serde_json::{json, Value};
     let listener = Listener::bind(socket, 0o600).unwrap();
     let path = home.join("Documents/backed-up.txt").display().to_string();

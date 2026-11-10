@@ -200,7 +200,7 @@ mod tests {
         path: &std::path::Path,
         answer: impl Fn(&Connection, Request) -> Option<Told> + Send + Sync + 'static,
     ) -> Arc<AtomicUsize> {
-        let listener = Listener::bind(path).unwrap();
+        let listener = Listener::bind(path, oxyos_account::ipc::MODE).unwrap();
         let connections = Arc::new(AtomicUsize::new(0));
         let counted = connections.clone();
         let answer = Arc::new(answer);
@@ -426,7 +426,7 @@ mod tests {
         let (path, _gone) = socket_path("saves");
         // The played service: the session's connection asks for the confirmations, then the test
         // speaks on it, and a thread of its own reads the answers.
-        let listener = Listener::bind(&path).unwrap();
+        let listener = Listener::bind(&path, oxyos_account::ipc::MODE).unwrap();
         let (connected, confirmer) = mpsc::channel::<Arc<Connection>>();
         let (decided, decisions) = mpsc::channel();
         std::thread::spawn(move || {
@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn the_confirmations_dropped_close_their_connection_at_once() {
         let (path, _gone) = socket_path("dropped");
-        let listener = Listener::bind(&path).unwrap();
+        let listener = Listener::bind(&path, oxyos_account::ipc::MODE).unwrap();
         let saves = saves(path).unwrap();
         let connection = listener.accept().unwrap();
         connection.set_timeout(Duration::from_secs(10)).unwrap();

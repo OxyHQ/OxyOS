@@ -11,7 +11,7 @@ use crate::engine::{self, Backup, Engine, Location, Repository, Stop};
 use crate::ipc::{Answer, Status};
 use crate::policy::{self, Sources};
 use crate::service::{Options, Service};
-use oxyos_install::socket::Connection;
+use oxyos_service_socket::Connection;
 use serde_json::Value;
 use std::fs;
 use std::io::Read;

@@ -303,52 +303,12 @@ impl Listener {
     /// set listening under a name of its own beside `path`, then renamed into place, so `path`
     /// is never a socket that refuses: a greeter that connects as the name appears (the
     /// development compositor, a test) would otherwise be refused between the bind and the
-    /// listen, with nothing to say when the socket starts listening.
+    /// listen, with nothing to say when the socket starts listening
+    /// (`oxyos_service_socket::bind_in_place`, as every service's socket is made).
     pub fn bind(path: &Path, uid: u32) -> io::Result<Self> {
-        use std::os::unix::fs::{FileTypeExt, PermissionsExt};
-        match std::fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => {}
-            Ok(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    format!("{} exists and is not a socket", path.display()),
-                ))
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error),
-        }
-        let name = path
-            .file_name()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "a socket needs a name"))?;
-        let making = path.with_file_name(format!(
-            ".{}.{}",
-            name.to_string_lossy(),
-            std::process::id()
-        ));
-        // A run of this process's that ended between its bind and its rename left it.
-        if std::fs::symlink_metadata(&making).is_ok_and(|metadata| metadata.file_type().is_socket())
-        {
-            std::fs::remove_file(&making)?;
-        }
-        let fd = seqpacket()?;
-        let made = (|| -> io::Result<()> {
-            rustix::net::bind(&fd, &SocketAddrUnix::new(&making)?)?;
-            std::fs::set_permissions(&making, std::fs::Permissions::from_mode(0o600))?;
-            if rustix::process::geteuid().as_raw() != uid {
-                rustix::fs::chown(
-                    &making,
-                    Some(rustix::fs::Uid::from_raw(uid)),
-                    None::<rustix::fs::Gid>,
-                )?;
-            }
-            rustix::net::listen(&fd, 4)?;
-            rustix::io::ioctl_fionbio(&fd, true)?;
-            std::fs::rename(&making, path)
-        })();
-        if let Err(error) = made {
-            let _ = std::fs::remove_file(&making);
-            return Err(error);
-        }
+        let owner = (rustix::process::geteuid().as_raw() != uid).then_some(uid);
+        let fd = oxyos_service_socket::bind_in_place(path, 0o600, owner, 4)?;
+        rustix::io::ioctl_fionbio(&fd, true)?;
         Ok(Self { fd })
     }
 
