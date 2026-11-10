@@ -421,6 +421,9 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a
+thread of its own after the frame that laid it out, in a window the shell launched, whose frames
+are not a step's changes): it settles only once the output shows its `output_pixels`, within `ms`.
 
 A `strokes` step types keys as a person does on the session's keyboard (a list of codes or chords,
 [40, 18] being ´ then e on the Spanish layout): through the session's keymap (the scenario's
@@ -1138,6 +1141,11 @@ def director_args(step, out):
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
+    if step.get("until_output_pixels"):
+        # Its answer is drawn on the application's own clock: it settles once the output shows the
+        # step's `output_pixels` (those it expects of a colour, not "!" those it must not show).
+        shown = {at: colour for at, colour in step["expect"]["output_pixels"].items() if not colour.startswith("!")}
+        args += ["--until-pixels", str(step["until_output_pixels"]), ";".join(f"{at}={colour}" for at, colour in shown.items())]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",

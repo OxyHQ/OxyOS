@@ -636,7 +636,7 @@ const en = (f: Formats) => ({
     reopenAgain: "The last time you logged in, OxyOS quit unexpectedly while reopening your apps.",
     reopenAgainBody: "Do you want to try to reopen them again?",
     reopenAgainButton: "Reopen",
-    dontReopen: "Don't Reopen",
+    dontReopen: "Don’t Reopen",
     wifiPassword: (ssid: string, kind: string) => `The Wi-Fi network “${ssid}” requires a ${kind} password.`,
     wifiIncorrect: "Incorrect password. Try again.",
     wifiJoin: "Join",
