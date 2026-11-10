@@ -16,7 +16,8 @@ import {
   type SheetText,
 } from "../sheet";
 import { useShellMessages } from "../useShellMessages";
-import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { BloomColorScope, useReducedTransparency } from "@oxy.so/bloom/theme";
+import { useAccent } from "./accent";
 import { glass } from "./glass";
 
 export const SHEET_WIDTH = 380;
@@ -124,6 +125,8 @@ export const SystemSheet = memo(function SystemSheet({
   keyboard?: ShellKeyboard;
 }) {
   const reduced = useReducedTransparency();
+  // The default button in the person's accent, as a Mac's sheet draws it.
+  const accentPreset = useAccent();
   const messages = useShellMessages();
   const view = sheetView(text, messages, names);
   const [password, setPassword] = useState("");
@@ -217,6 +220,7 @@ export const SystemSheet = memo(function SystemSheet({
   if (reading && view.report) {
     const report = view.report;
     return (
+      <BloomColorScope colorPreset={accentPreset} asChild>
       <Box testID="system-sheet-backdrop" style={BACKDROP}>
         <Box
           testID="system-sheet"
@@ -260,9 +264,11 @@ export const SystemSheet = memo(function SystemSheet({
           </Box>
         </Box>
       </Box>
+      </BloomColorScope>
     );
   }
   return (
+    <BloomColorScope colorPreset={accentPreset} asChild>
     <Box testID="system-sheet-backdrop" style={BACKDROP}>
       <Box
         testID="system-sheet"
@@ -495,5 +501,6 @@ export const SystemSheet = memo(function SystemSheet({
         </Box>
       </Box>
     </Box>
+    </BloomColorScope>
   );
 });
