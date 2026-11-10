@@ -5805,6 +5805,17 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
 
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
+    // The turn above the applications as a session's is (docs/adr/0066-quality-of-service.mdx,
+    // decision 2): a 1 ms slice, and the nice a played rtkit gives (`OXYOS_RTKIT_BUS`, the
+    // saturation benchmark's), never the system's. Asked before the session counts its
+    // descriptors (D-Bus's runtime stays), and waited for: a run is measured as it starts.
+    let raised = oxyos_priority::raise(
+        oxyos_priority::tid(),
+        &oxyos_priority::Rtkit::played_from_env(),
+        oxyos_priority::TURN_NICE,
+        oxyos_priority::SLICE,
+    );
+    eprintln!("[offscreen] the turn's priority: {}", raised.describe());
     // Before the session counts its descriptors: logind's connection lives as long as the
     // process. What is opened through it is closed before the count is checked.
     let seat = match (&launch.kms, launch.seat) {
@@ -6369,9 +6380,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             None => oxyos_gpu::VulkanCompositor::new()?,
         };
         eprintln!(
-            "[gpu] composing on {} ({:?})",
+            "[gpu] composing on {} ({:?}), {}",
             compositor.device_name(),
-            compositor.device_kind()
+            compositor.device_kind(),
+            compositor.queue_priority()
         );
         let mut compositor = compositor;
         // On a display, compose straight into DMA-BUF scanout buffers it imports.

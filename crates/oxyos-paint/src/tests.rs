@@ -521,16 +521,17 @@ impl Compositor {
     }
 }
 
-#[test]
-fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacked() {
-    let Some(mut paint) = paint() else { return };
+/// A connection to a played compositor that offers linear XRGB8888 GPU buffers on a render node
+/// with timelines: the client and the compositor's side. None (and why, said) where this machine
+/// has no DMA-BUF export or no such node.
+fn connected(paint: &Paint) -> Option<(Client, Compositor)> {
     if !paint.exports() {
         eprintln!("no DMA-BUF export here, skipped; tools/gpu-vm runs it");
-        return;
+        return None;
     }
     let Some(node) = RenderNode::with_timelines(None) else {
         eprintln!("no render node with timeline syncobjs here, skipped; tools/gpu-vm runs it");
-        return;
+        return None;
     };
     let node = Arc::new(node);
     let (client, server) = Connection::pair().unwrap();
@@ -542,7 +543,7 @@ fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacke
         server
     });
     let mut client = Client::handshake(client).unwrap();
-    let mut compositor = Compositor {
+    let compositor = Compositor {
         connection: handshake.join().unwrap(),
         node: node.clone(),
         planes: Vec::new(),
@@ -565,6 +566,15 @@ fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacke
             oxyos_client::Poll::Event(_)
         ));
     }
+    Some((client, compositor))
+}
+
+#[test]
+fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacked() {
+    let Some(mut paint) = paint() else { return };
+    let Some((mut client, mut compositor)) = connected(&paint) else {
+        return;
+    };
     let mut drawer = Drawer::new(&paint.vulkan());
     let whole = Rect::new(0, 0, WIDTH, HEIGHT);
     let surface = 1;
@@ -693,6 +703,80 @@ fn frames_presented_are_the_source_pixels_and_a_reused_buffer_gets_what_it_lacke
             Request::DestroyTimeline { .. }
         ));
     }
+    drawer.finish();
+}
+
+/// Every buffer the compositor's, the one it releases first is taken, whichever it is: never the
+/// one holding the frame it shows, which it releases only for a newer frame. Each buffer has a
+/// timeline of its own, so the least used one, made last, has the lowest release point.
+#[test]
+fn with_every_buffer_held_the_first_released_is_taken() {
+    let Some(mut paint) = paint() else { return };
+    let Some((mut client, mut compositor)) = connected(&paint) else {
+        return;
+    };
+    let mut drawer = Drawer::new(&paint.vulkan());
+    let whole = Rect::new(0, 0, WIDTH, HEIGHT);
+    let surface = 1;
+    let mut sequence = 0;
+    let mut frame = |paint: &mut Paint, client: &mut Client, compositor: &mut Compositor| {
+        sequence += 1;
+        drawer.draw(whole, |x, y| 0xff00_0000 | (sequence << 16) | (x << 8) | y);
+        paint
+            .present(
+                client,
+                surface,
+                1,
+                drawer.source(),
+                Format::Xrgb8888,
+                &[whole],
+            )
+            .expect("presented");
+        compositor.frame()
+    };
+    let release = |compositor: &Compositor, frame: &Received| {
+        compositor
+            .timeline(frame.timeline)
+            .signal(frame.release)
+            .unwrap()
+    };
+    // Buffer A, released and used again twice: its points run ahead of the others'.
+    let first = frame(&mut paint, &mut client, &mut compositor);
+    release(&compositor, &first);
+    let a = frame(&mut paint, &mut client, &mut compositor);
+    assert_eq!(a.buffer, first.buffer);
+    // B, made while A shows; then A again, B released; B again, A held.
+    let b = frame(&mut paint, &mut client, &mut compositor);
+    assert_ne!(b.buffer, a.buffer);
+    release(&compositor, &a);
+    let a = frame(&mut paint, &mut client, &mut compositor);
+    assert_eq!(a.buffer, first.buffer);
+    release(&compositor, &b);
+    let b = frame(&mut paint, &mut client, &mut compositor);
+    // C, made while A and B are held: it shows, used once, its release point the lowest.
+    let c = frame(&mut paint, &mut client, &mut compositor);
+    assert!(c.buffer != a.buffer && c.buffer != b.buffer);
+    assert!(c.release < a.release && c.release < b.release);
+    // The compositor releases A a moment after the next frame begins waiting; C it never releases.
+    let timeline = compositor.timeline(a.timeline).export().unwrap();
+    let node = compositor.node.clone();
+    let releasing = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        Timeline::import(&node, std::os::fd::AsFd::as_fd(&timeline))
+            .unwrap()
+            .signal(a.release)
+            .unwrap();
+    });
+    let started = std::time::Instant::now();
+    let next = frame(&mut paint, &mut client, &mut compositor);
+    releasing.join().unwrap();
+    assert_eq!(next.buffer, a.buffer, "the buffer released was taken");
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(500),
+        "waited {:?} for a buffer the compositor showed",
+        started.elapsed()
+    );
+    assert_eq!(compositor.pixels(&next), drawer.pixels);
     drawer.finish();
 }
 
