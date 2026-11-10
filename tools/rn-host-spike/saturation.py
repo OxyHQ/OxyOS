@@ -352,7 +352,7 @@ class Watch:
             first = next((s["loads"].get(name) for s in reversed(before) if s["loads"].get(name)), None)
             last = b["loads"].get(name)
             if first and last:
-                loads[name] = {"work_per_s": round((last["work"] - first["work"]) / seconds, 2),
+                loads[name] = {"work_per_s": round((last["work"] - first["work"]) / seconds, 3),
                                "cores": round((last["cpu_ms"] - first["cpu_ms"]) / (seconds * 1000), 2)}
         result["loads"] = loads
         return result
@@ -495,7 +495,7 @@ class Loads:
             self.search_home(home, INDEX_FILES)
             (root / ".made").write_text("")
         stop = threading.Event()
-        rounds = {"done": 0}
+        rounds = {"done": 0, "cpu_ms": 0}
         progress = self.progress_file("index")
 
         def loop():
@@ -506,10 +506,12 @@ class Loads:
                 try:
                     while not stop.wait(0.5):
                         status = service.ask({"status": {}})["status"]
+                        used = int(service.cpu_ns() / 1e6)
                         progress.write_text(json.dumps({"work": rounds["done"] * INDEX_FILES + status["items"],
-                                                        "cpu_ms": int(service.cpu_ns() / 1e6)}))
+                                                        "cpu_ms": rounds["cpu_ms"] + used}))
                         if not status["indexing"] and status["items"] >= INDEX_FILES:
                             rounds["done"] += 1
+                            rounds["cpu_ms"] += used
                             break
                 finally:
                     service.stop()
@@ -616,7 +618,7 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
                 entry = (entry or {}).get(part)
             if entry is not None:
                 values.append(entry)
-        return round(statistics.mean(values), 2) if values else None
+        return round(statistics.mean(values), 3) if values else None
 
     loads_progress = {}
     for name_ in sorted({n for p in progress for n in p}):
