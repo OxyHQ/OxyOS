@@ -250,6 +250,24 @@ class UnimplementedComponentsAreDeclared(unittest.TestCase):
         self.assertEqual(self.check(["AndroidProgressBar", "AndroidSwitch"], reports), [])
 
 
+class SpokenExactly(unittest.TestCase):
+    # What the reader said is the step's exactly: in order, or with `spoken_any_order` in either
+    # (two processes speaking for one input), each utterance once.
+    SAID = [{"t": 1, "text": "EE. UU.", "interrupting": False}, {"t": 2, "text": "ni", "interrupting": True}]
+
+    def test_in_order(self):
+        self.assertTrue(regress.spoken_matches(self.SAID, ["EE. UU.", {"text": "ni", "interrupting": True}]))
+        self.assertFalse(regress.spoken_matches(self.SAID, ["ni", "EE. UU."]))
+
+    def test_in_any_order_each_once(self):
+        wanted = [{"text": "ni", "interrupting": True}, {"text": "EE. UU.", "interrupting": False}]
+        self.assertTrue(regress.spoken_matches(self.SAID, wanted, any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID, ["ni", "ni"], any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID + self.SAID[:1], wanted, any_order=True))
+        self.assertFalse(regress.spoken_matches(self.SAID, [{"text": "ni", "interrupting": False}, "EE. UU."],
+                                                any_order=True))
+
+
 class CrashReportsAreTheHomesOldestFirst(unittest.TestCase):
     """docs/adr/0061: the reports in the run's home, each its application's, oldest first."""
 

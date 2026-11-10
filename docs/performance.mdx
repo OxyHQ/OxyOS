@@ -182,9 +182,11 @@ different questions:
   refresh, input to present, a resize's or a zoom's frame, an application's first frame, a
   response's latency. Every budget on latency or a deadline is by the wall clock, because
   whatever lengthens it, the machine's load among it, is felt.
-- **The loop thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's thread ran:
-  JavaScript, with the Yoga layout and the text measuring it runs on the same thread, and every
-  native part. Time the thread was scheduled out, or asleep waiting for something, is not in it.
+- **Each thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's threads ran:
+  JavaScript's (`oxyos-js`, `js-thread.h`), where the Yoga layout and the text measuring its
+  commits run too, and the loop's, every native part. JavaScript's part of a frame is measured on
+  JavaScript's thread, the loop waiting for it. Time a thread was scheduled out, or asleep waiting
+  for something, is not in it.
   Budgets on how fast JavaScript does its work (`regress.py`'s `js_work.js_ms_max` and
   `resize_work`'s `js_ms_p95_max`, `perf.py`'s shell budgets) are by it, and are held only on a
   `perf.py` run (below).

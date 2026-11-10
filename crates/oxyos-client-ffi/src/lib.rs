@@ -486,10 +486,13 @@ pub const OXYOS_SESSION_END_RESTART: u32 = 2;
 pub const OXYOS_SESSION_END_SHUT_DOWN: u32 = 3;
 /// The first version whose compositor asks applications to quit and takes their answer.
 pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSION as u32;
+/// The first version whose compositor takes `oxyos_client_set_sudden_termination`
+/// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
+pub const OXYOS_SUDDEN_TERMINATION_VERSION: u32 = oxyos_protocol::SUDDEN_TERMINATION_VERSION as u32;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
-/// Whether the session's screen reader runs (ADR 0014, decision 8, protocol version 40): `flag` 1
+/// Whether the session's screen reader runs (ADR 0014, decision 8, protocol version 41): `flag` 1
 /// while it does; told as the client connects while it runs, and whenever it starts or stops.
 pub const OXYOS_EVENT_SCREEN_READER: u32 = 182;
 pub const OXYOS_EVENT_APPLICATION_OUTPUT: u32 = 200;
@@ -3060,6 +3063,30 @@ pub unsafe extern "C" fn oxyos_client_reply_to_quit(
             Request::QuitReply {
                 serial,
                 quit: quit != 0,
+            },
+        )
+    }
+}
+
+/// Whether the application may be ended at once when the session ends, without being asked
+/// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10): `enabled` non-zero,
+/// nothing is unsaved, no write is pending and no quit handler wants to be asked; 0, it is asked.
+/// 0 on success; an error, sending nothing, to a compositor of a version before 40.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_sudden_termination(
+    client: *mut OxyOSClient,
+    enabled: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SuddenTermination {
+                enabled: enabled != 0,
             },
         )
     }

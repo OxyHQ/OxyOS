@@ -1,0 +1,56 @@
+---
+title: "ADR 0066: Quality of service"
+description: How OxyOS keeps typing, scrolling and dragging responsive while the machine is saturated, as a Mac never feels saturated — the compositor above every application, one control group per application weighted by what the person sees, hidden applications napping, background services truly in the background, memory compressed and protected, and the person at the seat above other users — each step measured by one saturation benchmark.
+order: 74
+---
+
+# ADR 0066: Quality of service
+
+Status: **accepted; being implemented**, a pull request a step (see [Steps](#steps)), each held to [the saturation benchmark](#the-saturation-benchmark) before and after. Builds on [ADR 0009](./0009-session-shell) (the session and its shell), [ADR 0013](./0013-launching-applications) (the session launches every application), [ADR 0020](./0020-oxy-account-login) (the login program starts the session in a logind session), [ADR 0031](./0031-gpu-buffers) (the one GPU), [ADR 0051](./0051-search) (the search service; decision 13 amended here), [ADR 0057](./0057-battery-and-energy) (Low Power Mode), [ADR 0059](./0059-backups) (the backup service), [ADR 0060](./0060-login-items-and-background-activity) (background activity) and [ADR 0063](./0063-activity-monitor) (each application's processes).
+
+## Problem
+
+On an idle machine OxyOS is fast; nothing in it says what matters when the machine is not idle. Every application, the shell, the search service and the compositor run in one control group (the logind session's scope) at nice 0, so an application's thirty busy threads get thirty times the compositor's share of a processor. One thread of the compositor reads input, serves clients, composes and flips, with no priority over an application's JavaScript. A hidden application animates and runs its timers as if shown. The backup service's idle class is idle only inside `system.slice`, which competes with the person's whole `user.slice` at equal weight, and the disk's idle class does nothing on an NVMe drive with no I/O scheduler. Nothing compresses memory before it is written to swap, nothing protects the session's working set, and no application is told memory is short. Another user's processes weigh as much as the person at the seat.
+
+A Mac stays responsive under the same load because every thread carries a declared urgency (a QoS class, or a role the window server and launchd give its task) and every resource enforces it: the scheduler (the clutch scheduler's buckets, efficiency cores), the disk (I/O throttling tiers), timers (coalescing by latency tier), memory (the compressor, then swap, then pressure notifications, then jetsam) and heat. WindowServer runs in a band above every application thread; the frontmost application's main thread is marked urgent; App Nap slows what is not seen; Time Machine and Spotlight are `DARWIN_BG`. None of it is one switch: it is a default the system applies without an application asking. The research behind this decision (the mechanisms, their Linux equivalents on Debian trixie's 6.12 kernel and the device's state on 10 November 2026) is summarized in each decision below.
+
+## Decision
+
+1. **Measured first: the saturation benchmark.** No step lands without the benchmark's numbers before and after it ([below](#the-saturation-benchmark)): input-to-present latency at the 95th percentile, from the input's device time to the frame that shows the answer, under loads S0 to S7, in the development compositor on a control-group tree that is a session's, run on seldon and on the ThinkPad by `perf-device.sh`'s rules (only while the person at seat0 is idle, on the Intel GPU's render node alone, never a display).
+
+2. **The compositor's turn above every application.** The session asks rtkit (`org.freedesktop.RealtimeKit1.MakeThreadHighPriority`) for nice −15 on its turn thread, the one that reads input, serves clients, composes and flips. Never `SCHED_FIFO` or `SCHED_RR` for that thread: it composes and waits on GPU fences, and rtkit's `RLIMIT_RTTIME` watchdog demoting or killing a compositor that ran too long is what made Mutter move its KMS thread back from real time to high priority (GNOME 46.7). The turn thread, and each Bloom host's thread that runs JavaScript and commits frames, request a 1 ms EEVDF slice (`sched_setattr`, `sched_runtime` on `SCHED_OTHER`, honoured since Linux 6.12: `se.slice` reads 1000000 on the ThinkPad and seldon), so a woken compositor preempts batch work at its default slice. The kernel runs with full preemption (`preempt=full` on its command line, a `PREEMPT_DYNAMIC` switch: in the image, the installer's loader entries and a converted machine's, written by the deploy). The compositor's Vulkan queue asks the global priority HIGH, and MEDIUM where the driver refuses it, the one obtained logged.
+
+3. **One control group per application.** The session launches each application (a Bloom host or a program) into a scope of its own, `app-oxyos-<id>-<pid>.scope`, in the person's user manager's `app.slice`, as systemd's desktop integration names them (`StartTransientUnit` on the user bus, with the process's pidfd). The compositor and the shell stay in the logind session's scope, a sibling of the user manager: together they weigh as much as every application together, instead of a share of one run queue among every application's threads. The search service runs in the user manager's `background.slice`. This amends ADR 0051 decision 13, whose premise (no user manager to ask) the device contradicts: `pam_systemd` starts `user@UID.service`, delegated `cpu memory pids`, with its `app.slice`, `background.slice` and `session.slice`.
+
+4. **Weighted by what the person sees, set by the compositor.** The compositor knows focus, minimized windows, desktops, occlusion, the lock and the displays. On a change, off the turn thread, it sets each application scope's `CPUWeight` (`SetUnitProperties`, runtime): **focused 400, visible 100, hidden 20**, and an application running only in the background (ADR 0060) `idle`. Only weights change: on an idle machine everything runs as before.
+
+5. **App Nap.** An application whose every window is hidden (minimized, on another desktop, fully covered, the session locked, the displays off) is told so; its host stops what the display's refresh paces (`requestAnimationFrame`, Animated's and Reanimated's frames), drops its canvas, tells React Native's `AppState` (`inactive` while visible but not focused, `background` while hidden) and lengthens its timers' slack (`PR_SET_TIMERSLACK`). After about ten seconds hidden, not audible (no PipeWire stream of its process) and holding no inhibitor, the session naps it: `CPUWeight` 20 and `IOWeight` 10. Shown, focused, sent input or a message, it is woken at once.
+
+6. **Background services in the background, for real.** The backup service is `CPUWeight=idle` (the cgroup's `cpu.idle`, the group equivalent of `SCHED_IDLE`) and `IOWeight=10`; the install service and the application fetcher `CPUWeight=20`, `IOWeight=20`, nice 10. A udev rule gives NVMe and SATA solid-state drives `mq-deadline`, which honours I/O priority classes (`none` ignores them). On a hybrid processor, background work (the user manager's `background.slice`, the backup service) runs on the efficiency cores, as a Mac's background bucket does.
+
+7. **Memory: compressed, protected, announced, and only then reclaimed by force.** zswap (lz4, zsmalloc) compresses in front of the disk swap the installer makes; MGLRU's thrashing protection keeps the last second's working set (`min_ttl_ms` 1000). The session's scope has protected memory (`MemoryMin`), the user manager's `session.slice` a low limit, `background.slice` a high one. The session follows memory pressure (PSI triggers) and tells applications through the platform API, hidden ones first, so they drop caches before the kernel must. `systemd-oomd` acts on the user manager's `app.slice` alone, never on the session.
+
+8. **The person at the seat outranks other users.** The user slice of the active session on seat0 weighs `CPUWeight=400`, `IOWeight=400`; other users' slices keep 100. The accounts' service, which runs as root and follows logind's sessions, sets it as the active session changes.
+
+## The saturation benchmark
+
+*Filled by step 1.*
+
+## Steps
+
+Each a pull request of its own, measured before and after by the benchmark, deployed to the ThinkPad.
+
+1. **The benchmark** (decision 1). *Not done.*
+2. **The compositor's priority** (decision 2). *Not done.*
+3. **One scope per application** (decision 3), ADR 0051 decision 13 amended. *Not done.*
+4. **Weights by state and App Nap** (decisions 4 and 5). *Not done.*
+5. **Background services** (decision 6). *Not done.*
+6. **Memory** (decision 7). *Not done.*
+7. **The person at the seat** (decision 8). *Not done.*
+
+## Not in this decision
+
+- **Freezing** hidden applications (`cgroup.freeze`, Android's cached-apps freezer): the weights and the nap give most of the benefit without the risk of a frozen process holding what another waits on.
+- **A real-time input and cursor thread** (KWin's libinput thread, a Mac's window server's event path): libinput's reading, the cursor plane and the input's device time on a thread of their own at `SCHED_RR`; the turn keeps composition.
+- **A quality-of-service vocabulary for applications** (`@oxyos/platform`: utility and background work, an activity that keeps an application from napping, as `NSProcessInfo.beginActivity`).
+- **Timer coalescing** of OxyOS's own services, and a performance hold during an interactive gesture (power-profiles-daemon), which the efficiency cores' placement makes smaller.

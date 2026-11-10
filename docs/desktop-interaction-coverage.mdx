@@ -32,6 +32,7 @@ Read from `regress.py` (`check_step`):
   - `spoken` and `announcements`: exact lists, so a duplicate fails.
   - Also `scroll_offset` (exact), `menus`, `clipboard` and `popup_rect(s)`.
   - **Added:** `composition`, the composition a field draws: its range and styled segments, as the host reports it changing.
+  - **Added:** `spoken_any_order`, as `spoken` but in either order, for one input that makes two processes speak (a source switched mid-composition: the field's commit and the shell's source name).
 
 In the tables, **O**, **F** and **D** mean outcome, focus and exact deliveries. A step that leaves focus where it was is not marked down for lacking **F**. Only steps where focus could move without being checked are.
 
@@ -54,19 +55,19 @@ Sources: [ADR 0008](./adr/0008-input-method) and [ADR 0041](./adr/0041-input-met
 | A press elsewhere in the field mid-composition | **added:** `ime-preedit`, `ime-japanese-interrupted` | O, F, D, `transactions`, `composition` | **Bug fixed.** The host ended the composition, as Android's `finishComposingText` does, but the engine kept it. The next key put it in again at the caret: あい composed, a press at the start, then u gave あいうあい. The session's frontend now resets the engine when the field tells a state none of the engine's changes made (`Composing` in `crates/oxyos-compositor/src/input_methods.rs`, with unit tests). |
 | Focus moved to another field mid-composition | **added:** `ime-preedit` "a press in the email field…" | O, F, D | Not with the real engine. |
 | The window loses the keyboard mid-composition | **added:** `ime-japanese-interrupted` (Super+F8) | O, F, D, `composition` | **Bug fixed.** The host kept the composition while the engine was reset with the field's deactivation, so the next composition replaced it. The host now ends it when its surface loses the keyboard (`textinput.cpp`). |
-| Switching source mid-composition commits it | `ime-sources` (and scaled) | O, D, speech | Not through the top bar's menu with the engine running. |
+| Switching source mid-composition commits it | `ime-sources` (and scaled) | O, D, speech (`spoken_any_order`: the commit and the source's name) | Not through the top bar's menu with the engine running. The commit's echo, interrupting, can cut off the source's name when the field's tree reaches the reader after the shell's. |
 | Stale serial: commit kept, deletion dropped | `input-method`; scene `done_names_the_latest_commit_and_stale_serials_are_refused` | O, D | No `transactions` key. |
 | Deletion after the caret (`delete [0, n]`) | scene only | unit | No scenario. |
 | Candidates placed under the caret | `shell-candidates*`, `ime-*` | O (rect, exact) | Above the caret, and slid to stay on the output, are scene tests only. |
-| Candidates follow the window as it moves | scene `candidates_follow_the_caret_and_the_window` | unit | **No scenario.** `shell-candidates` never moves its window. |
+| Candidates follow the window as it moves and resizes | scene `candidates_follow_the_caret_and_the_window`; **added:** `ime-candidates-follow(-scaled)` (the real engine, at 1 and 1.25: the window moved, made narrower so the field's text scrolls, and wider again, with a composition open) | O (the candidates' rect exact, `field` with the caret, `text_scroll`), F, D (`react` none, `delivered`, `transactions` none) | — |
 | The reader says candidates | `shell-candidates*`, `ime-japanese*`, scaled `ime-*` | speech (exact), `at` | `ime-pinyin` and `ime-hangul` at 1 have none. |
-| The reader says a commit as typed text | — | — | **Contradicted.** ADR 0041 decision 5 says it does. `ime-pinyin-scaled` and `ime-sources-scaled` assert `spoken: []` at the commit. |
+| The reader says a commit as typed text | **added:** every scaled `ime-*` with the reader, and `ime-candidates-follow(-scaled)` | speech (exact) | **Bug fixed.** A field focused by a press was never the assistive technology's focus, so the reader neither said it nor echoed any typing, a commit included. The host now gives a focused field that focus however it took it, and tells the assistive technology the text without the composition, so the keys that compose are not echoed and the commit is said (ADR 0041, decision 5; ADR 0037, decision 7). |
 | Dead keys while an input method is current | — | — | Not covered. |
 | Secure fields never reach an input method | `input-method`, `text-input`, `secure-field`; scene `a_password_never_reaches_the_input_method` | O, F, D | Not with the real engine. `secure-field` has no `react`. |
 
 ## 2. Text selection, caret and editing
 
-Sources: [ADR 0037](./adr/0037-text-editing) and [ADR 0007](./adr/0007-clipboard). Every step of these scenarios checks `react` exactly and fails on a leak. Most check the selection only as React holds it (`texts`). The field the compositor holds (`field`) is in 5 of `text-editing-mac`'s 38 steps, and in none of `text-editing` or `text-selection`. That is the state an input method reads.
+Sources: [ADR 0037](./adr/0037-text-editing) and [ADR 0007](./adr/0007-clipboard). Every step of these scenarios checks `react` exactly and fails on a leak. Most check the selection only as React holds it (`texts`). The field the compositor holds (`field`), the state an input method reads, is in 5 of `text-editing-mac`'s 38 steps, and **added:** in every step of `text-editing` and `text-selection`.
 
 | Behaviour | Regression(s) | Asserts | Gap |
 | --- | --- | --- | --- |
@@ -75,9 +76,9 @@ Sources: [ADR 0037](./adr/0037-text-editing) and [ADR 0007](./adr/0007-clipboard
 | Line edges (Ctrl+←→, Home/End), text edges, paragraphs (Alt+↑↓) | `text-editing`, `text-editing-mac`, `text-layout` | O, D; F in `text-layout` | Ctrl+→, Ctrl+Shift+←, Shift+Home/End, Ctrl+↑, Ctrl+Shift+↓, Ctrl+Shift+Home/End and Shift+Alt+↑↓ are untested. |
 | ↑↓ keep the goal column; Page Up and Page Down | `text-editing` | O, D, `text_scroll` | Shift+↑ and Shift+Page Up/Down untested. |
 | Delete by word (Alt+⌫, Alt+⌦) | `text-editing`, `text-editing-mac` | O, D | — |
-| Delete to the line's start or end (Ctrl+⌫, Ctrl+⌦) | `text-editing-mac` (Ctrl+⌫ only) | O, D | **Ctrl+Delete is untested anywhere.** So is joining lines at a line's edge. |
+| Delete to the line's start or end (Ctrl+⌫, Ctrl+⌦) | `text-editing-mac` (Ctrl+⌫); **added:** `text-editing` (Ctrl+⌦ to the line's end, and at it joining the next line, then undone) | O (`field`), D | — |
 | Select all | `text-editing-mac`, `edit-menu`, `text-inactive-sheet` | O | `clipboard.json`'s Ctrl+A steps check no selection range. |
-| Undo and redo; typing and deleting merged | `text-editing`, `text-editing-mac`, `text-input`; **added:** `ime-preedit` (a composition kept, then undone whole; a cancelled one recording nothing) | O, D | **Undo after a cut is untested.** Only merging is checked, never a split: a caret move between typing, typing then deleting, and a new edit clearing redo. |
+| Undo and redo; typing and deleting merged | `text-editing`, `text-editing-mac`, `text-input`; **added:** `ime-preedit` (a composition kept, then undone whole; a cancelled one recording nothing); `text-editing` (undo after a cut, the selection back; a new edit clearing redo; typing and Backspace undone as one typing; a move, even back to the same place, and a paste each ending it) | O (`field`), D | **Changed.** Typing and deleting with the keys are now one edit while they continue, as a Mac's Undo Typing (ADR 0037, decision 3); they were kept apart as Android's `UndoInputFilter` keeps them. |
 | Copy, cut, paste in a field | `text-editing`, `text-editing-mac`, `text-field-menu` | O, D; F and `clipboard` in `text-field-menu` | `text-editing(-mac)` never checks the clipboard's content. A line break pasted into a single-line field, and paste over `maxLength`, are untested. Paste over `maxLength` drops it whole (`replace`) where a drop truncates. |
 | Copy between applications | `edit-menu` (through the bar); compositor test `a_copy_in_one_application_is_pasted_in_another_through_a_pipe` | O, D | Ctrl+C in one Bloom app then Ctrl+V in another is never driven by keys. |
 | Clipboard refused to the background | scene tests only | unit | ADR 0007's promised scenario does not exist. |
@@ -85,10 +86,10 @@ Sources: [ADR 0037](./adr/0037-text-editing) and [ADR 0007](./adr/0007-clipboard
 | Double and triple click, drags by word, Shift+click | `text-selection(-scaled)`, `text-editing-mac` | O, D; F at focus | A backward drag, a drag in a multiline field and a triple-click drag are untested. There is no `triple_drag` action. |
 | The context menu | `text-field-menu(-scaled)` | O (`field`, `clipboard`), F, D on 14 of 20 steps | The best covered here. |
 | Caret blink | `text-caret-blink`, `settings-caret-blink(-scaled)` | O, D, `host_input` | No pixel check of the caret on whole device pixels at 1.25. |
-| Caret kept in view | `text-editing` | O (`text_scroll` exact), D | At 1 only. |
+| Caret kept in view | `text-editing`; **added:** `ime-candidates-follow(-scaled)` (the field laid out narrower and wider, at 1 and 1.25) | O (`text_scroll` exact), D | **Bug fixed:** a focused field laid out at another size (its window resized) kept its text scrolled where it was, the caret, and an input method's candidates, out of view. It now scrolls to keep the caret in view, and back, as an `EditText` does. |
 | Inactive window: caret hidden, grey selection | `text-inactive-window(-scaled)` 7/7, `text-inactive-sheet` | O (pixels, `field`), F, D | The dark grey (#464646) is untested. |
 | Dragging text | `text-drag(-scaled)` | O, D (both applications), F on cross-field drops | No `field`. The drop caret and the drag image are unasserted. |
-| The reader's editing echo | `oxyos-reader` unit tests; `launchpad-reader` (Backspace) | unit; speech | No scenario on a Bloom field. |
+| The reader's editing echo | `oxyos-reader` unit tests; `launchpad-reader` (Backspace); **added:** the scaled `ime-*` (a commit said) | unit; speech | **Bug fixed:** a field focused by a press was not the reader's focus, and nothing it typed was said. Typing on the layout in a Bloom field is said in `ime-sources-scaled`; selections and moves on a Bloom field have no scenario. |
 
 ## 3. Keyboard in menus
 
@@ -104,7 +105,7 @@ Sources: [ADR 0021](./adr/0021-menu-bar), [ADR 0024](./adr/0024-system-shortcuts
 | Return chooses once; Escape chooses nothing; the keyboard goes back to the trigger | `menu-bar-keyboard` (Return, Escape twice: O, F, D); `sample` "Escape closes it without choosing" (`a11y_events focus@open-menu`); **added:** `menu-type-select` (both, with `a11y_events`, `focus_surface` and `delivered`) | O, F, D | `menu-submenu-keys` "Enter chooses…" asserts no return to the trigger. In `menu-bar-pointer` and `menu-bar-morph`, Escape after a pointer-opened bar menu asserts neither `focus_surface` nor `delivered`, which ADR 0021 step 4 promises. So does Escape in `battery-menu`, `backup-menu` and `dock-menu`. |
 | Space chooses a row | — | — | Untested. |
 | An item's shortcut pressed with its menu open | — | — | Untested. For bar menus the shell holds the keyboard and never runs chords. |
-| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys` | O, F, speech | No `delivered`, and no row is ever chosen. The menu never opens for a focused text field, or for a control focused by a press: `navigationKey` returns before it (`bloom-host.cpp`). This contradicts ADR 0039 decision 9. |
+| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys`; **added:** `text-field-menu-keys(-scaled)` (a text field's, keyboard only) | O (`field`, `clipboard`, the menu's rect at the caret), F (`focus_input`, `focus_surface`), D (`react`, `delivered` to both clients) | **Bug fixed** for text fields: `navigationKey` returned before it, so a focused field kept the keys and no menu opened. They now open its menu at the caret, rows chosen with the keys, Escape giving the field the keyboard back. `dropsea-list-keys` has no `delivered`, and a control focused by a press still opens no menu (the keys need the ring). |
 | Popover: Tab stays inside, Escape returns | `keyboard-popover(-scaled)` | F, speech | No `react` or `delivered` on any step. |
 | Menus inside a popover, sheet or modal | — | — | Untested. |
 
@@ -127,7 +128,7 @@ Sources: [ADR 0001](./adr/0001-native-platform-boundaries) (its table against a 
 | A file chooser's sheet follows its window | scene `a_sheet_moves_with_its_window_and_its_drag_moves_the_window` | geometry | No scenario. The sheet is centred once, when it attaches, and is not re-centred when its window resizes (`choosers.rs`). |
 | Bloom sheets and `Modal` on resize | — | — | None. |
 | Menu-bar menus on a second display | `session-two-outputs` | O | No F, `delivered`, `popup_events` or keys. Nothing at 1.25. |
-| Candidate windows follow the window | scene only | unit | See section 1. |
+| Candidate windows follow the window | scene; **added:** `ime-candidates-follow(-scaled)` | O, F, D | See section 1. |
 
 ## 5. Scrolling
 
@@ -170,7 +171,7 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 | Tab order wrapping at both ends | `scroll-keys` (Shift+Tab round to the last: F, D); `keyboard-popover`, `keyboard-wifi` (Tab round, in a popup and a sheet) | partial | **A forward Tab wrap in an application window is untested.** |
 | Focus back after a popup or menu closes | `sample`, `menu-reader` (O, F, D, speech); **added:** `menu-type-select`, `popup-follows(-scaled)` (`a11y_events focus@open-menu`, `focus_surface`); `keyboard-popover`, `dropsea-list-keys` (F, speech) | | The last two have no `react`. |
 | Focus back after a modal or sheet closes | `dropsea-list-keys`, `atlas-reader`, `keyboard-wifi` | F, speech | No in-window `Modal` close asserts focus, events and speech together. `modal` and `sheet` assert no focus at all. |
-| The application told a reader runs | **added:** `accessibility-info` (the real reader on from the start, then Super+F5 off, on, off; Reduce Transparency toggled); `android-adaptation` (no reader: false); unit `tests/reader_state.rs` | O (each answer, and each change event listed exactly), D (`react`), speech | Closed 10 November 2026 ([ADR 0014](./adr/0014-screen-reader), decision 8, protocol version 40). |
+| The application told a reader runs | **added:** `accessibility-info` (the real reader on from the start, then Super+F5 off, on, off; Reduce Transparency toggled); `android-adaptation` (no reader: false); unit `tests/reader_state.rs` | O (each answer, and each change event listed exactly), D (`react`), speech | Closed 10 November 2026 ([ADR 0014](./adr/0014-screen-reader), decision 8, protocol version 41). |
 
 ## Performance
 
@@ -279,15 +280,15 @@ These are listed for their owners to decide. The audit's change fixed none of th
 4. **Momentum** must only slow, and a click stops a glide (`flick_press`): `touchpad-hold(-scaled)`. Scroll into view was already complete at both scales (`scroll-reveal`).
 5. **The reader's order through a window, both ways and its ends:** `screen-reader`.
 6. **What stops a glide, nested scroll views and scrolling across:** `touchpad-hold(-scaled)`, `glide-elsewhere(-scaled)`, `scroll-nested(-scaled)`, `scroll-across(-scaled)`, with two product bugs fixed (stops from any surface, a gesture latched by either axis) and Shift with the wheel (ADR 0042, decisions 7 to 9).
+7. **Text editing** (10 November 2026): Ctrl+Delete, undo after a cut, and where typing's undo ends (`text-editing`); `field` in every step of `text-editing` and `text-selection`. Typing and deleting are now one undo, as a Mac's.
+8. **A text field's menu from the keyboard:** `text-field-menu-keys(-scaled)`, with the fix in `navigationKey`.
+9. **Candidates following a window moved and resized, and the reader saying a commit:** `ime-candidates-follow(-scaled)`; a field focused by a press is the reader's focus now, and a composition is not echoed.
 
 **Open, most important first:**
 
 1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
-2. Ctrl+Delete, undo after a cut, and undo splits. `field` is missing from `text-editing` and `text-selection`.
-3. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
-4. Shift+F10 and the Menu key never open a focused text field's menu (`navigationKey`).
-5. The reader crossing surfaces. The order is when trees arrived, undocumented.
-6. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
-7. **Closed 10 November 2026:** `AccessibilityInfo` saying no reader runs (`accessibility-info`), and unknown native components drawn as plain views (`unimplemented`).
-8. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
-9. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
+2. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
+3. The reader crossing surfaces. The order is when trees arrived, undocumented.
+4. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
+5. **Closed 10 November 2026:** `AccessibilityInfo` saying no reader runs (`accessibility-info`), and unknown native components drawn as plain views (`unimplemented`).
+6. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.

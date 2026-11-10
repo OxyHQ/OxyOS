@@ -26,8 +26,10 @@ namespace oxyos {
 class WorkletsHost {
  public:
   // Its frames are the display's (`refresh`). `compiled` is the runtime's framework's worklets
-  // compiled ahead (`framework/worklets.hbc`, sample/worklets.mjs), or "" for none.
-  WorkletsHost(const DisplayRefresh& refresh, std::string compiled);
+  // compiled ahead (`framework/worklets.hbc`, sample/worklets.mjs), or "" for none. `onJsThread`
+  // says whether the caller is React Native's JavaScript thread (js-thread.h): only there may a
+  // worklet call into its runtime at once (worklets' JSScheduler).
+  WorkletsHost(const DisplayRefresh& refresh, std::string compiled, std::function<bool()> onJsThread);
   ~WorkletsHost();
 
   std::shared_ptr<facebook::react::TurboModule> module(
@@ -71,6 +73,7 @@ class WorkletsHost {
   // only for one it does not have (an application's own).
   void makeWorkletsCompiled(facebook::jsi::Runtime& ui);
   std::string compiled_;
+  std::function<bool()> onJsThread_;
   std::shared_ptr<worklets::WorkletsModuleProxyInitializer> initializer_;
   std::shared_ptr<worklets::WorkletsModuleProxy> proxy_;
   double lastFrame_ = 0;

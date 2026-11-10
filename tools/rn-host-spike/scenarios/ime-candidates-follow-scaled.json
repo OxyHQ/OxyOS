@@ -1,0 +1,478 @@
+{
+  "about": "At 1.25 (1600×1000, the ThinkPad's panel): an input method's candidates follow their field as its window moves and resizes (docs/adr/0041-input-methods.mdx, decision 5; ADR 0008), with the real engine (fcitx5's pinyin) on the Spanish layout, the session's shell drawing the candidates and the screen reader on in Spanish, in a Bloom field (sample/ImeProbe.tsx). With ni hao composed after a line that nearly fills the field, the shell moves the window, makes it narrower than the line, then wider again: the candidates stay under the caret through each, the field's text scrolling to keep the caret in view and back, and the composition, the field's focus and the keyboard's stay where they were. Each step checks the text and selection React has, exactly its events, the transactions the field was given, what each client was delivered, the field the compositor holds with its caret, the candidates' rectangle, and exactly what the reader says: the field as it takes focus, the candidates as they come, and the commit as typed text, never the keys that compose.",
+  "module": "ImeProbe",
+  "window": [
+    800,
+    480
+  ],
+  "layout": "es",
+  "input_methods": true,
+  "preferences": {
+    "input_sources": "pinyin",
+    "input_source": "pinyin"
+  },
+  "locale": "es_ES.UTF-8",
+  "shell": "OxyOSShell",
+  "reader": {},
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "focus the line: the engine serves it, and the screen reader, its focus with the keyboard's, says the field",
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "focus_surface": 1,
+        "react": {
+          "touchStart@line": 1,
+          "touchEnd@line": 1,
+          "focus@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "transactions": [],
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [
+          {
+            "text": "Line, campo de texto",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "a line of text given as one commit, which nearly fills the field; the reader says it as typed",
+      "do": [
+        "type",
+        "Una frase bastante larga que llena casi todo el campo: "
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Una frase bastante larga que llena casi todo el campo: \" [55,55]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "Una frase bastante larga que llena casi todo el campo: "
+          }
+        ],
+        "field": {
+          "text": "Una frase bastante larga que llena casi todo el campo: ",
+          "anchor": 55,
+          "cursor": 55,
+          "caret": [
+            399,
+            33,
+            2,
+            18
+          ]
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [
+          {
+            "text": "Una frase bastante larga que llena casi todo el campo:",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "n i h a o: the engine composes ni hao at the line's end, the candidates under the caret; the reader says the first candidate, not the keys that compose",
+      "do": [
+        "strokes",
+        [
+          49,
+          23,
+          35,
+          30,
+          24
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Una frase bastante larga que llena casi todo el campo: ni hao\" [61,61]"
+        ],
+        "react": {
+          "change@line": 5,
+          "selectionChange@line": 5,
+          "keyPress@line": 5
+        },
+        "delivered": {
+          "1": {
+            "text_input": 5
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "n",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni h",
+            "cursor": [
+              4,
+              4
+            ],
+            "segments": [
+              [
+                0,
+                4,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni ha",
+            "cursor": [
+              5,
+              5
+            ],
+            "segments": [
+              [
+                0,
+                5,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ni hao",
+            "cursor": [
+              6,
+              6
+            ],
+            "segments": [
+              [
+                0,
+                6,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "Una frase bastante larga que llena casi todo el campo: ",
+          "anchor": 55,
+          "cursor": 55,
+          "caret": [
+            439,
+            33,
+            2,
+            18
+          ]
+        },
+        "shell": {
+          "candidates": [
+            679,
+            197,
+            465,
+            48
+          ]
+        },
+        "spoken": [
+          {
+            "text": "你好, 1 de 9",
+            "interrupting": false
+          }
+        ],
+        "announcements": [
+          {
+            "politeness": "polite",
+            "text": "你好, 1 de 9"
+          }
+        ],
+        "at": {
+          "shell": [
+            {
+              "role": "List",
+              "name": "你好, 1 de 9",
+              "state": [
+                "live-polite"
+              ]
+            },
+            {
+              "role": "ListItem",
+              "name": "你好",
+              "state": [
+                "selected"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the shell moves the window: the candidates move with it, by as much, the composition and the field's caret unchanged, and nothing reaches the field",
+      "do": [
+        "move-window",
+        [
+          -100,
+          -40
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          140,
+          106,
+          800,
+          480
+        ],
+        "focus_input": "line",
+        "focus_surface": 1,
+        "react": {},
+        "delivered": {
+          "1": {
+            "leave": 1
+          }
+        },
+        "transactions": [],
+        "texts": [
+          "Line: \"Una frase bastante larga que llena casi todo el campo: ni hao\" [61,61]"
+        ],
+        "field": {
+          "text": "Una frase bastante larga que llena casi todo el campo: ",
+          "anchor": 55,
+          "cursor": 55,
+          "caret": [
+            439,
+            33,
+            2,
+            18
+          ]
+        },
+        "shell": {
+          "candidates": [
+            579,
+            157,
+            465,
+            48
+          ]
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "the shell makes the window narrower than the line: the field's text scrolls to keep the caret in view, as an EditText's, and the candidates go with the caret",
+      "do": [
+        "resize-window",
+        [
+          400,
+          480
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          140,
+          106,
+          400,
+          480
+        ],
+        "focus_input": "line",
+        "focus_surface": 1,
+        "react": {
+          "scroll@line": 1
+        },
+        "delivered": {},
+        "transactions": [],
+        "text_scroll": {
+          "line": [
+            72.9912109375,
+            0
+          ]
+        },
+        "texts": [
+          "Line: \"Una frase bastante larga que llena casi todo el campo: ni hao\" [61,61]"
+        ],
+        "field": {
+          "text": "Una frase bastante larga que llena casi todo el campo: ",
+          "anchor": 55,
+          "cursor": 55,
+          "caret": [
+            366,
+            33,
+            2,
+            18
+          ]
+        },
+        "shell": {
+          "candidates": [
+            506,
+            157,
+            465,
+            48
+          ]
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "wider again: the text scrolls back, the whole line fitting, and the candidates with the caret",
+      "do": [
+        "resize-window",
+        [
+          800,
+          480
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          140,
+          106,
+          800,
+          480
+        ],
+        "focus_input": "line",
+        "focus_surface": 1,
+        "react": {
+          "scroll@line": 1
+        },
+        "delivered": {},
+        "transactions": [],
+        "text_scroll": {
+          "line": [
+            0,
+            0
+          ]
+        },
+        "texts": [
+          "Line: \"Una frase bastante larga que llena casi todo el campo: ni hao\" [61,61]"
+        ],
+        "field": {
+          "text": "Una frase bastante larga que llena casi todo el campo: ",
+          "anchor": 55,
+          "cursor": 55,
+          "caret": [
+            439,
+            33,
+            2,
+            18
+          ]
+        },
+        "shell": {
+          "candidates": [
+            579,
+            157,
+            465,
+            48
+          ]
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Space commits 你好 where the composition was: the candidates go, and the reader says the commit as typed text",
+      "do": [
+        "strokes",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"Una frase bastante larga que llena casi todo el campo: 你好\" [57,57]"
+        ],
+        "focus_input": "line",
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "你好"
+          }
+        ],
+        "field": {
+          "text": "Una frase bastante larga que llena casi todo el campo: 你好",
+          "anchor": 61,
+          "cursor": 61,
+          "caret": [
+            427,
+            31,
+            2,
+            22
+          ]
+        },
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [
+          {
+            "text": "你好",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    }
+  ]
+}

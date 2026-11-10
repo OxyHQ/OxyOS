@@ -7625,9 +7625,16 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
             "OXYOS_QUIT_REQUESTS_VERSION",
             i64::from(OXYOS_QUIT_REQUESTS_VERSION),
         ),
+        (
+            "OXYOS_SUDDEN_TERMINATION_VERSION",
+            i64::from(OXYOS_SUDDEN_TERMINATION_VERSION),
+        ),
     ] {
         assert_eq!(define(name), value, "{name}");
     }
+    assert!(HEADER.contains(
+        "int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);"
+    ));
     assert_eq!(
         oxyos_protocol::SessionEnd::Restart as u32,
         OXYOS_SESSION_END_RESTART

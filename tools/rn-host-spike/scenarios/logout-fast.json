@@ -1,0 +1,145 @@
+{
+ "about": "Sudden Termination (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10), as a Mac logs out: an application with nothing unsaved, no quit handler and no storage write pending is ended at once, never asked, and only the one with unsaved work is asked. Crash Probe (sample/CrashProbe.tsx, installed, its storage written as it starts: \"Ready, launch 1\") and Allo (sample/QuitProbe.tsx, which handles the question and has unsaved changes), over logind played on the run's own bus. Alt+Shift+Super+Q (log out at once): Crash Probe is ended at once, asked nothing; Allo is asked, once, and cancels, the session naming only it. Saved, Alt+Shift+Super+Q again: Allo agrees and the session ends. With the session asking every application, Crash Probe is asked and the run fails.",
+ "module": "QuitProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "account": {
+  "registered": []
+ },
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "power": {
+  "on_ac": true
+ },
+ "installed": [
+  {
+   "package": "so.oxy.crashprobe",
+   "entry": [
+    "X-OxyOS-Pinned=4"
+   ]
+  }
+ ],
+ "applications_launched": [
+  {
+   "id": "so.oxy.crashprobe",
+   "origin": "installed 1",
+   "settings": false
+  }
+ ],
+ "steps": [
+  {
+   "name": "Crash Probe from the dock: its storage written, nothing unsaved",
+   "do": [
+    "press_named",
+    "Crash Probe"
+   ],
+   "until_named": [
+    "Ready, launch 1",
+    15000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Unsaved changes: yes",
+     "Quit requests: 0"
+    ]
+   }
+  },
+  {
+   "name": "Alt+Shift+Super+Q: Crash Probe ended at once and asked nothing; Allo asked once, and it cancels; the session names only Allo",
+   "do": [
+    "key",
+    [
+     125,
+     56,
+     42,
+     16
+    ]
+   ],
+   "until_named": [
+    "“Allo” canceled log out.",
+    15000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Quit requests: 1",
+     "Last reason: logOut"
+    ],
+    "in_shell": {
+     "texts": [
+      "“Allo” canceled log out.",
+      "OK"
+     ]
+    },
+    "at_absent": {
+     "launched": [
+      {
+       "name": "Ready, launch 1"
+      }
+     ]
+    },
+    "power": {
+     "calls": [],
+     "power_offs": 0,
+     "reboots": 0
+    }
+   }
+  },
+  {
+   "name": "OK",
+   "do": [
+    "press_named",
+    "OK"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "absent": [
+      "“Allo” canceled log out."
+     ]
+    }
+   }
+  },
+  {
+   "name": "Save: nothing unsaved now",
+   "do": [
+    "press_named",
+    "Save"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Unsaved changes: no"
+    ]
+   }
+  },
+  {
+   "name": "Alt+Shift+Super+Q again: Allo agrees and quits, and the session ends",
+   "do": [
+    "key",
+    [
+     125,
+     56,
+     42,
+     16
+    ]
+   ],
+   "until_ended": true,
+   "allow_unchanged": true,
+   "expect": {
+    "logged_out": true,
+    "power": {
+     "calls": [],
+     "power_offs": 0,
+     "reboots": 0
+    }
+   }
+  }
+ ]
+}

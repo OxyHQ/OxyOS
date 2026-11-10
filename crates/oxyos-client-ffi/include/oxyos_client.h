@@ -600,7 +600,7 @@ typedef struct OxyOSClient OxyOSClient;
  *                      hour cycle only when the person chose one), in chunks as KEYBOARD_LAYOUT:
  *                      `detail` its index (0 begins it), `flag` 1 on the last, `text` the chunk.
  *   SCREEN_READER      to every client as it connects while the session's screen reader runs, and
- *                      whenever it starts or stops (ADR 0014, decision 8; protocol version 40, an
+ *                      whenever it starts or stops (ADR 0014, decision 8; protocol version 41, an
  *                      older compositor never sends it): `flag` 1 while it runs. A client never told
  *                      reads that none runs: what Android's AccessibilityManager says of TalkBack.
 
@@ -995,6 +995,13 @@ int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t k
 #define OXYOS_SESSION_END_SHUT_DOWN 3
 #define OXYOS_QUIT_REQUESTS_VERSION 38
 int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);
+/* Sudden Termination (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10):
+ * whether the application may be ended at once when the session ends, without being asked
+ * (`enabled` 1: nothing unsaved, no write pending, no quit handler that wants to be asked), as a
+ * Mac's NSSupportsSuddenTermination; told as it changes. An error, sending nothing, to a compositor
+ * of a version before OXYOS_SUDDEN_TERMINATION_VERSION, which asks every application. */
+#define OXYOS_SUDDEN_TERMINATION_VERSION 40
+int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

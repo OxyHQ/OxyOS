@@ -651,6 +651,11 @@ bool Window::replyToQuit(uint32_t serial, bool quit) {
   return oxyos_client_reply_to_quit(client_, serial, quit ? 1 : 0) == 0;
 }
 
+bool Window::setSuddenTermination(bool enabled) {
+  if (protocolVersion() < OXYOS_SUDDEN_TERMINATION_VERSION) return false;
+  return oxyos_client_set_sudden_termination(client_, enabled ? 1 : 0) == 0;
+}
+
 void Window::closeToplevel() {
   if (toplevelClosed_) return;
   toplevelClosed_ = true;

@@ -979,12 +979,28 @@ fn main() -> Result<()> {
                 .running()
                 .map(|(_, launched)| launched.id.clone())
                 .collect();
+            // What the session started it can end at once, as an end begins, those that said they
+            // may be (docs/adr/0064, decision 10).
+            let pids: BTreeMap<ClientId, u32> = compositor
+                .peers
+                .iter()
+                .filter_map(|(client, peer)| Some((*client, u32::try_from(peer.pid).ok()?)))
+                .filter(|(_, pid)| launcher.application_of(*pid).is_some())
+                .collect();
+            ending.set_endable(pids.keys().copied());
             let served = ending.serve(
                 &mut compositor,
                 &mut settings,
                 &|client| names.get(&client).cloned().unwrap_or_default(),
                 &running,
             );
+            for client in ending.take_ended_at_once() {
+                if let Some(pid) = pids.get(&client) {
+                    if launcher.kill(*pid) {
+                        eprintln!("[session] ended {pid} at once: nothing unsaved");
+                    }
+                }
+            }
             if served.log_out {
                 eprintln!("[session] logging out, as the person asked");
                 compositor.flush();

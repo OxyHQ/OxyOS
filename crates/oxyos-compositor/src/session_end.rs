@@ -310,6 +310,10 @@ pub struct SessionEnding {
     next_serial: u32,
     /// Whose request the sleep asked of logind answers (none: the power key's).
     sleep_asker: Option<(ClientId, u32)>,
+    /// The applications whose processes the program started and can end itself (decision 10).
+    endable: BTreeSet<ClientId>,
+    /// Those ended at once as the round began, for the program to end (decision 10).
+    at_once: Vec<ClientId>,
 }
 
 /// The file the applications to reopen at the next login are kept in, from the environment.
@@ -426,6 +430,8 @@ impl SessionEnding {
             reopen_file: reopen_file.filter(|_| !greeter),
             next_serial: 0,
             sleep_asker: None,
+            endable: BTreeSet::new(),
+            at_once: Vec::new(),
         };
         // Held from the start: logind never turns the machine off at a press while OxyOS runs.
         part.worker.send(Job::Hold);
@@ -489,6 +495,18 @@ impl SessionEnding {
     /// the applications' and the deadlines. `name_of` names a client's application (its launch
     /// record's registry name, else its id); `running` are the registry ids of the applications
     /// running, in the order they were launched.
+    /// The applications whose processes the program started and can end itself, by their
+    /// clients: told before each turn's [`SessionEnding::serve`]; only those are ended at once.
+    pub fn set_endable(&mut self, clients: impl IntoIterator<Item = ClientId>) {
+        self.endable = clients.into_iter().collect();
+    }
+
+    /// The applications ended at once as a round began (decision 10), each once: the program
+    /// ends their processes now (SIGKILL by their launch records, asked, so no crash is said).
+    pub fn take_ended_at_once(&mut self) -> Vec<ClientId> {
+        std::mem::take(&mut self.at_once)
+    }
+
     pub fn serve(
         &mut self,
         compositor: &mut Compositor,
@@ -760,9 +778,18 @@ impl SessionEnding {
         self.next_serial = self.next_serial.wrapping_add(1).max(1);
         let serial = self.next_serial;
         let mut waiting = BTreeSet::new();
+        let mut going = BTreeSet::new();
         let mut names = BTreeMap::new();
         for client in compositor.scene.applications() {
             names.insert(client, name_of(client));
+            // Nothing unsaved, nothing pending, and the program's own launch: ended at once,
+            // never asked, as a Mac ends an application that supports Sudden Termination
+            // (decision 10). It is gone once its connection closes.
+            if compositor.scene.may_end_at_once(client) && self.endable.contains(&client) {
+                going.insert(client);
+                self.at_once.push(client);
+                continue;
+            }
             if compositor
                 .scene
                 .ask_to_quit(client, serial, action.reason())
@@ -771,15 +798,16 @@ impl SessionEnding {
             }
         }
         eprintln!(
-            "[session end] {}: {} applications asked to quit",
+            "[session end] {}: {} applications, {} ended at once, the others asked to quit",
             action.name(),
-            names.len()
+            names.len(),
+            going.len()
         );
         self.state = State::Quitting {
             action,
             serial,
             waiting,
-            going: BTreeSet::new(),
+            going,
             deadline: self.now() + QUIT_DEADLINE,
             names,
         };

@@ -737,3 +737,50 @@ fn a_rebuild_the_service_stopped_in_goes_on_at_its_next_start() {
     assert!(!paths.cache.join("index-2").exists());
     second.stop();
 }
+
+#[test]
+fn an_item_in_a_standard_folder_says_which_so_it_is_named_in_the_persons_language() {
+    let mut service = Running::start(|home| {
+        write(
+            &home.join("Documents/Work/2026/harbour plan.txt"),
+            "harbour",
+        );
+        write(&home.join("Documents/harbour notes.txt"), "harbour");
+        // Pictures where user-dirs.dirs puts them, under another name on disk.
+        write(
+            &home.join(".config/user-dirs.dirs"),
+            "XDG_PICTURES_DIR=\"$HOME/Fotos\"\n",
+        );
+        write(&home.join("Fotos/harbour.txt"), "harbour");
+        write(&home.join("code/harbour.txt"), "harbour");
+        write(&home.join("harbour.txt"), "harbour");
+    });
+    service.settled();
+    let answer = service.ask(json!({"query": {"text": "harbour"}}));
+    let items = answer["results"]["items"].as_array().unwrap();
+    let of = |relative: &str| {
+        let id = service.id(relative);
+        items
+            .iter()
+            .find(|item| item["id"] == id.as_str())
+            .unwrap_or_else(|| panic!("{relative} not found in {answer}"))
+            .clone()
+    };
+    let nested = of("Documents/Work/2026/harbour plan.txt");
+    assert_eq!(nested["location"], "Documents › Work › 2026");
+    assert_eq!(
+        nested["place"],
+        json!({"key": "documents", "within": ["Work", "2026"]})
+    );
+    assert_eq!(
+        of("Documents/harbour notes.txt")["place"],
+        json!({"key": "documents", "within": []})
+    );
+    let pictures = of("Fotos/harbour.txt");
+    assert_eq!(pictures["location"], "Fotos");
+    assert_eq!(pictures["place"], json!({"key": "pictures", "within": []}));
+    // Outside the standard folders: the location alone.
+    assert!(of("code/harbour.txt").get("place").is_none());
+    assert!(of("harbour.txt").get("place").is_none());
+    service.stop();
+}
