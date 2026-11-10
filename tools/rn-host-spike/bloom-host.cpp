@@ -221,14 +221,6 @@ class Mounter : public SchedulerDelegate {
     std::lock_guard lock(mutex_);
     return !queue_.empty() || !commands_.empty();
   }
-  // Whether what JavaScript handed over waits to be applied: a commit it made, a command, an
-  // accessibility event (a commit of the UI thread's held for the frame is not).
-  bool javascriptPending() {
-    std::lock_guard lock(mutex_);
-    auto fromJavaScript = [](const Item& item) { return item.fromJavaScript; };
-    return std::any_of(queue_.begin(), queue_.end(), fromJavaScript) ||
-           std::any_of(commands_.begin(), commands_.end(), fromJavaScript);
-  }
   std::optional<std::chrono::steady_clock::time_point> waitingSince() {
     std::lock_guard lock(mutex_);
     if (queue_.empty() && commands_.empty()) return std::nullopt;
@@ -308,11 +300,7 @@ class Mounter : public SchedulerDelegate {
     {
       std::lock_guard lock(mutex_);
       queued();
-      commands_.push_back(Item{.kind = Item::Kind::Command,
-                               .fromJavaScript = !oxyos::UiThread::isCurrent(),
-                               .view = view,
-                               .name = name,
-                               .args = args});
+      commands_.push_back(Item{.kind = Item::Kind::Command, .view = view, .name = name, .args = args});
     }
     if (!oxyos::UiThread::isCurrent()) oxyos::UiThread::wake();
   }
@@ -339,8 +327,6 @@ class Mounter : public SchedulerDelegate {
     SurfaceId surface = 0;
     // A transaction pulled on JavaScript's thread: the batch it ran (0 for a commit of the UI thread's).
     uint64_t batch = 0;
-    // Pulled, or sent, on another thread than the UI thread's.
-    bool fromJavaScript = false;
     std::shared_ptr<const MountingTransaction> transaction;
     ShadowView view;
     std::string name;
@@ -361,7 +347,6 @@ class Mounter : public SchedulerDelegate {
         queue_.push_back(Item{.kind = Item::Kind::Transaction,
                               .surface = surface,
                               .batch = !oxyos::UiThread::isCurrent() && runningBatch ? runningBatch() : 0,
-                              .fromJavaScript = !oxyos::UiThread::isCurrent(),
                               .transaction = std::make_shared<const MountingTransaction>(std::move(*transaction))});
       }
     }
@@ -371,7 +356,6 @@ class Mounter : public SchedulerDelegate {
     waiting_.clear();
   }
   void queue(Item item) {
-    item.fromJavaScript = !oxyos::UiThread::isCurrent();
     {
       std::lock_guard lock(mutex_);
       // Behind a commit made before it: one not yet handed over, which it waits for, or one handed
@@ -489,22 +473,14 @@ class ToJavaScript {
   // queues the beat's callback there), handed over with the rest. Whether any was asked for.
   bool beat();
   // A key is offered next (its listener's answer awaited): a beat goes before it, for whatever views
-  // were dispatched by the time it runs, and it is handed over only once what JavaScript did before
-  // is applied (handOver's caller), so that a key offered behind a commit's command (a focus moved
-  // by the key before) reaches JavaScript after the events that command set off (the focus), as on
-  // the one thread.
+  // were dispatched by the time it runs, so that the key reaches JavaScript after the events the
+  // loop dispatched before it (a focus the key before moved).
   void offeringKey() {
     run([] { Beat::tickAll(); });
-    keyOffered_ = true;
   }
-  // Whether a key offered waits to be handed over.
-  bool keyOffered() const { return keyOffered_; }
   // The loop's turn ends (or the offscreen settle's): what it handed over runs, once JavaScript is
-  // idle and the loop has applied what it did (the caller's to know), so that JavaScript is handed
-  // the events that set off with what came after.
-  void handOver() {
-    if (thread_.handOver()) keyOffered_ = false;
-  }
+  // idle.
+  void handOver() { thread_.handOver(); }
   // Whether the loop queued anything for JavaScript since the last call.
   bool handed() { return std::exchange(handed_, false); }
 
@@ -537,7 +513,6 @@ class ToJavaScript {
     }
   }
   bool handed_ = false;
-  bool keyOffered_ = false;
   static folly::dynamic told(const std::string& event, folly::dynamic payload) {
     auto args = folly::dynamic::array(event);
     if (!payload.isNull()) args.push_back(std::move(payload));
@@ -2609,14 +2584,16 @@ int main(int argc, char** argv) {
         // JavaScript did, never a step of it, as when the two took turns. What the UI thread moves
         // meanwhile (an animation, a scroll) goes on being drawn. (A commit made on the UI thread
         // applies the queue at once, being behind it.) The person's input that came while it worked
-        // is part of that work: handed to it first, the frame showing the answer to all of it (a
-        // quick Super+Tab never flashes the switcher it opened and closed), unless what JavaScript
-        // did has waited a refresh (input that never stops is shown answered a refresh at a time),
-        // or a key is to be offered, which goes after what JavaScript did is applied (offeringKey).
+        // is part of that work, as the keys typed together are until JavaScript answered the last
+        // (the events held behind a key): handed to it first, the frame showing the answer to all of
+        // it (a quick Super+Tab never flashes the switcher it opened and closed; eight arrows typed
+        // at once move the selection once, said once), unless what JavaScript did has waited a
+        // refresh (input that never stops is shown answered a refresh at a time).
         auto applyWaited = mounter.waitingSince();
-        bool inputFirst = js->stagedRank() >= 1 && !toJavaScript.keyOffered() && applyWaited &&
-                          Clock::now() - *applyWaited < std::chrono::duration<double, std::milli>(refresh.periodMs());
-        bool pulled = js->idle() && !inputFirst && mounter.apply();
+        bool inputPending = offeredKey.has_value() || !heldBehindKey.empty() || js->stagedRank() >= 1;
+        bool waitedARefresh = applyWaited && Clock::now() - *applyWaited >=
+                                                 std::chrono::duration<double, std::milli>(refresh.periodMs());
+        bool pulled = js->idle() && (!inputPending || waitedARefresh) && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
@@ -2930,10 +2907,8 @@ int main(int argc, char** argv) {
           handleEvent(event);
         };
         // A key JavaScript answered: its handling ends, then the events that waited behind it go on, in
-        // order, until one is another key offered to JavaScript. Once JavaScript is idle and what it
-        // did is applied, as when each key was handled in its turn: the key after it, offered or the
-        // platform's (Tab), meets the focus that key moved.
-        while (offeredKey && offeredKey->answer->load() >= 0 && js->idle() && !mounter.javascriptPending()) {
+        // order, until one is another key offered to JavaScript.
+        while (offeredKey && offeredKey->answer->load() >= 0) {
           auto key = std::move(*offeredKey);
           offeredKey.reset();
           busy = true;
@@ -3817,11 +3792,8 @@ int main(int argc, char** argv) {
         // drag it ended is told after it.
         toJavaScript.beat();
         dragDrop.ranJavaScript();
-        // What the turn queued for JavaScript runs, together, once JavaScript is idle; a key offered,
-        // once what JavaScript did before is applied too: the events that set off (a focus its
-        // command moved) reach it before the key (offeringKey). JavaScript's thread wakes the loop as
-        // it settles with work waiting, and the next turn applies it.
-        if (!toJavaScript.keyOffered() || !mounter.javascriptPending()) toJavaScript.handOver();
+        // What the turn queued for JavaScript runs, together, once JavaScript is idle.
+        toJavaScript.handOver();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
         wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending() ||
@@ -3924,7 +3896,7 @@ int main(int argc, char** argv) {
     bool busy = !js->idle();
     if (!busy) busy |= mounter.apply();
     toJavaScript.beat();
-    if (!toJavaScript.keyOffered() || !mounter.javascriptPending()) toJavaScript.handOver();
+    toJavaScript.handOver();
     worklets.tick();
     busy |= reanimated.tick();
     busy |= animated.tick();
