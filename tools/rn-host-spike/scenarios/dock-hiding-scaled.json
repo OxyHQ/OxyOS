@@ -54,8 +54,11 @@
     {
       "name": "the switch on: the session keeps it, the dock keeps no strip and slides down off the screen",
       "do": [
-        "press_named",
-        "Automatically hide and show the Dock"
+        "press",
+        [
+          830,
+          130
+        ]
       ],
       "expect": {
         "at": {
