@@ -3,7 +3,7 @@ name: Native foundation
 on:
   push:
     branches: [main]
-    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'scripts/test_check_native_boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml', 'apps/**', 'scripts/*.mjs', 'biome.jsonc']
+    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'scripts/test_check_native_boundary.py', 'scripts/check-cpp-format.py', 'scripts/cpp-format-baseline.txt', '.clang-format', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml', 'apps/**', 'scripts/*.mjs', 'biome.jsonc']
   # Every pull request and every merge queue entry: its jobs are required checks of main
   # (docs/developing.mdx), so they report whatever a change touches.
   pull_request:
@@ -105,6 +105,14 @@ jobs:
           path: ~/apt-cache
           key: ${{ steps.apt-key.outputs.key }}
       - run: cargo fmt --all --check
+      # OxyOS's own C/C++ (the Bloom host, the C ABI header) as .clang-format says, but for the files
+      # its baseline lists, which only shrinks. The host's compiler warnings are the gate's: it
+      # builds the host with -Wall -Wextra -Werror on its own sources (tools/rn-host-spike/CMakeLists.txt).
+      - name: C/C++ format
+        run: |
+          python3 -m venv ~/clang-format
+          ~/clang-format/bin/pip install -q clang-format==19.1.7
+          CLANG_FORMAT=~/clang-format/bin/clang-format python3 scripts/check-cpp-format.py
       - run: cargo test --workspace --locked
         env:
           XLOCALEDIR: ${{ github.workspace }}/config/includes.chroot_after_packages/usr/share/X11/locale
