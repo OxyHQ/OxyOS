@@ -5,9 +5,10 @@
 use super::*;
 use crate::scene::{
     negotiate_action, AppearanceChange, OpenFilesRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
-    DRAG_VERSION, MAX_OPEN_DROPS, VOLUMES_VERSION,
+    DRAG_VERSION, MAX_OPEN_DROPS, PING_TIMEOUT, VOLUMES_VERSION,
 };
 use oxyos_protocol::{DragActions, DragCancelReason, MODIFIER_ALT, MODIFIER_SUPER};
+use std::time::Duration;
 
 const ALT: u32 = 56;
 const SUPER: u32 = 125;
@@ -441,6 +442,102 @@ fn drop_on_target(d: &mut Desk, types: &[&str]) -> u32 {
     d.h.clear_log();
     d.h.scene.pointer_button(BUTTON, false);
     offer
+}
+
+#[test]
+fn a_drop_waits_for_the_targets_answer_to_where_it_was_released() {
+    // A target that answers Pings (version 8 or newer): its answer to the last motion may come
+    // after the person let go, and the drop is decided by it.
+    let mut d = desk();
+    d.h.scene.set_version(OTHER, crate::scene::DRAG_VERSION);
+    start(&mut d, &[URIS], DragActions::COPY.union(DragActions::MOVE));
+    let (x, y) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(x, y);
+    let (offer, serial) = entering(&to(&logged(&mut d.h), OTHER)).unwrap();
+    d.h.scene.pointer_button(BUTTON, false);
+    // Released before the target said anything: it is asked to answer every event sent so far,
+    // and nothing is decided yet, the pointer no longer moving the drag.
+    let events = logged(&mut d.h);
+    let Some(ping) = to(&events, OTHER).iter().find_map(|event| match event {
+        Event::Ping { serial } => Some(*serial),
+        _ => None,
+    }) else {
+        panic!("{events:?}");
+    };
+    assert!(drag_events(&to(&events, APP)).is_empty(), "{events:?}");
+    assert!(d.h.scene.dragging());
+    d.h.scene.pointer_motion(x + 50, y);
+    assert!(drag_events(&to(&logged(&mut d.h), OTHER)).is_empty());
+    // Its answer, read before the Ping, then the Ping's: dropped on it.
+    accept(&mut d.h, OTHER, offer, serial, URIS);
+    d.h.request(OTHER, Request::Pong { serial: ping }).unwrap();
+    let events = logged(&mut d.h);
+    assert!(
+        matches!(
+            drag_events(&to(&events, OTHER))[..],
+            [
+                Event::DragAction { .. },
+                Event::DragDrop { offer: o, action: DragActions::MOVE, .. }
+            ] if o == offer
+        ),
+        "{events:?}"
+    );
+    assert_eq!(
+        drag_events(&to(&events, APP)),
+        [
+            Event::DragSourceAction {
+                drag: 7,
+                action: DragActions::MOVE
+            },
+            Event::DragDropped {
+                drag: 7,
+                action: DragActions::MOVE
+            }
+        ]
+    );
+    assert!(!d.h.scene.dragging());
+
+    // One that says nothing in a Ping's time is decided by what it said last: nothing, so the
+    // drag is cancelled.
+    let mut d = desk();
+    d.h.scene.set_version(OTHER, crate::scene::DRAG_VERSION);
+    d.h.scene.set_clock(Duration::from_secs(10));
+    start(&mut d, &[URIS], DragActions::COPY.union(DragActions::MOVE));
+    let (x, y) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(x, y);
+    d.h.scene.pointer_button(BUTTON, false);
+    d.h.clear_log();
+    d.h.scene
+        .set_clock(Duration::from_secs(10) + PING_TIMEOUT - Duration::from_millis(1));
+    d.h.scene.check_responding();
+    assert!(d.h.scene.dragging());
+    d.h.scene.set_clock(Duration::from_secs(10) + PING_TIMEOUT);
+    d.h.scene.check_responding();
+    assert_eq!(
+        drag_events(&to(&logged(&mut d.h), APP)),
+        [Event::DragCancelled {
+            drag: 7,
+            reason: DragCancelReason::NotAccepted
+        }]
+    );
+    assert!(!d.h.scene.dragging());
+
+    // One that goes meanwhile: cancelled at once.
+    let mut d = desk();
+    d.h.scene.set_version(OTHER, crate::scene::DRAG_VERSION);
+    start(&mut d, &[URIS], DragActions::COPY.union(DragActions::MOVE));
+    let (x, y) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(x, y);
+    d.h.scene.pointer_button(BUTTON, false);
+    d.h.clear_log();
+    d.h.scene.disconnect(OTHER);
+    assert!(
+        drag_events(&to(&logged(&mut d.h), APP)).contains(&Event::DragCancelled {
+            drag: 7,
+            reason: DragCancelReason::NotAccepted
+        })
+    );
+    assert!(!d.h.scene.dragging());
 }
 
 #[test]
