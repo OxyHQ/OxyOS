@@ -72,13 +72,14 @@ void JsThread::runOnQueue(std::function<void()>&& task) {
   if (!staged) wake_.notify_one();
 }
 
-void JsThread::handOver() {
+bool JsThread::handOver() {
   {
     std::lock_guard lock(mutex_);
-    if (staged_.empty() || running_ || !tasks_.empty()) return;
+    if (staged_.empty() || running_ || !tasks_.empty()) return false;
     handOverLocked();
   }
   wake_.notify_one();
+  return true;
 }
 
 void JsThread::handOverLocked() {
@@ -128,6 +129,13 @@ bool JsThread::idle() const {
   if (running_ || !tasks_.empty()) return false;
   auto due = timers_ ? timers_->next() : std::nullopt;
   return !due || *due > Clock::now();
+}
+
+int JsThread::stagedRank() const {
+  std::lock_guard lock(mutex_);
+  int rank = -1;
+  for (const auto& task : staged_) rank = std::max(rank, task.cause.rank);
+  return rank;
 }
 
 bool JsThread::waitIdle(Clock::time_point deadline) {

@@ -82,7 +82,8 @@ class JsThread : public facebook::react::MessageQueueThread {
   void runOnQueue(std::function<void()>&& task) override;
   // The loop's turn ends: what it queued runs, if the thread is idle (else once it is: the thread
   // then calls `settled` with work waiting, and the loop hands it over at its next turn's end).
-  void handOver();
+  // Whether it was handed over.
+  bool handOver();
   // Runs `task` on the thread after what is queued, and returns once it ran: at once when called on
   // the thread itself. The UI thread's state is let go meanwhile (ui-thread.h), since the task, or
   // what runs before it, may need it. An exception it throws is thrown here.
@@ -104,6 +105,9 @@ class JsThread : public facebook::react::MessageQueueThread {
   // Nothing handed over waiting, nothing running, no timer due (what the loop queued and has not
   // handed over yet is the loop's).
   bool idle() const;
+  // The highest rank of what the loop queued and has not handed over (Cause's: 1 and above, the
+  // person's input and the compositor's events), -1 for nothing.
+  int stagedRank() const;
   // Waits until the thread is idle (ui-thread.h's state let go meanwhile), or until `deadline`.
   bool waitIdle(Clock::time_point deadline);
 

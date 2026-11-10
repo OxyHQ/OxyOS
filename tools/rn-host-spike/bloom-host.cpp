@@ -177,15 +177,18 @@ class Beat : public EventBeat {
 // pulled on the thread that made it, once it is to be rendered (on JavaScript's thread at the end of
 // the task that committed, so a layout effect's commit is shown with the commit before it; on the UI
 // thread at once, for a commit made there: a window laid out at a new size, Reanimated's frame, a
-// scroll view's offset), and handed to the UI thread, which applies it to the host's view tree. A
-// view command from JavaScript (a text input's focus) and an accessibility event
-// (AccessibilityInfo.sendAccessibilityEvent) go into the same queue, behind the commits made before
-// them, as Android's mounting layer runs its DispatchCommandMountItem and
-// SendAccessibilityEventMountItem behind the mount items queued before them: the scheduler hands an
-// accessibility event over at once, while it hands a commit over only at the end of its task, so an
-// effect React flushes with its commit would otherwise be handled against the tree before that commit
-// (docs/adr/0039-keyboard-access.mdx, decision 26: the menu bar's title focused by the same commit
-// that asks for the keyboard). Everything the queue holds is applied by the loop, in order.
+// scroll view's offset), and handed to the UI thread, which applies it to the host's view tree. An
+// accessibility event (AccessibilityInfo.sendAccessibilityEvent) goes into the same queue, behind the
+// commits made before it, as Android's mounting layer runs its SendAccessibilityEventMountItem behind
+// the mount items queued before it: the scheduler hands an accessibility event over at once, while it
+// hands a commit over only at the end of its task, so an effect React flushes with its commit would
+// otherwise be handled against the tree before that commit (docs/adr/0039-keyboard-access.mdx,
+// decision 26: the menu bar's title focused by the same commit that asks for the keyboard). A view
+// command (a text input's focus or blur, a scroll view's scrollTo) runs before the transactions
+// waiting, as Android's MountItemDispatcher runs view commands first: JavaScript queued it against
+// the views as they are, which the transactions after may remove (a focused field blurred as its
+// popover closes). One for a view not mounted yet runs again once they are applied, as Android
+// retries it. Everything is applied by the loop, in order.
 class Mounter : public SchedulerDelegate {
  public:
   explicit Mounter(oxyos::ViewTree& tree) : tree_(tree) {}
@@ -216,24 +219,43 @@ class Mounter : public SchedulerDelegate {
   // Whether anything waits to be applied, and since when (the oldest).
   bool pending() {
     std::lock_guard lock(mutex_);
-    return !queue_.empty();
+    return !queue_.empty() || !commands_.empty();
+  }
+  // Whether what JavaScript handed over waits to be applied: a commit it made, a command, an
+  // accessibility event (a commit of the UI thread's held for the frame is not).
+  bool javascriptPending() {
+    std::lock_guard lock(mutex_);
+    auto fromJavaScript = [](const Item& item) { return item.fromJavaScript; };
+    return std::any_of(queue_.begin(), queue_.end(), fromJavaScript) ||
+           std::any_of(commands_.begin(), commands_.end(), fromJavaScript);
   }
   std::optional<std::chrono::steady_clock::time_point> waitingSince() {
     std::lock_guard lock(mutex_);
-    if (queue_.empty()) return std::nullopt;
+    if (queue_.empty() && commands_.empty()) return std::nullopt;
     return queuedAt_;
   }
   // Applies what was handed over, in order: the UI thread, or JavaScript's as it calls into the host
   // (host-modules.h's HostCall), the UI thread's state held either way. True if it mounted or handled
   // anything.
   bool apply() {
-    std::deque<Item> items;
+    std::deque<Item> items, commands;
     {
       std::lock_guard lock(mutex_);
       items.swap(queue_);
+      commands.swap(commands_);
     }
     bool did = false;
     std::set<SurfaceId> mounted;
+    // View commands first; one for a view not mounted yet once the transactions are (Android's retry).
+    std::vector<Item> retried;
+    for (auto& command : commands) {
+      did = true;
+      if (!tree_.views().count(command.view.tag)) {
+        retried.push_back(std::move(command));
+      } else if (onCommand) {
+        onCommand(command.view, command.name, command.args);
+      }
+    }
     for (auto& item : items) {
       did = true;
       switch (item.kind) {
@@ -242,13 +264,15 @@ class Mounter : public SchedulerDelegate {
           mounted.insert(item.surface);
           appliedBatch_ = std::max(appliedBatch_, item.batch);
           break;
-        case Item::Kind::Command:
-          if (onCommand) onCommand(item.view, item.name, item.args);
+        case Item::Kind::Command:  // in commands_, run above
           break;
         case Item::Kind::AccessibilityEvent:
           if (onAccessibilityEvent) onAccessibilityEvent(item.view, item.name);
           break;
       }
+    }
+    for (auto& command : retried) {
+      if (tree_.views().count(command.view.tag) && onCommand) onCommand(command.view, command.name, command.args);
     }
     // Pulled to be applied later, a surface's transactions count as pending (hasPendingTransactions,
     // which IntersectionObserver's first paint waits on) until the last handed over is applied.
@@ -281,7 +305,16 @@ class Mounter : public SchedulerDelegate {
   // View commands from JavaScript (a text input's focus, blur, ...), for the host's native side.
   std::function<void(const ShadowView&, const std::string&, const folly::dynamic&)> onCommand;
   void schedulerDidDispatchCommand(const ShadowView& view, const std::string& name, const folly::dynamic& args) override {
-    queue(Item{.kind = Item::Kind::Command, .view = view, .name = name, .args = args});
+    {
+      std::lock_guard lock(mutex_);
+      queued();
+      commands_.push_back(Item{.kind = Item::Kind::Command,
+                               .fromJavaScript = !oxyos::UiThread::isCurrent(),
+                               .view = view,
+                               .name = name,
+                               .args = args});
+    }
+    if (!oxyos::UiThread::isCurrent()) oxyos::UiThread::wake();
   }
   // Accessibility events from JavaScript: moving accessibility focus, for the host's accessibility
   // state.
@@ -306,13 +339,15 @@ class Mounter : public SchedulerDelegate {
     SurfaceId surface = 0;
     // A transaction pulled on JavaScript's thread: the batch it ran (0 for a commit of the UI thread's).
     uint64_t batch = 0;
+    // Pulled, or sent, on another thread than the UI thread's.
+    bool fromJavaScript = false;
     std::shared_ptr<const MountingTransaction> transaction;
     ShadowView view;
     std::string name;
     folly::dynamic args = nullptr;
   };
   void queued() {
-    if (queue_.empty()) queuedAt_ = std::chrono::steady_clock::now();
+    if (queue_.empty() && commands_.empty()) queuedAt_ = std::chrono::steady_clock::now();
     if (wakeWhenIdle) *wakeWhenIdle = true;
   }
   // Pulls every surface's transaction into the queue, then what waited for it.
@@ -326,6 +361,7 @@ class Mounter : public SchedulerDelegate {
         queue_.push_back(Item{.kind = Item::Kind::Transaction,
                               .surface = surface,
                               .batch = !oxyos::UiThread::isCurrent() && runningBatch ? runningBatch() : 0,
+                              .fromJavaScript = !oxyos::UiThread::isCurrent(),
                               .transaction = std::make_shared<const MountingTransaction>(std::move(*transaction))});
       }
     }
@@ -335,6 +371,7 @@ class Mounter : public SchedulerDelegate {
     waiting_.clear();
   }
   void queue(Item item) {
+    item.fromJavaScript = !oxyos::UiThread::isCurrent();
     {
       std::lock_guard lock(mutex_);
       // Behind a commit made before it: one not yet handed over, which it waits for, or one handed
@@ -383,6 +420,8 @@ class Mounter : public SchedulerDelegate {
   std::mutex mutex_;
   bool unpulled_ = false;
   std::deque<Item> queue_;
+  // View commands, run before the queue (apply).
+  std::deque<Item> commands_;
   std::chrono::steady_clock::time_point queuedAt_{};  // when the queue last stopped being empty
   std::vector<Item> waiting_;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
@@ -449,9 +488,23 @@ class ToJavaScript {
   // Fabric's beat asked for by what the loop dispatched to views: induced on JavaScript's thread (it
   // queues the beat's callback there), handed over with the rest. Whether any was asked for.
   bool beat();
+  // A key is offered next (its listener's answer awaited): a beat goes before it, for whatever views
+  // were dispatched by the time it runs, and it is handed over only once what JavaScript did before
+  // is applied (handOver's caller), so that a key offered behind a commit's command (a focus moved
+  // by the key before) reaches JavaScript after the events that command set off (the focus), as on
+  // the one thread.
+  void offeringKey() {
+    run([] { Beat::tickAll(); });
+    keyOffered_ = true;
+  }
+  // Whether a key offered waits to be handed over.
+  bool keyOffered() const { return keyOffered_; }
   // The loop's turn ends (or the offscreen settle's): what it handed over runs, once JavaScript is
-  // idle.
-  void handOver() { thread_.handOver(); }
+  // idle and the loop has applied what it did (the caller's to know), so that JavaScript is handed
+  // the events that set off with what came after.
+  void handOver() {
+    if (thread_.handOver()) keyOffered_ = false;
+  }
   // Whether the loop queued anything for JavaScript since the last call.
   bool handed() { return std::exchange(handed_, false); }
 
@@ -484,6 +537,7 @@ class ToJavaScript {
     }
   }
   bool handed_ = false;
+  bool keyOffered_ = false;
   static folly::dynamic told(const std::string& event, folly::dynamic payload) {
     auto args = folly::dynamic::array(event);
     if (!payload.isNull()) args.push_back(std::move(payload));
@@ -2493,6 +2547,9 @@ int main(int argc, char** argv) {
     auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
       auto answer = std::make_shared<std::atomic<int>>(-1);
       offeredKey = OfferedKey{event, handlingSeq, answer, offered};
+      // After what the keys before it set off (a focus moved by the key before, its onFocus): the
+      // listener answers from what it learned of them, as when each key was answered in its turn.
+      toJavaScript.offeringKey();
       // At the priority the events and device events the loop hands JavaScript have, in the order
       // they came: what was handed after the key (the modifiers' change) runs after it.
       toJavaScript.schedule(
@@ -2548,8 +2605,15 @@ int main(int argc, char** argv) {
         // Animation commits what a run loop's turn changed at its end: a frame shows the whole of what
         // JavaScript did, never a step of it, as when the two took turns. What the UI thread moves
         // meanwhile (an animation, a scroll) goes on being drawn. (A commit made on the UI thread
-        // applies the queue at once, being behind it.)
-        bool pulled = js->idle() && mounter.apply();
+        // applies the queue at once, being behind it.) The person's input that came while it worked
+        // is part of that work: handed to it first, the frame showing the answer to all of it (a
+        // quick Super+Tab never flashes the switcher it opened and closed), unless what JavaScript
+        // did has waited a refresh (input that never stops is shown answered a refresh at a time),
+        // or a key is to be offered, which goes after what JavaScript did is applied (offeringKey).
+        auto applyWaited = mounter.waitingSince();
+        bool inputFirst = js->stagedRank() >= 1 && !toJavaScript.keyOffered() && applyWaited &&
+                          Clock::now() - *applyWaited < std::chrono::duration<double, std::milli>(refresh.periodMs());
+        bool pulled = js->idle() && !inputFirst && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
@@ -3748,8 +3812,11 @@ int main(int argc, char** argv) {
         // drag it ended is told after it.
         toJavaScript.beat();
         dragDrop.ranJavaScript();
-        // What the turn queued for JavaScript runs, together, once JavaScript is idle.
-        toJavaScript.handOver();
+        // What the turn queued for JavaScript runs, together, once JavaScript is idle; a key offered,
+        // once what JavaScript did before is applied too: the events that set off (a focus its
+        // command moved) reach it before the key (offeringKey). JavaScript's thread wakes the loop as
+        // it settles with work waiting, and the next turn applies it.
+        if (!toJavaScript.keyOffered() || !mounter.javascriptPending()) toJavaScript.handOver();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
         wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending();
@@ -3848,10 +3915,10 @@ int main(int argc, char** argv) {
   wakeUiWhenIdle = true;
   while (Clock::now() < deadline) {
     oxyos::UiThread::woken();
-    toJavaScript.beat();
-    toJavaScript.handOver();
     bool busy = !js->idle();
-    busy |= mounter.apply();
+    if (!busy) busy |= mounter.apply();
+    toJavaScript.beat();
+    if (!toJavaScript.keyOffered() || !mounter.javascriptPending()) toJavaScript.handOver();
     worklets.tick();
     busy |= reanimated.tick();
     busy |= animated.tick();
