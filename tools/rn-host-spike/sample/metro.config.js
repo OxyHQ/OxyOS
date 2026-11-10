@@ -28,6 +28,8 @@ function oxyosVariant(filePath, originModulePath) {
   const internal = originModulePath.startsWith(RN_DIR + path.sep) && originModulePath !== RN_ENTRY;
   if (relative === PLATFORM_MODULE && internal) return path.join(RN_DIR, relative + '.android.js');
   const override = path.join(OVERRIDES, relative + '.oxyos.js');
+  // An override that adds to React Native's module imports it: that import is React Native's own.
+  if (originModulePath === override) return null;
   if (fs.existsSync(override)) return override;
   const android = path.join(RN_DIR, relative + '.android.js');
   return fs.existsSync(android) ? android : null;

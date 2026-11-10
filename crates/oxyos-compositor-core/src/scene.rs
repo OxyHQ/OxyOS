@@ -569,6 +569,8 @@ pub struct Scene {
     preferences: preferences::Preferences,
     /// The screen reader's keys held and taken (ADR 0014).
     reader_keys: reader::ReaderKeys,
+    /// Whether the screen reader runs, as every client was last told (ADR 0014, decision 8).
+    reader_running: bool,
     /// The hardware keys pressed and the Control Center's requests for the program, and the
     /// levels, battery, network and Bluetooth it said (ADR 0025).
     controls: controls::Controls,
@@ -1108,10 +1110,12 @@ impl Scene {
         self.clients.insert(client, Grants::default());
         self.activation.insert(client, self.serial);
         // Every client draws as the user prefers from its first frame, knows the keys' layout
-        // before its first key and the session's locale before its first text.
+        // before its first key and the session's locale before its first text, and whether the
+        // screen reader runs before it renders anything for one.
         self.tell_drawing(client);
         self.tell_keyboard_layout(client);
         self.tell_locale(client);
+        self.tell_screen_reader(client);
         self.tell_application_outputs(Some(client));
         self.grant(client, grants)
     }
@@ -1201,6 +1205,9 @@ impl Scene {
         if new.shell || new.lock {
             self.tell_safe_mode(client);
         }
+        if new.screen_reader {
+            self.tell_screen_reader_change();
+        }
         Ok(())
     }
 
@@ -1277,6 +1284,8 @@ impl Scene {
             self.last_press = None;
         }
         self.refresh_pointer_focus();
+        // The screen reader gone (stopped, quit or crashed): every client is told none runs.
+        self.tell_screen_reader_change();
     }
 
     /// Withdraws capabilities; surfaces whose role needed them are dismissed.
@@ -1305,6 +1314,9 @@ impl Scene {
         }
         if revoked.input_method {
             self.forget_input_method(client);
+        }
+        if revoked.screen_reader {
+            self.tell_screen_reader_change();
         }
         if revoked.settings {
             self.forget_preference_changes(client);

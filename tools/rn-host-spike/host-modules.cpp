@@ -636,9 +636,26 @@ std::shared_ptr<TurboModule> createHostModule(
       bool reduced = services.settings.drawing && services.settings.drawing()["reduceMotion"].asBool();
       return count > 0 ? call(rt, args[0], jsi::Value(reduced)) : jsi::Value::undefined();
     });
-    // The other assistive-technology and display settings do not exist on OxyOS yet: off.
-    for (const char* query : {"isTouchExplorationEnabled", "isAccessibilityServiceEnabled",
-                              "isHighTextContrastEnabled", "isGrayscaleEnabled", "isInvertColorsEnabled",
+    // OxyOS's assistive technology is its screen reader (docs/adr/0014-screen-reader.mdx, decision
+    // 8): touch exploration, which React Native's Android `isScreenReaderEnabled` asks, and the
+    // accessibility services are on exactly while it runs, as both are while TalkBack is; told with
+    // `touchExplorationDidChange` and `accessibilityServiceDidChange` as it starts and stops.
+    for (const char* query : {"isTouchExplorationEnabled", "isAccessibilityServiceEnabled"}) {
+      module->method(query, [&services](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+        bool running = services.screenReader && services.screenReader();
+        return count > 0 ? call(rt, args[0], jsi::Value(running)) : jsi::Value::undefined();
+      });
+    }
+    // Reduce transparency is the session's preference too, which Android lacks and iOS has: its
+    // OxyOS AccessibilityInfo asks it here (sample/oxyos/Libraries/Components/AccessibilityInfo),
+    // told with `reduceTransparencyChanged` as it changes.
+    module->method("isReduceTransparencyEnabled", [&services](jsi::Runtime& rt, const jsi::Value* args,
+                                                              size_t count) {
+      bool reduced = services.settings.drawing && services.settings.drawing()["reduceTransparency"].asBool();
+      return count > 0 ? call(rt, args[0], jsi::Value(reduced)) : jsi::Value::undefined();
+    });
+    // The other display settings do not exist on OxyOS yet: off.
+    for (const char* query : {"isHighTextContrastEnabled", "isGrayscaleEnabled", "isInvertColorsEnabled",
                               "isDarkerSystemColorsEnabled"}) {
       module->method(query, [](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
         return count > 0 ? call(rt, args[0], jsi::Value(false)) : jsi::Value::undefined();

@@ -3,6 +3,10 @@
 //! takes them from the keyboard before shortcuts, the input method and the focused surface, and
 //! sends them to the reader alone; the press's release is taken with it. Without a reader they
 //! are ordinary keys.
+//!
+//! Every client is told whether a screen reader runs (decision 8), as Android's
+//! AccessibilityManager tells an application whether TalkBack is on: as it connects while one
+//! does, and whenever one connects or goes. A client never told reads that none runs.
 
 use super::{ClientId, Scene};
 use oxyos_protocol::{Event, ReaderCommand};
@@ -38,6 +42,34 @@ impl Scene {
             .iter()
             .find(|(_, grants)| grants.screen_reader)
             .map(|(client, _)| *client)
+    }
+
+    /// Whether a screen reader runs, as every client was last told (ADR 0014, decision 8).
+    pub fn screen_reader_running(&self) -> bool {
+        self.reader_running
+    }
+
+    /// Tells a client that connects that the screen reader runs, if it does: a client never told
+    /// reads that none runs, so nothing is said while none does.
+    pub(super) fn tell_screen_reader(&mut self, client: ClientId) {
+        if self.reader_running {
+            self.emit(client, Event::ScreenReaderState { running: true });
+        }
+    }
+
+    /// Tells every client whether the screen reader runs, if that changed since they were told: a
+    /// client holding `screen_reader` connected, was granted it, lost it or went (the person
+    /// turned it off, it quit or it crashed). Nothing while it is as it was.
+    pub(super) fn tell_screen_reader_change(&mut self) {
+        let running = self.screen_reader().is_some();
+        if running == self.reader_running {
+            return;
+        }
+        self.reader_running = running;
+        let clients: Vec<ClientId> = self.clients.keys().copied().collect();
+        for client in clients {
+            self.emit(client, Event::ScreenReaderState { running });
+        }
     }
 
     /// Whether a press of `key` now would be the screen reader's and, if so, whether it repeats

@@ -3,6 +3,7 @@
 // docs/adr/0030-installing-applications.mdx).
 import './global.css';
 import { AppRegistry } from 'react-native';
+import AccessibilityInfoProbe from './AccessibilityInfoProbe';
 import AndroidProbe from './AndroidProbe';
 import ClipboardProbe from './ClipboardProbe';
 import FileSystemProbe from './FileSystemProbe';
@@ -72,6 +73,7 @@ import ValueShareProbe from './ValueShareProbe';
 import TextDragProbe from './TextDragProbe';
 import TextDragPeer from './TextDragPeer';
 
+AppRegistry.registerComponent('AccessibilityInfoProbe', () => AccessibilityInfoProbe);
 AppRegistry.registerComponent('AndroidProbe', () => AndroidProbe);
 AppRegistry.registerComponent('SecureProbe', () => SecureProbe);
 AppRegistry.registerComponent('LoginFormProbe', () => LoginFormProbe);

@@ -3,10 +3,12 @@
  * implementation here (metro.config.js), but OxyOS is not Android: each API either works, is
  * unavailable (its native module does not exist), or rejects. None may pretend to succeed, and
  * none may leave its caller waiting: an answer still pending after 2 s is shown as `pending`.
- * scenarios/android-adaptation.json checks every row.
+ * scenarios/android-adaptation.json checks every row. Its ActivityIndicator is React Native's
+ * Android `AndroidProgressBar`, a native component the host does not implement: drawn as a plain
+ * view and said (unimplemented-components.h), which the scenario declares.
  */
 import * as React from 'react';
-import { Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 type Outcome = string;
 
@@ -76,6 +78,10 @@ const PROBES: Record<string, () => unknown> = {
     require('react-native').AccessibilityInfo.getRecommendedTimeoutMillis(1000),
   'AccessibilityInfo.isScreenReaderEnabled': () =>
     require('react-native').AccessibilityInfo.isScreenReaderEnabled(),
+  'AccessibilityInfo.isAccessibilityServiceEnabled': () =>
+    require('react-native').AccessibilityInfo.isAccessibilityServiceEnabled(),
+  'AccessibilityInfo.isReduceTransparencyEnabled': () =>
+    require('react-native').AccessibilityInfo.isReduceTransparencyEnabled(),
   'Appearance.getColorScheme': () => require('react-native').Appearance.getColorScheme(),
   'Dimensions.window': () => require('react-native').Dimensions.get('window').width,
   'I18nManager.isRTL': () => require('react-native').I18nManager.isRTL,
@@ -107,6 +113,7 @@ export default function AndroidProbe() {
           {`${name}: ${outcomes[name] ?? 'running'}`}
         </Text>
       ))}
+      <ActivityIndicator testID="progress" />
     </View>
   );
 }

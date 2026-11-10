@@ -35,6 +35,7 @@
 #include "shell-state.h"
 #include "shell-surface.h"
 #include "svg.h"
+#include "unimplemented-components.h"
 #include "memory.h"
 #include "scheduling.h"
 #include "crash-report.h"
@@ -68,7 +69,6 @@
 #include <react/renderer/components/text/ParagraphComponentDescriptor.h>
 #include <react/renderer/components/text/RawTextComponentDescriptor.h>
 #include <react/renderer/components/text/TextComponentDescriptor.h>
-#include <react/renderer/components/unimplementedview/UnimplementedViewComponentDescriptor.h>
 #include <react/renderer/components/view/ViewComponentDescriptor.h>
 #include <react/renderer/core/EventBeat.h>
 #include <react/renderer/imagemanager/ImageManager.h>
@@ -704,17 +704,13 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<RNCSafeAreaViewComponentDescriptor>());
   oxyos::addSvgComponents(*providers);
   oxyos::addAndroidComponents(*providers);
+  // Components without an OxyOS implementation mount as plain views under their own names, each
+  // said in the log and the report (unimplemented-components.h).
+  oxyos::addUnimplementedComponents(*providers);
   toolbox.componentRegistryFactory = [providers](const EventDispatcher::Weak& dispatcher,
                                                  const std::shared_ptr<const ContextContainer>& container) {
-    auto registry = providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
+    return providers->createComponentDescriptorRegistry(ComponentDescriptorParameters{
         .eventDispatcher = dispatcher, .contextContainer = container, .flavor = nullptr});
-    // Components without an OxyOS implementation mount as plain views and are reported.
-    std::const_pointer_cast<ComponentDescriptorRegistry>(registry)->setFallbackComponentDescriptor(
-        std::make_shared<UnimplementedViewComponentDescriptor>(ComponentDescriptorParameters{
-            .eventDispatcher = dispatcher,
-            .contextContainer = container,
-            .flavor = std::make_shared<const std::string>("UnimplementedNativeView")}));
-    return registry;
   };
   auto runtimeScheduler = instance->getRuntimeScheduler();
   toolbox.eventBeatFactory = [runtimeScheduler](std::shared_ptr<EventBeat::OwnerBox> owner) {
@@ -1159,6 +1155,8 @@ int main(int argc, char** argv) {
       window->announce(announcer(), OXYOS_ASSERTIVE, text);
       oxyos::Report::get().input("announce", announcer(), folly::dynamic::object("text", text));
     };
+    // Whether the session's screen reader runs (docs/adr/0014-screen-reader.mdx, decision 8).
+    services.screenReader = [&window] { return window->screenReader(); };
     // The application's own window (docs/adr/0016-windows.mdx): its controls and drag regions act
     // through it. A close asked by the application ends it as the shell's close request does.
     bool closeAsked = false;
@@ -1173,6 +1171,9 @@ int main(int argc, char** argv) {
     if (window) oxyos::setReducedTransparency(window->drawing().reduceTransparency);
     std::map<std::string, std::string> toldPreferences;
     if (window) toldPreferences = window->preferences();
+    // Whether the screen reader runs, as JavaScript was last told it: as the session told it at
+    // connect, which AccessibilityInfo answers from the start, so only a change is an event.
+    bool toldScreenReader = window && window->screenReader();
     // The session's locale as JavaScript was last told it (docs/adr/0040-language-and-region.mdx):
     // the one told at connect is Intl's default before the bundle runs, and the report says it.
     std::string toldLocale = window ? window->locale() : std::string();
@@ -2567,8 +2568,10 @@ int main(int argc, char** argv) {
           if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
           // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
           // again), every one of them, though none of their props changed: the window is drawn
-          // again whole, as when the painter changes.
+          // again whole, as when the painter changes. AccessibilityInfo tells it as iOS's tells
+          // its own (`reduceTransparencyChanged`, sample/oxyos/Libraries/Components/AccessibilityInfo).
           if (now.reduceTransparency != toldDrawing->reduceTransparency) {
+            emit("reduceTransparencyChanged", now.reduceTransparency);
             oxyos::setReducedTransparency(now.reduceTransparency);
             painterChanged = true;
             dirty = true;
@@ -2576,6 +2579,18 @@ int main(int argc, char** argv) {
           emit("OxyOSPreferencesChanged", services.settings.drawing());
           oxyos::Report::get().input("preferences", oxyos::Window::kToplevel, services.settings.drawing());
           toldDrawing = now;
+        }
+        // The screen reader started or stopped (docs/adr/0014-screen-reader.mdx, decision 8), as
+        // Android's AccessibilityInfo module tells TalkBack's: touch exploration
+        // (`screenReaderChanged`) and the accessibility services, each once.
+        if (window && window->screenReader() != toldScreenReader) {
+          toldScreenReader = window->screenReader();
+          for (const char* name : {"touchExplorationDidChange", "accessibilityServiceDidChange"}) {
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array(name, toldScreenReader));
+          }
+          oxyos::Report::get().input("screen_reader", oxyos::Window::kToplevel,
+                                     folly::dynamic::object("running", toldScreenReader));
         }
         if (window && window->preferences() != toldPreferences) {
           toldPreferences = window->preferences();

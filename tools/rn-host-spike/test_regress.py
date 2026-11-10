@@ -211,6 +211,62 @@ class DeliveredCounts(unittest.TestCase):
         self.assertTrue(regress.counts_match({}, {}))
 
 
+class UnimplementedComponentsAreDeclared(unittest.TestCase):
+    """unimplemented-components.h: a native component a host drew as a plain view is the scenario's to
+    declare, exactly, whichever host of the run drew it."""
+
+    REPORTS = {
+        "host-report.jsonl": [{"kind": "frame", "t": 1}, {"kind": "unimplemented", "t": 2, "component": "AndroidProgressBar"}],
+        "host-report.jsonl.shell": [{"kind": "unimplemented", "t": 3, "component": "AndroidSwitch"}],
+    }
+
+    def check(self, declared, reports=REPORTS, sometimes=None):
+        failures = []
+        regress.check_unimplemented(declared, reports, failures, sometimes)
+        return failures
+
+    def test_each_drawn_declared_passes_in_any_order(self):
+        self.assertEqual(self.check(["AndroidSwitch", "AndroidProgressBar"]), [])
+
+    def test_none_drawn_none_declared_passes(self):
+        self.assertEqual(self.check(None, {"host-report.jsonl": [{"kind": "frame", "t": 1}]}), [])
+        self.assertEqual(self.check([], {}), [])
+
+    def test_one_drawn_and_not_declared_fails(self):
+        failures = self.check(["AndroidProgressBar"])
+        self.assertEqual(len(failures), 1)
+        self.assertIn("AndroidSwitch", failures[0])
+        self.assertIn("does not declare", failures[0])
+        # A scenario that declares nothing fails for each.
+        self.assertEqual(len(self.check(None)), 2)
+
+    def test_one_declared_and_not_drawn_fails(self):
+        failures = self.check(["AndroidProgressBar", "AndroidSwitch", "AndroidDrawerLayout"])
+        self.assertEqual(failures, ["the scenario declares AndroidDrawerLayout unimplemented, but no host drew it"])
+
+    def test_one_sometimes_drawn_passes_drawn_or_not(self):
+        sometimes = [{"component": "AndroidProgressBar", "why": "the unlock button's spinner, on a slow turn"}]
+        self.assertEqual(self.check(["AndroidSwitch"], sometimes=sometimes), [])
+        self.assertEqual(self.check(None, {"host-report.jsonl.shell": self.REPORTS["host-report.jsonl.shell"]},
+                                    sometimes=[]), ["a host drew AndroidSwitch, a native component it has no "
+                                                    "implementation of, as a plain view: the scenario does not "
+                                                    "declare it (`unimplemented`)"])
+        self.assertEqual(self.check(["AndroidSwitch"], {"host-report.jsonl.shell": self.REPORTS["host-report.jsonl.shell"]},
+                                    sometimes=sometimes), [])
+
+    def test_sometimes_drawn_needs_its_reason_and_is_never_also_always(self):
+        self.assertEqual(self.check(["AndroidSwitch"], sometimes=[{"component": "AndroidProgressBar", "why": " "}]),
+                         ["the scenario declares AndroidProgressBar sometimes drawn without saying why (`why`)"])
+        both = self.check(["AndroidSwitch", "AndroidProgressBar"],
+                          sometimes=[{"component": "AndroidProgressBar", "why": "a spinner"}])
+        self.assertEqual(both, ["the scenario declares AndroidProgressBar both always and sometimes drawn"])
+
+    def test_a_component_two_hosts_drew_is_declared_once(self):
+        reports = {**self.REPORTS, "host-report.jsonl.launched": [
+            {"kind": "unimplemented", "t": 4, "component": "AndroidProgressBar"}]}
+        self.assertEqual(self.check(["AndroidProgressBar", "AndroidSwitch"], reports), [])
+
+
 class SpokenExactly(unittest.TestCase):
     # What the reader said is the step's exactly: in order, or with `spoken_any_order` in either
     # (two processes speaking for one input), each utterance once.

@@ -187,6 +187,9 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         }
         input(event);
       }
+    } else if (event.kind == OXYOS_EVENT_SCREEN_READER) {
+      screenReader_ = event.flag != 0;
+      input(event);
     } else if (event.kind == OXYOS_EVENT_DISPLAY_NAME) {
       auto& telling = telling_[event.code];
       if (event.detail == 0 || !telling.name) telling.name = "";

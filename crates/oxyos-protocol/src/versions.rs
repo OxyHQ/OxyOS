@@ -85,7 +85,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
-/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
+/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
+/// version 41, whether the screen reader runs (`ScreenReaderState`, ADR 0014), told to every client.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -109,6 +110,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
+    (41, 182..=182),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

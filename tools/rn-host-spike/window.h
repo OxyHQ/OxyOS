@@ -132,6 +132,10 @@ class Window {
   // compositor of protocol 14 or older tells none). Each tag told becomes Intl's default
   // (oxyos_intl_set_default_locale), so the application's `Intl` formats in it from then on.
   const std::string& locale() const { return locale_; }
+  // Whether the session's screen reader runs (docs/adr/0014-screen-reader.mdx, decision 8): told at
+  // connect while it does and as it starts and stops; false until told (a compositor of protocol
+  // 40 or older tells none).
+  bool screenReader() const { return screenReader_; }
   bool settingsGranted() const { return !preferences_.empty(); }
   // The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx), as the
   // session tells Settings them: among `preferences()` under this key, ids joined by commas, and
@@ -456,6 +460,7 @@ class Window {
   std::map<uint32_t, std::string> receivingLists_;  // Settings' lists' chunks so far, by list
   std::string locale_;
   std::string receivingLocale_;  // the locale's chunks so far
+  bool screenReader_ = false;
   // A display's name, modes and scales being told, applied by its DISPLAY.
   struct Telling {
     std::optional<std::string> name;

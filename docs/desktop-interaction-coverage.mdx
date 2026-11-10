@@ -171,7 +171,7 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 | Tab order wrapping at both ends | `scroll-keys` (Shift+Tab round to the last: F, D); `keyboard-popover`, `keyboard-wifi` (Tab round, in a popup and a sheet) | partial | **A forward Tab wrap in an application window is untested.** |
 | Focus back after a popup or menu closes | `sample`, `menu-reader` (O, F, D, speech); **added:** `menu-type-select`, `popup-follows(-scaled)` (`a11y_events focus@open-menu`, `focus_surface`); `keyboard-popover`, `dropsea-list-keys` (F, speech) | | The last two have no `react`. |
 | Focus back after a modal or sheet closes | `dropsea-list-keys`, `atlas-reader`, `keyboard-wifi` | F, speech | No in-window `Modal` close asserts focus, events and speech together. `modal` and `sheet` assert no focus at all. |
-| The application told a reader runs | `android-adaptation` (`isScreenReaderEnabled` false) | O | **The host always answers that no assistive technology runs** (`AccessibilityInfo`), even while the reader does, and `screenReaderChanged` never fires. This is documented as the adaptation's, not ADR 0014's. `isReduceTransparencyEnabled` is always false although the session has the setting. |
+| The application told a reader runs | **added:** `accessibility-info` (the real reader on from the start, then Super+F5 off, on, off; Reduce Transparency toggled); `android-adaptation` (no reader: false); unit `tests/reader_state.rs` | O (each answer, and each change event listed exactly), D (`react`), speech | Closed 10 November 2026 ([ADR 0014](./adr/0014-screen-reader), decision 8, protocol version 41). |
 
 ## Performance
 
@@ -255,17 +255,17 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 
 **Where the host answers as Android does without doing it** (the adaptation's rule is that an API OxyOS does not provide fails visibly):
 
-- **Unknown native components are silently drawn as plain views** (`UnimplementedViewComponentDescriptor` in `bloom-host.cpp`): `AndroidProgressBar` (Bloom's `ActivityIndicator`), `AndroidSwitch`, `AndroidSwipeRefreshLayout`, `AndroidDrawerLayout`. They are counted only in the PNG mode's stats line. No scenario asserts there are none, and neither document says so.
+- **Closed 10 November 2026: unknown native components drawn silently.** Each is now said in the log and the report under its own name (`unimplemented-components.h`), and `regress.py` fails a scenario that draws one it does not declare (`unimplemented`, or `unimplemented_sometimes` for one only a run's timing draws: a working button's spinner).
 - **"Accepted with no effect"** (`forceRTL`, `setColorScheme`, and untested others such as `allowRTL`, `setAccessibilityFocus`, `exitApp` and StatusBar's setters) contradicts the doc's own rule. `android-adaptation` asserts them as `ok`.
 - **`BackHandler`**: `hardwareBackPress` is never emitted, so its listeners never fire, and `exitApp()` resolves doing nothing. Neither is documented as such.
-- **`AccessibilityInfo`** says no assistive technology runs while the screen reader does (section 6).
+- **Closed 10 November 2026: `AccessibilityInfo`** answers from the session's screen reader and Reduce Transparency (section 6).
 - **The adaptation doc contradicts the code**:
   - It says AppState is "always active", but `background` is reported.
   - It says Appearance is "the light scheme", but the session's dark setting is followed.
   - It says `canOpenURL` is false and `openURL` rejects, but both now open by scheme through the session.
   - It does not mention that `Dimensions.get('screen')` is the window's size, or that `KeyboardObserver` (an iOS name) is served with listeners that never fire.
 
-These are listed for their owners to decide. This change fixes none of them.
+These are listed for their owners to decide. The audit's change fixed none of them; two are closed since.
 
 ## Gaps, ranked
 
@@ -290,5 +290,5 @@ These are listed for their owners to decide. This change fixes none of them.
 2. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
 3. The reader crossing surfaces. The order is when trees arrived, undocumented.
 4. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
-5. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
+5. **Closed 10 November 2026:** `AccessibilityInfo` saying no reader runs (`accessibility-info`), and unknown native components drawn as plain views (`unimplemented`).
 6. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
