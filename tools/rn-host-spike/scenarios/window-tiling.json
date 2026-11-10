@@ -1,5 +1,5 @@
 {
-  "about": "Window tiling, as macOS 15's (docs/adr/0016-windows.mdx, decision 12): WindowProbe dragged by its title area (a held `grab_hold`) to the display's edges shows the tile it would take beneath it before the release (`tile_preview`, exact), and takes it once released, told its new size once (`window_configures`); the menu bar fills, the left and right edges are the halves, their ends and the top edge's the quarters, the bottom edge's middle (the dock's) nothing; with Alt held, a tile anywhere; dragged away, a tiled window takes back its size. Super+Alt with an arrow, F, C and R tile, fill, centre and return it, the keyboard staying in the window and no key reaching it. At 1280 × 720 with no shell: the work area is the whole display.",
+  "about": "Window tiling, as macOS 15's (docs/adr/0016-windows.mdx, decision 12): WindowProbe dragged by its title area (a held `grab_hold`) to the display's edges shows the tile it would take beneath it before the release (`tile_preview`, exact), and takes it once released, told its new size once (`window_configures`); the menu bar fills, the left and right edges are the halves, their ends and the top edge's the quarters, the bottom edge's middle (the dock's) nothing; with Alt held, a tile anywhere; dragged away, a tiled window takes back its size. Super+Alt with an arrow, F, C and R tile, fill, centre and return it, the keyboard staying in the window and no key reaching it (the window's own line saying it is active is read where it is wide enough for Bloom's settings layout to show that page beside its sidebar). At 1280 × 720 with no shell: the work area is the whole display.",
   "module": "WindowProbe",
   "window": [
     900,
@@ -22,6 +22,7 @@
           900,
           600
         ],
+        "focus_surface": 1,
         "texts": [
           "active yes, zoomed no, full screen no"
         ],
@@ -75,9 +76,7 @@
           704
         ],
         "window_configures": 1,
-        "texts": [
-          "active yes, zoomed no, full screen no"
-        ]
+        "focus_surface": 1
       }
     },
     {
@@ -268,9 +267,7 @@
           704
         ],
         "window_configures": 1,
-        "texts": [
-          "active yes, zoomed no, full screen no"
-        ]
+        "focus_surface": 1
       }
     },
     {
@@ -291,9 +288,7 @@
           704
         ],
         "window_configures": 1,
-        "texts": [
-          "active yes, zoomed no, full screen no"
-        ],
+        "focus_surface": 1,
         "tile_preview": null
       }
     },
@@ -315,6 +310,7 @@
           348
         ],
         "window_configures": 1,
+        "focus_surface": 1,
         "texts": [
           "active yes, zoomed no, full screen no"
         ],
@@ -339,6 +335,7 @@
           348
         ],
         "window_configures": 1,
+        "focus_surface": 1,
         "texts": [
           "active yes, zoomed no, full screen no"
         ],
@@ -363,9 +360,29 @@
           704
         ],
         "window_configures": 1,
-        "texts": [
-          "active yes, zoomed no, full screen no"
+        "focus_surface": 1,
+        "tile_preview": null
+      }
+    },
+    {
+      "name": "Super+Alt+C: the right half's size, centred in the work area, told once",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          46
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          326,
+          8,
+          628,
+          704
         ],
+        "window_configures": 1,
+        "focus_surface": 1,
         "tile_preview": null
       }
     },
@@ -387,6 +404,7 @@
           704
         ],
         "window_configures": 1,
+        "focus_surface": 1,
         "texts": [
           "active yes, zoomed no, full screen no"
         ],
@@ -415,23 +433,6 @@
       "allow_unchanged": true
     },
     {
-      "name": "Super+Alt+C: centred at its size",
-      "do": [
-        "key",
-        [
-          125,
-          56,
-          46
-        ]
-      ],
-      "expect": {
-        "window_configures": 1,
-        "texts": [
-          "active yes, zoomed no, full screen no"
-        ]
-      }
-    },
-    {
       "name": "Super+Alt+R: the size it had before it was first tiled",
       "do": [
         "key",
@@ -443,6 +444,7 @@
       ],
       "expect": {
         "window_configures": 1,
+        "focus_surface": 1,
         "texts": [
           "active yes, zoomed no, full screen no"
         ]
