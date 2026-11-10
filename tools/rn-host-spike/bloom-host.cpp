@@ -2113,6 +2113,14 @@ int main(int argc, char** argv) {
       shellSurfaces.changed();
     });
     int idleTurns = 0;  // turns in a row that found nothing to do
+    // How the session presents the application, all its windows together
+    // (docs/adr/0066-quality-of-service.mdx, decision 5; OXYOS_EVENT_APP_VISIBILITY): until told,
+    // focused, as a compositor of an older version never tells it. Hidden, it naps: nothing the
+    // display's refresh paces runs (requestAnimationFrame, Animated's native driver, Reanimated's
+    // and worklets' frames, pictures' animations), and its timers' slack is long, as App Nap's
+    // timer throttling; shown, all of it resumes at once.
+    uint32_t visibility = OXYOS_VISIBILITY_FOCUSED;
+    bool napping = false;
     uint32_t toldRefresh = 0;  // the window's display's refresh, as last told (display-refresh.h)
     // A window that changes size answers its configure with a frame JavaScript laid out at that
     // size, as AppKit lays a window out during a live resize before the frame is shown: the new
@@ -2171,13 +2179,16 @@ int main(int argc, char** argv) {
           bool animating = gestures->tick();
           // Worklets' frame is not work by itself (worklets-host.h): what it changes reaches the host
           // as a mount, a UI job or a frame asked for.
-          uiFrame = javascript(Part::Animation, [&] { return worklets.tick(); });
-          animating |= javascript(Part::Animation, [&] { return reanimated.tick(); });
-          animating |= animated.tick();
-          animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
-          animating |= pointer.tick(window->ready(oxyos::Window::kToplevel));
+          // Napping (hidden), nothing the display paces runs: its frames wait until it is shown.
+          if (!napping) {
+            uiFrame = javascript(Part::Animation, [&] { return worklets.tick(); });
+            animating |= javascript(Part::Animation, [&] { return reanimated.tick(); });
+            animating |= animated.tick();
+            animating |= animationFrames.tick(window->ready(oxyos::Window::kToplevel));
+            animating |= pointer.tick(window->ready(oxyos::Window::kToplevel));
+          }
           // expo-image views' transitions and animated pictures: a frame drawn again.
-          if (images.tick(window->ready(oxyos::Window::kToplevel))) {
+          if (!napping && images.tick(window->ready(oxyos::Window::kToplevel))) {
             animating = true;
             dirty = true;
             popups.changed();
@@ -2215,6 +2226,7 @@ int main(int argc, char** argv) {
         std::vector<OxyOSEvent> notificationResults, notificationsRemoved;
         std::vector<std::pair<uint32_t, std::string>> systemAnswers, systemData, sheets, filesChosen, searchAnswers;
         std::vector<OxyOSEvent> sheetsGone, capabilityResults, backgroundStates, quitRequests;
+        std::optional<uint32_t> presented;
         bool responded = false;
         // The modifiers held, as the compositor last told them this turn (protocol version 38, a
         // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
@@ -2257,6 +2269,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_CAPABILITY_RESULT) capabilityResults.push_back(event);
               if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
               if (event.kind == OXYOS_EVENT_QUIT_REQUESTED && !shellMode) quitRequests.push_back(event);
+              if (event.kind == OXYOS_EVENT_APP_VISIBILITY && !shellMode) presented = event.code;
               if (event.kind == OXYOS_EVENT_MODIFIERS) modifiersHeld = event.modifiers;
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
@@ -2494,6 +2507,31 @@ int main(int argc, char** argv) {
                                         "ctrlKey", (held & OXYOS_MODIFIER_CONTROL) != 0)(
                                         "metaKey", (held & OXYOS_MODIFIER_SUPER) != 0)(
                                         "shiftKey", (held & OXYOS_MODIFIER_SHIFT) != 0)));
+        }
+        // How the session presents it now (docs/adr/0066-quality-of-service.mdx, decision 5):
+        // React Native's AppState as iOS has it (active while its window is the active one,
+        // inactive while shown behind another's, background while none is shown), told to
+        // JavaScript as it changes; and hidden, its nap.
+        if (presented && *presented != visibility) {
+          visibility = *presented;
+          const char* state = visibility == OXYOS_VISIBILITY_FOCUSED   ? "active"
+                              : visibility == OXYOS_VISIBILITY_VISIBLE ? "inactive"
+                                                                       : "background";
+          oxyos::Report::get().input("visibility", 0, folly::dynamic::object("state", state));
+          if (services.appState != state) {
+            services.appState = state;
+            instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                           folly::dynamic::array("appStateDidChange",
+                                                                 folly::dynamic::object("app_state", state)));
+          }
+          bool hidden = visibility == OXYOS_VISIBILITY_HIDDEN;
+          if (hidden != napping) {
+            napping = hidden;
+            // The main thread's timers (JavaScript's, the loop's own wait): coalesced within 50 ms
+            // while hidden, as a Mac's background latency tier; the default again once shown.
+            prctl(PR_SET_TIMERSLACK, napping ? 50'000'000UL : 0UL, 0, 0, 0);
+            std::cerr << "[host] " << applicationName << (napping ? " is hidden: it naps\n" : " is shown again\n");
+          }
         }
         // The session asks it to quit before logging out, restarting or shutting down
         // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 5), as a Mac asks
@@ -3353,11 +3391,14 @@ int main(int argc, char** argv) {
           std::optional<Clock::time_point> deadline;
           for (auto due : {timers->next(), gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
                            dragDrop.nextDeadline(),
-                           shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
-                           reanimated.nextFrame(), animated.nextFrame(),
-                           animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
-                           pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
-                           images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
+                           shellMode ? shellState.nextChange() : std::nullopt,
+                           napping ? std::nullopt : worklets.nextFrame(),
+                           napping ? std::nullopt : reanimated.nextFrame(),
+                           napping ? std::nullopt : animated.nextFrame(),
+                           napping ? std::nullopt : animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
+                           napping ? std::nullopt : pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
+                           napping ? std::nullopt : images.nextFrame(window->ready(oxyos::Window::kToplevel)),
+                           diagnostics.nextDeadline(),
                            editing.nextBlink(), oxyos::Memory::get().nextDeadline(),
                            services.accountSession ? services.accountSession->nextDeadline() : std::nullopt}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;

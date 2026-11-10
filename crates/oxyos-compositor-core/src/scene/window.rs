@@ -2,7 +2,9 @@
 //! the compositor resizing it by its edges, and which window is the active one.
 
 use super::{Role, Scene, SurfaceKey};
-use oxyos_protocol::{ErrorCode, Event, PointerShape, Rect, ShellKind, Size};
+use oxyos_protocol::{
+    ErrorCode, Event, PointerShape, Rect, ShellKind, Size, Visibility, APP_VISIBILITY_VERSION,
+};
 
 /// How far outside a window's edges a press resizes it, in logical pixels: the band is in the
 /// window's shadow, so it takes nothing from the window's own content.
@@ -388,6 +390,45 @@ impl Scene {
     /// The window that is active (ADR 0016), if any.
     pub fn active_window(&self) -> Option<SurfaceKey> {
         self.active
+    }
+
+    /// How each client with an application window (a toplevel, mapped or not) is presented, all
+    /// its windows together (docs/adr/0066-quality-of-service.mdx, decision 5): focused when the
+    /// active window is its and shown, visible when another of its toplevels is shown, else hidden
+    /// (minimized, on another desktop, the session locked); a client whose windows are none of them
+    /// mapped yet is not among them. One pass over the scene, every turn.
+    pub fn presences(&self) -> std::collections::BTreeMap<super::ClientId, Visibility> {
+        let mut presences = std::collections::BTreeMap::new();
+        for (key, node) in &self.nodes {
+            // A window not mapped yet (its first frame not drawn) says nothing of its client.
+            if node.role != Role::Toplevel || !node.mapped {
+                continue;
+            }
+            let shown = !self.locked && self.visible(*key);
+            let state = if !shown {
+                Visibility::Hidden
+            } else if self.active == Some(*key) {
+                Visibility::Focused
+            } else {
+                Visibility::Visible
+            };
+            let presence = presences.entry(key.client).or_insert(Visibility::Hidden);
+            *presence = (*presence).max(state);
+        }
+        presences
+    }
+
+    /// Tells `client` how it is presented (`AppVisibility`); false, telling nothing, to a client
+    /// of a version before `APP_VISIBILITY_VERSION` or one gone.
+    pub fn tell_visibility(&mut self, client: super::ClientId, state: Visibility) -> bool {
+        if self
+            .version_of(client)
+            .is_none_or(|version| version < APP_VISIBILITY_VERSION)
+        {
+            return false;
+        }
+        self.emit(client, Event::AppVisibility { state });
+        true
     }
 
     /// Whether a window is zoomed.

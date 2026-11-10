@@ -855,6 +855,21 @@ fn main() -> Result<()> {
         Some(scoping) => launcher.with_scopes(scoping),
         None => launcher,
     };
+    // Each application told how it is presented, its scope weighed by it, and napped hidden
+    // (docs/adr/0066-quality-of-service.mdx, decisions 4 and 5); the login screen has none.
+    let mut naps = (!greeter).then(|| {
+        let scopes = launcher
+            .scoped()
+            .then(|| oxyos_scopes::Scopes::start(oxyos_scopes::Manager::User))
+            .and_then(|started| {
+                started
+                    .map_err(|error| {
+                        eprintln!("[session] the applications are not weighed: {error}")
+                    })
+                    .ok()
+            });
+        oxyos_compositor::naps::Naps::new(scopes)
+    });
     // Applications that quit unexpectedly, and resetting one (docs/adr/0061-crashes-and-resetting-
     // an-application.mdx): the person's reports (none at the login screen, whose user is no one),
     // the notice, the sheet, and the resets Settings and the shell ask for.
@@ -1118,6 +1133,32 @@ fn main() -> Result<()> {
         }
         if let Some(activity) = activity.as_mut() {
             activity.serve(&mut compositor, &running, power.as_mut());
+        }
+        if let Some(naps) = naps.as_mut() {
+            let launched: Vec<(u32, String)> = running
+                .iter()
+                .map(|running| (running.pid, running.id.clone()))
+                .collect();
+            let in_background: std::collections::BTreeSet<u32> = background
+                .as_ref()
+                .map(|background| {
+                    background
+                        .background_processes()
+                        .values()
+                        .copied()
+                        .collect()
+                })
+                .unwrap_or_default();
+            // What the person hears or asked to go on is never napped.
+            let mut busy = sound.state().audible.clone();
+            busy.extend(compositor.inhibiting.iter().copied());
+            naps.serve(
+                &mut compositor,
+                &launched,
+                &in_background,
+                &busy,
+                Instant::now(),
+            );
         }
         // Backups (ADR 0059), before the store, which takes the requests left.
         if let Some(backups) = backups.as_mut() {
@@ -1571,6 +1612,10 @@ fn main() -> Result<()> {
         // The question's deadline, or the applications' to quit (ADR 0064).
         if let Some(due) = ending.wait() {
             wait = wait.min(due);
+        }
+        // A hidden application's nap (docs/adr/0066, decision 5).
+        if let Some(deadline) = naps.as_ref().and_then(|naps| naps.deadline()) {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
         // A reset waiting for its application to quit (docs/adr/0061, decision 5).
         if let Some(deadline) = crashes.deadline() {

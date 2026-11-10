@@ -2611,6 +2611,7 @@ fn serve_session(session: &mut Session) -> Result<()> {
     session.serve_launches();
     session.serve_installs();
     session.serve_background();
+    session.serve_naps();
     session.serve_preferences();
     session.reader.absorb(&mut session.compositor);
     Ok(())

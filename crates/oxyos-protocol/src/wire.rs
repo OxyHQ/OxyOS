@@ -104,6 +104,13 @@ wire_enum! {
     BackgroundItemKind: u8 { LoginItem = 1, Background = 2 }
 }
 wire_enum! {
+    /// How the session presents an application, all its windows together
+    /// (docs/adr/0066-quality-of-service.mdx, decision 5): none shown (minimized, on another
+    /// desktop, closed, the session locked), one shown but another application's active, or its
+    /// window the active one. React Native's AppState is `background`, `inactive` and `active`.
+    Visibility: u8 { Hidden = 1, Visible = 2, Focused = 3 }
+}
+wire_enum! {
     /// Why the session asks an application to quit (version 38,
     /// docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the person logs out, restarts or
     /// shuts the computer down.

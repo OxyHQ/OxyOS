@@ -6,7 +6,7 @@ order: 69
 
 # ADR 0060: Login items and background activity
 
-Status: **accepted; implemented** (8 November 2026, at the platform author's request to close macOS's parity here, "bien hecho de raíz"). Builds on [ADR 0013](./0013-launching-applications) (launch records), [ADR 0019](./0019-settings) (the session the one writer of the preferences, Settings and its grant), [ADR 0026](./0026-notifications), [ADR 0030](./0030-installing-applications) (capabilities, decision 8; the account's decisions kept by `oxyos-installd`), [ADR 0033](./0033-protocol-versions), [ADR 0034](./0034-the-dock) (Open at Login, decision 5) and [ADR 0058](./0058-the-platform-api) (the platform API's shape). It amends ADR 0013, ADR 0030 and ADR 0034 where they say so.
+Status: **accepted; implemented** (8 November 2026, at the platform author's request to close macOS's parity here, "bien hecho de raíz"). Amended by [ADR 0066](./0066-quality-of-service) (10 November 2026), decisions 4 and 5: a process running on in the background is hidden to the session, so its host naps (nothing the display paces runs, its timers' slack long) and its scope is in the CPU's idle class with a low disk weight; [below](#running-in-the-background-and-the-nap). Builds on [ADR 0013](./0013-launching-applications) (launch records), [ADR 0019](./0019-settings) (the session the one writer of the preferences, Settings and its grant), [ADR 0026](./0026-notifications), [ADR 0030](./0030-installing-applications) (capabilities, decision 8; the account's decisions kept by `oxyos-installd`), [ADR 0033](./0033-protocol-versions), [ADR 0034](./0034-the-dock) (Open at Login, decision 5) and [ADR 0058](./0058-the-platform-api) (the platform API's shape). It amends ADR 0013, ADR 0030 and ADR 0034 where they say so.
 
 ## Problem
 
@@ -63,6 +63,10 @@ An application manages its own through `SMAppService` (macOS 13): `mainApp` (its
    | Event | 165 | `BackgroundItemState { serial, kind, status }`: `status` `NotRegistered`, `Enabled`, `RequiresApproval` or `NotPermitted`; `serial` 0 unasked, the person's change |
 
    The client library refuses the request to a compositor of version 32, and the event is never sent to a client of version 32. In the C ABI: `oxyos_client_background_item`, `OXYOS_EVENT_BACKGROUND_ITEM_STATE`, `OXYOS_BACKGROUND_ITEM_*` and `OXYOS_BACKGROUND_*`.
+
+### Running in the background and the nap
+
+*Amended by ADR 0066 (decisions 4 and 5), 10 November 2026.* A process running on without its window (decision 2) is told it is hidden (`AppVisibility`), as a minimized one is: its host naps (requestAnimationFrame, Animated's and Reanimated's frames wait; its timers' slack is 50 ms), and AppState stays `background`, as decision 2 already said it. The session gives its scope (ADR 0066, decision 3) the CPU's idle class (`CPUWeight=idle`) and a disk weight of 10, as a Mac's background daemons are `DARWIN_BG`: its JavaScript, its network and its notifications go on, on whatever the person's applications leave. Opened again (a window of it shown), it is weighed as any application at once.
 
 ## Steps
 

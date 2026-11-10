@@ -1,0 +1,149 @@
+{
+  "about": "App Nap (docs/adr/0066-quality-of-service.mdx, decision 5): the session tells an application how it is presented, all its windows together (AppVisibility), and its host acts on it. Allo (sample/NapProbe.tsx) runs a requestAnimationFrame loop that never ends and shows React Native's AppState and every state it went through; Inbox (PressProbe) is a second application's window. Allo's window active: `active`, its frames running. Inbox's pressed: Allo shown behind it is `inactive`, still running. Allo's pressed again, then Super+M: minimized, `background`, and while it stays hidden its host runs no frame at all (requestAnimationFrame waits, as a hidden tab's). Allo's icon in the dock: restored, `active`, its frames running again.",
+  "module": "NapProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "companion": {
+    "module": "PressProbe",
+    "window": [
+      300,
+      200
+    ],
+    "at": [
+      40,
+      60
+    ],
+    "app": "so.oxy.inbox"
+  },
+  "preferences": {
+    "dock": "so.oxy.allo"
+  },
+  "steps": [
+    {
+      "name": "Allo's window takes a press: active, its requestAnimationFrame running",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "window_shown": true,
+        "texts": [
+          "AppState: active"
+        ],
+        "animation_frames": {
+          "count": [
+            5,
+            100000
+          ]
+        }
+      }
+    },
+    {
+      "name": "Inbox's window takes a press: Allo, shown behind it, is inactive, its frames still running",
+      "do": [
+        "press_output",
+        [
+          70,
+          90
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": true,
+        "texts": [
+          "AppState: inactive"
+        ],
+        "animation_frames": {
+          "count": [
+            5,
+            100000
+          ]
+        }
+      }
+    },
+    {
+      "name": "Allo's window again: active",
+      "do": [
+        "press",
+        [
+          400,
+          250
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "texts": [
+          "AppState: active"
+        ]
+      }
+    },
+    {
+      "name": "Super+M: Allo minimized, hidden",
+      "do": [
+        "key",
+        [
+          125,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false
+      }
+    },
+    {
+      "name": "a second and a half hidden: its host runs no frame",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "animation_frames": {
+          "count": [
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "Allo in the dock: restored, active, its frames running again; it went through inactive and background",
+      "do": [
+        "press_named",
+        "Allo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": true,
+        "focus_surface": 1,
+        "texts": [
+          "AppState: active"
+        ],
+        "texts_matching": [
+          "^States: .*inactive.* background active$"
+        ],
+        "animation_frames": {
+          "count": [
+            5,
+            100000
+          ]
+        }
+      }
+    }
+  ]
+}

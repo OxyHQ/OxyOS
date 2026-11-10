@@ -127,6 +127,13 @@ fn the_header_names_the_platforms_settings_as_the_protocol_does() {
 fn the_header_matches_the_abi() {
     for (name, value) in [
         ("OXYOS_EVENT_CONFIGURE", OXYOS_EVENT_CONFIGURE as i64),
+        (
+            "OXYOS_EVENT_APP_VISIBILITY",
+            OXYOS_EVENT_APP_VISIBILITY.into(),
+        ),
+        ("OXYOS_VISIBILITY_HIDDEN", OXYOS_VISIBILITY_HIDDEN.into()),
+        ("OXYOS_VISIBILITY_VISIBLE", OXYOS_VISIBILITY_VISIBLE.into()),
+        ("OXYOS_VISIBILITY_FOCUSED", OXYOS_VISIBILITY_FOCUSED.into()),
         ("OXYOS_EVENT_POPUP_DONE", OXYOS_EVENT_POPUP_DONE.into()),
         ("OXYOS_EVENT_POINTER", OXYOS_EVENT_POINTER.into()),
         ("OXYOS_EVENT_KEY", OXYOS_EVENT_KEY.into()),
@@ -7646,6 +7653,20 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
         (flags.kind, flags.surface, flags.modifiers),
         (OXYOS_EVENT_MODIFIERS, 4, oxyos_protocol::MODIFIER_ALT)
     );
+    for (state, code) in [
+        (oxyos_protocol::Visibility::Hidden, OXYOS_VISIBILITY_HIDDEN),
+        (
+            oxyos_protocol::Visibility::Visible,
+            OXYOS_VISIBILITY_VISIBLE,
+        ),
+        (
+            oxyos_protocol::Visibility::Focused,
+            OXYOS_VISIBILITY_FOCUSED,
+        ),
+    ] {
+        let told = convert(&Event::AppVisibility { state }).unwrap();
+        assert_eq!((told.kind, told.code), (OXYOS_EVENT_APP_VISIBILITY, code));
+    }
 
     let directory =
         std::env::temp_dir().join(format!("oxyos-client-ffi-quit-{}", std::process::id()));
