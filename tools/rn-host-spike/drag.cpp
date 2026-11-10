@@ -687,6 +687,25 @@ void DragDrop::observe(const OxyOSEvent& event) {
 bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview, int count,
                      bool vanish, std::function<void(std::optional<std::string>)> done,
                      std::function<void(const std::string&)> cancelled) {
+  // As a Mac's mouse-down selects and draws before a drag begins: what the press changed (an item
+  // selected, React rendering it once the events it was dispatched with have run) is mounted
+  // first, so the image is the item as it looks now.
+  asked_.push_back([this, data, actions, preview, count, vanish, done = std::move(done),
+                    cancelled = std::move(cancelled)]() mutable {
+    startFrom(data, actions, preview, count, vanish, std::move(done), std::move(cancelled));
+  });
+  return true;
+}
+
+bool DragDrop::startAsked() {
+  if (asked_.empty()) return false;
+  for (auto& start : std::exchange(asked_, {})) start();
+  return true;
+}
+
+bool DragDrop::startFrom(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview, int count,
+                         bool vanish, std::function<void(std::optional<std::string>)> done,
+                         std::function<void(const std::string&)> cancelled) {
   uint8_t allowed = 0;
   for (const auto& action : actions) allowed |= actionBit(action);
   std::optional<DragImage> image;

@@ -391,14 +391,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - diagnostics: the application's frame diagnostics in the step (frame-diagnostics.h), from its
   report's `timing`, `js_timing` and `log` lines: "slow", [least, most] slow frames' lines written
   to the log; "slow_frames", [least, most] frames (or work that drew nothing) of the UI thread's
-  slower than a refresh; "slow_line", a slow frame's line written in the step having each key given
-  ("subject", a pattern it matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the
-  slow frames it says went unsaid); "slow_js", [least, most] lines written for stretches of
-  JavaScript's work on its thread longer than a refresh, and "slow_js_stretches", [least, most]
-  such stretches; "slow_js_line", such a line having each key given ("subject", "work_min",
-  "frames_min", the frames the window presented meanwhile, "dropped_max", "skipped");
-  "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
-  presented within a refresh; "logged", patterns (regular expressions) each
+  slower than a refresh (each most a speed budget: with --speed-budgets); "slow_line", a slow frame's
+  line written in the step having each key given ("subject", a pattern it matches whole;
+  "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went unsaid);
+  "slow_js", [least, most] lines written for stretches of JavaScript's work on its thread longer than
+  a refresh, and "slow_js_stretches", [least, most] such stretches (each most a speed budget);
+  "slow_js_line", such a line having each key given ("subject", "work_min", "frames_min", the frames
+  the window presented meanwhile, "dropped_max", "skipped"); "summaries", [least, most] summaries
+  written; "fast_frames_min", the fewest frames presented within a refresh (a speed budget: with
+  --speed-budgets); "logged", patterns (regular expressions) each
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
@@ -4695,10 +4696,21 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
         fast_frames = [line for line in report if line["kind"] == "timing" and line["presented"] and not line["slow"]
                        and start <= line["t"] <= end]
-        if len(fast_frames) < wanted.get("fast_frames_min", 0):
+        # How many frames fit in a refresh is the machine's speed, which a loaded one does not
+        # hold (66 of 90 beside seven other scenarios at load 35): held with --speed-budgets, as
+        # perf.py runs it on the machine alone. That each frame is said slow exactly when its work
+        # passes a refresh is held always (`slow_frames`, `slow`).
+        if SPEED_BUDGETS and len(fast_frames) < wanted.get("fast_frames_min", 0):
             fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
-            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+            # A frame the step makes slow (JavaScript holding the thread 120 ms) is slow on any
+            # machine, but one that is not may be on a loaded one (a press's frame took 18 to 49 ms
+            # beside other scenarios at load 45 to 67): how many at most is a speed budget, held
+            # with --speed-budgets; the least always.
+            if key not in wanted:
+                continue
+            most = wanted[key][1] if SPEED_BUDGETS or key == "summaries" else float("inf")
+            if not wanted[key][0] <= got <= most:
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
                      f"{wanted[key][1]}: {logs}")
         if "slow_line" in wanted:
@@ -4712,8 +4724,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # JavaScript's stretches on its thread longer than a refresh, and their lines.
         slow_js_lines = [m for m in map(SLOW_JS_LINE.match, logs) if m]
         slow_js = [line for line in report if line["kind"] == "js_timing" and line["slow"] and start <= line["t"] <= end]
+        # As the UI thread's slow frames: a stretch the step makes slow (JavaScript holding its
+        # thread 120 ms) is slow on any machine, how many at most a speed budget.
         for key, got in (("slow_js", len(slow_js_lines)), ("slow_js_stretches", len(slow_js))):
-            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+            if key in wanted and not wanted[key][0] <= got <= (wanted[key][1] if SPEED_BUDGETS else float("inf")):
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
                      f"{wanted[key][1]}: {logs}")
         if "slow_js_line" in wanted:

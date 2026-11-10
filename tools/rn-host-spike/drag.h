@@ -125,6 +125,12 @@ class DragDrop {
   // JavaScript ran the events queued before it (the loop's beat and drain): a drop it was given is
   // delivered, and the window's drag that ended with it can be told.
   void ranJavaScript();
+  // The batch of JavaScript's that asked for drags ran, with all it set off, and what it committed
+  // is mounted (bloom-host.cpp): the drags it asked start (`start` from JavaScript), each from the
+  // tree as it is now. Whether any was asked.
+  bool startAsked();
+  // Drags JavaScript asked for that have not started yet.
+  bool asking() const { return !asked_.empty(); }
   // Who is given the files dropped on a target of the application's (`file://` URIs): the person
   // gave them to it (docs/adr/0030-installing-applications.mdx, decision 8), before its onDrop.
   void givesFiles(std::function<void(const std::string& uri)> give) { giveFiles_ = std::move(give); }
@@ -142,6 +148,10 @@ class DragDrop {
   // it looks, stacked and badged for several) under the pointer where it was pressed. `done`
   // receives the action the drop took, or nothing when it was cancelled or refused (no press held,
   // nothing to offer). False if it was not started; `done` is then called at once.
+  // Asked from JavaScript, it starts once the batch of JavaScript's that asked has run and its
+  // commits are mounted (`startAsked`): its image is the view as the press left it (selected), never
+  // the tree from before the press, which a press and a motion handed to JavaScript together (on a
+  // loaded machine) gave it.
   // `vanish`: dropped on nothing, its image vanishes in a poof where it is (version 26). A drag of
   // files says their types (dragFileTypes).
   // `cancelled`, if given, is told why a drag ended without a drop before `done` is ("escape",
@@ -264,6 +274,12 @@ class DragDrop {
   Presence presence_ = Presence::Outside;
   std::function<void(const folly::dynamic&)> tellWindow_;
   std::function<void(const std::string& uri)> giveFiles_;
+  // A drag of JavaScript's, started from the tree as it is (`start`'s work).
+  bool startFrom(const folly::dynamic& data, const std::vector<std::string>& actions, facebook::react::Tag preview,
+                 int count, bool vanish, std::function<void(std::optional<std::string>)> done,
+                 std::function<void(const std::string&)> cancelled);
+  // Drags JavaScript asked for, started once what it committed is mounted.
+  std::vector<std::function<void()>> asked_;
   std::function<void()> takePress_;
 };
 

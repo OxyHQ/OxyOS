@@ -1168,20 +1168,6 @@ int main(int argc, char** argv) {
   mounter.runningBatch = [thread = js.get()] { return thread->running(); };
   mounter.wakeWhenIdle = &wakeUiWhenIdle;
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
-  // A call JavaScript makes into the host that reads the tree (applyCommitsBeforeCall) sees it with
-  // what JavaScript committed before the call, as when each task's commits were mounted as it ended:
-  // a drag's image is of the item its press just selected. Unless a scenario applies everything at
-  // the frame. What the mount draws there (a modal's last frame) is drawn on the CPU: the GPU's
-  // painter is the UI thread's.
-  oxyos::hostCallBarrier() = [&mounter] {
-    if (oxyos::UiThread::isCurrent() || mounter.mountAtFrame) return;
-    oxyos::CpuPaintScope cpu;
-    mounter.apply();
-  };
-  struct BarrierLifted {
-    ~BarrierLifted() { oxyos::hostCallBarrier() = nullptr; }
-  } barrierLifted;
-
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
   // Settings' requests to the session, numbered alike: preferences and displays (ADR 0018, 0019).
@@ -1568,13 +1554,19 @@ int main(int argc, char** argv) {
     // expo-clipboard's reads and writes carry the serial of the latest key or press the app
     // received (ADR 0007): the compositor refuses them unless the app has focus and that input is
     // recent. JavaScript hears when the clipboard changes.
-    services.drag.start = [&dragDrop](const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
-                                      int count, const folly::dynamic& options,
-                                      std::function<void(std::optional<std::string>)> done,
-                                      std::function<void(const std::string&)> cancelled) {
+    // The batch of JavaScript's that last asked for a drag (JsThread::running), held by the host's
+    // state's lock (ui-thread.h).
+    uint64_t dragAskedIn = 0;
+    services.drag.start = [&dragDrop, &dragAskedIn, &wakeUiWhenIdle, &js](
+                              const folly::dynamic& data, const std::vector<std::string>& actions, int preview,
+                              int count, const folly::dynamic& options,
+                              std::function<void(std::optional<std::string>)> done,
+                              std::function<void(const std::string&)> cancelled) {
       auto vanish = options.isObject() ? options.getDefault("vanish", false) : folly::dynamic(false);
-      // Its image is of the view as JavaScript left it before the call (the item its press selected).
-      oxyos::applyCommitsBeforeCall();
+      // It starts on the UI thread once the batch asking has run and what it committed is mounted
+      // (the loop, below), JavaScript's thread waking the loop as it settles.
+      dragAskedIn = std::max(dragAskedIn, js->running());
+      wakeUiWhenIdle = true;
       dragDrop.start(data, actions, preview, count, vanish.isBool() && vanish.asBool(), std::move(done),
                      std::move(cancelled));
     };
@@ -2792,6 +2784,14 @@ int main(int argc, char** argv) {
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
+        // A drag JavaScript asked for starts once the batch that asked has run with all it set off
+        // (React's render of what the press selected, which the same batch's motion asked a drag in
+        // before it), and what it committed is mounted: its image is the item as the press left it
+        // (drag.h).
+        if (dragDrop.asking() && js->done() >= dragAskedIn) {
+          if (!mounter.mountAtFrame) pulled |= mounter.apply();
+          pulled |= dragDrop.startAsked();
+        }
         bool busy = pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
         bool uiFrame = false;
@@ -4057,7 +4057,7 @@ int main(int argc, char** argv) {
         // ping for JavaScript to take what came before it, JavaScript's thread wakes the loop as it
         // goes idle.
         wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending() ||
-                         offeredKey.has_value() || !pingsWaiting.empty();
+                         offeredKey.has_value() || !pingsWaiting.empty() || dragDrop.asking();
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
