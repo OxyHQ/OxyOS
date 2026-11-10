@@ -41,6 +41,11 @@ class UnitFiles(unittest.TestCase):
         self.assertEqual(saturation.size_bytes("4096", total), "4096")
 
 
+class Generated(unittest.TestCase):
+    def test_a_tree_without_generators_writes_nothing(self):
+        self.assertEqual(saturation.generated("oxyos-test-nothing.service"), {})
+
+
 class UnitSettingsWritten(unittest.TestCase):
     def test_each_setting_to_its_file(self):
         with tempfile.TemporaryDirectory() as group:
