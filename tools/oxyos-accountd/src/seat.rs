@@ -439,7 +439,8 @@ pub fn follow(
             ))
             .map_err(failed)
         };
-    let mut changes = stream(rule(
+    // Boxed: the claims' receiver is not Unpin.
+    let mut changes = Box::pin(stream(rule(
         SEAT0,
         "org.freedesktop.DBus.Properties",
         "PropertiesChanged",
@@ -447,7 +448,7 @@ pub fn follow(
     .or(stream(rule(LOGIND_PATH, LOGIND_MANAGER, "UserNew"))?)
     .or(stream(rule(LOGIND_PATH, LOGIND_MANAGER, "UserRemoved"))?)
     .map(Woken::Bus)
-    .or(told.clone().map(Woken::Claim));
+    .or(told.clone().map(Woken::Claim)));
     let mut holder = reconcile(bus, None, claims, memory, log)?;
     loop {
         match futures_lite::future::block_on(changes.next()) {
