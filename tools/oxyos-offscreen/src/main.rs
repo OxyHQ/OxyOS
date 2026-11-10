@@ -1723,7 +1723,7 @@ fn main() -> Result<()> {
                 volumes: Some(volumes.into()),
                 cache: Some(cache.into()),
                 sources: sources.iter().map(PathBuf::from).collect(),
-            })?;
+            }, None)?;
             Ok(())
         }
         _ if args.iter().any(|arg| arg == "--launch") => {

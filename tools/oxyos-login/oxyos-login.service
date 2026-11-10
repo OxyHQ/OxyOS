@@ -20,8 +20,16 @@ Wants=oxyos-accountd.service
 # its splash kept, never by plymouth-quit.service.
 Conflicts=getty@tty1.service plymouth-quit.service
 OnFailure=plymouth-quit.service
-StartLimitIntervalSec=30
-StartLimitBurst=5
+# A boot is complete only once the login screen has drawn its first frame (READY=1, Type=notify),
+# not when the system reached its default target: enabled, the login program is required by
+# boot-complete.target (RequiredBy= below, the way systemd's own checks join it), so a start whose
+# login screen never appears is a failed try, and three in a row end in the recovery
+# (docs/adr/0054-recovery-and-erasing.mdx, decision 2, amended). Disabled, nothing is required.
+Before=boot-complete.target
+# Never given up on (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6, amended):
+# no start limit. Its login screen ending is the program's own to start again, with the shell's
+# doubling wait; the program itself ending is throttled by the restarts below.
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
@@ -39,6 +47,11 @@ ExecStart=/usr/libexec/oxyos/oxyos-login
 ExecStartPost=-/usr/bin/plymouth quit --retain-splash
 Restart=always
 RestartSec=1s
+RestartSteps=3
+RestartMaxDelaySec=10s
+# No WatchdogSec=: the program is also the parent of the person's session (its worker), and ending
+# it for a hang the person does not see would end their session with it. Its turn waits at most a
+# tenth of a second and never on a person, PAM or the network.
 # The login screen's socket: /run/oxyos/login/greeter, the login screen's user's alone.
 RuntimeDirectory=oxyos/login
 RuntimeDirectoryMode=0755
@@ -50,3 +63,4 @@ TimeoutStopSec=15s
 [Install]
 Alias=display-manager.service
 WantedBy=graphical.target
+RequiredBy=boot-complete.target
