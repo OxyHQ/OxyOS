@@ -2490,6 +2490,8 @@ fn start_companion(
                 != Some(at)
             {
                 session.compositor.scene.move_window_to(key, at);
+                // Moved is a change: shown at its place, and its tree there, before the steps.
+                last.1 = Instant::now();
             }
         }
         let now = composed(&session.compositor);
