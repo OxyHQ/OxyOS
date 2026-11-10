@@ -1832,7 +1832,7 @@ int main(int argc, char** argv) {
       }
       keyboardFocus.prune();
     };
-    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement, ContextMenu };
+    enum class NavigationKey { Next, Previous, Activate, Increment, Decrement, ContextMenu, TextMenu };
     // The view whose context menu the keyboard opens from the focused control: the control, or its
     // nearest ancestor within `scope` that declares React Native's `longpress` accessibility action
     // (Bloom's context menu trigger, TalkBack's long press); -1 for none.
@@ -1856,6 +1856,11 @@ int main(int argc, char** argv) {
       auto scope = navigationScope(event.surface);
       if (scope < 0) return std::nullopt;
       if (event.code == kTab) return heldShift ? NavigationKey::Previous : NavigationKey::Next;
+      bool menuKey = (event.code == kMenu && !heldShift) || (event.code == kF10 && heldShift);
+      // The focused text field's menu is the platform's (docs/adr/0037-text-editing.mdx, decision
+      // 8): the Menu key and Shift+F10 open it at its caret, however the field took focus (a press
+      // or Tab), as a PC's do and a Mac's Control-Return with Full Keyboard Access.
+      if (menuKey && editing.focused() >= 0 && insideOf(editing.focused(), scope)) return NavigationKey::TextMenu;
       // A field the person focused with a press is where Tab goes on from, and keeps its keys.
       auto focused = editing.focused() >= 0 ? editing.focused() : keyboardFocus.focused();
       if (focused < 0 || !insideOf(focused, scope) || oxyos::editableInput(tree, focused) ||
@@ -1873,8 +1878,7 @@ int main(int argc, char** argv) {
       // The Menu key and Shift+F10 open the focused control's context menu, as a PC keyboard's do
       // (a Mac's Control-Return with Full Keyboard Access): one the application declares, else the
       // key is the application's.
-      if (((event.code == kMenu && !heldShift) || (event.code == kF10 && heldShift)) &&
-          contextMenuOf(focused, scope) >= 0) {
+      if (menuKey && contextMenuOf(focused, scope) >= 0) {
         return NavigationKey::ContextMenu;
       }
       if (event.code == kUp || event.code == kDown || event.code == kLeft || event.code == kRight) {
@@ -1994,6 +1998,10 @@ int main(int argc, char** argv) {
         keyboardAfterMount = -1;
         return;
       }
+      if (key == NavigationKey::TextMenu) {
+        editing.contextMenuAtCaret();
+        return;
+      }
       const auto& shadow = tree.views().at(keyboardFocus.focused()).view;
       if (key == NavigationKey::Activate) {
         // As an assistive technology's activation: React Native's click, which Pressability
@@ -2084,6 +2092,20 @@ int main(int argc, char** argv) {
         }
       }
     };
+    // The text input the assistive technology's focus went to as it took focus, while it has it,
+    // and where that focus was before it.
+    facebook::react::Tag fieldFollowed = -1, fieldFollowedFrom = -1;
+    // A text input that takes focus, however it took it, takes the assistive technology's too
+    // (textinput.h, `onFocus`): a field pressed is where the screen reader is, says itself and
+    // echoes its editing (docs/adr/0037-text-editing.mdx, decision 7).
+    editing.onFocus([&](facebook::react::Tag tag) {
+      if (accessibility.focused() != tag) fieldFollowedFrom = accessibility.focused();
+      fieldFollowed = tag;
+      accessibility.focus(tag);
+      dirty = true;
+      popups.changed();
+      shellSurfaces.changed();
+    });
     int idleTurns = 0;  // turns in a row that found nothing to do
     uint32_t toldRefresh = 0;  // the window's display's refresh, as last told (display-refresh.h)
     // A window that changes size answers its configure with a frame JavaScript laid out at that
@@ -3106,6 +3128,23 @@ int main(int argc, char** argv) {
           popups.changed();
           shellSurfaces.changed();
           safeAreas.sync(tree);
+        }
+        // A field the assistive technology's focus followed (editing.onFocus) that lost its focus or
+        // went (a rename cancelled, a dialog's field closed with it, a press on a list's row) leaves
+        // that focus with the keyboard's, as VoiceOver's cursor stays with the keyboard's focus: the
+        // control the keys are on again, else where it was before the field took it.
+        if (fieldFollowed >= 0 && accessibility.focused() == fieldFollowed &&
+            (editing.focused() != fieldFollowed || !tree.views().count(fieldFollowed))) {
+          auto back = keyboardFocus.focused() >= 0 ? keyboardFocus.focused() : fieldFollowedFrom;
+          if (back >= 0 && back != fieldFollowed && tree.views().count(back)) {
+            accessibility.focus(back);
+            dirty = true;
+            popups.changed();
+            shellSurfaces.changed();
+          }
+          fieldFollowed = -1;
+        } else if (fieldFollowed >= 0 && accessibility.focused() != fieldFollowed) {
+          fieldFollowed = -1;
         }
         // Two quiet turns: what one turn's layout queues (onLayout) reaches JavaScript on the next.
         if (resized) {

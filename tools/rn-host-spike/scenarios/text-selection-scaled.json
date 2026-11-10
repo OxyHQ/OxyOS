@@ -1,5 +1,5 @@
 {
-  "about": "Selecting text with the mouse (scenarios/text-selection.json) on a 1600x1000 display at 1.25 (ADR 0018): the same double and triple clicks, their drags, a press long after and Shift and a press, its points in the window's logical pixels, drawn and hit at the output's scale; each step checks the selection as the application receives it and exactly which events it received.",
+  "about": "Selecting text with the mouse (scenarios/text-selection.json) on a 1600x1000 display at 1.25 (ADR 0018): the same double and triple clicks, their drags, a press long after and Shift and a press, its points in the window's logical pixels, drawn and hit at the output's scale; each step checks the selection as the application receives it and exactly which events it received. Every step also checks the field the compositor holds (its text, selection and caret rectangle).",
   "module": "EditingProbe",
   "window": [
     800,
@@ -26,7 +26,18 @@
           "focus@line": 1,
           "selectionChange@line": 1
         },
-        "focus_input": "line"
+        "focus_input": "line",
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -42,6 +53,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       },
       "expect_devices": {
@@ -70,7 +92,18 @@
           "touchEnd@line": 2,
           "selectionChange@line": 2
         },
-        "focus_input": "line"
+        "focus_input": "line",
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 5,
+          "cursor": 10,
+          "caret": [
+            113,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -81,7 +114,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 5,
+          "cursor": 10,
+          "caret": [
+            113,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -101,6 +145,17 @@
           "touchStart@line": 1,
           "touchEnd@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            126,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -112,7 +167,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            126,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -132,6 +198,17 @@
           "touchStart@line": 3,
           "touchEnd@line": 3,
           "selectionChange@line": 3
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 0,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -143,7 +220,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 0,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -166,6 +254,17 @@
           "touchMove@line": 2,
           "touchEnd@line": 2,
           "selectionChange@line": 3
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 5,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -177,7 +276,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 5,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -200,6 +310,17 @@
           "touchMove@line": 2,
           "touchEnd@line": 2,
           "selectionChange@line": 4
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -211,7 +332,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -231,6 +363,17 @@
           "touchStart@line": 1,
           "touchEnd@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 2,
+          "cursor": 2,
+          "caret": [
+            52,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -242,7 +385,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 2,
+          "cursor": 2,
+          "caret": [
+            52,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -262,6 +416,17 @@
           "touchStart@line": 1,
           "touchEnd@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 2,
+          "cursor": 12,
+          "caret": [
+            126,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -273,7 +438,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 2,
+          "cursor": 12,
+          "caret": [
+            126,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -297,7 +473,18 @@
           "focus@notes": 1,
           "selectionChange@notes": 1
         },
-        "focus_input": "notes"
+        "focus_input": "notes",
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            80,
+            2,
+            20
+          ]
+        }
       }
     },
     {
@@ -313,6 +500,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno dos\ntres cuatro",
+          "anchor": 19,
+          "cursor": 19,
+          "caret": [
+            107,
+            100,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -331,7 +529,18 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "uno dos\ntres cuatro",
+          "anchor": 19,
+          "cursor": 19,
+          "caret": [
+            107,
+            100,
+            2,
+            20
+          ]
+        }
       }
     },
     {
@@ -352,7 +561,18 @@
           "touchEnd@notes": 3,
           "selectionChange@notes": 3
         },
-        "focus_input": "notes"
+        "focus_input": "notes",
+        "field": {
+          "text": "uno dos\ntres cuatro",
+          "anchor": 0,
+          "cursor": 8,
+          "caret": [
+            36,
+            100,
+            2,
+            20
+          ]
+        }
       }
     }
   ],

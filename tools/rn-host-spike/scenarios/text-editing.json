@@ -1,5 +1,5 @@
 {
-  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Alt, a Mac's ⌥ (ICU's word boundaries, as Android; ADR 0037), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own. Through the virtual devices (`--uinput`) each character is typed as a key: React then receives a key press, a change and a selection change for each, as from Android's keyboard.",
+  "about": "Editing keys in Bloom fields (sample/EditingProbe.tsx), each step checking where the text and selection end up as the application receives them, and exactly which events it received: by word with Alt, a Mac's ⌥ (ICU's word boundaries, as Android; ADR 0037), deletion by word, undo and redo (one step for continued typing), and in a multiline field Up and Down keeping their column, Home and End at the line's edges, Ctrl+Home and Ctrl+End at the text's, a selection across lines, a wrapped line's edges as drawn, and a press on the line it wraps onto; and text taller or wider than its field scrolled to keep the caret in view (Page Up and Page Down by what the field shows), presses landing where the scrolled text is drawn; the wheel scrolls a field's text, focused or not, before the scroll views around it; and every scroll of a field's text is an onScroll event, as Android's; and copy, cut and paste through the compositor's clipboard (ADR 0007), a paste being an edit of its own; undo after a cut, a new edit leaving nothing to redo, typing and Backspace undone as one typing as a Mac's Undo Typing, and a move (even back to the same place) or a paste ending it; Ctrl+Delete to the line's end and, at it, joining the next line (a Mac's ⌘⌦). Every step also checks the field the compositor holds, the state an input method reads: its text, selection and caret rectangle. Through the virtual devices (`--uinput`) each character is typed as a key: React then receives a key press, a change and a selection change for each, as from Android's keyboard.",
   "module": "EditingProbe",
   "window": [
     800,
@@ -25,7 +25,18 @@
           "focus@line": 1,
           "selectionChange@line": 1
         },
-        "focus_input": "line"
+        "focus_input": "line",
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -41,6 +52,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       },
       "expect_devices": {
@@ -66,6 +88,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 11,
+          "cursor": 11,
+          "caret": [
+            117,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -84,6 +117,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 5,
+          "cursor": 5,
+          "caret": [
+            67,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -102,6 +146,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 10,
+          "cursor": 10,
+          "caret": [
+            113,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -121,6 +176,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 10,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -136,6 +202,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -156,6 +233,17 @@
           "change@line": 1,
           "selectionChange@line": 1,
           "keyPress@line": 1
+        },
+        "field": {
+          "text": "hola mundo ",
+          "anchor": 11,
+          "cursor": 11,
+          "caret": [
+            117,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -174,6 +262,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo ",
+          "anchor": 5,
+          "cursor": 5,
+          "caret": [
+            67,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -192,6 +291,17 @@
         ],
         "react": {
           "change@line": 1
+        },
+        "field": {
+          "text": "hola  ",
+          "anchor": 5,
+          "cursor": 5,
+          "caret": [
+            67,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -210,6 +320,17 @@
         ],
         "react": {
           "change@line": 1
+        },
+        "field": {
+          "text": "hola mundo ",
+          "anchor": 5,
+          "cursor": 5,
+          "caret": [
+            67,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -229,6 +350,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -248,6 +380,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -264,7 +407,18 @@
         "texts": [
           "Line: \"\" [0,0]"
         ],
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
+        }
       },
       "allow_unchanged": true
     },
@@ -285,6 +439,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo bonito",
+          "anchor": 17,
+          "cursor": 17,
+          "caret": [
+            159,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -305,6 +470,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo ",
+          "anchor": 11,
+          "cursor": 11,
+          "caret": [
+            117,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -322,6 +498,17 @@
           "change@line": 1,
           "selectionChange@line": 1,
           "keyPress@line": 1
+        },
+        "field": {
+          "text": "hola mundo a",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            125,
+            33,
+            2,
+            18
+          ]
         }
       },
       "expect_devices": {
@@ -346,6 +533,17 @@
           "change@line": 1,
           "selectionChange@line": 1,
           "keyPress@line": 1
+        },
+        "field": {
+          "text": "hola mundo ab",
+          "anchor": 13,
+          "cursor": 13,
+          "caret": [
+            134,
+            33,
+            2,
+            18
+          ]
         }
       },
       "expect_devices": {
@@ -372,6 +570,17 @@
         "react": {
           "change@line": 1,
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo ",
+          "anchor": 11,
+          "cursor": 11,
+          "caret": [
+            117,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -396,7 +605,18 @@
           "focus@notes": 1,
           "selectionChange@notes": 1
         },
-        "focus_input": "notes"
+        "focus_input": "notes",
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            80,
+            2,
+            20
+          ]
+        }
       }
     },
     {
@@ -412,6 +632,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno",
+          "anchor": 3,
+          "cursor": 3,
+          "caret": [
+            60,
+            80,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -436,6 +667,17 @@
           "change@notes": 1,
           "selectionChange@notes": 1,
           "keyPress@notes": 1
+        },
+        "field": {
+          "text": "uno\n",
+          "anchor": 4,
+          "cursor": 4,
+          "caret": [
+            36,
+            100,
+            2,
+            20
+          ]
         }
       }
     },
@@ -452,6 +694,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos",
+          "anchor": 7,
+          "cursor": 7,
+          "caret": [
+            60,
+            100,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -476,6 +729,17 @@
           "change@notes": 1,
           "selectionChange@notes": 1,
           "keyPress@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n",
+          "anchor": 8,
+          "cursor": 8,
+          "caret": [
+            36,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -492,6 +756,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -514,6 +789,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 7,
+          "cursor": 7,
+          "caret": [
+            60,
+            100,
+            2,
+            20
+          ]
         }
       }
     },
@@ -529,6 +815,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 3,
+          "cursor": 3,
+          "caret": [
+            60,
+            80,
+            2,
+            20
+          ]
         }
       }
     },
@@ -544,6 +841,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            80,
+            2,
+            20
+          ]
         }
       }
     },
@@ -559,6 +867,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 7,
+          "cursor": 7,
+          "caret": [
+            60,
+            100,
+            2,
+            20
+          ]
         }
       }
     },
@@ -574,6 +893,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 4,
+          "cursor": 4,
+          "caret": [
+            36,
+            100,
+            2,
+            20
+          ]
         }
       }
     },
@@ -589,6 +919,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 7,
+          "cursor": 7,
+          "caret": [
+            60,
+            100,
+            2,
+            20
+          ]
         }
       }
     },
@@ -607,6 +948,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -625,6 +977,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            80,
+            2,
+            20
+          ]
         }
       }
     },
@@ -643,6 +1006,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 0,
+          "cursor": 4,
+          "caret": [
+            36,
+            100,
+            2,
+            20
+          ]
         }
       }
     },
@@ -661,6 +1035,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 0,
+          "cursor": 8,
+          "caret": [
+            36,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -679,6 +1064,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -696,6 +1092,17 @@
           "change@notes": 1,
           "selectionChange@notes": 1,
           "keyPress@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\n",
+          "anchor": 13,
+          "cursor": 13,
+          "caret": [
+            36,
+            140,
+            2,
+            20
+          ]
         }
       }
     },
@@ -717,6 +1124,17 @@
           "1": {
             "text_input": 1
           }
+        },
+        "field": {
+          "text": "uno\ndos\ntres\nuna frase bastante larga que no cabe",
+          "anchor": 49,
+          "cursor": 49,
+          "caret": [
+            68,
+            160,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -746,6 +1164,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\nuna frase bastante larga que no cabe",
+          "anchor": 18,
+          "cursor": 18,
+          "caret": [
+            69,
+            140,
+            2,
+            20
+          ]
         }
       }
     },
@@ -761,6 +1190,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\nuna frase bastante larga que no cabe",
+          "anchor": 13,
+          "cursor": 13,
+          "caret": [
+            36,
+            140,
+            2,
+            20
+          ]
         }
       }
     },
@@ -776,6 +1216,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\nuna frase bastante larga que no cabe",
+          "anchor": 44,
+          "cursor": 44,
+          "caret": [
+            245,
+            140,
+            2,
+            20
+          ]
         }
       }
     },
@@ -791,6 +1242,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\nuna frase bastante larga que no cabe",
+          "anchor": 49,
+          "cursor": 49,
+          "caret": [
+            68,
+            160,
+            2,
+            20
+          ]
         }
       }
     },
@@ -811,6 +1273,17 @@
           "touchStart@notes": 1,
           "touchEnd@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\nuna frase bastante larga que no cabe",
+          "anchor": 47,
+          "cursor": 47,
+          "caret": [
+            51,
+            160,
+            2,
+            20
+          ]
         }
       }
     },
@@ -830,6 +1303,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -847,6 +1331,17 @@
           "change@notes": 1,
           "selectionChange@notes": 1,
           "keyPress@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\n",
+          "anchor": 13,
+          "cursor": 13,
+          "caret": [
+            36,
+            140,
+            2,
+            20
+          ]
         }
       }
     },
@@ -863,6 +1358,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro",
+          "anchor": 19,
+          "cursor": 19,
+          "caret": [
+            78,
+            140,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -887,6 +1393,17 @@
           "change@notes": 1,
           "selectionChange@notes": 1,
           "keyPress@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\n",
+          "anchor": 20,
+          "cursor": 20,
+          "caret": [
+            36,
+            160,
+            2,
+            20
+          ]
         }
       }
     },
@@ -903,6 +1420,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco",
+          "anchor": 25,
+          "cursor": 25,
+          "caret": [
+            72,
+            160,
+            2,
+            20
+          ]
         }
       },
       "expect_devices": {
@@ -934,6 +1462,17 @@
             0,
             16
           ]
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\n",
+          "anchor": 26,
+          "cursor": 26,
+          "caret": [
+            36,
+            164,
+            2,
+            20
+          ]
         }
       }
     },
@@ -951,7 +1490,18 @@
           "change@notes": 1,
           "selectionChange@notes": 1
         },
-        "text_scroll": {}
+        "text_scroll": {},
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 30,
+          "cursor": 30,
+          "caret": [
+            62,
+            164,
+            2,
+            20
+          ]
+        }
       },
       "expect_devices": {
         "react": {
@@ -979,7 +1529,18 @@
           "touchEnd@notes": 1,
           "selectionChange@notes": 1
         },
-        "text_scroll": {}
+        "text_scroll": {},
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 7,
+          "cursor": 7,
+          "caret": [
+            60,
+            84,
+            2,
+            20
+          ]
+        }
       }
     },
     {
@@ -1004,6 +1565,17 @@
             0,
             0
           ]
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            80,
+            2,
+            20
+          ]
         }
       }
     },
@@ -1026,6 +1598,17 @@
             0,
             16
           ]
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 26,
+          "cursor": 26,
+          "caret": [
+            36,
+            164,
+            2,
+            20
+          ]
         }
       }
     },
@@ -1042,7 +1625,18 @@
         "react": {
           "selectionChange@notes": 1
         },
-        "text_scroll": {}
+        "text_scroll": {},
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 30,
+          "cursor": 30,
+          "caret": [
+            62,
+            164,
+            2,
+            20
+          ]
+        }
       }
     },
     {
@@ -1063,6 +1657,17 @@
           "notes": [
             0,
             0
+          ]
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            80,
+            2,
+            20
           ]
         }
       }
@@ -1088,7 +1693,18 @@
           "focus@line": 1,
           "selectionChange@line": 1
         },
-        "focus_input": "line"
+        "focus_input": "line",
+        "field": {
+          "text": "hola mundo ",
+          "anchor": 11,
+          "cursor": 11,
+          "caret": [
+            117,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -1115,6 +1731,17 @@
           "line": [
             22.9365234375,
             0
+          ]
+        },
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 112,
+          "cursor": 112,
+          "caret": [
+            766,
+            33,
+            2,
+            18
           ]
         }
       },
@@ -1153,6 +1780,17 @@
             0,
             0
           ]
+        },
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -1174,6 +1812,17 @@
           "line": [
             22.9365234375,
             0
+          ]
+        },
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 112,
+          "cursor": 112,
+          "caret": [
+            766,
+            33,
+            2,
+            18
           ]
         }
       }
@@ -1201,7 +1850,18 @@
             16
           ]
         },
-        "focus_input": "line"
+        "focus_input": "line",
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 112,
+          "cursor": 112,
+          "caret": [
+            766,
+            33,
+            2,
+            18
+          ]
+        }
       },
       "expect_devices": {
         "react": {
@@ -1225,7 +1885,18 @@
           "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [0,0]"
         ],
         "react": {},
-        "text_scroll": {}
+        "text_scroll": {},
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 112,
+          "cursor": 112,
+          "caret": [
+            766,
+            33,
+            2,
+            18
+          ]
+        }
       }
     },
     {
@@ -1249,6 +1920,17 @@
           "notes": [
             0,
             0
+          ]
+        },
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 112,
+          "cursor": 112,
+          "caret": [
+            766,
+            33,
+            2,
+            18
           ]
         }
       },
@@ -1277,6 +1959,17 @@
             0,
             0
           ]
+        },
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 0,
+          "cursor": 0,
+          "caret": [
+            36,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -1296,6 +1989,17 @@
         ],
         "react": {
           "selectionChange@line": 1
+        },
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 0,
+          "cursor": 4,
+          "caret": [
+            63,
+            33,
+            2,
+            18
+          ]
         }
       }
     },
@@ -1312,7 +2016,18 @@
         "texts": [
           "Line: \"hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas\" [0,4]"
         ],
-        "react": {}
+        "react": {},
+        "field": {
+          "text": "hola mundo  y una frase muy larga que sigue y sigue hasta salirse del campo de texto por la derecha, todavia mas",
+          "anchor": 0,
+          "cursor": 4,
+          "caret": [
+            63,
+            33,
+            2,
+            18
+          ]
+        }
       },
       "allow_unchanged": true
     },
@@ -1337,7 +2052,18 @@
           "focus@notes": 1,
           "selectionChange@notes": 1
         },
-        "focus_input": "notes"
+        "focus_input": "notes",
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
+        }
       }
     },
     {
@@ -1356,6 +2082,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntreshola\ncuatro\ncinco\nseis",
+          "anchor": 16,
+          "cursor": 16,
+          "caret": [
+            89,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -1375,6 +2112,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -1394,6 +2142,17 @@
         ],
         "react": {
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 12,
+          "cursor": 8,
+          "caret": [
+            36,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -1413,6 +2172,17 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n\ncuatro\ncinco\nseis",
+          "anchor": 8,
+          "cursor": 8,
+          "caret": [
+            36,
+            120,
+            2,
+            20
+          ]
         }
       }
     },
@@ -1432,6 +2202,630 @@
         "react": {
           "change@notes": 1,
           "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 12,
+          "cursor": 12,
+          "caret": [
+            61,
+            120,
+            2,
+            20
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z undoes the paste",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n\\ncuatro\\ncinco\\nseis\" [8,8]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n\ncuatro\ncinco\nseis",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z again undoes the cut: the word back, selected as it was, from where the selection was made",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\ntres\\ncuatro\\ncinco\\nseis\" [8,12]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\ntres\ncuatro\ncinco\nseis",
+          "anchor": 12,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Z redoes the cut",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n\\ncuatro\\ncinco\\nseis\" [8,8]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n\ncuatro\ncinco\nseis",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "typing a character is a new edit",
+      "do": [
+        "type",
+        "3"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3\\ncuatro\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3\ncuatro\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "so there is nothing to redo: Ctrl+Shift+Z does nothing",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3\\ncuatro\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {},
+        "field": {
+          "text": "uno\ndos\n3\ncuatro\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
+        }
+      },
+      "allow_unchanged": true
+    },
+    {
+      "name": "typing on continues the edit",
+      "do": [
+        "type",
+        "x"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3x\\ncuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3x\ncuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Backspace, in the same typing",
+      "do": [
+        "key",
+        14
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3\\ncuatro\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3\ncuatro\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
+        }
+      }
+    },
+    {
+      "name": "and typing again",
+      "do": [
+        "type",
+        "y"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3y\\ncuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3y\ncuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "one Ctrl+Z undoes the whole run, what was typed and deleted in it, as a Mac's Undo Typing",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n\\ncuatro\\ncinco\\nseis\" [8,8]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n\ncuatro\ncinco\nseis",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Shift+Z redoes it whole",
+      "do": [
+        "key",
+        [
+          29,
+          42,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3y\\ncuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3y\ncuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "Left moves the caret",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3y\\ncuatro\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3y\ncuatro\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
+        }
+      }
+    },
+    {
+      "name": "Right brings it back where the typing left it",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3y\\ncuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3y\ncuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "typing after a move",
+      "do": [
+        "type",
+        "z"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3yz\\ncuatro\\ncinco\\nseis\" [11,11]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3yz\ncuatro\ncinco\nseis",
+          "anchor": 11,
+          "cursor": 11
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "is an edit of its own: Ctrl+Z undoes only it, the move having ended the run before",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3y\\ncuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3y\ncuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "typing a character",
+      "do": [
+        "type",
+        "p"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3yp\\ncuatro\\ncinco\\nseis\" [11,11]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3yp\ncuatro\ncinco\nseis",
+          "anchor": 11,
+          "cursor": 11
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "a paste right after it",
+      "do": [
+        "key",
+        [
+          29,
+          47
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3yptres\\ncuatro\\ncinco\\nseis\" [15,15]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3yptres\ncuatro\ncinco\nseis",
+          "anchor": 15,
+          "cursor": 15
+        }
+      }
+    },
+    {
+      "name": "and typing right after the paste",
+      "do": [
+        "type",
+        "q"
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3yptresq\\ncuatro\\ncinco\\nseis\" [16,16]"
+        ],
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3yptresq\ncuatro\ncinco\nseis",
+          "anchor": 16,
+          "cursor": 16
+        }
+      },
+      "expect_devices": {
+        "react": {
+          "keyPress@notes": 1,
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z undoes the typing after the paste alone",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3yptres\\ncuatro\\ncinco\\nseis\" [15,15]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3yptres\ncuatro\ncinco\nseis",
+          "anchor": 15,
+          "cursor": 15
+        }
+      }
+    },
+    {
+      "name": "then the paste alone",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3yp\\ncuatro\\ncinco\\nseis\" [11,11]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3yp\ncuatro\ncinco\nseis",
+          "anchor": 11,
+          "cursor": 11
+        }
+      }
+    },
+    {
+      "name": "then the typing before it",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3y\\ncuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "change@notes": 1,
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3y\ncuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Delete at the line's end deletes one character, the line break, joining the next line (a Mac's ⌘⌦)",
+      "do": [
+        "key",
+        [
+          29,
+          111
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3ycuatro\\ncinco\\nseis\" [10,10]"
+        ],
+        "react": {
+          "change@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3ycuatro\ncinco\nseis",
+          "anchor": 10,
+          "cursor": 10
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Left goes to the line's start",
+      "do": [
+        "key",
+        [
+          29,
+          105
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3ycuatro\\ncinco\\nseis\" [8,8]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3ycuatro\ncinco\nseis",
+          "anchor": 8,
+          "cursor": 8
+        }
+      }
+    },
+    {
+      "name": "Right, past the first character",
+      "do": [
+        "key",
+        106
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3ycuatro\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {
+          "selectionChange@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3ycuatro\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Delete deletes to the line's end",
+      "do": [
+        "key",
+        [
+          29,
+          111
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {
+          "change@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
+        }
+      }
+    },
+    {
+      "name": "Ctrl+Z brings it back, the caret where it was",
+      "do": [
+        "key",
+        [
+          29,
+          44
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Notes: \"uno\\ndos\\n3ycuatro\\ncinco\\nseis\" [9,9]"
+        ],
+        "react": {
+          "change@notes": 1
+        },
+        "field": {
+          "text": "uno\ndos\n3ycuatro\ncinco\nseis",
+          "anchor": 9,
+          "cursor": 9
         }
       }
     }
