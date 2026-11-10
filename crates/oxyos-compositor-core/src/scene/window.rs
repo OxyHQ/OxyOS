@@ -174,9 +174,10 @@ impl Scene {
             .get_mut(&key)
             .expect("resized windows are present");
         let (origin, size) = node.upcoming();
-        // A window resized by hand is no longer zoomed.
+        // A window resized by hand is no longer zoomed, tiled or centred.
         node.maximized = false;
         node.unzoomed = None;
+        node.placed = None;
         self.resizing = Some(Resize {
             surface: key,
             edges,
@@ -312,6 +313,8 @@ impl Scene {
         let node = self.nodes.get_mut(&key).expect("present");
         node.maximized = enabled;
         node.unzoomed = enabled.then_some(current);
+        // Zoomed from a tile, it is restored to the tile's frame, no longer tiled.
+        node.placed = None;
         self.reconfigure(key, Some(origin), size);
         // Its frame goes from where it is to where it is configured, animated (ADR 0016).
         self.appeared(key, super::appearances::Change::Zoomed);
@@ -400,6 +403,11 @@ impl Scene {
     pub fn upcoming_rect(&self, key: SurfaceKey) -> Option<Rect> {
         self.live(key)?;
         self.global_rect_pending(key)
+    }
+
+    /// How many configures a surface was sent.
+    pub fn configures_sent(&self, key: SurfaceKey) -> u64 {
+        self.live(key).map_or(0, |node| node.configures)
     }
 
     /// The serial of the latest configure a surface was sent.

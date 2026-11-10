@@ -10,6 +10,7 @@
 //! its own from the scene's frame list, clipped to it and scaled to its pixels, with its own
 //! damage, display, flips and pointer.
 
+use oxyos_compositor_core::scene::tiling;
 use oxyos_compositor_core::{
     physical, ClientId, Grants, Output, OutputId, Refusal, RenderItem, Scene, SurfaceKey,
     WindowLook,
@@ -825,6 +826,8 @@ struct Content {
     extent: Size,
     format: Option<oxyos_protocol::Format>,
     pixels: Rc<Pixels>,
+    /// Without a format, the one colour it is (0x00RRGGBB): a cover's black, a tile's preview.
+    fill: u32,
     source: Option<oxyos_gpu::Source>,
     changed: Option<(u64, Vec<oxyos_gpu::Rect>)>,
     opacity: u8,
@@ -856,6 +859,7 @@ impl Content {
             extent: Size::new(1, 1),
             format: None,
             pixels: Rc::default(),
+            fill: 0,
             source: None,
             changed: None,
             opacity: 255,
@@ -890,6 +894,7 @@ impl Content {
             extent: Size::new(profile.entries(), 1),
             format: None,
             pixels: Rc::default(),
+            fill: 0,
             source: Some(*source),
             changed: None,
             opacity,
@@ -2069,7 +2074,8 @@ impl Compositor {
                 RenderItem::Surface { key, .. } => Some((key, self.scene.window_look(key)?)),
                 RenderItem::Cover { .. }
                 | RenderItem::View { .. }
-                | RenderItem::DragBadge { .. } => None,
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => None,
             })
             .collect();
         // Surfaces arriving start their transitions in this frame; those going are drawn from
@@ -2324,7 +2330,8 @@ impl Compositor {
                 RenderItem::Surface { key, frame, .. } => Some((key, frame)),
                 RenderItem::Cover { .. }
                 | RenderItem::View { .. }
-                | RenderItem::DragBadge { .. } => None,
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => None,
             })
             .collect();
         // Each surface's pixels, read from its shared buffer, and the covers.
@@ -2391,7 +2398,7 @@ impl Compositor {
             let above = match item {
                 RenderItem::Surface { key, .. } => self.scene.above_windows(key),
                 RenderItem::Cover { .. } | RenderItem::DragBadge { .. } => true,
-                RenderItem::View { .. } => false,
+                RenderItem::View { .. } | RenderItem::TilePreview { .. } => false,
             };
             if above && under_panels.is_none() {
                 under_panels = Some(contents.len());
@@ -2541,6 +2548,7 @@ impl Compositor {
                             extent,
                             format: Some(format),
                             pixels,
+                            fill: 0,
                             source,
                             changed,
                             opacity: arriving.opacity,
@@ -2557,6 +2565,14 @@ impl Compositor {
                     None => unreadable.push((key, frame.buffer)),
                 },
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
+                // Where a window dragged would be tiled (ADR 0016, decision 12): a translucent
+                // pane with a window's corners, beneath the window.
+                RenderItem::TilePreview { rect } => contents.push(Content {
+                    fill: tiling::PREVIEW_COLOR,
+                    opacity: tiling::PREVIEW_OPACITY,
+                    radius: window::WINDOW_RADIUS,
+                    ..Content::cover(rect)
+                }),
                 // The drag's pointer badge (ADR 0035), over everything, at the scale of the output
                 // it is on: crisp at a fractional one.
                 RenderItem::DragBadge { rect, action } => {
@@ -2584,6 +2600,7 @@ impl Compositor {
                             extent,
                             format: Some(oxyos_protocol::Format::Argb8888),
                             pixels,
+                            fill: 0,
                             source: None,
                             changed: None,
                             opacity: 255,
@@ -2701,6 +2718,7 @@ impl Compositor {
                         extent,
                         format: Some(format),
                         pixels,
+                        fill: 0,
                         source,
                         changed: None,
                         opacity: drawn_opacity,
@@ -2725,7 +2743,9 @@ impl Compositor {
                 RenderItem::Surface { key: drawn, .. } | RenderItem::View { window: drawn, .. } => {
                     drawn == *key
                 }
-                RenderItem::Cover { .. } | RenderItem::DragBadge { .. } => false,
+                RenderItem::Cover { .. }
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => false,
             })
         });
         // The splash over everything while the session starts, on every screen.
@@ -2740,6 +2760,7 @@ impl Compositor {
                 extent: splash.extent,
                 format: Some(splash.format),
                 pixels: splash.pixels.clone(),
+                fill: 0,
                 source: None,
                 changed: None,
                 opacity: 255,
@@ -2806,6 +2827,7 @@ impl Compositor {
                 extent: snapshot.extent,
                 format: Some(snapshot.format),
                 pixels: snapshot.pixels.clone(),
+                fill: 0,
                 source: if docking { snapshot.source } else { None },
                 changed: None,
                 opacity: at.opacity,
@@ -2840,6 +2862,7 @@ impl Compositor {
                         extent,
                         format: Some(oxyos_protocol::Format::Argb8888),
                         pixels: Rc::new(Pixels::from(bytes)),
+                        fill: 0,
                         source: None,
                         changed: None,
                         opacity: 255,
@@ -2885,6 +2908,7 @@ impl Compositor {
                     extent: view.extent,
                     format: Some(view.format),
                     pixels: view.pixels.clone(),
+                    fill: 0,
                     source: None,
                     changed: None,
                     opacity,
@@ -2964,7 +2988,7 @@ impl Compositor {
                     (None, Some(oxyos_protocol::Format::Argb8888)) => {
                         oxyos_gpu::Paint::Premultiplied(pixels)
                     }
-                    (None, None) => oxyos_gpu::Paint::Fill(0),
+                    (None, None) => oxyos_gpu::Paint::Fill(content.fill),
                 },
                 source: content.source,
                 changed: content
@@ -4913,7 +4937,8 @@ pub fn output_damage(
                 }
                 RenderItem::Cover { .. }
                 | RenderItem::View { .. }
-                | RenderItem::DragBadge { .. } => None,
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => None,
             })
             .collect()
     };
@@ -4981,7 +5006,9 @@ pub fn output_damage(
             .filter(|item| {
                 matches!(
                     item,
-                    RenderItem::Cover { .. } | RenderItem::DragBadge { .. }
+                    RenderItem::Cover { .. }
+                        | RenderItem::DragBadge { .. }
+                        | RenderItem::TilePreview { .. }
                 )
             })
             .copied()
@@ -4991,7 +5018,8 @@ pub fn output_damage(
     for (these, others) in [(&old_covers, &new_covers), (&new_covers, &old_covers)] {
         for cover in these.iter().filter(|cover| !others.contains(cover)) {
             if let RenderItem::Cover { rect: cover, .. }
-            | RenderItem::DragBadge { rect: cover, .. } = cover
+            | RenderItem::DragBadge { rect: cover, .. }
+            | RenderItem::TilePreview { rect: cover } = cover
             {
                 damage.push(rect(*cover));
             }
