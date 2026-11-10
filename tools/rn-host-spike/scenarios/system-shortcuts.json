@@ -21,7 +21,7 @@
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1, "leave": 1}},
-        "output_pixels": {"738,716": "#64717a", "796,716": "#64717a", "900,480": "#fff7f9"}
+        "output_pixels": {"738,716": "#64717a", "796,716": "#64717a", "900,480": "#f9f9f9"}
       }
     },
     {
@@ -50,7 +50,7 @@
         "delivered": {"launched": {}},
         "focus_surface": 1,
         "announcements": [{"politeness": "assertive", "text": "Inbox"}],
-        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"},
+        "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"},
         "in_shell": {"texts": ["Inbox"], "absent": ["Allo"]},
         "at": {"shell": [
           {"role": "List", "name": "Cambiar de aplicación"},
@@ -66,7 +66,7 @@
         "react": {},
         "delivered": {"launched": {}},
         "announcements": [{"politeness": "assertive", "text": "Allo"}],
-        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#e4e6ea"},
+        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#d3d7e0"},
         "in_shell": {"texts": ["Allo"], "absent": ["Inbox"]},
         "at": {"shell": [{"role": "Button", "name": "Allo", "state": ["selected"]}, {"role": "Button", "name": "Inbox", "state": []}]}
       }
@@ -78,7 +78,7 @@
         "react": {},
         "delivered": {"launched": {}},
         "announcements": [{"politeness": "assertive", "text": "Inbox"}],
-        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"}
+        "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"}
       }
     },
     {
@@ -87,7 +87,7 @@
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1}, "launched": {"focus.in": 1}},
-        "output_pixels": {"900,480": "#fff7f9", "650,385": "#f0e7eb"},
+        "output_pixels": {"900,480": "#f9f9f9", "650,385": "#e9e9e9"},
         "at_absent": {"shell": [{"role": "List", "name": "Cambiar de aplicación"}]}
       }
     },
@@ -110,7 +110,7 @@
       "expect": {
         "react": {},
         "delivered": {"1": {"focus.out": 1}, "launched": {"focus.in": 1}},
-        "output_pixels": {"900,480": "#fff7f9", "738,716": "#64717a"},
+        "output_pixels": {"900,480": "#f9f9f9", "738,716": "#64717a"},
         "transitions": {"count": 1, "seen": [{"kind": "window", "change": "arrived", "ended": true}]}
       }
     },

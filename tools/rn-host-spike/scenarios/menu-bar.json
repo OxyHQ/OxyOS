@@ -96,11 +96,11 @@
     {
       "name": "choosing New runs it in the application, once",
       "do": [
-        "press_output",
-        [
-          120,
-          63
-        ]
+        "press_named",
+        {
+          "role": "MenuItem",
+          "name": "New"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -144,11 +144,11 @@
     {
       "name": "the pointer on Open Recent opens its submenu beside it",
       "do": [
-        "move_output",
-        [
-          200,
-          119
-        ]
+        "move_named",
+        {
+          "role": "MenuItem",
+          "name": "Open Recent"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -173,11 +173,11 @@
     {
       "name": "into the submenu: it stays open",
       "do": [
-        "move_output",
-        [
-          400,
-          125
-        ]
+        "move_named",
+        {
+          "role": "MenuItem",
+          "name": "notes.txt"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -192,11 +192,11 @@
     {
       "name": "onto New: the submenu closes after its grace",
       "do": [
-        "move_output",
-        [
-          200,
-          53
-        ]
+        "move_named",
+        {
+          "role": "MenuItem",
+          "name": "New"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -225,11 +225,11 @@
     {
       "name": "back on Open Recent, and notes.txt chosen in its submenu",
       "do": [
-        "move_output",
-        [
-          200,
-          119
-        ]
+        "move_named",
+        {
+          "role": "MenuItem",
+          "name": "Open Recent"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -244,11 +244,11 @@
     {
       "name": "choosing notes.txt runs it in the application, once, and closes the menu",
       "do": [
-        "press_output",
-        [
-          400,
-          125
-        ]
+        "press_named",
+        {
+          "role": "MenuItem",
+          "name": "notes.txt"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -391,11 +391,11 @@
     {
       "name": "choosing Wrap Lines turns it on in the application",
       "do": [
-        "press_output",
-        [
-          194,
-          90
-        ]
+        "press_named",
+        {
+          "role": "CheckBox",
+          "name": "Wrap Lines"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -445,11 +445,11 @@
     {
       "name": "choosing it again turns it off",
       "do": [
-        "press_output",
-        [
-          194,
-          90
-        ]
+        "press_named",
+        {
+          "role": "CheckBox",
+          "name": "Wrap Lines"
+        }
       ],
       "allow_unchanged": true,
       "expect": {

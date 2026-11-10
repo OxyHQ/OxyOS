@@ -467,7 +467,7 @@
    }
   },
   {
-   "name": "Tab: the Tags section's Purple, said once, the sidebar scrolling it into view",
+   "name": "Tab: the Tags section's Purple, said once, in view already (Bloom's 13px rows leave room for it; Grey and All Tags still scroll)",
    "do": [
     "key",
     [
@@ -489,8 +489,7 @@
     "announcements": [],
     "react": {
      "blur@Options for Blue": 1,
-     "focus@Purple": 1,
-     "scroll@sidebar-scroll": 1
+     "focus@Purple": 1
     }
    }
   },

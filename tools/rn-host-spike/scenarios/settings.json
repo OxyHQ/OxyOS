@@ -36,7 +36,7 @@
           "accent": "oxy"
         },
         "pixels": {
-          "700,400": "#1f031d"
+          "700,400": "#0e0e0e"
         }
       }
     },
@@ -72,7 +72,7 @@
           "accent": "blue"
         },
         "pixels": {
-          "700,400": "#e3efff"
+          "700,400": "#eeeeee"
         }
       }
     },
@@ -104,11 +104,11 @@
     {
       "name": "Reduce motion's switch on: the session keeps it and tells every application",
       "do": [
-        "press",
-        [
-          890,
-          250
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Reduce motion"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -127,7 +127,7 @@
           ]
         },
         "pixels": {
-          "874,250": "#006eaf"
+          "878,240": "#006eaf"
         }
       }
     },
@@ -172,11 +172,11 @@
     {
       "name": "Do Not Disturb's switch on: the session keeps it (the shell would show no banner)",
       "do": [
-        "press",
-        [
-          890,
-          100
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Do Not Disturb"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -195,7 +195,7 @@
           ]
         },
         "pixels": {
-          "874,100": "#006eaf"
+          "878,94": "#006eaf"
         }
       }
     },

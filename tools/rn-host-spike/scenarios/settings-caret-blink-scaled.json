@@ -93,7 +93,7 @@
           ]
         },
         "at_hit": {
-          "890,382": {
+          "890,368": {
             "role": "Switch",
             "name": "Prefer non-blinking cursor"
           }
@@ -106,19 +106,19 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         }
       }
     },
     {
       "name": "the switch pressed in Settings' inactive window only activates it, as a Mac's first click on a control: the switch stays off and React hears nothing",
       "do": [
-        "press",
-        [
-          890,
-          382
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Prefer non-blinking cursor"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -152,8 +152,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -164,11 +164,11 @@
     {
       "name": "pressed again in the active window, the switch turns on: the session keeps caret_blink off and tells every application at once, Settings and the other alike",
       "do": [
-        "press",
-        [
-          890,
-          382
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Prefer non-blinking cursor"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -208,8 +208,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#9422ae",
-          "1730,779": "#ffeefc"
+          "1690,761": "#9422ae",
+          "1730,761": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -283,11 +283,11 @@
     {
       "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
       "do": [
-        "press",
-        [
-          890,
-          382
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Prefer non-blinking cursor"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -323,8 +323,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#9422ae",
-          "1730,779": "#ffeefc"
+          "1690,761": "#9422ae",
+          "1730,761": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -335,11 +335,11 @@
     {
       "name": "pressed again in the active window, the switch off: the session keeps caret_blink on; the other application's caret, its window not the key one, is not drawn and does not blink",
       "do": [
-        "press",
-        [
-          890,
-          382
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Prefer non-blinking cursor"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -377,8 +377,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -452,11 +452,11 @@
     {
       "name": "pressed in Settings' inactive window, the switch only activates it (a Mac's first click on a control): unchanged, React hears nothing",
       "do": [
-        "press",
-        [
-          890,
-          382
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Prefer non-blinking cursor"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -490,8 +490,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
-          "1730,779": "#8c798d"
+          "1690,761": "#dfdfdf",
+          "1730,761": "#7f7f7f"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -502,11 +502,11 @@
     {
       "name": "pressed again in the active window, the switch on again: kept, and told to both",
       "do": [
-        "press",
-        [
-          890,
-          382
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Prefer non-blinking cursor"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -546,8 +546,8 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#9422ae",
-          "1730,779": "#ffeefc"
+          "1690,761": "#9422ae",
+          "1730,761": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
