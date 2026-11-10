@@ -238,6 +238,7 @@ class Mounter : public SchedulerDelegate {
         case Item::Kind::Transaction:
           mount(item.surface, *item.transaction);
           mounted.insert(item.surface);
+          appliedBatch_ = std::max(appliedBatch_, item.batch);
           break;
         case Item::Kind::Command:
           if (onCommand) onCommand(item.view, item.name, item.args);
@@ -263,6 +264,11 @@ class Mounter : public SchedulerDelegate {
   }
   // Whether the tree changed since the last call: a mount, or Animated's native driver.
   bool takeChanged() { return std::exchange(changed_, false); }
+  // The batch of the loop's work JavaScript was running (js-thread.h) when it made the commits applied
+  // so far, the latest: the frame showing them answers the inputs of that batch.
+  uint64_t appliedBatch() const { return appliedBatch_; }
+  // What JavaScript's thread runs now, as it pulls a commit.
+  std::function<uint64_t()> runningBatch;
   void schedulerShouldMergeReactRevision(SurfaceId) override {}
   void schedulerDidRequestPreliminaryViewAllocation(const ShadowNode&) override {}
   // A transaction about to be applied, its views still in the tree (a modal's last frame).
@@ -293,6 +299,8 @@ class Mounter : public SchedulerDelegate {
   struct Item {
     enum class Kind { Transaction, Command, AccessibilityEvent } kind;
     SurfaceId surface = 0;
+    // A transaction pulled on JavaScript's thread: the batch it ran (0 for a commit of the UI thread's).
+    uint64_t batch = 0;
     std::shared_ptr<const MountingTransaction> transaction;
     ShadowView view;
     std::string name;
@@ -307,6 +315,7 @@ class Mounter : public SchedulerDelegate {
       if (transaction && !transaction->getMutations().empty()) {
         queue_.push_back(Item{.kind = Item::Kind::Transaction,
                               .surface = surface,
+                              .batch = !oxyos::UiThread::isCurrent() && runningBatch ? runningBatch() : 0,
                               .transaction = std::make_shared<const MountingTransaction>(std::move(*transaction))});
       }
     }
@@ -356,6 +365,7 @@ class Mounter : public SchedulerDelegate {
   const Scheduler* scheduler_ = nullptr;
   // The UI thread's own.
   bool changed_ = false;
+  uint64_t appliedBatch_ = 0;
   // Shared with the threads that commit and send. A pull holds it, so the queue has transactions in
   // the order the coordinators gave them.
   std::mutex mutex_;
@@ -1006,6 +1016,7 @@ int main(int argc, char** argv) {
   stage("fabric scheduler");
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
+  mounter.runningBatch = [thread = js.get()] { return thread->running(); };
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
   // Not the popups' own order, whose keyboard moves the loop holds itself.
   mounter.applyWhenJavaScriptIdle = focusFirst || grantFirst || windowFocusFirst;
@@ -2494,8 +2505,10 @@ int main(int argc, char** argv) {
         // What JavaScript handed over since the last turn (Mounter): its commits mounted, its view
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
         // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
-        diagnostics.javascriptApplied(js->done());
         bool pulled = (!mounter.applyWhenJavaScriptIdle || js->idle()) && mounter.apply();
+        // What JavaScript has answered: the batches it ran through, and that whose commits the frame
+        // shows now.
+        diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
         bool busy = pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
         bool uiFrame = false;
