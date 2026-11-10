@@ -2234,9 +2234,10 @@ int main(int argc, char** argv) {
     auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
       auto answer = std::make_shared<std::atomic<int>>(-1);
       offeredKey = OfferedKey{event, answer, offered};
-      // A key is the person's: it runs before what JavaScript does otherwise (its renders, its timers).
+      // At the priority the events and device events the loop hands JavaScript have, in the order
+      // they came: what was handed after the key (the modifiers' change) runs after it.
       instance->getRuntimeScheduler()->scheduleTask(
-          SchedulerPriority::UserBlockingPriority,
+          SchedulerPriority::ImmediatePriority,
           [listener = services.keyboard.listener, offered = std::move(offered), answer](jsi::Runtime& rt) {
             bool taken = false;
             try {
