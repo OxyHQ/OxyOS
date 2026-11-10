@@ -1,0 +1,98 @@
+{
+ "about": "An application that hangs briefly (docs/adr/0067-hangs-and-force-quit.mdx): Hang Probe's other button runs its JavaScript thread for 4.5 s. The pointer over it shows the compositor's wait cursor after 2 s, and the application's own cursor again as soon as it answers; it is never not responding, and nothing is written.",
+ "locale": "en_US.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "installed": [
+  {
+   "package": "so.oxy.hangprobe",
+   "entry": [
+    "X-OxyOS-Pinned=4"
+   ]
+  }
+ ],
+ "applications_launched": [
+  {
+   "id": "so.oxy.hangprobe",
+   "origin": "installed 1",
+   "settings": false
+  }
+ ],
+ "steps": [
+  {
+   "name": "Hang Probe from the dock",
+   "do": [
+    "press_named",
+    "Hang Probe"
+   ],
+   "until_named": [
+    "Hang 4.5 Seconds",
+    15000
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "its 4.5 s button: it takes the press, then hangs",
+   "do": [
+    "press_named",
+    "Hang 4.5 Seconds"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the pointer moves over it",
+   "do": [
+    "move_named",
+    "Hang 30 Seconds"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pointer_shape": "Arrow"
+   }
+  },
+  {
+   "name": "2 s unanswered: the wait cursor",
+   "do": [
+    "wait",
+    2200
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pointer_shape": "Wait"
+   }
+  },
+  {
+   "name": "it answers: its own cursor again, never not responding, nothing written",
+   "do": [
+    "wait",
+    2000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pointer_shape": "Arrow",
+    "crash_reports": [],
+    "in_shell": {
+     "absent": [
+      "Force Quit Applications",
+      "Not Responding"
+     ]
+    }
+   }
+  }
+ ],
+ "home": {
+  "items": {
+   "notes.txt": "keep me"
+  }
+ }
+}

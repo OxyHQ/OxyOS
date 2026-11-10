@@ -1,5 +1,5 @@
 {
- "about": "A session after the last one ended within a minute of reopening the person's apps (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 4): Resume's record says it reopened Inbox and never ran a minute, so what it reopened may be what ended it. The session asks first, as a Mac asks after an app quit while reopening its windows: \"The last time you logged in, OxyOS quit unexpectedly while reopening your apps.\", \"Do you want to try to reopen them again?\", Inbox listed, Reopen (the keyboard on it) and Don't Reopen. Don't Reopen opens nothing, and the record says nothing runs or was reopened, so a later end reopens nothing. With the session reopening without asking, Inbox starts and the run fails.",
+ "about": "A session after the last one ended within a minute of reopening the person's apps (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 4): Resume's record says it reopened Inbox and never ran a minute, so what it reopened may be what ended it. The session asks first, as a Mac asks after an app quit while reopening its windows: \"The last time you logged in, OxyOS quit unexpectedly while reopening your apps.\", \"Do you want to try to reopen them again?\", Inbox listed, Reopen (the keyboard on it) and Don’t Reopen. Don’t Reopen opens nothing, and the record says nothing runs or was reopened, so a later end reopens nothing. With the session reopening without asking, Inbox starts and the run fails.",
  "locale": "en_US.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -49,7 +49,7 @@
    }
   },
   {
-   "name": "Don't Reopen: nothing opens, and the record keeps nothing to reopen",
+   "name": "Don’t Reopen: nothing opens, and the record keeps nothing to reopen",
    "do": [
     "press_named",
     "Don’t Reopen"

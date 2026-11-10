@@ -1,0 +1,15 @@
+{
+  "id": "so.oxy.hangprobe",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "Hang Probe",
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "HangProbe"
+  },
+  "architectures": [
+    "any"
+  ]
+}
