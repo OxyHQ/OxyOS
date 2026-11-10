@@ -78,6 +78,9 @@ class AsyncStorage {
   void request(folly::dynamic request, Done done);
   // Each turn: hands answers to their requests. True if it did.
   bool deliver();
+  // Requests asked and not yet answered (a write among them is not yet on the disk): while any is,
+  // the application may not be ended at once (docs/adr/0064, decision 10). The JavaScript thread's.
+  size_t outstanding() const { return outstanding_; }
   // Readable while answers wait.
   int fd() const { return wake_; }
 
@@ -91,6 +94,8 @@ class AsyncStorage {
   std::deque<std::pair<std::string, Done>> requests_;
   std::deque<std::pair<std::string, Done>> answers_;
   bool stopping_ = false;
+  // The JavaScript thread's count of requests not yet answered.
+  size_t outstanding_ = 0;
   std::thread worker_;
 };
 

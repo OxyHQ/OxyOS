@@ -466,6 +466,7 @@ test("the account's applications are followed as Settings asks for them and as t
 function playedQuit({ quitRequests = true } = {}) {
   const handles: boolean[] = [];
   const replies: { serial: number; quit: boolean }[] = [];
+  const holds: number[] = [];
   let ask: ((event: { serial: number; reason: string }) => void) | undefined;
   const events: Events = {
     addListener(name, handler) {
@@ -482,8 +483,11 @@ function playedQuit({ quitRequests = true } = {}) {
       replies.push({ serial, quit });
       return true;
     },
+    disableSuddenTermination: () => void holds.push(1),
+    enableSuddenTermination: () => void holds.push(-1),
   };
   return {
+    holds,
     application: createApplication(native, quietSession(), events),
     handles,
     replies,
@@ -581,4 +585,12 @@ test("backups and Settings › Storage are the session's requests, rejecting wit
   assert.deepEqual(sent.at(-1)?.body, { uninstall: { id: 'so.oxy.chat' } });
   void platform.settings.resetApplication('so.oxy.chat');
   assert.deepEqual(sent.at(-1)?.body, { resetApplication: { id: 'so.oxy.chat' } });
+});
+
+test('an application holds Sudden Termination off while it has unsaved work (ADR 0064, decision 10)', () => {
+  const { application, holds } = playedQuit();
+  application.disableSuddenTermination();
+  application.disableSuddenTermination();
+  application.enableSuddenTermination();
+  assert.deepEqual(holds, [1, 1, -1]);
 });

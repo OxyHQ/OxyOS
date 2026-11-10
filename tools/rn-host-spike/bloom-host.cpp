@@ -1511,6 +1511,9 @@ int main(int argc, char** argv) {
     // answers (it registered a handler), and whether it answered quit, which ends the host.
     bool quitHandled = false;
     bool quitAnswered = false;
+    // Sudden Termination (decision 10): JavaScript's holds, and what the compositor was told last.
+    int suddenHolds = 0;
+    std::optional<bool> suddenTold;
     // File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8): the answers to this window's
     // requests, assembled from chunks. A request and an answer cite the latest press or key, as
     // the session requires.
@@ -1588,6 +1591,9 @@ int main(int argc, char** argv) {
     if (!shellMode && window && window->protocolVersion() >= OXYOS_QUIT_REQUESTS_VERSION) {
       services.quit.available = true;
       services.quit.handles = [&quitHandled](bool handles) { quitHandled = handles; };
+      services.quit.holdSuddenTermination = [&suddenHolds](int delta) {
+        suddenHolds = std::max(0, suddenHolds + delta);
+      };
       services.quit.reply = [&window, &quitAnswered](uint32_t serial, bool quit) {
         bool sent = window->replyToQuit(serial, quit);
         oxyos::Report::get().input("quit.replied", 0,
@@ -2504,6 +2510,16 @@ int main(int argc, char** argv) {
                                            folly::dynamic::array("OxyOSQuitRequested", told));
           } else if (services.quit.reply) {
             services.quit.reply(asked.code, true);
+          }
+        }
+        // Sudden Termination (docs/adr/0064, decision 10): it may be ended at once, without being
+        // asked, while JavaScript handles no question to quit, holds nothing off and no storage
+        // request is unanswered (a write not yet on the disk); told to the compositor as it changes.
+        if (services.quit.available) {
+          bool clean = !quitHandled && suddenHolds == 0 && (!services.storage || services.storage->outstanding() == 0);
+          if (suddenTold != clean && window->setSuddenTermination(clean)) {
+            suddenTold = clean;
+            oxyos::Report::get().input("sudden.termination", 0, folly::dynamic::object("enabled", clean));
           }
         }
         // Answered quit (here or by JavaScript): it ends now, as for a close request, whatever its

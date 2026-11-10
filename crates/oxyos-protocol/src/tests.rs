@@ -436,6 +436,7 @@ fn requests() -> Vec<Request> {
             serial: 15,
             quit: true,
         },
+        Request::SuddenTermination { enabled: true },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -3233,6 +3234,13 @@ fn version_38_quit_requests_are_only_version_38s() {
     let mut old = Vec::new();
     assert!(!write_event_for(&mut old, &flags, 37).unwrap());
     assert!(old.is_empty());
+}
+
+#[test]
+fn version_40_sudden_termination_is_only_version_40s() {
+    let told = Request::SuddenTermination { enabled: true };
+    assert_eq!(request_since(&told), 40);
+    assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
 }
 
 #[test]

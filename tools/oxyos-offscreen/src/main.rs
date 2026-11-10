@@ -818,12 +818,31 @@ impl Session {
         let running: Vec<String> = launcher
             .map(|launcher| launcher.running().map(|(_, l)| l.id.clone()).collect())
             .unwrap_or_default();
+        // What the session started it can end at once, as an end begins (ADR 0064, decision 10).
+        let endable: Vec<ClientId> = pids
+            .iter()
+            .filter(|(_, pid)| {
+                launcher.is_some_and(|launcher| launcher.application_of(**pid).is_some())
+            })
+            .map(|(client, _)| *client)
+            .collect();
+        ending.set_endable(endable);
         let served = ending.serve(
             &mut self.compositor,
             &mut self.settings,
             &|client| names.get(&client).cloned().unwrap_or_default(),
             &running,
         );
+        let at_once = ending.take_ended_at_once();
+        if let Some(launcher) = self.launcher.as_mut() {
+            for client in at_once {
+                if let Some(pid) = pids.get(&client) {
+                    if launcher.kill(*pid) {
+                        eprintln!("[launch] ended {pid} at once: nothing unsaved");
+                    }
+                }
+            }
+        }
         self.logged_out |= served.log_out;
         self.quit_asked |= matches!(ending.state_name(), "quitting" | "ending" | "ended");
     }
