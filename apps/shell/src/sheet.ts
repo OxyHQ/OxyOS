@@ -95,6 +95,8 @@ export type SheetText =
   | { kind: "end-session"; action: SessionEndAction; seconds: number; reopenWindows: boolean }
   | { kind: "power-key"; reopenWindows: boolean }
   | { kind: "end-session-cancelled"; action: SessionEndAction; application: string }
+  /** The last session ended within a minute of reopening these (docs/adr/0065, decision 4). */
+  | { kind: "reopen-again"; applications: string[] }
   | { kind: "end-session-timed-out"; action: SessionEndAction; application: string }
   | {
       kind: "end-session-failed";
@@ -527,6 +529,17 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         ],
       };
     }
+    case "reopen-again":
+      return {
+        title: w.reopenAgain,
+        body: w.reopenAgainBody,
+        lines: Array.isArray(sheet.applications) ? sheet.applications.map((name) => ({ label: String(name) })) : [],
+        accept: w.reopenAgainButton,
+        refuse: w.dontReopen,
+        destructive: false,
+        focusAnswer: true,
+        defaultAnswer: true,
+      };
     case "end-session-cancelled":
       return {
         title: messages.power.cancelled[sheet.action](sheet.application),
@@ -590,6 +603,7 @@ export function startsOnAnswer(sheet: SheetText): boolean {
       return sheet.show === "notice";
     case "end-session":
     case "power-key":
+    case "reopen-again":
     case "end-session-cancelled":
     case "end-session-timed-out":
     case "end-session-failed":

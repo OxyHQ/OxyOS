@@ -218,6 +218,12 @@ fn main() -> Result<()> {
     // Before any thread or child: nothing the session starts inherits the service manager's
     // socket.
     let notify = oxyos_seat::notify::Notify::take();
+    // And the login program's worker's heartbeat (docs/adr/0065), kept from what it starts.
+    let mut heartbeat = oxyos_seat::heartbeat::Heartbeat::take();
+    // How the person's last session ended because of a problem, and, at the login screen, whether
+    // the last one did (docs/adr/0065, decision 2), as the login program tells it.
+    let session_ended = oxyos_compositor::crashes::SessionEnded::take();
+    let last_session_problem = oxyos_compositor::login::last_session_problem();
     let mut args = std::env::args_os().skip(1);
     let mut layout: Option<oxyos_input::Layout> = None;
     let mut command: Vec<OsString> = Vec::new();
@@ -839,29 +845,42 @@ fn main() -> Result<()> {
     // passed over.
     // In Safe Mode none is (docs/adr/0054-recovery-and-erasing.mdx, decision 10), and the list stays
     // the person's for the next normal start.
-    if safe_mode && !greeter {
-        eprintln!("[session] Safe Mode: nothing opened at login");
-    } else if !greeter {
+    // Resume (docs/adr/0065, decision 3): what the last session leaves to open, whatever ended it
+    // (the person's own end's reopen file, else what ran, as the person's latest choice of Reopen
+    // windows says), and the record of this one begun. Never at the login screen; in Safe Mode
+    // nothing is opened, and what runs there is what the next start reopens. After the person's
+    // login items, which are not opened twice.
+    if !greeter && !safe_mode {
         for id in &settings.preferences().open_at_login {
             match launcher.launch(id) {
                 Ok(pid) => eprintln!("[session] opened {id} at login ({pid})"),
                 Err(error) => eprintln!("[session] {id} not opened at login: {error}"),
             }
         }
-        // Reopen windows when logging back in (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
-        // what ran as the person last logged out, restarted or shut down, read once; what was
-        // opened at login already is not opened twice.
-        if let Some(path) = oxyos_compositor::session_end::reopen_path() {
-            for id in oxyos_compositor::session_end::take_reopen(&path) {
-                if settings.preferences().open_at_login.contains(&id) {
-                    continue;
-                }
-                match launcher.launch(&id) {
-                    Ok(pid) => eprintln!("[session] reopened {id} at login ({pid})"),
-                    Err(error) => eprintln!("[session] {id} not reopened at login: {error}"),
-                }
-            }
-        }
+    }
+    let mut reopened_any = false;
+    let mut resume = (!greeter)
+        .then(oxyos_compositor::resume::path)
+        .flatten()
+        .map(|path| {
+            let (resume, reopened) = oxyos_compositor::resume::Resume::at_login(
+                path,
+                oxyos_compositor::session_end::reopen_path().as_deref(),
+                settings.preferences(),
+                safe_mode,
+                &mut launcher,
+                &mut compositor.scene,
+                Instant::now(),
+            );
+            reopened_any = reopened;
+            resume
+        });
+    // The last session ended because of a problem: its report, and the person told.
+    if let Some(ended) = session_ended.as_ref().filter(|_| !greeter) {
+        crashes.session_ended(&mut compositor.scene, ended, reopened_any);
+    }
+    if safe_mode && !greeter {
+        eprintln!("[session] Safe Mode: nothing opened at login");
     }
     // Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
     // logind on a thread of its own, its power key held from now on, so logind never turns the
@@ -1029,6 +1048,13 @@ fn main() -> Result<()> {
         // Resetting an application and the crash notices' answers (docs/adr/0061), before the
         // store, which takes the requests left: what the person reopens is started as any launch.
         crashes.set_locale(&settings.locale());
+        // The login screen asks whether the last session ended because of a problem.
+        if greeter {
+            oxyos_compositor::login::answer_last_session(
+                &mut compositor.scene,
+                last_session_problem,
+            );
+        }
         let served = crashes.serve(&mut compositor.scene, &mut launcher, greeter);
         // What a reset application donated to the index goes with its data (decision 5).
         if let Some(search) = search.as_mut() {
@@ -1538,11 +1564,31 @@ fn main() -> Result<()> {
             let seconds = u64::try_from(crossing.saturating_sub(settings::now())).unwrap_or(0);
             wait = wait.min(Duration::from_secs(seconds));
         }
+        // Resume's record follows what runs (docs/adr/0065, decision 3), and the person's answer to
+        // reopening again is taken.
+        if let Some(resume) = resume.as_mut() {
+            resume.serve(
+                &mut compositor.scene,
+                &mut launcher,
+                settings.preferences(),
+                Instant::now(),
+            );
+        }
+        // The worker's heartbeat (docs/adr/0065, decision 1): said as each turn ends, and a turn
+        // waits at most `heartbeat::WAIT`, so a session that runs says it; one that stops is ended.
+        if let Some(heartbeat) = heartbeat.as_mut() {
+            heartbeat.beat(Instant::now());
+            wait = wait.min(oxyos_seat::heartbeat::WAIT);
+        }
         compositor.idle_wait = wait;
         if let Err(error) = compositor.serve(&listener) {
             break Err(error);
         }
     };
+    // Ending in order: the worker gives its applications their time to quit.
+    if let Some(heartbeat) = heartbeat.as_mut() {
+        heartbeat.ending();
+    }
     if let Some(application) = application.as_mut() {
         end(application)?;
     }
