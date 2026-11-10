@@ -526,11 +526,6 @@ jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Va
       });
 }
 
-std::function<void()>& hostCallBarrier() {
-  static std::function<void()> barrier;
-  return barrier;
-}
-
 jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
   return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
 }
