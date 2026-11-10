@@ -140,7 +140,7 @@ pub const OXYOS_EVENT_MENU_BAR_TEXT: u32 = 72;
 pub const OXYOS_EVENT_MENU_BAR_COMMITTED: u32 = 73;
 /// To an application: a command of its menus chosen in the shell's bar.
 pub const OXYOS_EVENT_MENU_ITEM_ACTIVATED: u32 = 74;
-/// To the session's shell (version 41): an entry of the menus being told is one of the
+/// To the session's shell (version 43): an entry of the menus being told is one of the
 /// application's standard commands (code: the window; detail: the entry; height:
 /// OXYOS_MENU_ROLE_*), after its MENU_BAR_ITEM and before MENU_BAR_COMMITTED.
 pub const OXYOS_EVENT_MENU_BAR_ROLE: u32 = 75;
@@ -226,7 +226,7 @@ pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
 pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
 /// Hides every application but the window's (window 0: every one), and shows every application
 /// hidden again (ADR 0021: Hide Others and Show All). Refused to a compositor of a version before
-/// 41.
+/// 43.
 pub const OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS: u8 = 11;
 pub const OXYOS_MANAGE_SHOW_ALL_APPLICATIONS: u8 = 12;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
@@ -3790,7 +3790,7 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility_detailed(
 /// Declares a toplevel's menus (ADR 0021), replacing its last: `count` entries in order, each
 /// parent before what it holds, as the commit `serial` (above every earlier one of the window;
 /// a MENU_ITEM_ACTIVATED names it with the chosen entry's index), each entry's role told only to
-/// a compositor of version 41 or newer (an older one's shell shows it where it is declared). A
+/// a compositor of version 43 or newer (an older one's shell shows it where it is declared). A
 /// label longer than the protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
 /// be another. More entries, an unknown kind or flags: OXYOS_ERROR, and nothing is sent. 0 on
 /// success.

@@ -225,7 +225,7 @@ messages! {
         // by the window's number, the commit's serial and the command's index in it, as it was
         // told them (MenuBar). Anything else is answered with nothing.
         84 => ActivateMenuItem { window: u32, serial: u32, index: u32 },
-        // Version 41: which of the application's standard commands an entry of the menus being
+        // Version 43: which of the application's standard commands an entry of the menus being
         // received is (its About, its Settings…), after the entry and before MenusCommit; only a
         // command without a check, each role at most once in a commit, an entry at most one.
         85 => MenuItemRole { surface: u32, index: u32, role: MenuRole },
@@ -278,7 +278,7 @@ messages! {
         // as one: the same application id, launched or claimed alike.
         110 => HideApplication { window: u32 },
         111 => QuitApplication { window: u32 },
-        // Version 41 (ADR 0021): hides every application but the one of `window` (0: every
+        // Version 43 (ADR 0021): hides every application but the one of `window` (0: every
         // application), as a Mac's Hide Others; and shows every hidden application again, as its
         // Show All, without changing the active window.
         113 => HideOtherApplications { window: u32 },
@@ -707,7 +707,7 @@ messages! {
         // To an application: the person chose one of its commands in the shell's bar, the entry
         // `index` of its commit `menus`. `serial` is the choice, a user input as a key press's is.
         74 => MenuItemActivated { surface: u32, serial: u64, menus: u32, index: u32 },
-        // Version 41, to the session's shell: an entry of the menus being told is one of the
+        // Version 43, to the session's shell: an entry of the menus being told is one of the
         // application's standard commands (MenuItemRole), after its MenuBarItem and before
         // MenuBarCommitted. A shell of version 39 is never told it.
         75 => MenuBarItemRole { window: u32, index: u32, role: MenuRole },

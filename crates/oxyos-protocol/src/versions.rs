@@ -86,7 +86,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
 /// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
-/// version 41, the application's own menu (ADR 0021): which commands of a window's menus are its
+/// version 43, the application's own menu (ADR 0021): which commands of a window's menus are its
 /// About and its Settings… (`MenuItemRole`, `MenuBarItemRole`), both ways, the shell told them
 /// with the menus, and the shell hiding the other applications and showing every one
 /// (`HideOtherApplications`, `ShowAllApplications`).
@@ -113,7 +113,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
-    (41, 75..=75),
+    (43, 75..=75),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -139,8 +139,8 @@ const REQUESTS_ADDED: Added = &[
     (38, 168..=168),
     (39, 70..=70),
     (40, 169..=169),
-    (41, 85..=85),
-    (41, 113..=114),
+    (43, 85..=85),
+    (43, 113..=114),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

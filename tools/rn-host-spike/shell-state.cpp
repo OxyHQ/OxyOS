@@ -237,7 +237,7 @@ bool ShellState::observe(const OxyOSEvent& event) {
           .append(event.text, strnlen(event.text, sizeof(event.text)));
       return false;
     }
-    // Which entry is the application's About or Settings… (protocol version 41).
+    // Which entry is the application's About or Settings… (protocol version 43).
     case OXYOS_EVENT_MENU_BAR_ROLE:
       if (event.code != receivingMenuBar_.window || event.detail >= receivingMenuBar_.items.size()) return false;
       receivingMenuBar_.items[event.detail].role = event.height;

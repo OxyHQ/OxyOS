@@ -507,7 +507,7 @@ typedef struct OxyOSClient OxyOSClient;
  *               flag: OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
  *   MENU_BAR_TEXT  code: the window; detail: the entry; height: OXYOS_MENU_LABEL or
  *               OXYOS_MENU_SHORTCUT; text: a chunk of it, appended.
- *   MENU_BAR_ROLE  (version 41) code: the window; detail: the entry; height: OXYOS_MENU_ROLE_ABOUT
+ *   MENU_BAR_ROLE  (version 43) code: the window; detail: the entry; height: OXYOS_MENU_ROLE_ABOUT
  *               or _SETTINGS: the application's standard command it is, which the shell shows in
  *               the application's own menu.
  *   MENU_BAR_COMMITTED  code: the window: the bar is whole.
@@ -762,7 +762,7 @@ typedef struct OxyOSAccessibleDetail {
 #define OXYOS_MENU_SHORTCUT 2
 #define OXYOS_NO_MENU_PARENT 0xFFFFFFFF
 /* Which of the application's standard commands an entry is: none, its About, its Settings…
- * (ADR 0021), told to a compositor of version 41 or newer. */
+ * (ADR 0021), told to a compositor of version 43 or newer. */
 #define OXYOS_MENU_ROLE_NONE 0
 #define OXYOS_MENU_ROLE_ABOUT 1
 #define OXYOS_MENU_ROLE_SETTINGS 2
@@ -836,7 +836,7 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
 #define OXYOS_MANAGE_FORCE_QUIT_APPLICATION 10
 /* Hides every application but the one of `window` (0: every application), as a Mac's Hide Others,
  * and shows every hidden application again without changing the active window, as its Show All
- * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 41. */
+ * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 43. */
 #define OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS 11
 #define OXYOS_MANAGE_SHOW_ALL_APPLICATIONS 12
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
