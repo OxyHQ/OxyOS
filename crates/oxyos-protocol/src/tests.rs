@@ -3251,7 +3251,7 @@ fn version_40_sudden_termination_is_only_version_40s() {
 }
 
 #[test]
-fn version_44_material_regions_are_only_version_44s() {
+fn version_45_material_regions_are_only_version_45s() {
     let region = Request::MaterialRegion {
         surface: 1,
         index: 0,
@@ -3259,8 +3259,8 @@ fn version_44_material_regions_are_only_version_44s() {
         rect: Rect::new(0, 0, 0, 0),
         radius: 0,
     };
-    assert_eq!(request_since(&region), 44);
-    assert_eq!(MATERIAL_VERSION, 44);
+    assert_eq!(request_since(&region), 45);
+    assert_eq!(MATERIAL_VERSION, 45);
 }
 
 #[test]

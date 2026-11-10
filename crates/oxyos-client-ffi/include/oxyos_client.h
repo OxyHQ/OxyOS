@@ -1001,7 +1001,7 @@ int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
  * beneath the surface; `count` 0: none. Kept until another list replaces it. An error, sending
  * nothing, past OXYOS_MAX_MATERIAL_REGIONS or to a compositor of a version before
  * OXYOS_MATERIAL_VERSION. */
-#define OXYOS_MATERIAL_VERSION 44
+#define OXYOS_MATERIAL_VERSION 45
 #define OXYOS_MAX_MATERIAL_REGIONS 16
 int oxyos_client_set_material_regions(OxyOSClient* client, uint32_t surface, const int32_t* regions, size_t count);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
