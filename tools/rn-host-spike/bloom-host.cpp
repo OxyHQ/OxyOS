@@ -223,7 +223,9 @@ class Mounter : public SchedulerDelegate {
     if (queue_.empty()) return std::nullopt;
     return queuedAt_;
   }
-  // The UI thread: applies what was handed over, in order. True if it mounted or handled anything.
+  // Applies what was handed over, in order: the UI thread, or JavaScript's as it calls into the host
+  // (host-modules.h's HostCall), the UI thread's state held either way. True if it mounted or handled
+  // anything.
   bool apply() {
     std::deque<Item> items;
     {
@@ -373,7 +375,7 @@ class Mounter : public SchedulerDelegate {
   }
   oxyos::ViewTree& tree_;
   const Scheduler* scheduler_ = nullptr;
-  // The UI thread's own.
+  // The UI thread's state's, as the tree is.
   bool changed_ = false;
   uint64_t appliedBatch_ = 0;
   // Shared with the threads that commit and send. A pull holds it, so the queue has transactions in
@@ -1031,6 +1033,18 @@ int main(int argc, char** argv) {
   mounter.runningBatch = [thread = js.get()] { return thread->running(); };
   mounter.wakeWhenIdle = &wakeUiWhenIdle;
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
+  // A call JavaScript makes into the host sees the tree with what it committed before the call, as
+  // when each task's commits were mounted as it ended: a drag's image is of the item its press just
+  // selected. Unless a scenario applies everything at the frame. What the mount draws there (a
+  // modal's last frame) is drawn on the CPU: the GPU's painter is the UI thread's.
+  oxyos::hostCallBarrier() = [&mounter] {
+    if (oxyos::UiThread::isCurrent() || mounter.mountAtFrame) return;
+    oxyos::CpuPaintScope cpu;
+    mounter.apply();
+  };
+  struct BarrierLifted {
+    ~BarrierLifted() { oxyos::hostCallBarrier() = nullptr; }
+  } barrierLifted;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;

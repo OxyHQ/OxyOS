@@ -41,6 +41,22 @@ namespace jsi = facebook::jsi;
 // the services), so none runs while the loop works. A value that is no function is returned as is.
 jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method);
 
+// What a call into the host does first, its state held: the host's tree takes what JavaScript
+// committed before the call (bloom-host.cpp's mounting layer), so a method that reads it (a drag's
+// image of a view, the focused field) sees what JavaScript did before calling it, as on the one thread.
+std::function<void()>& hostCallBarrier();
+
+// The UI thread's state held for a call into the host, after its barrier.
+class HostCall {
+ public:
+  HostCall() {
+    if (auto& barrier = hostCallBarrier()) barrier();
+  }
+
+ private:
+  UiThread::Lock lock_;
+};
+
 // A module of React Native's codegen (a NativeOxyOS*CxxSpec) whose methods hold the UI thread's state.
 template <typename Module>
 class UiLocked : public Module {
@@ -107,7 +123,7 @@ class HostModule : public TurboModule {
     auto fn = it->second;
     return jsi::Function::createFromHostFunction(
         rt, prop, 0, [fn](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
-          UiThread::Lock uiState;
+          HostCall call;
           return fn(rt, args, count);
         });
   }

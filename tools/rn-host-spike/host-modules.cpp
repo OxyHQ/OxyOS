@@ -521,9 +521,14 @@ jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Va
   auto inner = std::make_shared<jsi::Function>(method.getObject(rt).getFunction(rt));
   return jsi::Function::createFromHostFunction(
       rt, name, 0, [inner](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
-        UiThread::Lock uiState;
+        HostCall call;
         return inner->call(rt, args, count);
       });
+}
+
+std::function<void()>& hostCallBarrier() {
+  static std::function<void()> barrier;
+  return barrier;
 }
 
 jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
