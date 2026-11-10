@@ -220,9 +220,9 @@ class UnimplementedComponentsAreDeclared(unittest.TestCase):
         "host-report.jsonl.shell": [{"kind": "unimplemented", "t": 3, "component": "AndroidSwitch"}],
     }
 
-    def check(self, declared, reports=REPORTS):
+    def check(self, declared, reports=REPORTS, sometimes=None):
         failures = []
-        regress.check_unimplemented(declared, reports, failures)
+        regress.check_unimplemented(declared, reports, failures, sometimes)
         return failures
 
     def test_each_drawn_declared_passes_in_any_order(self):
@@ -243,6 +243,23 @@ class UnimplementedComponentsAreDeclared(unittest.TestCase):
     def test_one_declared_and_not_drawn_fails(self):
         failures = self.check(["AndroidProgressBar", "AndroidSwitch", "AndroidDrawerLayout"])
         self.assertEqual(failures, ["the scenario declares AndroidDrawerLayout unimplemented, but no host drew it"])
+
+    def test_one_sometimes_drawn_passes_drawn_or_not(self):
+        sometimes = [{"component": "AndroidProgressBar", "why": "the unlock button's spinner, on a slow turn"}]
+        self.assertEqual(self.check(["AndroidSwitch"], sometimes=sometimes), [])
+        self.assertEqual(self.check(None, {"host-report.jsonl.shell": self.REPORTS["host-report.jsonl.shell"]},
+                                    sometimes=[]), ["a host drew AndroidSwitch, a native component it has no "
+                                                    "implementation of, as a plain view: the scenario does not "
+                                                    "declare it (`unimplemented`)"])
+        self.assertEqual(self.check(["AndroidSwitch"], {"host-report.jsonl.shell": self.REPORTS["host-report.jsonl.shell"]},
+                                    sometimes=sometimes), [])
+
+    def test_sometimes_drawn_needs_its_reason_and_is_never_also_always(self):
+        self.assertEqual(self.check(["AndroidSwitch"], sometimes=[{"component": "AndroidProgressBar", "why": " "}]),
+                         ["the scenario declares AndroidProgressBar sometimes drawn without saying why (`why`)"])
+        both = self.check(["AndroidSwitch", "AndroidProgressBar"],
+                          sometimes=[{"component": "AndroidProgressBar", "why": "a spinner"}])
+        self.assertEqual(both, ["the scenario declares AndroidProgressBar both always and sometimes drawn"])
 
     def test_a_component_two_hosts_drew_is_declared_once(self):
         reports = {**self.REPORTS, "host-report.jsonl.launched": [

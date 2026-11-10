@@ -544,7 +544,10 @@ as plain views (React Native's Android `AndroidProgressBar`, ActivityIndicator's
 unimplemented-components.h, docs/react-native-android-adaptation.mdx): every run checks that the
 components the hosts reported (`unimplemented` lines, any host of the run, the shell's among them)
 are exactly those it lists, so a scenario never draws one silently, and a name nothing draws any
-more is no longer listed.
+more is no longer listed. `unimplemented_sometimes` lists those a run may draw or not, by its timing
+alone: a button's spinner (`loading`, an `AndroidProgressBar`) shown only while a step's work is
+slower than a frame, as Settings' Passwords shows one while it unlocks on a loaded machine. Each is
+said there with the reason, never to pass a component a scenario always draws.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
@@ -3784,13 +3787,22 @@ def host_reports(out):
     return {path.name: ended_report(path) for path in sorted(out.glob("host-report.jsonl*")) if path.is_file()}
 
 
-def check_unimplemented(declared, reports, failures):
+def check_unimplemented(declared, reports, failures, sometimes=None):
     """The native components the run's hosts have no implementation of and drew as plain views
     (unimplemented-components.h), each host's report saying each once (`unimplemented`): exactly the
-    scenario's `unimplemented`, in any order. One drawn that the scenario does not declare fails, as
-    does one it declares that no host drew."""
+    scenario's `unimplemented`, in any order, and of its `unimplemented_sometimes` (each drawn or not
+    by the run's timing alone, with its reason) any. One drawn that the scenario declares in neither
+    fails, as does one in `unimplemented` that no host drew; one in both lists is the scenario's
+    mistake."""
     drawn = {line["component"] for lines in reports.values() for line in lines if line["kind"] == "unimplemented"}
     declared = set(declared or ())
+    maybe = {entry["component"]: entry.get("why", "") for entry in (sometimes or ())}
+    for name in sorted(declared & set(maybe)):
+        failures.append(f"the scenario declares {name} both always and sometimes drawn")
+    for name in sorted(name for name, why in maybe.items() if not why.strip()):
+        failures.append(f"the scenario declares {name} sometimes drawn without saying why (`why`)")
+    drawn -= set(maybe)
+    declared -= set(maybe)
     for name in sorted(drawn - declared):
         failures.append(f"a host drew {name}, a native component it has no implementation of, as a plain "
                         f"view: the scenario does not declare it (`unimplemented`)")
@@ -6917,7 +6929,8 @@ def main():
     reports = host_reports(out)
     check_input_delivery(summary, reports, failures)
     # Native components drawn as plain views, each declared (every scenario).
-    check_unimplemented(scenario.get("unimplemented"), reports, failures)
+    check_unimplemented(scenario.get("unimplemented"), reports, failures,
+                        scenario.get("unimplemented_sometimes"))
     # Each host's frame diagnostics against its report, and the log they wrote to.
     check_diagnostics(report, run.stdout + run.stderr, failures)
     primary = (scenario.get("outputs") or "").split(",")[0]

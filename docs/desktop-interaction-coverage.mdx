@@ -255,7 +255,7 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 
 **Where the host answers as Android does without doing it** (the adaptation's rule is that an API OxyOS does not provide fails visibly):
 
-- **Closed 10 November 2026: unknown native components drawn silently.** Each is now said in the log and the report under its own name (`unimplemented-components.h`), and `regress.py` fails a scenario that draws one it does not declare (`unimplemented`).
+- **Closed 10 November 2026: unknown native components drawn silently.** Each is now said in the log and the report under its own name (`unimplemented-components.h`), and `regress.py` fails a scenario that draws one it does not declare (`unimplemented`, or `unimplemented_sometimes` for one only a run's timing draws: a working button's spinner).
 - **"Accepted with no effect"** (`forceRTL`, `setColorScheme`, and untested others such as `allowRTL`, `setAccessibilityFocus`, `exitApp` and StatusBar's setters) contradicts the doc's own rule. `android-adaptation` asserts them as `ok`.
 - **`BackHandler`**: `hardwareBackPress` is never emitted, so its listeners never fire, and `exitApp()` resolves doing nothing. Neither is documented as such.
 - **Closed 10 November 2026: `AccessibilityInfo`** answers from the session's screen reader and Reduce Transparency (section 6).
