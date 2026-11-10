@@ -61,8 +61,13 @@ class JsThread : public facebook::react::MessageQueueThread {
   JsThread(const JsThread&) = delete;
   JsThread& operator=(const JsThread&) = delete;
 
-  // React Native's queue: tasks run on the thread in the order they came.
+  // React Native's queue: tasks run on the thread in the order they came. What the loop queues during
+  // its turn (the UI thread: its events through Fabric's beat, device events, a frame's callbacks)
+  // is handed over together as the turn ends (handOver), as one turn's work reached JavaScript
+  // together when the two took turns: React then batches what a turn's events change into one render.
   void runOnQueue(std::function<void()>&& task) override;
+  // The loop's turn ends: what it queued runs.
+  void handOver();
   // Runs `task` on the thread after what is queued, and returns once it ran: at once when called on
   // the thread itself. The UI thread's state is let go meanwhile (ui-thread.h), since the task, or
   // what runs before it, may need it. An exception it throws is thrown here.
@@ -130,7 +135,7 @@ class JsThread : public facebook::react::MessageQueueThread {
   std::function<void()> idleHook_, settledHook_;
   mutable std::mutex mutex_;
   std::condition_variable wake_, settled_;
-  std::deque<Task> tasks_;
+  std::deque<Task> tasks_, staged_;
   bool running_ = false, quit_ = false, joined_ = false;
   std::atomic<uint64_t> queued_{0}, ran_{0};
   Timers* timers_ = nullptr;

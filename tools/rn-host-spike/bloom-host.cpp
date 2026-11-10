@@ -203,10 +203,10 @@ class Mounter : public SchedulerDelegate {
   // A scenario's forced order (OXYOS_HOST_TEST_ORDER=focus-first): a commit made on the UI thread is
   // applied only at the loop's frame too.
   bool mountAtFrame = false;
-  // A scenario's forced order (any OXYOS_HOST_TEST_ORDER): what JavaScript handed over is applied
-  // only once JavaScript is idle, after everything it ran with its commits (their passive effects
-  // among it), as the loop and JavaScript took turns: what an effect sends after its commit is
-  // handled with the mount, in the order the forced order is about.
+  // A scenario's forced order (focus-first, grant-first, window-focus-first): what JavaScript handed
+  // over is applied only once JavaScript is idle, after everything it ran with its commits (their
+  // passive effects among it), as the loop and JavaScript took turns: what an effect sends after its
+  // commit is handled with the mount, in the order the forced order is about.
   bool applyWhenJavaScriptIdle = false;
   // Whether anything waits to be applied.
   bool pending() {
@@ -877,7 +877,8 @@ int main(int argc, char** argv) {
   scheduler = std::make_unique<Scheduler>(toolbox, nullptr, &mounter);
   mounter.attach(scheduler.get());
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
-  mounter.applyWhenJavaScriptIdle = !testOrder.empty();
+  // Not the popups' own order, whose keyboard moves the loop holds itself.
+  mounter.applyWhenJavaScriptIdle = focusFirst || grantFirst || windowFocusFirst;
 
   // In a window, the compositor's configure decides the size the app lays out at.
   std::unique_ptr<oxyos::Window> window;
@@ -3559,6 +3560,8 @@ int main(int argc, char** argv) {
         // drag it ended is told after it.
         Beat::tickAll();
         dragDrop.ranJavaScript();
+        // What the turn queued for JavaScript runs now, together.
+        js->handOver();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
         wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() ||
@@ -3659,6 +3662,7 @@ int main(int argc, char** argv) {
   while (Clock::now() < deadline) {
     oxyos::UiThread::woken();
     Beat::tickAll();
+    js->handOver();
     bool busy = !js->idle();
     busy |= mounter.apply();
     worklets.tick();

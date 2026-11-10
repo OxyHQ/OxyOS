@@ -58,10 +58,21 @@ bool JsThread::isCurrent() const { return tJsThread; }
 
 void JsThread::runOnQueue(std::function<void()>&& task) {
   Cause cause = tJsThread ? tCause : cause_ ? cause_() : Cause{};
+  bool staged = UiThread::isCurrent();
   {
     std::lock_guard lock(mutex_);
-    tasks_.push_back(Task{std::move(task), std::move(cause)});
+    (staged ? staged_ : tasks_).push_back(Task{std::move(task), std::move(cause)});
     ++queued_;
+  }
+  if (!staged) wake_.notify_one();
+}
+
+void JsThread::handOver() {
+  {
+    std::lock_guard lock(mutex_);
+    if (staged_.empty()) return;
+    for (auto& task : staged_) tasks_.push_back(std::move(task));
+    staged_.clear();
   }
   wake_.notify_one();
 }
@@ -85,6 +96,7 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
     finished = true;
     doneChanged.notify_all();
   });
+  handOver();
   {
     UiThread::Unlocked unlocked;
     std::unique_lock lock(done);
@@ -95,12 +107,13 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
 
 bool JsThread::idle() const {
   std::lock_guard lock(mutex_);
-  if (running_ || !tasks_.empty()) return false;
+  if (running_ || !tasks_.empty() || !staged_.empty()) return false;
   auto due = timers_ ? timers_->next() : std::nullopt;
   return !due || *due > Clock::now();
 }
 
 bool JsThread::waitIdle(Clock::time_point deadline) {
+  handOver();
   UiThread::Unlocked unlocked;
   std::unique_lock lock(mutex_);
   return settled_.wait_until(lock, deadline, [this] { return quit_ || (!running_ && tasks_.empty()); });
