@@ -942,6 +942,9 @@ fn events() -> Vec<Event> {
             surface: 3,
             modifiers: MODIFIER_ALT | MODIFIER_SHIFT,
         },
+        Event::AppVisibility {
+            state: Visibility::Visible,
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -3234,6 +3237,27 @@ fn version_38_quit_requests_are_only_version_38s() {
     let mut old = Vec::new();
     assert!(!write_event_for(&mut old, &flags, 37).unwrap());
     assert!(old.is_empty());
+}
+
+#[test]
+fn app_visibility_is_told_only_to_its_version() {
+    for state in [Visibility::Hidden, Visibility::Visible, Visibility::Focused] {
+        let event = Event::AppVisibility { state };
+        assert_eq!(event_since(&event), APP_VISIBILITY_VERSION);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, APP_VISIBILITY_VERSION - 1).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, APP_VISIBILITY_VERSION).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), APP_VISIBILITY_VERSION - 1).is_err());
+        assert_eq!(
+            read_event_for(&mut Cursor::new(new), APP_VISIBILITY_VERSION).unwrap(),
+            event
+        );
+    }
+    assert!(Visibility::from_raw(0).is_none());
+    assert!(Visibility::from_raw(4).is_none());
+    assert_eq!(Visibility::from_raw(3), Some(Visibility::Focused));
 }
 
 #[test]

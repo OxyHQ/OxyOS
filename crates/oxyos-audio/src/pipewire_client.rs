@@ -200,6 +200,11 @@ enum Bound {
         proxy: pw::node::Node,
         _listener: pw::node::NodeListener,
     },
+    /// An application's output stream, followed for its process and whether it plays.
+    Stream {
+        _proxy: pw::node::Node,
+        _listener: pw::node::NodeListener,
+    },
     Device {
         proxy: pw::device::Device,
         _listener: pw::device::DeviceListener,
@@ -409,6 +414,44 @@ fn run(shared: &Arc<Shared>, generation: u64, stop: BorrowedFd<'_>) -> io::Resul
                             _listener: listener,
                         }
                     }
+                    pw::types::ObjectType::Node if class == Some("Stream/Output/Audio") => {
+                        let Ok(node) = registry.bind::<pw::node::Node, _>(global) else {
+                            return;
+                        };
+                        let listener = node
+                            .add_listener_local()
+                            .info({
+                                let (inner, publish) = (inner.clone(), publish.clone());
+                                move |info| {
+                                    let mut inner = inner.borrow_mut();
+                                    let stream = inner.graph.streams.entry(id).or_default();
+                                    let before = stream.clone();
+                                    if let Some(pid) = info
+                                        .props()
+                                        .and_then(|props| props.get("application.process.id"))
+                                        .and_then(|pid| pid.parse().ok())
+                                    {
+                                        stream.pid = Some(pid);
+                                    }
+                                    if info.change_mask().contains(pw::node::NodeChangeMask::STATE)
+                                    {
+                                        stream.running =
+                                            matches!(info.state(), pw::node::NodeState::Running);
+                                    }
+                                    let changed = *stream != before;
+                                    drop(inner);
+                                    if changed {
+                                        publish();
+                                    }
+                                }
+                            })
+                            .register();
+                        inner.borrow_mut().graph.streams.entry(id).or_default();
+                        Bound::Stream {
+                            _proxy: node,
+                            _listener: listener,
+                        }
+                    }
                     pw::types::ObjectType::Device if class == Some("Audio/Device") => {
                         let Ok(device) = registry.bind::<pw::device::Device, _>(global) else {
                             return;
@@ -472,6 +515,7 @@ fn run(shared: &Arc<Shared>, generation: u64, stop: BorrowedFd<'_>) -> io::Resul
                 let removed = inner.bound.remove(&id);
                 inner.graph.nodes.remove(&id);
                 inner.graph.devices.remove(&id);
+                inner.graph.streams.remove(&id);
                 if inner.metadata == Some(id) {
                     inner.metadata = None;
                     inner.graph.defaults.clear();

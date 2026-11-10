@@ -85,6 +85,14 @@ impl Unit {
         }
     }
 
+    /// The slice itself (`app.slice`): what its children's protection is drawn from.
+    pub fn slice(slice: Slice) -> Self {
+        Self {
+            name: slice.name().to_string(),
+            slice,
+        }
+    }
+
     /// A background service's: `oxyos-<name>-<pid>.scope` in `background.slice`.
     pub fn background(name: &str, pid: u32) -> Self {
         Self {
@@ -150,6 +158,9 @@ pub struct Properties {
     pub cpu_weight: Option<CpuWeight>,
     /// The disk's weight (1 to 10000, 100 the default), where the I/O controller is delegated.
     pub io_weight: Option<u64>,
+    /// Memory the kernel reclaims from it only when nothing unprotected is left (`MemoryLow`,
+    /// `memory.low`), in bytes: the focused application's working set (decision 4).
+    pub memory_low: Option<u64>,
 }
 
 impl Properties {
@@ -157,6 +168,7 @@ impl Properties {
         Properties {
             cpu_weight: newer.cpu_weight.or(self.cpu_weight),
             io_weight: newer.io_weight.or(self.io_weight),
+            memory_low: newer.memory_low.or(self.memory_low),
         }
     }
 }
@@ -263,6 +275,9 @@ pub mod user {
         if let Some(weight) = properties.io_weight {
             changed.push(("IOWeight", Value::from(weight)));
         }
+        if let Some(bytes) = properties.memory_low {
+            changed.push(("MemoryLow", Value::from(bytes)));
+        }
         if changed.is_empty() {
             return Ok(true);
         }
@@ -284,6 +299,9 @@ pub mod fixture {
 
     /// Where `unit`'s scope is in the fixture `root`.
     pub fn scope(root: &Path, unit: &Unit) -> PathBuf {
+        if unit.name == unit.slice.name() {
+            return root.join(&unit.name);
+        }
         root.join(unit.slice.name()).join(&unit.name)
     }
 
@@ -350,6 +368,9 @@ pub mod fixture {
         }
         if let Some(weight) = properties.io_weight.filter(|_| has("io.weight")) {
             write(&scope, "io.weight", &format!("default {weight}"))?;
+        }
+        if let Some(bytes) = properties.memory_low.filter(|_| has("memory.low")) {
+            write(&scope, "memory.low", &bytes.to_string())?;
         }
         Ok(true)
     }
