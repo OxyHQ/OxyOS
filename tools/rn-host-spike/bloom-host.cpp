@@ -891,11 +891,13 @@ int main(int argc, char** argv) {
   context->insert(oxyos::kModalScreenKey, modalScreen);
   SchedulerToolbox toolbox{};
   toolbox.contextContainer = context;
-  toolbox.runtimeExecutor = toJavaScript.executor(instance->getBufferedRuntimeExecutor());
+  // Fabric's own (a surface started or stopped, React Native's bindings installed), in order with
+  // what the instance schedules itself as it starts (its runtime initialized, the bundle loaded).
+  toolbox.runtimeExecutor = instance->getBufferedRuntimeExecutor();
   // Fabric's bindings (`nativeFabricUIManager`) are installed before the bundle runs, as iOS
   // installs them: code that runs as the bundle loads can then reach them, as Animated's native
   // module does when an app makes an animated component at the top of a module.
-  toolbox.bridgelessBindingsExecutor = toJavaScript.executor(instance->getUnbufferedRuntimeExecutor());
+  toolbox.bridgelessBindingsExecutor = instance->getUnbufferedRuntimeExecutor();
   // The descriptor registry keeps a reference to its provider registry (to resolve components
   // on demand), so the provider registry must outlive every Scheduler that uses it.
   auto providers = std::make_shared<ComponentDescriptorProviderRegistry>();
