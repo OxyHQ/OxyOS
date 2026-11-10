@@ -1280,6 +1280,7 @@ pub fn command(
             module,
             bundle,
             runtime: abi,
+            ..
         } => {
             let host = match abi {
                 Some(abi) => {
