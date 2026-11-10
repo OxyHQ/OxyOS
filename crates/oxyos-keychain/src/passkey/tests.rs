@@ -20,7 +20,7 @@ fn new_passkey<'a>(rp_id: &'a str, user_handle: &'a [u8]) -> NewPasskey<'a> {
         user_handle,
         user_name: "ana@example.com",
         user_display_name: "Ana",
-        apps: vec![SecretString::new("so.oxy.example")],
+        apps: vec![Secret::new("so.oxy.example")],
     }
 }
 
@@ -190,7 +190,7 @@ fn registration_is_none_attestation() {
     assert_eq!(kept.credential_id.expose(), b64(&credential_id));
     assert_eq!(kept.user_handle.expose(), b64(&[0x11; 32]));
     assert_eq!(kept.algorithm, -7);
-    assert_eq!(kept.apps, vec![SecretString::new("so.oxy.example")]);
+    assert_eq!(kept.apps, vec![Secret::new("so.oxy.example")]);
     assert_eq!(item.counter, 1);
     item.validate().unwrap();
 }

@@ -194,11 +194,7 @@ fn temporary(name: &str) -> Dir {
 
 fn attempt(greeter: &mut Greeter, account: &str, password: &str) -> Verdicted {
     assert_eq!(
-        greeter.attempt(
-            Some(account),
-            false,
-            Secret::new(password.as_bytes().to_vec())
-        ),
+        greeter.attempt(Some(account), false, Secret::new(password)),
         None
     );
     answer(greeter)

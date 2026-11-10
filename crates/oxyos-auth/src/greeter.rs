@@ -88,13 +88,13 @@ impl ToLogin {
                 if account.is_empty() || account.len() > MAX_ACCOUNT_BYTES {
                     return Err(invalid("an account is 1 to 31 bytes"));
                 }
-                if secret.0.len() > MAX_SECRET_BYTES {
+                if secret.len() > MAX_SECRET_BYTES {
                     return Err(invalid("a password is at most 512 bytes"));
                 }
                 packet.push(if *passcode { b'p' } else { b'a' });
                 packet.push(account.len() as u8);
                 packet.extend_from_slice(account.as_bytes());
-                packet.extend_from_slice(&secret.0);
+                packet.extend_from_slice(secret.as_bytes());
             }
             ToLogin::Shown => packet.push(b's'),
         }
@@ -116,10 +116,12 @@ impl ToLogin {
                 let account = std::str::from_utf8(account)
                     .map_err(|_| invalid("not an account"))?
                     .to_owned();
+                let secret = crate::Secret::from_utf8(secret.to_vec())
+                    .map_err(|_| invalid("a password is text"))?;
                 Ok(ToLogin::Attempt {
                     account,
                     passcode: *kind == b'p',
-                    secret: crate::Secret::new(secret.to_vec()),
+                    secret,
                 })
             }
             _ => Err(invalid("not a message to the login program")),

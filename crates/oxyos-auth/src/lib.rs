@@ -21,25 +21,9 @@ pub mod user;
 
 pub use checker::{Answer, Attempt, Checker, Online};
 
-/// A password on its way to PAM: overwritten in memory when dropped, never printed.
-pub struct Secret(Zeroizing<Vec<u8>>);
-
-impl Secret {
-    pub fn new(bytes: Vec<u8>) -> Self {
-        Self(Zeroizing::new(bytes))
-    }
-
-    /// The password's bytes, still overwritten when dropped.
-    pub fn into_bytes(self) -> Zeroizing<Vec<u8>> {
-        self.0
-    }
-}
-
-impl fmt::Debug for Secret {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Secret(…)")
-    }
-}
+/// A password on its way to PAM: the one secret type of OxyOS (`oxyos-secret`), overwritten in
+/// memory when dropped, never printed.
+pub use oxyos_secret::Secret;
 
 /// What PAM said of a password.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,14 +112,16 @@ impl Authenticator {
     /// A password that must be changed still unlocks: the session already exists, and changing it
     /// is the system's business, not the lock screen's. An expired or refused account does not.
     pub fn check(&self, secret: Secret) -> Result<Outcome, Error> {
-        if secret.0.contains(&0) {
+        if secret.as_bytes().contains(&0) {
             return Err(Error::NulInSecret);
         }
         // An empty password never unlocks, whatever the modules make of PAM_DISALLOW_NULL_AUTHTOK.
-        if secret.0.is_empty() {
+        if secret.is_empty() {
             return Ok(Outcome::Rejected);
         }
-        let mut bytes = Zeroizing::new(secret.0.to_vec());
+        // Sized for the NUL beforehand, so that pushing it leaves no copy behind.
+        let mut bytes = Zeroizing::new(Vec::with_capacity(secret.len() + 1));
+        bytes.extend_from_slice(secret.as_bytes());
         bytes.push(0);
         let password = CStr::from_bytes_with_nul(&bytes).map_err(|_| Error::NulInSecret)?;
         let codes = pam::check(&self.service, self.confdir.as_ref(), &self.user, password)

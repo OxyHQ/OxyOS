@@ -6,7 +6,6 @@
 
 use oxyos_account::keychain::passkey::Prompt as Told;
 use oxyos_account::keychain::passkey::{PasskeySheets, PromptKind, RetryReason};
-use oxyos_account::Secret;
 use oxyos_compositor::passkeys::{Choice, Kind, PasskeyPrompts, Prompt, Reply};
 
 pub struct Sheets(pub PasskeySheets);
@@ -31,9 +30,7 @@ impl PasskeyPrompts for Sheets {
                     desktop_entry_id: confirm.desktop_entry_id,
                     pid: confirm.pid,
                     rp_id: confirm.rp_id,
-                    user_name: confirm
-                        .user_name
-                        .map(|name| oxyos_compositor::autofill::Secret::new(name.expose())),
+                    user_name: confirm.user_name,
                     kind: kind(confirm.kind),
                     choices: confirm
                         .choices
@@ -64,11 +61,7 @@ impl PasskeyPrompts for Sheets {
                 id,
                 choice,
                 password,
-            } => self.0.confirm(
-                &id,
-                choice,
-                password.map(|password| Secret::new(password.as_str())),
-            ),
+            } => self.0.confirm(&id, choice, password),
             Reply::Cancel { id } => self.0.cancel(&id),
         }
     }

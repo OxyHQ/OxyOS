@@ -10,6 +10,7 @@ publish.workspace = true
 libc = "0.2"
 # Overwrites a password in memory once PAM has it.
 zeroize = "1"
+oxyos-secret = { path = "../oxyos-secret" }
 # One message a packet on the greeter's socket, its last never lost to its end.
 oxyos-seqpacket = { path = "../oxyos-seqpacket" }
 # Making its socket in place, as the services make theirs.

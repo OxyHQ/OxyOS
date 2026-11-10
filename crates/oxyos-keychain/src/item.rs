@@ -17,11 +17,11 @@
 //! `createdAt`, `counter` at least 1. The plaintext is the item's JCS, and only that spelling is
 //! read back; padded, it is at most [`MAX_PLAINTEXT`] bytes.
 //!
-//! Every text of an item is a [`SecretString`]: overwritten when dropped, never in `Debug`.
+//! Every text of an item is a [`Secret`]: overwritten when dropped, never in `Debug`.
 
 use crate::keyring::Keyring;
 use crate::seal::{self, NONCE_LENGTH};
-use crate::secret::{self, SecretString};
+use crate::secret::{self, Secret};
 use crate::wire::{is_timestamp, unb64, ItemId, VaultId, MAX_SAFE_INTEGER};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -94,63 +94,63 @@ impl Content {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Url {
-    pub url: SecretString,
+    pub url: Secret,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviousPassword {
     pub changed_at: String,
-    pub password: SecretString,
+    pub password: Secret,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Login {
-    pub title: SecretString,
-    pub username: SecretString,
-    pub password: SecretString,
+    pub title: Secret,
+    pub username: Secret,
+    pub password: Secret,
     /// Matched by registrable domain.
     pub urls: Vec<Url>,
     /// OxyOS desktop entry ids, iOS and Android package ids, none empty.
-    pub apps: Vec<SecretString>,
+    pub apps: Vec<Secret>,
     /// An `otpauth://totp/` URI, or none (`null`).
-    pub totp: Option<SecretString>,
-    pub notes: SecretString,
+    pub totp: Option<Secret>,
+    pub notes: Secret,
     /// Newest first, at most [`PASSWORD_HISTORY`].
     pub password_history: Vec<PreviousPassword>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Passkey {
-    pub rp_id: SecretString,
-    pub rp_name: SecretString,
+    pub rp_id: Secret,
+    pub rp_name: Secret,
     /// base64url of 1 to 64 bytes.
-    pub user_handle: SecretString,
-    pub user_name: SecretString,
-    pub user_display_name: SecretString,
+    pub user_handle: Secret,
+    pub user_name: Secret,
+    pub user_display_name: Secret,
     /// base64url of 16 random bytes.
-    pub credential_id: SecretString,
+    pub credential_id: Secret,
     /// [`ES256`].
     pub algorithm: i64,
     /// PKCS #8, base64url, at most 1024 bytes.
-    pub private_key: SecretString,
-    pub apps: Vec<SecretString>,
+    pub private_key: Secret,
+    pub apps: Vec<Secret>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Totp {
-    pub title: SecretString,
-    pub issuer: SecretString,
-    pub account: SecretString,
+    pub title: Secret,
+    pub issuer: Secret,
+    pub account: Secret,
     /// An `otpauth://totp/` URI.
-    pub uri: SecretString,
-    pub notes: SecretString,
+    pub uri: Secret,
+    pub notes: Secret,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Note {
-    pub title: SecretString,
-    pub body: SecretString,
+    pub title: Secret,
+    pub body: Secret,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,9 +168,9 @@ pub enum WifiSecurity {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Wifi {
     /// 1 to [`MAX_SSID_BYTES`] bytes.
-    pub ssid: SecretString,
+    pub ssid: Secret,
     /// Empty for an open network, and only for one.
-    pub password: SecretString,
+    pub password: Secret,
     pub security: WifiSecurity,
     pub hidden: bool,
 }
@@ -181,62 +181,62 @@ pub struct Wifi {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Wire {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    account: Option<SecretString>,
+    account: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     algorithm: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    apps: Option<Vec<SecretString>>,
+    apps: Option<Vec<Secret>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    body: Option<SecretString>,
+    body: Option<Secret>,
     counter: u64,
     created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    credential_id: Option<SecretString>,
+    credential_id: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     hidden: Option<bool>,
     id: Option<ItemId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    issuer: Option<SecretString>,
+    issuer: Option<Secret>,
     modified_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    notes: Option<SecretString>,
+    notes: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    password: Option<SecretString>,
+    password: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     password_history: Option<Vec<PreviousPassword>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    private_key: Option<SecretString>,
+    private_key: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    rp_id: Option<SecretString>,
+    rp_id: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    rp_name: Option<SecretString>,
+    rp_name: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     security: Option<WifiSecurity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    ssid: Option<SecretString>,
+    ssid: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    title: Option<SecretString>,
+    title: Option<Secret>,
     /// A login's: present as a URI or `null`; absent from the other types.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "present"
     )]
-    totp: Option<Option<SecretString>>,
+    totp: Option<Option<Secret>>,
     #[serde(rename = "type")]
     kind: Option<Kind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    uri: Option<SecretString>,
+    uri: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     urls: Option<Vec<Url>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    user_display_name: Option<SecretString>,
+    user_display_name: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    user_handle: Option<SecretString>,
+    user_handle: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    user_name: Option<SecretString>,
+    user_name: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    username: Option<SecretString>,
+    username: Option<Secret>,
     v: u32,
 }
 
@@ -296,18 +296,18 @@ fn check(condition: bool, what: &'static str) -> Result<()> {
 }
 
 /// A base64url field of `range` bytes.
-fn check_b64(text: &SecretString, range: std::ops::RangeInclusive<usize>) -> Result<()> {
+fn check_b64(text: &Secret, range: std::ops::RangeInclusive<usize>) -> Result<()> {
     let bytes = Zeroizing::new(unb64(text.expose(), "item")?);
     check(range.contains(&bytes.len()), "item (a field's length)")
 }
 
-fn check_otpauth(uri: &SecretString) -> Result<()> {
+fn check_otpauth(uri: &Secret) -> Result<()> {
     crate::totp::Totp::parse(uri.expose())
         .map(drop)
         .map_err(|_| Error::Malformed("item (not an otpauth://totp/ URI)"))
 }
 
-fn check_texts(texts: &[SecretString]) -> Result<()> {
+fn check_texts(texts: &[Secret]) -> Result<()> {
     check(
         texts.iter().all(|text| !text.is_empty()),
         "item (an empty entry)",
@@ -618,8 +618,8 @@ mod tests {
     const LATER: &str = "2026-11-07T12:30:00.000Z";
     const TOTP_URI: &str = "otpauth://totp/Ex:ana?secret=JBSWY3DPEHPK3PXP&issuer=Ex";
 
-    fn t(text: &str) -> SecretString {
-        SecretString::new(text)
+    fn t(text: &str) -> Secret {
+        Secret::new(text)
     }
 
     fn item(content: Content) -> Item {

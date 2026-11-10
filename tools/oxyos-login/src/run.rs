@@ -12,7 +12,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
-use zeroize::Zeroizing;
 
 pub struct Config {
     /// The development path: no login screen of its own (the development compositor connects as
@@ -217,7 +216,7 @@ struct Login {
     /// The password the login screen sent, until its check has concluded: a worker's PAM is
     /// given it, the accounts' service too, and a second worker if the service accepted what PAM
     /// rejected.
-    password: Option<Zeroizing<Vec<u8>>>,
+    password: Option<Secret>,
     /// The accounts' service's answers to online checks, from the threads that asked.
     online: (mpsc::Sender<Answered>, mpsc::Receiver<Answered>),
     notify: Option<oxyos_seat::notify::Notify>,
@@ -228,17 +227,13 @@ type Answered = (u64, Online);
 
 /// Asks the accounts' service at `socket` to check `account`'s password online, PAM having said
 /// `local`; unreachable (or a password it cannot take), nobody signs in.
-fn check_online(socket: &std::path::Path, account: &str, password: &[u8], local: Local) -> Online {
+fn check_online(socket: &std::path::Path, account: &str, password: Secret, local: Local) -> Online {
     use oxyos_account::platform::{Local as Said, Verdict};
-    let Ok(text) = std::str::from_utf8(password) else {
-        // No Oxy password is not text: PAM's verifier is the setup's, which was.
-        return Online::Rejected;
-    };
     let local = match local {
         Local::Accepted => Said::Accepted,
         Local::Rejected => Said::Rejected,
     };
-    match oxyos_account::ipc::check(socket, account, oxyos_account::Secret::new(text), local) {
+    match oxyos_account::ipc::check(socket, account, password, local) {
         Ok(checked) => {
             if let Some(reason) = checked.reason {
                 eprintln!("[login] {account}: the accounts' service says {reason:?}");
@@ -359,12 +354,7 @@ impl Login {
                 }
             }
             Action::Check { account, passcode } => {
-                let secret = Secret::new(
-                    self.password
-                        .as_ref()
-                        .map(|password| password.to_vec())
-                        .unwrap_or_default(),
-                );
+                let secret = self.password.clone().unwrap_or_default();
                 // A worker that answered and has not yet gone is reaped as it ends.
                 if let Some(earlier) = self.person.take() {
                     self.abandoned.push(earlier.child);
@@ -387,18 +377,13 @@ impl Login {
                 local,
                 check,
             } => {
-                let password = Zeroizing::new(
-                    self.password
-                        .as_ref()
-                        .map(|password| password.to_vec())
-                        .unwrap_or_default(),
-                );
+                let password = self.password.clone().unwrap_or_default();
                 let socket = self.config.accountd.clone();
                 let answers = self.online.0.clone();
                 let spawned = std::thread::Builder::new()
                     .name("oxyos-login-check".into())
                     .spawn(move || {
-                        let online = check_online(&socket, &account, &password, local);
+                        let online = check_online(&socket, &account, password, local);
                         let _ = answers.send((check, online));
                     });
                 if spawned.is_err() {
@@ -433,10 +418,7 @@ impl Login {
         let (Some(account), Some(password)) = (self.manager.handing_over(), &self.password) else {
             return;
         };
-        let Ok(text) = std::str::from_utf8(password) else {
-            return;
-        };
-        let password = oxyos_account::Secret::new(text);
+        let password = password.clone();
         let account = account.to_owned();
         let socket = self.config.accountd.clone();
         let _ = std::thread::Builder::new()
@@ -541,7 +523,7 @@ impl Login {
                             .iter()
                             .any(|action| matches!(action, Action::Check { .. }))
                         {
-                            self.password = Some(secret.into_bytes());
+                            self.password = Some(secret);
                         }
                         actions
                     }

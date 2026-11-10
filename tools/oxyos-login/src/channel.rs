@@ -111,7 +111,9 @@ impl Channel {
     pub fn next(&self) -> io::Result<ToWorker> {
         let packet = self.receive(true)?.expect("a blocking receive answers");
         match packet.split_first() {
-            Some((b'p', password)) => Ok(ToWorker::Password(Secret::new(password.to_vec()))),
+            Some((b'p', password)) => Secret::from_utf8(password.to_vec())
+                .map(ToWorker::Password)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "a password is text")),
             Some((b'o', [])) => Ok(ToWorker::Open),
             _ => Err(io::Error::new(io::ErrorKind::InvalidData, "not a message")),
         }
@@ -149,9 +151,7 @@ mod tests {
         let (manager, worker) = pair().unwrap();
         let worker = Channel::from_fd(worker);
         assert_eq!(manager.heard().unwrap(), None);
-        manager
-            .send_password(Secret::new(b"correct horse".to_vec()))
-            .unwrap();
+        manager.send_password(Secret::new("correct horse")).unwrap();
         manager.send_open().unwrap();
         let ToWorker::Password(password) = worker.next().unwrap() else {
             panic!("the password");

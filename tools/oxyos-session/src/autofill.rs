@@ -19,9 +19,7 @@ use oxyos_account::keychain::{
     Field as Asked, Fill, RegistrarClient, SaveConfirmations, SaveEvent,
 };
 use oxyos_account::session::Reason;
-use oxyos_compositor::autofill::{
-    Answer, Ask, Field, SaveAsk, Secret, Suggestion, ThreadedProvider,
-};
+use oxyos_compositor::autofill::{Answer, Ask, Field, SaveAsk, Suggestion, ThreadedProvider};
 use std::path::PathBuf;
 
 fn asked(field: Field) -> Asked {
@@ -62,15 +60,12 @@ fn answer(connection: &RegistrarClient, ask: &Ask) -> std::io::Result<Result<Ans
         } => connection
             .autofill_fill(desktop_entry_id, reference, asked(*field))?
             .map(|fill| match fill {
-                Fill::Credential { username, password } => Answer::Credential {
-                    username: Secret::new(username.expose()),
-                    password: Secret::new(password.expose()),
-                },
-                Fill::Code(code) => Answer::Code(Secret::new(code.expose())),
+                Fill::Credential { username, password } => {
+                    Answer::Credential { username, password }
+                }
+                Fill::Code(code) => Answer::Code(code),
             }),
-        Ask::Generate => connection
-            .autofill_generate()?
-            .map(|password| Answer::Generated(Secret::new(password.expose()))),
+        Ask::Generate => connection.autofill_generate()?.map(Answer::Generated),
     })
 }
 
@@ -171,7 +166,7 @@ mod tests {
     use oxyos_account::ipc::{Connection, Listener};
     use oxyos_account::keychain::{SaveConfirmation, Suggestion as Offered};
     use oxyos_account::session::{Answer as Told, Request};
-    use oxyos_account::Secret as AccountSecret;
+    use oxyos_account::Secret;
     use oxyos_compositor::autofill::{AutofillProvider, SaveConfirmations as _};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{mpsc, Arc, Mutex};
@@ -266,8 +261,8 @@ mod tests {
                 } if desktop_entry_id == "so.oxy.mail" => {
                     Told::AutofillSuggestions(vec![Offered {
                         reference: "r1".into(),
-                        title: AccountSecret::new("example.com"),
-                        username: AccountSecret::new("bea@example.com"),
+                        title: Secret::new("example.com"),
+                        username: Secret::new("bea@example.com"),
                     }])
                 }
                 Request::AutofillSuggest { .. } => Told::AutofillSuggestions(Vec::new()),
@@ -275,14 +270,14 @@ mod tests {
                     field: Asked::OneTimeCode,
                     ..
                 } => Told::AutofillCode {
-                    code: AccountSecret::new("123456"),
+                    code: Secret::new("123456"),
                 },
                 Request::AutofillFill { .. } => Told::AutofillCredential {
-                    username: AccountSecret::new("bea@example.com"),
-                    password: AccountSecret::new("made-up-1"),
+                    username: Secret::new("bea@example.com"),
+                    password: Secret::new("made-up-1"),
                 },
                 Request::AutofillGenerate {} => {
-                    Told::GeneratedPassword(AccountSecret::new("abcde-FGHIJ-12345-klmno"))
+                    Told::GeneratedPassword(Secret::new("abcde-FGHIJ-12345-klmno"))
                 }
                 _ => Told::refused(Reason::Locked),
             })
@@ -387,7 +382,7 @@ mod tests {
             Answer::Refused("unreachable".into())
         );
         played(&path, |_, _| {
-            Some(Told::GeneratedPassword(AccountSecret::new(
+            Some(Told::GeneratedPassword(Secret::new(
                 "abcde-FGHIJ-12345-klmno",
             )))
         });
@@ -449,7 +444,7 @@ mod tests {
             .send(&Told::ConfirmSave(SaveConfirmation {
                 id: "1".into(),
                 desktop_entry_id: "so.oxy.mail".into(),
-                username: AccountSecret::new("bea@example.com"),
+                username: Secret::new("bea@example.com"),
                 domain: Some("example.com".into()),
             }))
             .unwrap();
@@ -476,7 +471,7 @@ mod tests {
             .send(&Told::ConfirmSave(SaveConfirmation {
                 id: "2".into(),
                 desktop_entry_id: "so.oxy.mail".into(),
-                username: AccountSecret::new("bea@example.com"),
+                username: Secret::new("bea@example.com"),
                 domain: None,
             }))
             .unwrap();
@@ -492,7 +487,7 @@ mod tests {
             .send(&Told::ConfirmSave(SaveConfirmation {
                 id: "3".into(),
                 desktop_entry_id: "so.oxy.mail".into(),
-                username: AccountSecret::new("bea@example.com"),
+                username: Secret::new("bea@example.com"),
                 domain: None,
             }))
             .unwrap();

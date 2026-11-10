@@ -652,7 +652,7 @@ impl<V: VaultApi + 'static> KeychainService<V> {
                 apps: if browser {
                     Vec::new()
                 } else {
-                    vec![SecretString::new(asker.desktop_entry_id)]
+                    vec![Secret::new(asker.desktop_entry_id)]
                 },
             };
             let made = ItemId::random().map_err(|_| Reason::Failed).and_then(|id| {

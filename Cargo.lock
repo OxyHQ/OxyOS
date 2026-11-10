@@ -2598,6 +2598,7 @@ dependencies = [
  "oxyos-apps",
  "oxyos-keychain",
  "oxyos-preferences",
+ "oxyos-secret",
  "oxyos-service-socket",
  "psl",
  "rand_core 0.6.4",
@@ -2666,6 +2667,7 @@ name = "oxyos-auth"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "oxyos-secret",
  "oxyos-seqpacket",
  "oxyos-service-socket",
  "rustix",
@@ -2792,6 +2794,7 @@ dependencies = [
  "oxyos-preferences",
  "oxyos-protocol",
  "oxyos-seat",
+ "oxyos-secret",
  "oxyos-service-socket",
  "oxyos-solar",
  "oxyos-sound",
@@ -2992,6 +2995,7 @@ dependencies = [
  "hex",
  "hkdf",
  "hmac",
+ "oxyos-secret",
  "p256",
  "percent-encoding",
  "rand 0.8.8",
@@ -3073,6 +3077,7 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "futures-lite",
+ "oxyos-secret",
  "rustix",
  "serde",
  "serde_json",
@@ -3234,6 +3239,15 @@ dependencies = [
  "futures-lite",
  "rustix",
  "zbus",
+]
+
+[[package]]
+name = "oxyos-secret"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]
