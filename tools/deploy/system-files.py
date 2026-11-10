@@ -8,8 +8,9 @@ PAM services (pam.d/*), sysusers and tmpfiles files; and for Safe Mode on a conv
 at /usr/sbin as its package installs it), each kernel-install plugin its package has and each polkit
 rule the image has, at the paths they have there; and for backups (docs/adr/0059-backups.mdx) the
 backup service's program (tools/oxyos-backupd, at the path its units start it from) and each of its
-units. Each must be in the manifest, from where it is, and a PAM file where its header says it is
-"Installed as". Every FROM must exist (a target/release binary must be one of those). Prints the cargo
+units; and for quality of service (docs/adr/0066-quality-of-service.mdx) the image's udev rules,
+systemd generators and drop-ins for the units systemd ships, each at its place in the image. Each must
+be in the manifest, from where it is, and a PAM file where its header says it is "Installed as". Every FROM must exist (a target/release binary must be one of those). Prints the cargo
 packages a deploy builds with `--packages`, and the Debian packages it installs with `--apt`: restic
 and rclone, which the backup service runs, each checked to be in the image's manifest.
 """
@@ -32,6 +33,13 @@ BACKUPS = ("oxyos-backupd", "target/release/oxyos-backupd", "/usr/libexec/oxyos-
 BACKUP_UNITS = "tools/oxyos-backupd"
 BACKUP_PACKAGES = ("restic", "rclone")
 IMAGE_MANIFEST = "config/package-lists/live.list.chroot"
+# Quality of service (docs/adr/0066-quality-of-service.mdx): what the image gives the machine's service
+# managers and devices, each at its place in the image: its udev rules, its systemd generators (the
+# system's and the users' managers'), and its drop-ins for units systemd ships (`<unit>.d/` beside
+# the system's and the users' units). A generator is a program (0755), the rest are read (0644).
+INCLUDES = "config/includes.chroot_after_packages"
+QOS = ("usr/lib/udev/rules.d", "usr/lib/systemd/system-generators", "usr/lib/systemd/user-generators")
+QOS_DROP_INS = ("usr/lib/systemd/system", "usr/lib/systemd/user")
 
 
 def manifest():
@@ -70,7 +78,19 @@ def required():
     want[BACKUPS[1]] = (BACKUPS[2], "0755")
     for path in backup_units():
         want[str(path.relative_to(ROOT))] = (f"/usr/lib/systemd/system/{path.name}", "0644")
+    for path in qos_files():
+        image = path.relative_to(ROOT / INCLUDES)
+        want[str(path.relative_to(ROOT))] = (f"/{image}", "0755" if "generators" in image.parts[-2] else "0644")
     return want
+
+
+def qos_files():
+    """The image's files for quality of service (QOS, QOS_DROP_INS), a generator's link as the program
+    it names."""
+    includes = ROOT / INCLUDES
+    found = [path for directory in QOS for path in sorted((includes / directory).glob("*"))]
+    found += [path for directory in QOS_DROP_INS for path in sorted((includes / directory).glob("*.d/*"))]
+    return [path for path in found if path.is_file()]
 
 
 def backup_units():

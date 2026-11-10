@@ -75,8 +75,14 @@ const SANDBOX: &[&str] = &[
     "MemoryMax=2G",
 ];
 
+/// The transient unit's priority: the install service's own (`oxyos-installd.service`, utility
+/// work, docs/adr/0066-quality-of-service.mdx decision 6). A transient unit is the system's
+/// sibling of the service, not its child, so it does not inherit the service's weights.
+const PRIORITY: &[&str] = &["CPUWeight=20", "IOWeight=20", "Nice=10"];
+
 /// `program` as the compiler runs as root: a transient systemd unit with [`SANDBOX`]'s
-/// properties, waited for, given this process's standard input and output (`--pipe`).
+/// properties and [`PRIORITY`]'s, waited for, given this process's standard input and output
+/// (`--pipe`).
 pub fn confined(program: &Path) -> Command {
     let mut command = Command::new("systemd-run");
     command.args([
@@ -86,7 +92,7 @@ pub fn confined(program: &Path) -> Command {
         "--collect",
         "--service-type=exec",
     ]);
-    for property in SANDBOX {
+    for property in SANDBOX.iter().chain(PRIORITY) {
         command.arg(format!("--property={property}"));
     }
     command.arg("--").arg(program);

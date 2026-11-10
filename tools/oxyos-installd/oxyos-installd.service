@@ -63,5 +63,13 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
+# Utility work (ADR 0066, decision 6): what it installs and updates the person waits for, but never at the
+# expense of what they are using. A fifth of a normal unit's weight against the rest of
+# system.slice, nice 10 among its own threads, a fifth of the disk's weight where the disk's
+# controller weighs groups. (A Mac runs an App Store install at its utility class.)
+CPUWeight=20
+IOWeight=20
+Nice=10
+
 [Install]
 WantedBy=multi-user.target

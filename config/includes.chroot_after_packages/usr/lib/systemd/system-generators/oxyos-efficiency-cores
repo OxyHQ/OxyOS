@@ -1,0 +1,44 @@
+#!/bin/sh
+# oxyos-efficiency-cores: background work on a hybrid processor's efficiency cores
+# (docs/adr/0066-quality-of-service.mdx, decision 6), as a Mac's background class runs on its
+# efficiency cluster. A systemd generator, installed for the system's manager
+# (/usr/lib/systemd/system-generators) and for each user's (/usr/lib/systemd/user-generators: the
+# same program), run at boot and at every reload: it writes, in the generator's directory
+# ($1, under /run, never kept), a drop-in holding AllowedCPUs= to the efficiency cores for
+#   - the system's manager: the backup service, oxyos-backupd.service;
+#   - a user's manager: its background.slice (the search service, ADR 0051).
+# The efficiency cores are, on an Intel hybrid processor, the CPUs of its Atom PMU
+# (/sys/devices/cpu_atom/cpus, beside cpu_core's); elsewhere (Arm's big.LITTLE), the CPUs of the
+# least capacity when capacities differ (/sys/devices/system/cpu/cpuN/cpu_capacity). On a
+# processor of one kind it writes nothing, and the units run on every CPU as before.
+set -eu
+out=${1:?usage: oxyos-efficiency-cores NORMAL-DIR [EARLY-DIR LATE-DIR]}
+sys=${OXYOS_SYSFS:-/sys}
+
+# The efficiency cores, as the kernel's list ("8-15"), or nothing.
+cores=
+if [ -r "$sys/devices/cpu_atom/cpus" ] && [ -r "$sys/devices/cpu_core/cpus" ]; then
+  cores=$(cat "$sys/devices/cpu_atom/cpus")
+else
+  least= most= list=
+  for capacity in "$sys"/devices/system/cpu/cpu[0-9]*/cpu_capacity; do
+    [ -r "$capacity" ] || continue
+    cpu=${capacity%/cpu_capacity}; cpu=${cpu##*/cpu}
+    value=$(cat "$capacity")
+    if [ -z "$least" ] || [ "$value" -lt "$least" ]; then least=$value list=$cpu
+    elif [ "$value" -eq "$least" ]; then list="$list $cpu"; fi
+    if [ -z "$most" ] || [ "$value" -gt "$most" ]; then most=$value; fi
+  done
+  # Capacities that differ: the least's CPUs (systemd takes a list of numbers).
+  if [ -n "$least" ] && [ "$least" -lt "$most" ]; then cores=$list; fi
+fi
+[ -n "$cores" ] || exit 0
+
+case ${SYSTEMD_SCOPE:-system} in
+  system) unit=oxyos-backupd.service section=Service ;;
+  user) unit=background.slice section=Slice ;;
+  *) exit 0 ;;
+esac
+mkdir -p "$out/$unit.d"
+printf '# Written by oxyos-efficiency-cores at boot: the efficiency cores (ADR 0066, decision 6).\n[%s]\nAllowedCPUs=%s\n' \
+  "$section" "$cores" > "$out/$unit.d/50-oxyos-efficiency-cores.conf"

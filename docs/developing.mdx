@@ -140,7 +140,10 @@ sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each t
 (the one before kept as `.old`), the login, accounts and PIN stack (every file of
 `tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
 units, PAM services, sysusers, tmpfiles and the ptrace scope), Safe Mode's parts (the recovery's
-program, the kernel-install plugin, the polkit rule) and, where the machine boots systemd-boot with
+program, the kernel-install plugin, the polkit rule), what keeps background work in the background
+([ADR 0066](./adr/0066-quality-of-service), decision 6: the solid-state drives' `mq-deadline` rule, given
+to the drives at once, the efficiency cores' generator, and the users' managers' delegated controllers,
+which a signed-in person's manager takes at their next login) and, where the machine boots systemd-boot with
 kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
 safe-mode-entry sync` with what `kernel-install inspect` says; run again, it changes nothing), backups
 (Debian's restic and rclone from apt, `oxyos-backupd` enabled, restarted and asked its state, the
