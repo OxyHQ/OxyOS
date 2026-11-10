@@ -49,7 +49,7 @@ The display protocol carries accessibility, as it carries buffers. The composito
    - their text, custom actions' labels and selections;
    - `AccessibilityCommitted { client, surface }`.
 
-   When the surface goes away it receives `AccessibilityRemoved { client, surface }`. A newly connected assistive technology receives the current snapshots.
+   When the surface goes away it receives `AccessibilityRemoved { client, surface }`. A newly connected assistive technology receives the current snapshots. Since version 40 it is also told the order a screen reader's cursor goes through the surfaces it holds (`AccessibilityOrder`, `AccessibilityOrderSurface`): the window with the keyboard and what is its own in front of it, the other windows front to back, then the system's surfaces, nothing that is not shown ([ADR 0014](./0014-screen-reader), decision 5 as amended), as the compositor alone knows stacking, focus and which surfaces are the shell's.
 
    While the session is locked ([ADR 0010](./0010-lock-screen)) it holds the lock surfaces' trees alone, as the screen shows them alone. Locking sends `AccessibilityRemoved` for every other tree it holds; nothing they publish while locked reaches it (nor a reader that connects meanwhile); unlocking sends each as it is then.
 

@@ -60,7 +60,11 @@
               "name": "Saved"
             }
           ]
-        }
+        },
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -80,7 +84,11 @@
         "texts": [
           "Buscar actualizaciones",
           "Aún no se ha comprobado"
-        ]
+        ],
+        "react": {
+          "click@settings-nav-software-update": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -103,7 +111,17 @@
             "interrupting": true
           }
         ],
-        "announcements": []
+        "announcements": [],
+        "react": {
+          "focus@settings-nav-software-update": 1,
+          "scroll@ScrollView in settings-rail": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
       }
     },
     {
@@ -126,7 +144,17 @@
             "interrupting": true
           }
         ],
-        "announcements": []
+        "announcements": [],
+        "react": {
+          "blur@settings-nav-software-update": 1,
+          "focus@software-update-check": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
       }
     },
     {
@@ -157,7 +185,16 @@
         "texts": [
           "Inbox",
           "Versión 0.2.0 · 0 bytes"
-        ]
+        ],
+        "react": {
+          "click@software-update-check": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
       },
       "until_named": [
         "Actualizar Inbox",
@@ -196,6 +233,16 @@
               ]
             }
           ]
+        },
+        "react": {
+          "blur@software-update-check": 1,
+          "focus@software-update-so.oxy.inbox-update": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
         }
       }
     },
@@ -246,7 +293,16 @@
         },
         "texts": [
           "Actualizada"
-        ]
+        ],
+        "react": {
+          "click@software-update-so.oxy.inbox-update": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
       },
       "until_named": [
         "Inbox actualizada",
@@ -279,6 +335,15 @@
               ]
             }
           ]
+        },
+        "react": {
+          "click@software-update-so.oxy.inbox-update": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
         }
       }
     },
@@ -303,7 +368,17 @@
             "interrupting": true
           }
         ],
-        "announcements": []
+        "announcements": [],
+        "react": {
+          "blur@software-update-so.oxy.inbox-update": 1,
+          "focus@settings-nav-software-update": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
       }
     },
     {
@@ -333,6 +408,16 @@
               "name": "Saved"
             }
           ]
+        },
+        "react": {
+          "blur@settings-nav-software-update": 1,
+          "focus@software-update-so.oxy.inbox-update": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
         }
       }
     }

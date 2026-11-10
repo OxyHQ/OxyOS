@@ -941,6 +941,11 @@ fn events() -> Vec<Event> {
             surface: 3,
             modifiers: MODIFIER_ALT | MODIFIER_SHIFT,
         },
+        Event::AccessibilityOrder { surfaces: 3 },
+        Event::AccessibilityOrderSurface {
+            client: 4,
+            surface: 2,
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -3182,6 +3187,28 @@ fn version_36_safe_mode_is_only_version_36s() {
     assert!(write_event_for(&mut new, &event, 36).unwrap());
     assert!(read_event_for(&mut Cursor::new(new.clone()), 35).is_err());
     assert_eq!(read_event_for(&mut Cursor::new(new), 36).unwrap(), event);
+}
+
+#[test]
+fn version_40_the_reading_order_is_only_version_40s() {
+    // An assistive technology of version 39 is told no order, and reads surfaces as their trees
+    // arrived (docs/adr/0014-screen-reader.mdx, decision 5 as amended).
+    for event in [
+        Event::AccessibilityOrder { surfaces: 2 },
+        Event::AccessibilityOrderSurface {
+            client: 3,
+            surface: 1,
+        },
+    ] {
+        assert_eq!(event_since(&event), 40);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 39).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 40).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 39).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 40).unwrap(), event);
+    }
 }
 
 #[test]

@@ -31,7 +31,12 @@
    "expect": {
     "keyboard_focus": null,
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {},
+    "in_launched": {
+     "react": {}
+    }
    }
   },
   {
@@ -64,7 +69,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {
+     "1": {
+      "focus.out": 1
+     }
+    },
+    "in_launched": {
+     "react": {}
+    },
+    "in_shell": {
+     "react": {}
+    }
    }
   },
   {
@@ -99,7 +115,16 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {},
+    "in_launched": {
+     "react": {}
+    },
+    "in_shell": {
+     "react": {
+      "shortcut@shell": 1
+     }
+    }
    }
   },
   {
@@ -114,10 +139,24 @@
    "expect": {
     "react": {},
     "in_launched": {
-     "keyboard_focus": null
+     "keyboard_focus": null,
+     "react": {
+      "insetsChange@RNCSafeAreaProvider#2": 1
+     }
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "delivered": {
+     "1": {
+      "focus.in": 1,
+      "focus.out": 1
+     }
+    },
+    "in_shell": {
+     "react": {
+      "key@Oxy": 1
+     }
+    }
    }
   },
   {
@@ -135,6 +174,9 @@
      "keyboard_focus": {
       "target": "settings-nav-appearance",
       "ring": true
+     },
+     "react": {
+      "focus@settings-nav-appearance": 1
      }
     },
     "at": {
@@ -154,7 +196,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -172,6 +215,10 @@
      "keyboard_focus": {
       "target": "settings-nav-wallpaper",
       "ring": true
+     },
+     "react": {
+      "blur@settings-nav-appearance": 1,
+      "focus@settings-nav-wallpaper": 1
      }
     },
     "at": {
@@ -191,7 +238,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -209,6 +257,10 @@
      "keyboard_focus": {
       "target": "settings-nav-notifications",
       "ring": true
+     },
+     "react": {
+      "blur@settings-nav-wallpaper": 1,
+      "focus@settings-nav-notifications": 1
      }
     },
     "at": {
@@ -228,7 +280,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -246,6 +299,10 @@
      "keyboard_focus": {
       "target": "settings-nav-sound",
       "ring": true
+     },
+     "react": {
+      "blur@settings-nav-notifications": 1,
+      "focus@settings-nav-sound": 1
      }
     },
     "at": {
@@ -265,7 +322,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -283,6 +341,10 @@
      "keyboard_focus": {
       "target": "settings-nav-lock-screen",
       "ring": true
+     },
+     "react": {
+      "blur@settings-nav-sound": 1,
+      "focus@settings-nav-lock-screen": 1
      }
     },
     "at": {
@@ -302,7 +364,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -320,6 +383,10 @@
      "keyboard_focus": {
       "target": "settings-nav-displays",
       "ring": true
+     },
+     "react": {
+      "blur@settings-nav-lock-screen": 1,
+      "focus@settings-nav-displays": 1
      }
     },
     "at": {
@@ -339,7 +406,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -357,6 +425,11 @@
      "keyboard_focus": {
       "target": "settings-nav-accessibility",
       "ring": true
+     },
+     "react": {
+      "blur@settings-nav-displays": 1,
+      "focus@settings-nav-accessibility": 1,
+      "scroll@settings-page": 1
      }
     },
     "at": {
@@ -376,7 +449,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -393,10 +467,14 @@
     "in_launched": {
      "texts": [
       "Reducir movimiento"
-     ]
+     ],
+     "react": {
+      "click@settings-nav-accessibility": 1
+     }
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -414,6 +492,9 @@
      "keyboard_focus": {
       "target": "screen-reader-switch",
       "ring": true
+     },
+     "react": {
+      "focus@screen-reader-switch": 1
      }
     },
     "at": {
@@ -433,7 +514,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -451,6 +533,10 @@
      "keyboard_focus": {
       "target": "reduce-motion-switch",
       "ring": true
+     },
+     "react": {
+      "blur@screen-reader-switch": 1,
+      "focus@reduce-motion-switch": 1
      }
     },
     "at": {
@@ -470,7 +556,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -491,6 +578,9 @@
      "keyboard_focus": {
       "target": "reduce-motion-switch",
       "ring": true
+     },
+     "react": {
+      "click@reduce-motion-switch": 1
      }
     },
     "at": {
@@ -511,7 +601,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   },
   {
@@ -530,6 +621,10 @@
      "keyboard_focus": {
       "target": "screen-reader-switch",
       "ring": true
+     },
+     "react": {
+      "blur@reduce-motion-switch": 1,
+      "focus@screen-reader-switch": 1
      }
     },
     "spoken": [
@@ -538,7 +633,8 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "delivered": {}
    }
   }
  ]

@@ -104,8 +104,8 @@ Sources: [ADR 0021](./adr/0021-menu-bar), [ADR 0024](./adr/0024-system-shortcuts
 | Return chooses once; Escape chooses nothing; the keyboard goes back to the trigger | `menu-bar-keyboard` (Return, Escape twice: O, F, D); `sample` "Escape closes it without choosing" (`a11y_events focus@open-menu`); **added:** `menu-type-select` (both, with `a11y_events`, `focus_surface` and `delivered`) | O, F, D | `menu-submenu-keys` "Enter chooses…" asserts no return to the trigger. In `menu-bar-pointer` and `menu-bar-morph`, Escape after a pointer-opened bar menu asserts neither `focus_surface` nor `delivered`, which ADR 0021 step 4 promises. So does Escape in `battery-menu`, `backup-menu` and `dock-menu`. |
 | Space chooses a row | — | — | Untested. |
 | An item's shortcut pressed with its menu open | — | — | Untested. For bar menus the shell holds the keyboard and never runs chords. |
-| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys` | O, F, speech | No `delivered`, and no row is ever chosen. The menu never opens for a focused text field, or for a control focused by a press: `navigationKey` returns before it (`bloom-host.cpp`). This contradicts ADR 0039 decision 9. |
-| Popover: Tab stays inside, Escape returns | `keyboard-popover(-scaled)` | F, speech | No `react` or `delivered` on any step. |
+| Context menu from the Menu key or Shift+F10 | `dropsea-list-keys` | O, F, speech; **added:** D (`react`, `delivered`) | No row is ever chosen. The menu never opens for a focused text field, or for a control focused by a press: `navigationKey` returns before it (`bloom-host.cpp`). This contradicts ADR 0039 decision 9. |
+| Popover: Tab stays inside, Escape returns | `keyboard-popover(-scaled)` | F, speech; **added:** D (`react`, `delivered`) on every step | — |
 | Menus inside a popover, sheet or modal | — | — | Untested. |
 
 ## 4. Popups following their windows
@@ -160,16 +160,17 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 | --- | --- | --- | --- |
 | Names, roles, states, values, positions published | `accessibility-collections`, `accessibility-actions`, `live-regions`, the `*-reader` scenarios | O (`at`) | — |
 | A window's whole tree in reading order | `sample` (a popup's, `a11y_nodes` exact); `a11y_order` (a subsequence) elsewhere | O | No application window's tree is asserted whole. |
-| **The reader's Next and Previous through a window, its end stops** | `screen-reader` (3 Next, 1 Previous); unit `the_cursor_moves_through_what_has_something_to_say`; **added:** `screen-reader` walks on from the last element (nothing said), then Previous through every element to the first (nothing said past it) | speech (exact, each step), D (`react` none, and `delivered`: the reader's arrows never reach the window, only the modifiers held with them) | Crossing surfaces is untested. The cursor goes into surfaces in the order their trees arrived (`oxyos-reader`'s `reader.rs`), not by stacking or place, and no ADR says so. The cursor never focuses what it reads, so reader and keyboard focus diverge after a reader move, by design but unpinned. |
+| **The reader's Next and Previous through a window, its end stops** | `screen-reader` (3 Next, 1 Previous); unit `the_cursor_moves_through_what_has_something_to_say`; **added:** `screen-reader` walks on from the last element (nothing said), then Previous through every element to the first (nothing said past it) | speech (exact, each step), D (`react` none, and `delivered`: the reader's arrows never reach the window, only the modifiers held with them) | The cursor never focuses what it reads, so reader and keyboard focus diverge after a reader move, by design but unpinned. |
+| **The reader crossing surfaces** | **added (10 November):** `reader-surfaces(-scaled)`; compositor unit `the_reading_order_is_the_key_window_and_its_own_then_the_other_windows_then_the_system`; reader unit `the_cursor_goes_through_surfaces_in_the_order_the_compositor_tells` | speech (exact, each step), F where the keyboard moves, D (`react` and `delivered` exact, the file chooser's too) | **Was undocumented and wrong:** the cursor went into surfaces in the order their trees arrived. [ADR 0014](./adr/0014-screen-reader) now defines the order (amended 10 November 2026): the window with the keyboard and what is its own in front of it, the other windows front to back, then the system's surfaces, the menu bar before the dock. The compositor tells it (protocol version 40, `AccessibilityOrder`). The scenario crosses window, popover, sheet and menu bar both ways. Another window behind, and the dock after the menu bar, are checked by unit tests only. |
 | Activate goes to `click`, or to a declared `activate` action | `accessibility-actions`, `screen-reader`, `menu-reader`, `sample` | O, F, D, speech | The declared `activate` path (`accessibility.cpp`) has no probe. |
 | Increment, decrement, custom actions | `accessibility-actions`, `keyboard-dock-arrange` | O (text), D (count), speech | `react` counts `accessibilityAction@view` without its name, so increment and decrement are told apart only by their drawn result. |
 | Unoffered actions refused | `accessibility-actions`; unit `reader_actions_reach_the_owner_and_nobody_else_can_act` | D (none), speech (none) | — |
-| Dismiss closes a modal as Escape does | `accessibility-actions` "dismiss closes it…" | O | No `react` (`requestClose`) and no focus return. A popup dismissed by the reader is untested. |
-| Live regions polite or assertive, said once | `live-regions(-scaled)`, `accessibility-actions`, `screen-reader`; unit tests in `oxyos-reader` | F, speech (exact, so once) | `live-regions` has no `react`: what was typed into its field is not asserted. |
-| Reader focus follows keyboard focus | `dropsea-list-keys`, `keyboard-dropsea` (F, D, speech); `atlas-reader`, `keyboard-settings`, `keyboard-popover`, `settings-*-reader` (F, speech) | | The second group has no `react`, so a duplicate `focus` or `blur` would pass. |
-| Tab order wrapping at both ends | `scroll-keys` (Shift+Tab round to the last: F, D); `keyboard-popover`, `keyboard-wifi` (Tab round, in a popup and a sheet) | partial | **A forward Tab wrap in an application window is untested.** |
-| Focus back after a popup or menu closes | `sample`, `menu-reader` (O, F, D, speech); **added:** `menu-type-select`, `popup-follows(-scaled)` (`a11y_events focus@open-menu`, `focus_surface`); `keyboard-popover`, `dropsea-list-keys` (F, speech) | | The last two have no `react`. |
-| Focus back after a modal or sheet closes | `dropsea-list-keys`, `atlas-reader`, `keyboard-wifi` | F, speech | No in-window `Modal` close asserts focus, events and speech together. `modal` and `sheet` assert no focus at all. |
+| Dismiss closes a modal as Escape does | `accessibility-actions` "dismiss closes it…" | O; **added:** D (`requestClose` once, `delivered`), F (`keyboard_focus`, `focus_surface`) | A popup dismissed by the reader is untested. |
+| Live regions polite or assertive, said once | `live-regions(-scaled)`, `accessibility-actions`, `screen-reader`; unit tests in `oxyos-reader` | F, speech (exact, so once); **added:** D in `live-regions(-scaled)` (each letter's `keyPress`, `change` and `selectionChange` once) | — |
+| Reader focus follows keyboard focus | `dropsea-list-keys`, `keyboard-dropsea`, and, **added:** `atlas-reader`, `keyboard-settings`, `keyboard-wifi`, `keyboard-popover`, `settings-*-reader`, `accessibility-collections`, `tabs-keys`, `live-regions` (each at both scales) | F, D (`react` exact on every step, the launched application's and the shell's where they have the keyboard; `delivered`), speech | — |
+| Tab order wrapping at both ends | `scroll-keys` (Shift+Tab round to the last: F, D); `keyboard-popover`, `keyboard-wifi` (Tab round, in a popup and a sheet); **added:** `keyboard-popover(-scaled)` in its window: Tab past the last control to the first, Shift+Tab back, Tab again | F (`keyboard_focus` with the ring's colour, `focus_surface`), D (`blur` and `focus` once each, `delivered`), speech | — |
+| Focus back after a popup or menu closes | `sample`, `menu-reader` (O, F, D, speech); **added:** `menu-type-select`, `popup-follows(-scaled)` (`a11y_events focus@open-menu`, `focus_surface`); `keyboard-popover`, `dropsea-list-keys` (F, speech; **added:** D) | | — |
+| Focus back after a modal or sheet closes | `dropsea-list-keys` (Quick Look, an in-window `Modal`), `atlas-reader`, `keyboard-wifi` | F, speech; **added:** D | `modal` and `sheet` are driven by the pointer, so no control has the keyboard to come back to; they now assert that (`keyboard_focus` null) and `focus_surface`. A keyboard-driven `Modal` closed by its own button is untested. |
 | The application told a reader runs | `android-adaptation` (`isScreenReaderEnabled` false) | O | **The host always answers that no assistive technology runs** (`AccessibilityInfo`), even while the reader does, and `screenReaderChanged` never fires. This is documented as the adaptation's, not ADR 0014's. `isReduceTransparencyEnabled` is always false although the session has the setting. |
 
 ## Performance
@@ -235,7 +236,6 @@ Sources: [ADR 0003](./adr/0003-accessibility-protocol), [ADR 0014](./adr/0014-sc
 **Claims whose regressions lack focus or exact deliveries:**
 
 - `secure-field` (no `react`).
-- `modal` and `sheet` (no focus after closing).
 - `accessibility-actions`' dialog steps.
 - `sample`'s resize and reader-activation steps.
 - The shell's menus in `session-shell` and `session-two-outputs` (no `focus_surface` or `popup_events`).
@@ -279,15 +279,15 @@ These are listed for their owners to decide. This change fixes none of them.
 4. **Momentum** must only slow, and a click stops a glide (`flick_press`): `touchpad-hold(-scaled)`. Scroll into view was already complete at both scales (`scroll-reveal`).
 5. **The reader's order through a window, both ways and its ends:** `screen-reader`.
 6. **What stops a glide, nested scroll views and scrolling across:** `touchpad-hold(-scaled)`, `glide-elsewhere(-scaled)`, `scroll-nested(-scaled)`, `scroll-across(-scaled)`, with two product bugs fixed (stops from any surface, a gesture latched by either axis) and Shift with the wheel (ADR 0042, decisions 7 to 9).
+7. **The reader crossing surfaces** (10 November): the order defined in [ADR 0014](./adr/0014-screen-reader) and told by the compositor (protocol version 40); `reader-surfaces(-scaled)` and unit tests.
+8. **A forward Tab wrap in a window, and exact deliveries in the keyboard and reader scenarios** (10 November): `keyboard-popover(-scaled)`; `react` and `delivered` exact on every step of `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys`, `keyboard-wifi`, the settings readers (each at both scales), `dropsea-list-keys(-scaled)`, `modal` and `sheet`; the launched application's `react` in `atlas-reader` and `keyboard-settings`.
 
 **Open, most important first:**
 
 1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
 2. Ctrl+Delete, undo after a cut, and undo splits. `field` is missing from `text-editing` and `text-selection`.
-3. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
+3. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu` and `dock-menu`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
 4. Shift+F10 and the Menu key never open a focused text field's menu (`navigationKey`).
-5. The reader crossing surfaces. The order is when trees arrived, undocumented.
-6. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
-7. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
-8. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
-9. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
+5. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
+6. Candidates following a window move, and the reader's echo of a commit (contradicted by `spoken: []`).
+7. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.

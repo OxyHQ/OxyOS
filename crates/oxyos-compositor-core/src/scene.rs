@@ -525,6 +525,9 @@ pub struct Scene {
     /// the buffer.
     deferred: Vec<(SurfaceKey, u64, BTreeSet<FrameOf>)>,
     accessibility: BTreeMap<SurfaceKey, accessibility::SurfaceAccessibility>,
+    /// The order assistive technologies were last told their cursor goes through surfaces in
+    /// (docs/adr/0014-screen-reader.mdx, decision 5 as amended); none while none is connected.
+    told_reading_order: Option<Vec<SurfaceKey>>,
     /// What each surface with a text field told about it (ADR 0008).
     text_inputs: BTreeMap<SurfaceKey, text_input::SurfaceTextInput>,
     /// The input method, if one is connected.
@@ -1177,6 +1180,7 @@ impl Scene {
                 },
             );
             self.replay_accessibility(client);
+            self.tell_reading_order_to(client);
         }
         if new.input_method {
             self.input_method = Some(input_method::InputMethod::new(client));
@@ -5142,6 +5146,9 @@ impl Scene {
         self.tell_displays();
         // Then the active window's menus, once it knows the window (ADR 0021).
         self.tell_menu_bar();
+        // Assistive technologies, the order their cursor goes through surfaces, after the trees
+        // and the changes of stacking and focus that change it.
+        self.tell_reading_order();
         std::mem::take(&mut self.events)
     }
 

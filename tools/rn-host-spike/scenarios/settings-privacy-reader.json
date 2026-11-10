@@ -45,7 +45,11 @@
               "name": "Saved"
             }
           ]
-        }
+        },
+        "react": {
+          "insetsChange@RNCSafeAreaProvider#2": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -82,7 +86,11 @@
         "texts": [
           "Notificaciones",
           "Aún no se ha preguntado"
-        ]
+        ],
+        "react": {
+          "click@settings-nav-privacy": 1
+        },
+        "delivered": {}
       }
     },
     {
@@ -105,7 +113,17 @@
             "interrupting": true
           }
         ],
-        "announcements": []
+        "announcements": [],
+        "react": {
+          "focus@settings-nav-privacy": 1,
+          "scroll@ScrollView in settings-rail": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        }
       }
     },
     {
@@ -139,6 +157,16 @@
               ]
             }
           ]
+        },
+        "react": {
+          "blur@settings-nav-privacy": 1,
+          "focus@privacy-so.oxy.permissionprobe-notifications-switch": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
         }
       }
     },
@@ -174,6 +202,15 @@
               ]
             }
           ]
+        },
+        "react": {
+          "click@privacy-so.oxy.permissionprobe-notifications-switch": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
         }
       }
     },
@@ -193,7 +230,9 @@
         "announcements": [],
         "absent": [
           "Aún no se ha preguntado"
-        ]
+        ],
+        "react": {},
+        "delivered": {}
       }
     },
     {
@@ -217,7 +256,17 @@
             "interrupting": true
           }
         ],
-        "announcements": []
+        "announcements": [],
+        "react": {
+          "blur@privacy-so.oxy.permissionprobe-notifications-switch": 1,
+          "focus@settings-nav-privacy": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 2,
+            "key.release": 2
+          }
+        }
       }
     },
     {
@@ -247,6 +296,16 @@
               "name": "Saved"
             }
           ]
+        },
+        "react": {
+          "blur@settings-nav-privacy": 1,
+          "focus@privacy-so.oxy.permissionprobe-notifications-switch": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
         }
       }
     }

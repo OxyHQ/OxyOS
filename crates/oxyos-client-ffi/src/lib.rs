@@ -1085,6 +1085,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         | Event::AccessibilityAnnouncement { .. }
         | Event::AccessibilityCommitted { .. }
         | Event::AccessibilityRemoved { .. }
+        | Event::AccessibilityOrder { .. }
+        | Event::AccessibilityOrderSurface { .. }
         | Event::ScreenReaderCommand { .. } => return None,
         Event::Welcome { .. } | Event::ProtocolError { .. } => return None,
         // GPU buffers (ADR 0031): a failed import is told at once; the tables once complete

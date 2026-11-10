@@ -83,7 +83,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 38, the session asking applications to quit before it ends (`QuitRequested`,
 /// `QuitReply`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), both ways, and the
 /// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
-/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008).
+/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008); version 40,
+/// the order an assistive technology's cursor goes through surfaces (`AccessibilityOrder`,
+/// docs/adr/0014-screen-reader.mdx), told unasked to an assistive technology.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -107,6 +109,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
+    (40, 254..=255),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

@@ -1,5 +1,5 @@
 {
- "about": "Full Keyboard Access in a popover that is not a menu (docs/adr/0039-keyboard-access.mdx): sample/PopoverProbe.tsx, Bloom's Popover holding a field, a switch and a button, shown in a platform popup beside its button as a Mac's popover, the screen reader on in Spanish and the accent jade. Space on the button opens it with the keyboard on its first control and the dialog said by its title; Tab and Shift+Tab go round its controls and never leave it; Space presses them; Escape closes it and gives the keyboard back to the button. Every step checks the keyboard's focus and its ring's colour (the accent's, Bloom's ring token: light at 1, dark at 1.25), what the assistive technology holds, what the screen reader says (each once) and what is announced. At 1.25 (1600 × 1000).",
+ "about": "Full Keyboard Access in a popover that is not a menu (docs/adr/0039-keyboard-access.mdx): sample/PopoverProbe.tsx, Bloom's Popover holding a field, a switch and a button, shown in a platform popup beside its button as a Mac's popover, the screen reader on in Spanish and the accent jade. Space on the button opens it with the keyboard on its first control and the dialog said by its title; Tab and Shift+Tab go round its controls and never leave it; Space presses them; Escape closes it and gives the keyboard back to the button. In the window, Tab past its last control goes round to its first and Shift+Tab back, as a Mac's key view loop does. Every step checks the keyboard's focus and its ring's colour (the accent's, Bloom's ring token: light at 1, dark at 1.25), what the assistive technology holds, what the screen reader says (each once), what is announced, exactly what React received and what the compositor delivered. At 1.25 (1600 × 1000).",
  "module": "PopoverProbe",
  "window": [
   640,
@@ -24,7 +24,11 @@
     "keyboard_focus": null,
     "popups": 0,
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1
+    },
+    "delivered": {}
    }
   },
   {
@@ -48,7 +52,16 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "focus@before": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -72,7 +85,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@before": 1,
+     "focus@options": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -116,7 +139,23 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "click@options": 1,
+     "blur@options": 1,
+     "focus@name": 1,
+     "selectionChange@name": 1
+    },
+    "delivered": {
+     "1": {
+      "focus.out": 1,
+      "key.press": 1,
+      "key.release": 1
+     },
+     "2": {
+      "focus.in": 1
+     }
+    }
    }
   },
   {
@@ -151,7 +190,19 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "blur@name": 1,
+     "endEditing@name": 1,
+     "focus@notify": 1
+    },
+    "delivered": {
+     "2": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -187,7 +238,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "click@notify": 1
+    },
+    "delivered": {
+     "2": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -211,7 +272,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "blur@notify": 1,
+     "focus@save": 1
+    },
+    "delivered": {
+     "2": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -236,7 +308,19 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "blur@save": 1,
+     "focus@name": 1,
+     "selectionChange@name": 1
+    },
+    "delivered": {
+     "2": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -261,7 +345,19 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "blur@name": 1,
+     "endEditing@name": 1,
+     "focus@save": 1
+    },
+    "delivered": {
+     "2": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
    }
   },
   {
@@ -284,7 +380,17 @@
      "Guardado 1, aviso sí"
     ],
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "click@save": 1
+    },
+    "delivered": {
+     "2": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -317,7 +423,21 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "key@options-popover": 1,
+     "focus@options": 1
+    },
+    "delivered": {
+     "1": {
+      "focus.in": 1
+     },
+     "2": {
+      "focus.out": 1,
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -341,7 +461,126 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@options": 1,
+     "focus@after": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Tab past the window's last control, Después, goes round to its first, Antes, as a Mac's key view loop does: Después told it blurred and Antes focused, once each, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "before",
+     "ring": true,
+     "color": "#00e38f"
+    },
+    "focus_surface": 1,
+    "popups": 0,
+    "spoken": [
+     {
+      "text": "Antes, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@after": 1,
+     "focus@before": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
+   }
+  },
+  {
+   "name": "Shift+Tab from the first goes back round to the last",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "after",
+     "ring": true,
+     "color": "#00e38f"
+    },
+    "focus_surface": 1,
+    "popups": 0,
+    "spoken": [
+     {
+      "text": "Después, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@before": 1,
+     "focus@after": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Tab round again: the same, once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "before",
+     "ring": true,
+     "color": "#00e38f"
+    },
+    "focus_surface": 1,
+    "popups": 0,
+    "spoken": [
+     {
+      "text": "Antes, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@after": 1,
+     "focus@before": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   }
  ]
