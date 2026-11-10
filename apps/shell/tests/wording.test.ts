@@ -24,8 +24,9 @@ function said(value: unknown, path: string, out: [string, string][] = []): [stri
         // A function that wants another kind of argument (a list): its other samples cover it.
       }
     }
-  } else if (Array.isArray(value)) value.forEach((item, i) => said(item, `${path}[${i}]`, out));
-  else if (value && typeof value === "object") {
+  } else if (Array.isArray(value)) {
+    for (const [i, item] of value.entries()) said(item, `${path}[${i}]`, out);
+  } else if (value && typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
       if (key === "format" || key === "locale" || key === "language") continue;
       said(item, `${path}.${key}`, out);
