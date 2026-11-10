@@ -2549,6 +2549,21 @@ int main(int argc, char** argv) {
     };
     // Shared with the offers' tasks, which may outlive the loop by their wait.
     auto keyBurst = std::make_shared<KeyBurst>();
+    // The assistive technology is told what a turn of the compositor's did once all of it is
+    // handled: while a key of it waits for JavaScript's answer, the window's accessibility waits with
+    // it (an input method's commit and the Space it gave back said as one: "한", never "한" then
+    // "espacio"), at most as long as Android holds a window's content changes (100 ms).
+    std::optional<Clock::time_point> keyOfferedAt;
+    bool accessibilityHeld = false;
+    constexpr auto kAccessibilityHeldAtMost = std::chrono::milliseconds(100);
+    auto publishWindowAccessibility = [&] {
+      if (keyOfferedAt && Clock::now() - *keyOfferedAt < kAccessibilityHeldAtMost) {
+        accessibilityHeld = true;
+        return;
+      }
+      accessibility.publish(oxyos::Window::kToplevel, tree.root());
+      accessibilityHeld = false;
+    };
     uint64_t keysOffered = 0;
     std::optional<OfferedKey> offeredKey;
     // An event held behind it keeps what the connection says of it beyond the event itself, which
@@ -2623,6 +2638,7 @@ int main(int argc, char** argv) {
       auto answer = std::make_shared<std::atomic<int>>(-1);
       uint64_t number = ++keysOffered;
       offeredKey = OfferedKey{event, handlingSeq, answer, offered, number};
+      if (!keyOfferedAt) keyOfferedAt = Clock::now();
       toJavaScript.offerKey([listener = services.keyboard.listener, offered = std::move(offered), answer, number,
                              keyBurst, &hermesRuntime] {
         bool taken = false;
@@ -3043,6 +3059,13 @@ int main(int argc, char** argv) {
           }
           // The next key of the burst is offered, or there is none: JavaScript goes on.
           keyBurst->decided(key.number, offeredKey.has_value());
+        }
+        // Every key answered and the events behind them handled: what was held is published.
+        if (!offeredKey && keyOfferedAt) {
+          keyOfferedAt.reset();
+          if (accessibilityHeld) dirty = true;
+        } else if (accessibilityHeld && keyOfferedAt && Clock::now() - *keyOfferedAt >= kAccessibilityHeldAtMost) {
+          dirty = true;
         }
         // The inputs below that hand JavaScript something (an event dispatched to a view, a device
         // event) are answered once it ran this turn's batch, and all it set off.
@@ -3855,7 +3878,7 @@ int main(int argc, char** argv) {
             // The report still learns the focus, with the texts of the frame shown.
             oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, 0, shownTexts,
                                      focusName(), 0, false);
-            accessibility.publish(oxyos::Window::kToplevel, tree.root());
+            publishWindowAccessibility();
             dirty = false;
           } else {
             auto stats = damage ? oxyos::drawDamaged(tree, display, windowCanvas, drawn, *damage)
@@ -3919,7 +3942,7 @@ int main(int argc, char** argv) {
             double damaged = pixels.empty() ? 1.0 : std::min(1.0, area / std::max(whole, 1.0));
             oxyos::Report::get().frame(oxyos::Window::kToplevel, windowCanvas.width, windowCanvas.height, renderMs,
                                      stats.textContent, focusName(), damaged);
-            accessibility.publish(oxyos::Window::kToplevel, tree.root());
+            publishWindowAccessibility();
             dirty = false;
             busy = true;
           }
@@ -3971,7 +3994,9 @@ int main(int argc, char** argv) {
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
-          for (auto due : {settleBy, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
+          std::optional<Clock::time_point> accessibilityDue;
+          if (accessibilityHeld && keyOfferedAt) accessibilityDue = *keyOfferedAt + kAccessibilityHeldAtMost;
+          for (auto due : {settleBy, accessibilityDue, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
                            dragDrop.nextDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),
