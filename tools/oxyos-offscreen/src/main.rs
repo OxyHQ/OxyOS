@@ -172,6 +172,7 @@ struct Session {
     /// decision 7), on the files the environment names in a saturation benchmark's run.
     pub memory_pressure: Option<oxyos_compositor::memory_pressure::MemoryPressure>,
     pub search_waker: Option<std::os::fd::RawFd>,
+    pub memory_pressure_waker: Option<std::os::fd::RawFd>,
     /// `--controls FILE`: the machine the hardware keys and the Control Center act on, played
     /// (docs/adr/0025-hardware-keys-and-control-center.mdx); each step says what it is then.
     controls: Option<oxyos_controls::Fake>,
@@ -370,6 +371,7 @@ impl Session {
             search: None,
             memory_pressure: None,
             search_waker: None,
+            memory_pressure_waker: None,
             controls: None,
             networks: None,
             sound: None,
@@ -1395,6 +1397,13 @@ impl Session {
         // The search service ended, its threads waited for and its waker given back.
         self.search = None;
         if let Some(waker) = self.search_waker.take() {
+            use std::os::fd::AsRawFd;
+            self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
+        }
+        // Memory pressure's follower, its thread waited for, its triggers closed and its waker
+        // given back.
+        self.memory_pressure = None;
+        if let Some(waker) = self.memory_pressure_waker.take() {
             use std::os::fd::AsRawFd;
             self.compositor.wakers.retain(|fd| fd.as_raw_fd() != waker);
         }

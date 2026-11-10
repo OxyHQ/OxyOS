@@ -5836,7 +5836,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         let followed = oxyos_compositor::memory_pressure::MemoryPressure::new(
             oxyos_compositor::memory_pressure::session_sources(),
         )?;
-        session.compositor.wakers.push(followed.wake_fd()?);
+        let waker = followed.wake_fd()?;
+        session.memory_pressure_waker = Some(std::os::fd::AsRawFd::as_raw_fd(&waker));
+        session.compositor.wakers.push(waker);
         session.memory_pressure = Some(followed);
     }
     if let Some(folder) = &launch.screenshots {
