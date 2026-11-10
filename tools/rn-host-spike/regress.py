@@ -526,11 +526,11 @@ account's decisions on its capabilities; the development compositor takes it as 
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
 A scenario's `unimplemented` lists the native components its hosts have no implementation of and draw
-as plain views (React Native's Android `AndroidProgressBar`, ActivityIndicator's; unimplemented-
-components.h, docs/react-native-android-adaptation.mdx): every run checks that the components the
-hosts reported (`unimplemented` lines, any host of the run, the shell's among them) are exactly those
-it lists, so a scenario never draws one silently, and a name nothing draws any more is no longer
-listed.
+as plain views (React Native's Android `AndroidProgressBar`, ActivityIndicator's;
+unimplemented-components.h, docs/react-native-android-adaptation.mdx): every run checks that the
+components the hosts reported (`unimplemented` lines, any host of the run, the shell's among them)
+are exactly those it lists, so a scenario never draws one silently, and a name nothing draws any
+more is no longer listed.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
