@@ -1,0 +1,82 @@
+{
+  "about": "Activity Monitor's menus in the session's menu bar, as macOS's (docs/adr/0021-menu-bar.mdx, docs/adr/0063-activity-monitor.mdx): it declares Edit and View with Bloom's Menubar, Edit's editing commands acting on the focused field and Find… (Ctrl+F) its own command, which gives the process search field the keyboard with its text selected, as a Mac's Find takes its field. Ctrl+F in the window finds without the bar; Find… from the bar, its field already holding text, selects that text, so what is typed next replaces it.",
+  "locale": "en_US.UTF-8",
+  "module": "OxyOSActivityMonitor",
+  "window": [1000, 640],
+  "shell": "OxyOSShell",
+  "app": {"id": "so.oxy.activitymonitor", "title": "Activity Monitor"},
+  "grants": {"so.oxy.activitymonitor": ["activity"]},
+  "processes": [{"name": "oxyos-test-busy", "busy": 0.2}, {"name": "oxyos-test-idle"}],
+  "steps": [
+    {
+      "name": "shown and made active by a press on the table's empty space: Edit then View in the bar, Edit's editing items disabled (no field has focus), Find… enabled",
+      "do": ["press", [500, 520]],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": null,
+        "menus": {
+          "bar": ["Edit", "View"],
+          "Edit > Undo": {"disabled": true},
+          "Edit > Copy": {"disabled": true},
+          "Edit > Paste": {"disabled": true},
+          "Edit > Select All": {"disabled": true},
+          "Edit > Find…": {"disabled": false, "shortcut": "Mod+F"},
+          "View > All Processes": {"checked": true},
+          "View > Inspect Process": {"shortcut": "Mod+I"}
+        },
+        "in_shell": {"texts": ["Edit", "View"]}
+      }
+    },
+    {
+      "name": "Ctrl+F in the window: the search field has the keyboard, once, with no bar",
+      "do": ["key", [29, 33]],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "activity-search",
+        "menus": {"Edit > Find…": {"disabled": false}}
+      }
+    },
+    {
+      "name": "what is typed goes to the field: the two known processes alone",
+      "do": ["type", "oxyos-test"],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "activity-search",
+        "texts": ["oxyos-test-busy", "oxyos-test-idle"],
+        "absent": ["oxyos-offscreen"],
+        "menus": {"Edit > Select All": {"disabled": false}, "Edit > Undo": {"disabled": false}}
+      }
+    },
+    {
+      "name": "Edit opens in the shell's bar with each command's chord as Ctrl; the field keeps focus",
+      "do": ["press_named", "Edit"],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "activity-search",
+        "in_shell": {"texts": ["Undo", "Ctrl+Z", "Cut", "Copy", "Paste", "Paste and Match Style", "Delete", "Select All", "Ctrl+A", "Find…", "Ctrl+F"]},
+        "react": {},
+        "delivered": {"1": {"focus.out": 1, "leave": 1}}
+      }
+    },
+    {
+      "name": "Find… from the bar: the keyboard is the window's again (the pointer back over it), the field's text selected, the command run once",
+      "do": ["press_named", "Find…"],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "activity-search",
+        "delivered": {"1": {"enter": 1, "focus.in": 1, "menu.activated": 1}},
+        "menus": {"Edit > Cut": {"disabled": false}, "Edit > Copy": {"disabled": false}}
+      }
+    },
+    {
+      "name": "what is typed next replaces the selected text: oxyos-test-idle alone",
+      "do": ["type", "oxyos-test-idle"],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_input": "activity-search",
+        "texts": ["oxyos-test-idle"],
+        "absent": ["oxyos-test-busy"]
+      }
+    }
+  ]
+}
