@@ -207,7 +207,7 @@ fn the_benchmarks_tree_is_given_the_claims_protections() {
     std::fs::create_dir_all(users.join("user-seat.slice/user@.service")).unwrap();
     std::fs::create_dir_all(users.join("user-other.slice")).unwrap();
     // The benchmark's machine: 1 GiB, so a claim of 900 MiB is capped at 512.
-    std::fs::write(root.join("machine/memory.max"), format!("{}\n", GIB)).unwrap();
+    std::fs::write(root.join("machine/memory.max"), format!("{GIB}\n")).unwrap();
     std::fs::write(users.join("memory.max"), "max\n").unwrap();
     let applied = apply_memory_claim_to_tree(&users, "user-seat.slice", 900 * MIB).unwrap();
     assert_eq!(
@@ -701,8 +701,8 @@ fn the_seats_applications_claim_is_carried_up_and_handed_back() {
     assert_eq!(
         calls(&model, 18)[13..],
         [
-            raised(1002),
             lowered(1000),
+            raised(1002),
             protected("user@1002.service", 428 * MIB),
             protected("user-1002.slice", 428 * MIB),
             protected("user.slice", 556 * MIB),

@@ -107,7 +107,8 @@ pub struct Lows {
 /// a machine of `memory` bytes: each floor and the claim (capped), the user's slice at least its
 /// manager's.
 pub fn lows(claim: u64, memory: u64) -> Lows {
-    let claim = claim.min(memory / 100 * CLAIM_CAP_PERCENT);
+    let cap = u128::from(memory) * u128::from(CLAIM_CAP_PERCENT) / 100;
+    let claim = claim.min(u64::try_from(cap).unwrap_or(u64::MAX));
     let manager = FLOORS.manager.saturating_add(claim);
     Lows {
         manager,
@@ -156,6 +157,8 @@ pub fn claim_of(claims: &Claims, uid: u32) -> u64 {
 }
 
 /// The machine's memory, in bytes.
+// `totalram` is a C `unsigned long`: 64 bits here, 32 on a 32-bit machine.
+#[allow(clippy::useless_conversion)]
 pub fn machine_memory() -> u64 {
     let info = rustix::system::sysinfo();
     u64::from(info.totalram).saturating_mul(u64::from(info.mem_unit.max(1)))
