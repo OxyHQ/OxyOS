@@ -235,6 +235,17 @@ void FrameDiagnostics::presented(bool gpu, double syncMs) {
   syncMs_ += syncMs;
 }
 
+void FrameDiagnostics::pipelines(int made, int compiled, double ms) {
+  if (!started_) return;
+  pipelinesMade_ += made;
+  pipelinesCompiled_ += compiled;
+  pipelinesMs_ += ms;
+}
+
+void FrameDiagnostics::shaderCompiled() {
+  if (started_) ++shadersCompiled_;
+}
+
 std::string FrameDiagnostics::partsText() const {
   auto part = [&](Part p) { return parts_[static_cast<size_t>(p)].wallMs; };
   ThreadSpan all;
@@ -293,7 +304,7 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
         blocked[kPartNames[i]] = round2(parts_[i].blockedMs);
         preempted[kPartNames[i]] = round2(parts_[i].preemptedMs);
       }
-      report.diagnostic("timing", folly::dynamic::object("presented", presented)("work_ms", work)(
+      folly::dynamic timing = folly::dynamic::object("presented", presented)("work_ms", work)(
                                       "cpu_ms", all.cpuMs)("blocked_ms", all.blockedMs)("preempted_ms", all.preemptedMs)(
                                       "cpu", std::move(cpu))("blocked", std::move(blocked))(
                                       "preempted", std::move(preempted))("wait_ms", waitMs_)(
@@ -301,7 +312,12 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
                                       "latency_ms", latency ? folly::dynamic(*latency) : folly::dynamic(nullptr))(
                                       "trigger", what)("parts", std::move(parts))("commit_ms", commitMs_)(
                                       "layout_ms", layoutMs_)("text_ms", textMs_)("gpu", gpu_)("sync_ms", syncMs_)(
-                                      "turns", turns_)("refresh_ms", periodMs_));
+                                      "turns", turns_)("refresh_ms", periodMs_);
+      if (pipelinesMade_ > 0 || shadersCompiled_ > 0) {
+        timing["pipelines"] = folly::dynamic::object("made", pipelinesMade_)("compiled", pipelinesCompiled_)(
+            "shaders_compiled", shadersCompiled_)("ms", round2(pipelinesMs_));
+      }
+      report.diagnostic("timing", std::move(timing));
     }
   }
   if (presented) {
@@ -321,6 +337,10 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
                                 dropped, periodMs_) +
                          partsText();
       if (latency) line += format("; input to present %.1f ms", *latency);
+      if (pipelinesMade_ > 0 || shadersCompiled_ > 0) {
+        line += format("; GPU pipelines made %d in %.1f ms, %d compiled by the driver, %d programs' shaders by Skia",
+                       pipelinesMade_, pipelinesMs_, pipelinesCompiled_, shadersCompiled_);
+      }
       if (slowSkipped_ > 0) line += format("; %d slow not shown since the last", slowSkipped_);
       log(line);
       slowLogged_ = now;
@@ -356,6 +376,8 @@ void FrameDiagnostics::finish(bool presented, Clock::time_point now) {
   parts_.fill(ThreadSpan{});
   waitMs_ = commitMs_ = layoutMs_ = textMs_ = syncMs_ = 0;
   turns_ = presents_ = 0;
+  pipelinesMade_ = pipelinesCompiled_ = shadersCompiled_ = 0;
+  pipelinesMs_ = 0;
   gpu_ = false;
   trigger_.clear();
   triggerRank_ = -1;

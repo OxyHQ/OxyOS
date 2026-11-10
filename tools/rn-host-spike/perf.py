@@ -28,6 +28,15 @@ step's expected result) and measures, from what the processes report and from /p
   API late (perf-dropsea-launch-signed-in.json), from the host's start to its listing shown;
 - cold start: an application's process started to its first frame on the output, and the stages
   of the host's start in between (the host's report's `stage` lines);
+- pipelines: an application's GPU pipelines over its launches (PIPELINES): launched for the first
+  time ever on the machine (its cache directory and the GPU driver's own shader cache empty); as
+  another application's first launch after it (a cache directory of its own, the driver's cache
+  as the first left it); again with its cache directory kept and the driver's cache off, so that
+  only the application's own cache (skia-gpu.h) can spare a compile; then once more with the
+  driver's cache as a session has it. For each launch, the pipelines Skia made, those the driver compiled and the programs
+  whose shaders Skia compiled (the host's frame diagnostics, `timing`'s `pipelines`), the time
+  making them took, and the slowest frame. --check holds every launch after the first to no compile
+  of either: a later launch has no frame stalled by one;
 - idle: the CPU time and the wakeups (context switches, every thread) of every process while
   nothing happens, after the session settled;
 - idle memory: every process's resident memory (anonymous and file-backed) while idle, and its peak;
@@ -78,7 +87,7 @@ scenario on a 120 Hz output holds every frame to 8.3 ms.
 
 Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
                [--renderer cpu|gpu] [--only SCENARIOS] [--check]
-               [interactions] [responses] [desktop] [shell] [cold-start] [idle] [memory] [refresh] [genie]
+               [interactions] [responses] [desktop] [shell] [cold-start] [pipelines] [idle] [memory] [refresh] [genie]
        perf.py --offscreen BIN [--out DIR] [--check] search
        perf.py [--out DIR] [--check] session
 
@@ -205,6 +214,11 @@ COLD_STARTS = [
 
 COLD_IDLE_MS = 2500
 
+# Pipelines: (name, scenario) whose application's launches are measured. Settings scrolled draws its
+# window, then the sidebar's rows as they come into view (the first launch's 1009 ms frame on the
+# ThinkPad, 10 November 2026, was one of them: docs/performance.mdx, "A device's GPU").
+PIPELINES = [("Settings scroll", "perf-settings-scroll.json")]
+
 # Idle: (name, scenario) run with one step waiting IDLE_WAIT_MS, sampled once it settled.
 IDLES = [
     ("shell and Allo", {"module": "EditingProbe", "window": [600, 360], "shell": "OxyOSShell",
@@ -252,6 +266,9 @@ BUDGETS = {
     # launches before (the ThinkPad, 6 November 2026: 66 to 198 ms).
     "first_frame_ms_median": 500.0,
     "first_content_ms_median": 250.0,
+    # A launch after an application's first compiles no GPU pipeline and no shaders: its own cache
+    # has them (skia-gpu.h), even with the GPU driver's own cache off.
+    "later_launch_compiles": 0,
 }
 
 # What --check holds each host's memory to, idle beside the others (`memory`, on the ThinkPad's GPU),
@@ -408,10 +425,11 @@ def read_report(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def run_scenario(options, scenario, out, during=None, app_cache=None):
+def run_scenario(options, scenario, out, during=None, app_cache=None, env=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
     `during(sampler, out)` called meanwhile, the applications' caches in `app_cache` when given
-    (kept across runs). Returns (summary, app report, shell report, sampler)."""
+    (kept across runs), and `env` added to the environment. Returns (summary, app report, shell
+    report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
                "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out),
                # A run measuring speed never counts what React re-renders (regress.py): the count's
@@ -426,7 +444,8 @@ def run_scenario(options, scenario, out, during=None, app_cache=None):
         command += ["--renderer", options.renderer]
     if app_cache:
         command += ["--app-cache", str(app_cache)]
-    run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           env={**os.environ, **env} if env else None)
     sampler = Sampler(run.pid)
     sampler.start()
     if during:
@@ -803,6 +822,54 @@ def cold_start(options, name, scenario, out):
               "stages_ms": {stage: round(statistics.median(values), 1) for stage, values in stages.items()}}
     if shell_firsts:
         result["shell_main_to_first_frame_ms"] = percentiles(shell_firsts)
+    return result
+
+
+def pipelines(options, name, scenario, out):
+    """An application's GPU pipelines over its launches (PIPELINES): what each launch made and
+    compiled, and its slowest frame."""
+    cache = out / f"{slug(name)}-pipelines-cache"
+    driver = out / f"{slug(name)}-pipelines-driver-cache"
+    for kept in (cache, driver):
+        shutil.rmtree(kept, ignore_errors=True)
+        kept.mkdir(parents=True)
+    # A copy, so that its runs are not pooled with the scenario's own (step_budgets).
+    spec = json.loads((SCENARIOS / scenario).read_text())
+    path = scenario_file(out, f"{name} pipelines", {k: v for k, v in spec.items() if k not in ("about", "steps")},
+                         spec["steps"])
+    # Each launch: what it is, whether it is a later one (its cache kept from the first), the
+    # application's cache directory, and the GPU driver's own cache.
+    driver_on, driver_off = {"MESA_SHADER_CACHE_DIR": str(driver)}, {"MESA_SHADER_CACHE_DISABLE": "true"}
+    launches = [("its first, the machine's first", False, cache, driver_on),
+                # Another application's first launch on the same machine and account: its programs
+                # are the first's, compiled by the driver into its own cache, Skia's not kept (an
+                # application's cache is its own).
+                ("its first, after another's", False, out / f"{slug(name)}-pipelines-another", driver_on),
+                ("its second, the driver's cache off", True, cache, driver_off),
+                ("its third, as a session runs", True, cache, driver_on)]
+    shutil.rmtree(launches[1][2], ignore_errors=True)
+    result = []
+    for index, (launch, later, app_cache, env) in enumerate(launches):
+        summary, report, *_ = run_scenario(options, path, out / f"{slug(name)}-launch-{index + 1}",
+                                           app_cache=app_cache, env=env)
+        frames = [line for line in report if line["kind"] == "timing" and line["presented"]]
+        made = [line.get("pipelines") or {} for line in frames]
+        slowest = max(frames, key=lambda line: line["work_ms"], default=None)
+        result.append({
+            "launch": launch,
+            "later": later,
+            "gpu": any(line.get("gpu") for line in frames),
+            "frames": len(frames),
+            "made": sum(entry.get("made", 0) for entry in made),
+            "compiled": sum(entry.get("compiled", 0) for entry in made),
+            "shaders_compiled": sum(entry.get("shaders_compiled", 0) for entry in made),
+            "pipelines_ms": round(sum(entry.get("ms", 0) for entry in made), 1),
+            "frames_compiling": sum(1 for entry in made if entry.get("compiled") or entry.get("shaders_compiled")),
+            "slowest_ms": None if slowest is None else round(slowest["work_ms"], 1),
+            "slowest_pipelines": None if slowest is None else slowest.get("pipelines"),
+            "first_frame_ms": summary.get("first_frame_ms"),
+            "kept_kib": round(sum(f.stat().st_size for f in app_cache.rglob("*") if f.is_file()) / 1024),
+        })
     return result
 
 
@@ -1311,6 +1378,14 @@ def show(results):
                            "its first launch ever",
                            "stages (median ms, each to the next)"]))
         print()
+    if "pipelines" in results:
+        rows = [[name, r["launch"], r["frames"], r["slowest_ms"], r["made"], r["compiled"], r["shaders_compiled"],
+                 r["pipelines_ms"], r["frames_compiling"], r["kept_kib"]]
+                for name, launches in results["pipelines"].items() for r in launches]
+        print(table(rows, ["pipelines", "launch", "frames", "slowest frame ms", "pipelines made",
+                           "compiled by the driver", "shaders compiled by Skia", "making them ms",
+                           "frames that compiled", "its cache KiB"]))
+        print()
     if "memory" in results:
         rows = [[who, m["footprint_mib"], m["pss_mib"], m["uss_mib"], m.get("gpu_mib", "—"), m["rss_mib"],
                  m.get("anon_mib", "—"), m.get("thp_mib", "—"),
@@ -1440,6 +1515,16 @@ def check(results):
         for key, limit in MEMORY_BUDGETS.get(who, {}).items():
             if m[key] > limit:
                 over.append(f"memory: {who}'s {key[:-4]} {m[key]} MiB, the median of the runs, over {limit} MiB")
+    for name, launches in results.get("pipelines", {}).items():
+        if not launches[0]["gpu"]:
+            continue  # drawn on the CPU: no pipeline to keep
+        if launches[0]["made"] == 0:
+            over.append(f"pipelines {name}: the first launch made no GPU pipeline (the host's diagnostics?)")
+        for r in (r for r in launches if r["later"]):
+            compiles = r["compiled"] + r["shaders_compiled"]
+            if compiles > BUDGETS["later_launch_compiles"]:
+                over.append(f"pipelines {name}: {r['launch']} launch compiled {r['compiled']} pipelines and "
+                            f"{r['shaders_compiled']} programs' shaders in {r['frames_compiling']} frames")
     for name, r in results.get("cold_start", {}).items():
         if r["first_frame_ms"]["p50"] > BUDGETS["first_frame_ms_median"]:
             over.append(f"cold start {name}: first frame after {r['first_frame_ms']['p50']} ms")
@@ -1452,7 +1537,7 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, desktop, shell, cold-start, idle, memory, refresh, genie (all "
+                        help="interactions, responses, desktop, shell, cold-start, pipelines, idle, memory, refresh, genie (all "
                              "by default), search (the search service, only when named, needs --offscreen "
                              "alone) and session (the running session idle, only when named)")
     parser.add_argument("--offscreen")
@@ -1467,7 +1552,8 @@ def main():
                         help="only these scenarios (file names without .json, comma-separated) in the parts that run them")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
     options = parser.parse_args()
-    every = ["interactions", "responses", "desktop", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
+    every = ["interactions", "responses", "desktop", "shell", "cold-start", "pipelines", "idle", "memory", "refresh",
+             "genie"]
     only = set(options.only.split(",")) if options.only else None
 
     def chosen(entries):
@@ -1498,6 +1584,8 @@ def main():
         packaged = Machine(pathlib.Path(options.runtimes), pathlib.Path(options.packages)).by_module
         results["cold_start"] = {name: cold_start(options, name, scenario, out) for name, scenario in COLD_STARTS
                                  if scenario["module"] != "Dropsea" or "Dropsea" in packaged}
+    if "pipelines" in parts:
+        results["pipelines"] = {name: pipelines(options, name, scenario, out) for name, scenario in chosen(PIPELINES)}
     if "idle" in parts:
         results["idle"] = {name: idle(options, name, scenario, out) for name, scenario in IDLES}
     if "memory" in parts:

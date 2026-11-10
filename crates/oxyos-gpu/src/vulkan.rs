@@ -320,6 +320,8 @@ struct Opened {
     /// Whether it imports clients' DMA-BUFs and samples them in place (docs/adr/0031): the
     /// formats and modifiers it can, the foreign queue family, its render node.
     images: Option<import::Capabilities>,
+    /// Who its pipeline cache is for (`pipeline_cache`).
+    identity: crate::pipeline_cache::Identity,
 }
 
 pub struct VulkanCompositor {
@@ -427,6 +429,17 @@ impl VulkanCompositor {
     /// queue; for `0`, Vulkan on the CPU. Only that GPU's drivers are loaded: no other GPU is
     /// opened, woken or enumerated, and no other is ever chosen.
     pub fn on_device(device: u64) -> Result<Self, Error> {
+        Self::on_device_with_pipeline_cache(device, None)
+    }
+
+    /// As [`Self::on_device`], its compute pipelines made with the driver's pipeline cache kept
+    /// in `pipelines` (a session's: `$XDG_CACHE_HOME/oxyos/compositor`), so that a session after
+    /// the first compiles none (`crate::pipeline_cache`: per GPU and driver, validated, bounded,
+    /// written whole and private). None: the driver's own cache alone, if it keeps one.
+    pub fn on_device_with_pipeline_cache(
+        device: u64,
+        pipelines: Option<&std::path::Path>,
+    ) -> Result<Self, Error> {
         let drivers = oxyos_gpu_device::Drivers::for_device(device);
         let loaded = drivers.load().map_err(|error| Error(error.to_string()))?;
         // SAFETY: loading the system's Vulkan loader runs its initialization; nothing else in
@@ -503,7 +516,11 @@ impl VulkanCompositor {
             timed: false,
             last_handovers: Handovers::default(),
         };
-        this.build(opened.family, opened.images.is_some())?;
+        this.build(
+            opened.family,
+            opened.images.is_some(),
+            pipelines.map(|directory| (directory, &opened.identity)),
+        )?;
         if let Some(capabilities) = opened.images {
             match this.build_images(capabilities) {
                 Ok(images) => this.images = Some(images),
@@ -704,12 +721,39 @@ impl VulkanCompositor {
             dma_buf,
             sync_file,
             images,
+            identity: crate::pipeline_cache::Identity {
+                vendor: properties.vendor_id,
+                device: properties.device_id,
+                uuid: properties.pipeline_cache_uuid,
+            },
         })
     }
 
-    /// Creates the pipeline, descriptors, commands, fence and timestamp queries.
-    fn build(&mut self, family: u32, images: bool) -> Result<(), Error> {
+    /// Creates the pipeline, descriptors, commands, fence and timestamp queries; the pipelines
+    /// with the pipeline cache kept in `pipelines`' directory, written back when they added to it.
+    fn build(
+        &mut self,
+        family: u32,
+        images: bool,
+        pipelines: Option<(&std::path::Path, &crate::pipeline_cache::Identity)>,
+    ) -> Result<(), Error> {
         let device = &self.device;
+        let kept = pipelines
+            .and_then(|(directory, identity)| crate::pipeline_cache::load(directory, identity))
+            .unwrap_or_default();
+        // Destroyed below, once the pipelines are made from it.
+        let cache = match pipelines {
+            // SAFETY: the device is live; the initial data outlives the call (and was checked to
+            // be this device's cache, which the driver checks again).
+            Some(_) => unsafe {
+                device.create_pipeline_cache(
+                    &vk::PipelineCacheCreateInfo::default().initial_data(&kept),
+                    None,
+                )
+            }
+            .unwrap_or(vk::PipelineCache::null()),
+            None => vk::PipelineCache::null(),
+        };
         // The layers' pixels, the output, the layer table, and the table again for its bins.
         let mut bindings: Vec<vk::DescriptorSetLayoutBinding> = [0, 1, 2, 4]
             .map(|binding| {
@@ -758,7 +802,7 @@ impl VulkanCompositor {
                     .module(module)
                     .name(c"main");
                 let pipelines = device.create_compute_pipelines(
-                    vk::PipelineCache::null(),
+                    cache,
                     &[vk::ComputePipelineCreateInfo::default()
                         .stage(stage)
                         .layout(layout)],
@@ -767,10 +811,34 @@ impl VulkanCompositor {
                 device.destroy_shader_module(module, None);
                 Ok(pipelines.map_err(|(_, result)| Error::from(result))?[0])
             };
-            self.pipeline = pipeline(&shader())?;
-            if images {
-                self.pipeline_images = pipeline(&shader_images())?;
+            let made = pipeline(&shader()).and_then(|composition| {
+                self.pipeline = composition;
+                if images {
+                    self.pipeline_images = pipeline(&shader_images())?;
+                }
+                Ok(())
+            });
+            if let (Some((directory, identity)), false) =
+                (pipelines, cache == vk::PipelineCache::null())
+            {
+                if made.is_ok() {
+                    match device.get_pipeline_cache_data(cache) {
+                        Ok(data) if data != kept => {
+                            if let Err(error) =
+                                crate::pipeline_cache::store(directory, identity, &data)
+                            {
+                                eprintln!(
+                                    "[gpu] the pipeline cache was not kept in {}: {error}",
+                                    directory.display()
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                device.destroy_pipeline_cache(cache, None);
             }
+            made?;
             let mut sizes = vec![vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(4)];

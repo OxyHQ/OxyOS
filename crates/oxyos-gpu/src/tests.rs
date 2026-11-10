@@ -166,6 +166,44 @@ fn vulkan_matches_the_reference() {
     assert_eq!(empty, vec![5; 256]);
 }
 
+/// The compositor's pipelines kept (`pipeline_cache`): the first start writes the driver's
+/// cache, the next reads it and, having added nothing, writes nothing; and it composes as the
+/// reference either way.
+#[test]
+fn the_compositors_pipelines_are_kept_for_the_next_start() {
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-compositor-pipelines-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    let device =
+        oxyos_gpu_device::display_device(std::path::Path::new(oxyos_gpu_device::SYSTEM_ROOT));
+    let first = match VulkanCompositor::on_device_with_pipeline_cache(device, Some(&directory)) {
+        Ok(gpu) => gpu,
+        Err(error) => {
+            eprintln!("no Vulkan device, skipped: {error}");
+            return;
+        }
+    };
+    drop(first);
+    let kept: Vec<_> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(kept.len(), 1, "one cache, this device's: {kept:?}");
+    let written = std::fs::metadata(&kept[0]).unwrap().modified().unwrap();
+    let mut gpu =
+        VulkanCompositor::on_device_with_pipeline_cache(device, Some(&directory)).unwrap();
+    assert_eq!(
+        std::fs::metadata(&kept[0]).unwrap().modified().unwrap(),
+        written,
+        "nothing new to keep"
+    );
+    let (window, popup) = frame();
+    let layers = layers(&window, &popup);
+    let cpu = compose_cpu(120, 90, 0x0011_2233, &layers);
+    assert_eq!(gpu.compose(120, 90, 0x0011_2233, &layers).unwrap(), cpu);
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
 /// A frame composed deferred returns once submitted, with its completion as a sync file where
 /// the device exports one (as a display's frames are, `compose_to_scanout`): the file becomes
 /// readable once the device is done, and the frame then reads back as the reference. A

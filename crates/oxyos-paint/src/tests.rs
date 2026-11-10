@@ -61,7 +61,26 @@ fn skia_is_given_a_graphics_queue_and_the_exact_features_and_extensions_enabled(
         .queue_flags
         .contains(vk::QueueFlags::GRAPHICS));
     let enabled = vulkan.features;
-    assert!(enabled.p_next.is_null(), "no chain after the core features");
+    // The pipeline cache's control chained after the core features, enabled, where the device has
+    // it (Skia then knows when a pipeline was compiled), and nothing else.
+    let cache_control = ash::ext::pipeline_creation_cache_control::NAME;
+    if vulkan.device_extensions.contains(&cache_control) {
+        assert!(!enabled.p_next.is_null());
+        // SAFETY: the chain's one link is the cache control's feature, which lives with the painter.
+        let chained = unsafe {
+            &*enabled
+                .p_next
+                .cast::<vk::PhysicalDevicePipelineCreationCacheControlFeatures<'static>>()
+        };
+        assert!(
+            chained.s_type
+                == vk::StructureType::PHYSICAL_DEVICE_PIPELINE_CREATION_CACHE_CONTROL_FEATURES
+        );
+        assert_eq!(chained.pipeline_creation_cache_control, vk::TRUE);
+        assert!(chained.p_next.is_null(), "nothing after the cache control");
+    } else {
+        assert!(enabled.p_next.is_null(), "no chain after the core features");
+    }
     assert_eq!(enabled.features.robust_buffer_access, vk::FALSE);
     let expected = vk::PhysicalDeviceFeatures {
         robust_buffer_access: vk::FALSE,

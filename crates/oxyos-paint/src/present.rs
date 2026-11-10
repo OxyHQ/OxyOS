@@ -55,7 +55,50 @@ pub(crate) struct Gpu {
     /// be told ([`Paint::vulkan`]).
     instance_extensions: Vec<&'static CStr>,
     device_extensions: Vec<&'static CStr>,
-    features: Box<vk::PhysicalDeviceFeatures2<'static>>,
+    features: Box<Features>,
+}
+
+/// What the device is created with, as Skia is told it: every core feature but
+/// `robustBufferAccess`, then, where the device has `VK_EXT_pipeline_creation_cache_control`,
+/// that extension's feature chained after them. With it Skia asks the driver's pipeline cache
+/// before compiling a pipeline (`VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT`), so it
+/// knows when one was compiled: it keeps the cache only when something was added, and the host
+/// counts each frame's compiles (docs/adr/0031-gpu-buffers.mdx, decision 12). Boxed whole, so the
+/// chain's pointer into it stays valid while the device lives.
+pub(crate) struct Features {
+    pub(crate) core: vk::PhysicalDeviceFeatures2<'static>,
+    cache_control: vk::PhysicalDevicePipelineCreationCacheControlFeatures<'static>,
+}
+
+impl Features {
+    /// The device's features, the cache control's queried where `cache_control` (the device has
+    /// the extension) and chained only when the device has it.
+    fn of(
+        instance: &ash::Instance,
+        physical: vk::PhysicalDevice,
+        cache_control: bool,
+    ) -> Box<Self> {
+        let mut features = Box::new(Self {
+            core: vk::PhysicalDeviceFeatures2::default(),
+            cache_control: vk::PhysicalDevicePipelineCreationCacheControlFeatures::default(),
+        });
+        if cache_control {
+            features.core.p_next = std::ptr::from_mut(&mut features.cache_control).cast();
+        }
+        // SAFETY: `physical` is live; Vulkan 1.1 has the query in its core; the chain (the cache
+        // control's struct, inside the same box) outlives the call.
+        unsafe { instance.get_physical_device_features2(physical, &mut features.core) };
+        features.core.features.robust_buffer_access = vk::FALSE;
+        if cache_control && features.cache_control.pipeline_creation_cache_control == vk::FALSE {
+            features.core.p_next = std::ptr::null_mut();
+        }
+        features
+    }
+
+    /// Whether the cache control's feature is chained, and so enabled.
+    pub(crate) fn cache_control(&self) -> bool {
+        !self.core.p_next.is_null()
+    }
 }
 
 /// Whether the painter may open a physical device: the compositor's own (`device`), or, for a
@@ -236,10 +279,15 @@ impl Gpu {
         }
         // Every core feature the device has but robustBufferAccess, as Skia's own Vulkan tools
         // enable them: bounds checks on every buffer access cost, and Skia does not rely on them.
-        let mut features = Box::new(vk::PhysicalDeviceFeatures2::default());
-        // SAFETY: `physical` is live; Vulkan 1.1 has the query in its core; there is no chain.
-        unsafe { instance.get_physical_device_features2(physical, &mut features) };
-        features.features.robust_buffer_access = vk::FALSE;
+        // And the pipeline cache's control, where the device has it ([`Features`]).
+        let mut features = Features::of(
+            instance,
+            physical,
+            chosen.has(ash::ext::pipeline_creation_cache_control::NAME),
+        );
+        if features.cache_control() {
+            extensions.push(ash::ext::pipeline_creation_cache_control::NAME);
+        }
         let names: Vec<*const std::ffi::c_char> =
             extensions.iter().map(|name| name.as_ptr()).collect();
         let priorities = [1.0];
@@ -247,14 +295,14 @@ impl Gpu {
             .queue_family_index(family)
             .queue_priorities(&priorities)];
         // SAFETY: `physical` belongs to the instance; the infos, the features and the names
-        // outlive the call; the features are the chain's only link (pEnabledFeatures is null).
+        // outlive the call; the features are the chain (pEnabledFeatures is null).
         let device = unsafe {
             instance.create_device(
                 physical,
                 &vk::DeviceCreateInfo::default()
                     .queue_create_infos(&queues)
                     .enabled_extension_names(&names)
-                    .push_next(&mut *features),
+                    .push_next(&mut features.core),
                 None,
             )
         }?;
@@ -353,7 +401,7 @@ impl Gpu {
             device_api_version: self.device_api_version,
             instance_extensions: &self.instance_extensions,
             device_extensions: &self.device_extensions,
-            features: &self.features,
+            features: &self.features.core,
         }
     }
 
@@ -589,7 +637,7 @@ struct Opened {
     foreign: bool,
     completion: Option<(vk::Semaphore, ash::khr::external_semaphore_fd::Device)>,
     extensions: Vec<&'static CStr>,
-    features: Box<vk::PhysicalDeviceFeatures2<'static>>,
+    features: Box<Features>,
 }
 
 struct Image {

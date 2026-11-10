@@ -437,7 +437,12 @@ fn main() -> Result<()> {
     let gpu = if device == 0 {
         Err(format!("{} has no render node", card_path.display()))
     } else {
-        oxyos_gpu::VulkanCompositor::on_device(device).map_err(|error| error.to_string())
+        // Its compute pipelines kept in the person's cache (`$XDG_CACHE_HOME/oxyos/compositor`), so
+        // that a session after the first compiles none (docs/adr/0031-gpu-buffers.mdx, decision 12).
+        // The login screen's user has no home of its own: the driver's cache alone there.
+        let pipelines = if greeter { None } else { compositor_cache() };
+        oxyos_gpu::VulkanCompositor::on_device_with_pipeline_cache(device, pipelines.as_deref())
+            .map_err(|error| error.to_string())
     };
     match gpu {
         Ok(gpu) if gpu.exports_dma_buf() => {
@@ -2112,6 +2117,20 @@ fn asker(launched: Option<&oxyos_apps::Launched>) -> oxyos_compositor::installs:
             },
         },
     }
+}
+
+/// The compositor's own cache directory: `oxyos/compositor` under `$XDG_CACHE_HOME`, else
+/// `~/.cache` (a relative value ignored, as the base directory specification says); none without
+/// a home.
+fn compositor_cache() -> Option<std::path::PathBuf> {
+    let absolute = |name: &str| {
+        std::env::var_os(name)
+            .map(std::path::PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+    absolute("XDG_CACHE_HOME")
+        .or_else(|| absolute("HOME").map(|home| home.join(".cache")))
+        .map(|cache| cache.join("oxyos/compositor"))
 }
 
 #[cfg(test)]

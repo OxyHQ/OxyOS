@@ -102,6 +102,13 @@ class FrameDiagnostics {
   void committed(double commitMs, double layoutMs, double textMs);
   // A frame of a surface presented: on the GPU with its synchronization's time, or in shared memory.
   void presented(bool gpu, double syncMs);
+  // GPU pipelines Skia made while drawing (skia-gpu.cpp): `made` of them, `compiled` of those by
+  // the GPU's driver (found in no cache), in `ms`; and a program's shaders Skia compiled (SkSL to
+  // SPIR-V, found in no cache). Both stall the frame they are drawn in: a later launch makes its
+  // pipelines from the application's cache and compiles none (docs/adr/0031-gpu-buffers.mdx,
+  // decision 12). Said in the frame's timing ("pipelines") and its slow line.
+  void pipelines(int made, int compiled, double ms);
+  void shaderCompiled();
 
   // The window resized by a configure received at `received`, laid out in `ms`, and the time it
   // then waited for JavaScript's layout to settle (`cut` when a refresh ended the wait).
@@ -160,6 +167,8 @@ class FrameDiagnostics {
   // Each part's time: by the wall clock, and of it on the CPU, preempted and blocked (thread-clock.h).
   std::array<ThreadSpan, static_cast<size_t>(Part::Count)> parts_{};
   double waitMs_ = 0, commitMs_ = 0, layoutMs_ = 0, textMs_ = 0, syncMs_ = 0;
+  int pipelinesMade_ = 0, pipelinesCompiled_ = 0, shadersCompiled_ = 0;
+  double pipelinesMs_ = 0;
   int turns_ = 0, presents_ = 0;
   bool gpu_ = false, presentedThisTurn_ = false, first_ = true;
   std::string trigger_;

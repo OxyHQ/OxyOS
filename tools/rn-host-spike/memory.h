@@ -13,7 +13,8 @@
 //   the compositor released but the one each surface shows (window.h), Skia's scratch textures
 //   (offscreen layers, made again when a frame needs one) and the textures not drawn for
 //   kUnusedFor, malloc's free pages (malloc_trim), and Ganesh's Vulkan pipeline cache written to
-//   its persistent cache (skia-gpu.h) when it learned something.
+//   its persistent cache (skia-gpu.h) when it learned something (and once more as the window's
+//   loop ends, bloom-host.cpp).
 // - The account (a `memory` line in the report, after each trim): Hermes' heaps (the application's
 //   runtime and worklets' UI runtime: their segments, what is allocated in them, the malloc'd
 //   memory their objects hold), malloc's (what is in use and what it holds free), Skia's GPU

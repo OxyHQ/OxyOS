@@ -22,7 +22,8 @@
 //   {"t":…,"kind":"committed","target":"jsbox","props":{"transform":[{"translateX":12.5}]}}  (on mount)
 //   {"t":…,"kind":"animation_frame","timestamp":1234.5,"callbacks":2}  (requestAnimationFrame's frame)
 //   {"t":…,"kind":"timing","work_ms":…,"parts":{…},"trigger":"pointer.press",…}  (frame-diagnostics.h: each
-//       frame, and work without one, "presented": false, that was slow or ran JavaScript)
+//       frame, and work without one, "presented": false, that was slow or ran JavaScript; with
+//       "pipelines": {"made","compiled","shaders_compiled","ms"} when Skia made GPU pipelines in it)
 //   {"t":…,"kind":"log","text":"[host so.oxy.dropsea] a frame after …"}  (a line written to the log)
 //   {"t":…,"kind":"timing_summary","frames":…,"work_p50":…,…}  (the log's summary)
 //   {"t":…,"kind":"memory","malloc_in_use":…,"hermes_heap":…,"skia_gpu":…,"buffers":…,…}  (memory.h, idle)

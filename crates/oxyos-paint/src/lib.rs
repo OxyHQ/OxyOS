@@ -91,7 +91,8 @@ pub struct Vulkan<'a> {
     pub instance_extensions: &'a [&'static CStr],
     pub device_extensions: &'a [&'static CStr],
     /// What the device was created with: every core feature the device has but
-    /// `robustBufferAccess`; no chain after it.
+    /// `robustBufferAccess`, then, where it has `VK_EXT_pipeline_creation_cache_control` (among
+    /// `device_extensions`), that extension's feature, enabled, and nothing after it.
     pub features: &'a vk::PhysicalDeviceFeatures2<'static>,
 }
 

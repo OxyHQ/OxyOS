@@ -628,6 +628,7 @@ fn beneath(x: u32, y: u32, shadow: &Shadow) -> u32 {
 
 pub mod filter;
 pub mod frame_file;
+pub mod pipeline_cache;
 pub mod shape;
 pub mod warp;
 pub use shape::{ShadowProfile, MAX_SHADOW_SCALE};

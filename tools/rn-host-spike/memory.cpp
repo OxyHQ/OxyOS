@@ -98,8 +98,8 @@ bool Memory::tick(Clock::time_point now) {
   if (GrDirectContext* context = skiaContext(gpuPaint())) {
     context->purgeUnlockedResources(GrPurgeResourceOptions::kScratchResourcesOnly);
     context->performDeferredCleanup(std::chrono::duration_cast<std::chrono::milliseconds>(kUnusedFor));
-    storePipelineCache(context);
   }
+  storePipelineCache();
   malloc_trim(0);
   if (Report::get().enabled()) Report::get().memory(account());
   return true;

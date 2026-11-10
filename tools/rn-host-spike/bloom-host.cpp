@@ -3384,6 +3384,10 @@ int main(int argc, char** argv) {
       status = 1;
     }
     oxyos::FrameDiagnostics::get().leaving();
+    // What Ganesh compiled since the window was last idle is kept for the next launch: an
+    // application quit right after its first use (a scroll, a sheet opened) would otherwise compile
+    // the same pipelines again there (skia-gpu.h).
+    oxyos::storePipelineCache();
     writeJsProfile();
     gestures->onCancelResponder = nullptr;
     gestures->onIntercept = nullptr;

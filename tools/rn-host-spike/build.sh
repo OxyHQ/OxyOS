@@ -34,10 +34,12 @@ OXYOS_CLIENT_LIB="$REPO/target/release/liboxyos_client_ffi.a"
 
 CC="$CC" CXX="$CXX" cmake -S "$HERE" -B host-build -G Ninja $(sed 's/^/-D/' "$WORK/cmake-vars.txt") \
   -DOXYOS_CLIENT_LIB="$OXYOS_CLIENT_LIB" >/dev/null
-ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host oxyos-skia-check oxyos-turbo-module-cache-test
+ninja -C host-build -j "$JOBS" oxyos-rn-spike oxyos-bloom-host oxyos-skia-check oxyos-turbo-module-cache-test oxyos-pipeline-cache-test
 
 # The runtime's TurboModules: one per name, a method kept past its module's object still working.
 host-build/oxyos-turbo-module-cache-test
+# Ganesh's persistent cache on disk (pipeline-cache.h).
+host-build/oxyos-pipeline-cache-test
 
 # Skia on its own: a raster surface and, where a Vulkan device is present, Ganesh on it, the two
 # compared (skia-check.cpp).

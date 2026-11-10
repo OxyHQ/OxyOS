@@ -1116,9 +1116,57 @@ saturated failed, Dropsea's host blocked for seconds, above.)
   to 6.2 ms at the median); a session composes the damage into the display's buffer and reads nothing
   back.
 - Every frame on the ThinkPad fit its refresh at the 95th percentile but one: one Settings frame of
-  1009 ms among 372 (the run's shader cache started empty, its own). The Dropsea resize's interval
+  1009 ms among 372. It was first put down to the run's empty shader cache; the host's frame
+  diagnostics now count pipelines, and it is not one: the host waited a second for the development
+  compositor to release one of its GPU buffers and then drew on the CPU (`the GPU path stops (no GPU
+  buffer was released within a second)`, below, *Pipelines across launches*; [#525](https://github.com/OxyHQ/OxyOS/issues/525)). The Dropsea resize's interval
   is better on the ThinkPad (8.7 ms at the median against 12.1), its host's work per frame lower (8.7
   against 10.0).
+
+### Pipelines across launches
+
+A GPU pipeline compiled the first time something is drawn stalls that frame. The host keeps what it
+compiled (Ganesh's persistent cache in the application's cache directory, the compositor's in the
+session's: [ADR 0031](./adr/0031-gpu-buffers), decision 12, *Pipelines kept*) and counts each frame's
+pipelines in its diagnostics: made, compiled by the driver, programs whose shaders Skia compiled, and
+the time making them took (the report's `timing` lines, `"pipelines"`; a slow frame's line in the
+session's log ends `GPU pipelines made N in … ms, N compiled by the driver, N programs' shaders by
+Skia`). `perf.py pipelines` launches an application four times on one machine, Settings scrolled
+(`perf-settings-scroll.json`): its first launch on the machine (its cache and Mesa's own shader cache
+empty), another application's first after it (a cache of its own, Mesa's as the first left it), its
+second with Mesa's cache off (`MESA_SHADER_CACHE_DISABLE`: only its own cache can spare a compile) and
+its third as a session runs it. `--check` holds the second and third to no compile of either kind.
+
+On the ThinkPad on 10 November 2026 (Iris Xe, Mesa 25.0.7), through `perf-device.sh` beside the idle
+session, the Iris Xe alone opened:
+
+```sh
+tools/rn-host-spike/perf-device.sh --offscreen $P/bin/oxyos-offscreen --runtimes $P/machine/runtimes \
+  --packages $P/machine/packages --out $P/run --runs 1 --check pipelines
+```
+
+| launch | pipelines made | compiled by the driver | shaders compiled by Skia | making them, ms | the content's frame, ms (of it pipelines) |
+|---|---|---|---|---|---|
+| its first, the machine's first | 31 | 19 | 19 | 210.9 | 291.6 (182.6) |
+| its first, after another's | 31 | 0 | 19 | 2.6 | 96.3 (1.95) |
+| its second, Mesa's cache off | 31 | 0 | 0 | 0.2 | 94.6 (0.09) |
+| its third, as a session runs | 31 | 0 | 0 | 0.2 | 96.7 (0.1) |
+
+- **A later launch compiles nothing**, even with Mesa's cache off: the content's frame makes its 17
+  pipelines in 0.09 ms where the first launch compiled 16 of them in 183 ms. What is left of that frame
+  is Settings' own JavaScript (78 ms, its first render of the pane).
+- **Another application's first launch** finds the driver's work in Mesa's cache, the account's
+  (`~/.cache/mesa_shader_cache_db`), which the shell fills at every login: the driver compiles
+  nothing, and Skia compiles the programs' shaders in about 6 ms. Only the machine's first launch
+  pays the driver, once (and once after a driver's update).
+- **The application's cache** is 228 KiB (each program's SPIR-V and ANV's pipeline cache), 0700
+  and 0600, written when the window is idle and as it closes.
+- **What the 1-second frames are.** Three of the four launches had one frame of 1006 to 1009 ms:
+  not a pipeline (none was made in it), but the host waiting for the development compositor to
+  release one of its three GPU buffers, at the end of the scroll as the scroll bar fades, and then
+  drawing on the CPU for the rest of the run. That is the frame the run of *A device's GPU* above
+  saw; it is the fixture's or the presentation's, followed in
+  [#525](https://github.com/OxyHQ/OxyOS/issues/525).
 
 ## What was fixed
 

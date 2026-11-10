@@ -16,97 +16,38 @@
 #include <src/gpu/GpuTypesPriv.h>
 #include <src/gpu/vk/vulkanmemoryallocator/VulkanMemoryAllocatorPriv.h>
 
-#include <include/core/SkData.h>
+#include "frame-diagnostics.h"
+#include "pipeline-cache.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
-#include <map>
-#include <sstream>
 
 namespace oxyos {
 
 namespace {
 
-// A file of the cache: this, the key's length (4 bytes), the key, then the data. A key is found by
-// its hash and checked whole, so two keys never share a file's data.
-constexpr char kMagic[8] = {'O', 'X', 'S', 'K', 'C', 'A', 'C', '1'};
+// The driver's vkCreateGraphicsPipelines, and Ganesh's calls to it timed and counted for the
+// frame's diagnostics: with VK_EXT_pipeline_creation_cache_control (oxyos-paint enables it where
+// the device has it) Ganesh asks the driver's cache first (FAIL_ON_PIPELINE_COMPILE_REQUIRED), so a
+// pipeline made without that flag was compiled; without it, every pipeline counts as compiled.
+PFN_vkCreateGraphicsPipelines driverCreateGraphicsPipelines = nullptr;
 
-uint64_t hashOf(const SkData& key) {
-  // FNV-1a.
-  uint64_t hash = 0xcbf29ce484222325ull;
-  for (size_t i = 0; i < key.size(); ++i) hash = (hash ^ key.bytes()[i]) * 0x100000001b3ull;
-  return hash;
+VKAPI_ATTR VkResult VKAPI_CALL countedCreateGraphicsPipelines(VkDevice device, VkPipelineCache cache, uint32_t count,
+                                                              const VkGraphicsPipelineCreateInfo* infos,
+                                                              const VkAllocationCallbacks* allocator,
+                                                              VkPipeline* pipelines) {
+  auto started = std::chrono::steady_clock::now();
+  VkResult result = driverCreateGraphicsPipelines(device, cache, count, infos, allocator, pipelines);
+  double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+  bool lookup = count > 0 && (infos[0].flags & VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT_EXT) != 0;
+  FrameDiagnostics::get().pipelines(result == VK_SUCCESS ? static_cast<int>(count) : 0,
+                                    result == VK_SUCCESS && !lookup ? static_cast<int>(count) : 0, ms);
+  return result;
 }
-
-class PipelineCache final : public GrContextOptions::PersistentCache {
- public:
-  explicit PipelineCache(std::filesystem::path directory) : directory_(std::move(directory)) {}
-
-  sk_sp<SkData> load(const SkData& key) override {
-    std::string wanted(reinterpret_cast<const char*>(key.data()), key.size());
-    if (auto it = pending_.find(wanted); it != pending_.end()) return it->second;
-    std::ifstream in(fileOf(key), std::ios::binary);
-    if (!in) return nullptr;
-    std::stringstream read;
-    read << in.rdbuf();
-    std::string bytes = read.str();
-    uint32_t length = 0;
-    if (bytes.size() < sizeof kMagic + sizeof length || std::memcmp(bytes.data(), kMagic, sizeof kMagic) != 0) {
-      return nullptr;
-    }
-    std::memcpy(&length, bytes.data() + sizeof kMagic, sizeof length);
-    size_t at = sizeof kMagic + sizeof length;
-    if (bytes.size() < at + length || bytes.compare(at, length, wanted) != 0) return nullptr;
-    return SkData::MakeWithCopy(bytes.data() + at + length, bytes.size() - at - length);
-  }
-
-  void store(const SkData& key, const SkData& data, const SkString&) override {
-    pending_[std::string(reinterpret_cast<const char*>(key.data()), key.size())] =
-        SkData::MakeWithCopy(data.data(), data.size());
-  }
-
-  // Writes what is pending, each file whole or not at all (written aside, then renamed: the
-  // application's other processes read either the file before or this one).
-  void write() {
-    if (pending_.empty()) return;
-    std::error_code error;
-    std::filesystem::create_directories(directory_, error);
-    for (const auto& [key, data] : pending_) {
-      auto keyData = SkData::MakeWithoutCopy(key.data(), key.size());
-      auto path = fileOf(*keyData);
-      auto aside = path;
-      aside += ".new";
-      {
-        std::ofstream out(aside, std::ios::binary | std::ios::trunc);
-        uint32_t length = static_cast<uint32_t>(key.size());
-        out.write(kMagic, sizeof kMagic);
-        out.write(reinterpret_cast<const char*>(&length), sizeof length);
-        out.write(key.data(), static_cast<std::streamsize>(key.size()));
-        out.write(static_cast<const char*>(data->data()), static_cast<std::streamsize>(data->size()));
-        if (!out) {
-          std::filesystem::remove(aside, error);
-          continue;
-        }
-      }
-      std::filesystem::rename(aside, path, error);
-      if (error) std::filesystem::remove(aside, error);
-    }
-    pending_.clear();
-  }
-
- private:
-  std::filesystem::path fileOf(const SkData& key) const {
-    char name[32];
-    std::snprintf(name, sizeof name, "%016llx.bin", static_cast<unsigned long long>(hashOf(key)));
-    return directory_ / name;
-  }
-
-  std::filesystem::path directory_;
-  std::map<std::string, sk_sp<SkData>> pending_;
-};
 
 std::string& pipelineCacheDirectory() {
   static std::string directory;
@@ -121,6 +62,8 @@ struct Context {
   skgpu::VulkanExtensions extensions;
   std::unique_ptr<PipelineCache> cache;
   sk_sp<GrDirectContext> direct;
+  // Set once the context is made (on the painter's start thread); from then on it is the loop's.
+  std::atomic<bool> made{false};
 };
 
 Context& context() {
@@ -159,7 +102,14 @@ bool make(Context& made, OxyOSPaint* paint) {
   backend.fGraphicsQueueIndex = made.vulkan.queue_family;
   backend.fMaxAPIVersion = made.vulkan.api_version;
   backend.fGetProc = [&made](const char* name, VkInstance at, VkDevice on) -> PFN_vkVoidFunction {
-    if (on != VK_NULL_HANDLE) return made.getDeviceProcAddr(on, name);
+    if (on != VK_NULL_HANDLE) {
+      auto proc = made.getDeviceProcAddr(on, name);
+      if (proc && std::strcmp(name, "vkCreateGraphicsPipelines") == 0) {
+        driverCreateGraphicsPipelines = reinterpret_cast<PFN_vkCreateGraphicsPipelines>(proc);
+        return reinterpret_cast<PFN_vkVoidFunction>(&countedCreateGraphicsPipelines);
+      }
+      return proc;
+    }
     if (at == VK_NULL_HANDLE && std::strcmp(name, "vkEnumerateInstanceExtensionProperties") == 0)
       return reinterpret_cast<PFN_vkVoidFunction>(&noInstanceExtensions);
     return made.getInstanceProcAddr(at, name);
@@ -178,21 +128,32 @@ bool make(Context& made, OxyOSPaint* paint) {
   options.fGlyphCacheTextureMaximumBytes = 2 << 20;
   if (!pipelineCacheDirectory().empty()) {
     // By the GPU and its driver (the SPIR-V follows the device's capabilities; the driver's cache
-    // is its own) and by Skia's revision (what its programs' keys mean).
+    // is its own, and its pipelineCacheUUID changes with its build) and by Skia's revision (what
+    // its programs' keys mean). Every other directory beside it is removed: a driver or Skia
+    // updated leaves its old cache behind once.
     auto properties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
         made.getInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"));
     if (properties) {
       VkPhysicalDeviceProperties device{};
       properties(physical, &device);
-      char name[96];
-      std::snprintf(name, sizeof name, "%04x-%04x-%08x-%s", device.vendorID, device.deviceID, device.driverVersion,
-                    OXYOS_SKIA_REVISION);
-      made.cache = std::make_unique<PipelineCache>(std::filesystem::path(pipelineCacheDirectory()) / name);
+      std::string uuid;
+      for (uint8_t byte : device.pipelineCacheUUID) {
+        char hex[3];
+        std::snprintf(hex, sizeof hex, "%02x", byte);
+        uuid += hex;
+      }
+      char name[160];
+      std::snprintf(name, sizeof name, "%04x-%04x-%08x-%s-%.12s", device.vendorID, device.deviceID,
+                    device.driverVersion, uuid.c_str(), OXYOS_SKIA_REVISION);
+      made.cache = std::make_unique<PipelineCache>(std::filesystem::path(pipelineCacheDirectory()) / name,
+                                                    [] { FrameDiagnostics::get().shaderCompiled(); });
+      made.cache->removeOthers();
       options.fPersistentCache = made.cache.get();
     }
   }
   made.direct = GrDirectContexts::MakeVulkan(backend, options);
-  return made.direct != nullptr;
+  made.made = made.direct != nullptr;
+  return made.made;
 }
 
 }  // namespace
@@ -207,10 +168,10 @@ void fitResourceCache(GrDirectContext* direct, int width, int height) {
 
 void setPipelineCacheDirectory(std::string directory) { pipelineCacheDirectory() = std::move(directory); }
 
-void storePipelineCache(GrDirectContext* direct) {
+void storePipelineCache() {
   Context& made = context();
-  if (!made.cache || direct != made.direct.get()) return;
-  if (direct->hasNewVkPipelineCacheData()) direct->storeVkPipelineCacheData();
+  if (!made.made || !made.cache) return;
+  if (made.direct->hasNewVkPipelineCacheData()) made.direct->storeVkPipelineCacheData(PipelineCache::kMaxBytes / 2);
   made.cache->write();
 }
 
