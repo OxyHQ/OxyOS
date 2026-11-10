@@ -5827,10 +5827,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.compositor.wakers.push(waker);
         session.search = Some(search);
     }
-    // Memory pressure as the session follows it (docs/adr/0066-quality-of-service.mdx, decision 7):
-    // the machine's, or the saturation benchmark's machine (`OXYOS_MEMORY_PRESSURE_FIXTURE`), and
-    // the applications' under its user manager (`OXYOS_CGROUP_FIXTURE`).
-    {
+    // Memory pressure as the session follows it (docs/adr/0066-quality-of-service.mdx, decision 7),
+    // only where the environment names the machine it stands for (`OXYOS_MEMORY_PRESSURE_FIXTURE`,
+    // the saturation benchmark's), and the applications' under its user manager
+    // (`OXYOS_CGROUP_FIXTURE`): never the developer's or the gate's machine, whose pressure would
+    // have a scenario's applications give back their caches at any moment.
+    if std::env::var_os("OXYOS_MEMORY_PRESSURE_FIXTURE").is_some() {
         let followed = oxyos_compositor::memory_pressure::MemoryPressure::new(
             oxyos_compositor::memory_pressure::session_sources(),
         )?;

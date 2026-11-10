@@ -12,9 +12,9 @@
 //! 2 s while it is up, so a level is never dropped and raised again on the edge of a threshold.
 //! Its thread waits on the triggers alone while memory is plentiful: no timer.
 //!
-//! The development compositor follows the files its environment names instead: the machine's
-//! (`OXYOS_MEMORY_PRESSURE_FIXTURE`, the saturation benchmark's machine, a control group) and the
-//! applications' under its user manager's (`OXYOS_CGROUP_FIXTURE`).
+//! The development compositor follows the files its environment names instead, and only when it
+//! names them: the machine's (`OXYOS_MEMORY_PRESSURE_FIXTURE`, the saturation benchmark's machine,
+//! a control group) and the applications' under its user manager's (`OXYOS_CGROUP_FIXTURE`).
 
 use crate::stop::Stop;
 use oxyos_compositor_core::Scene;
