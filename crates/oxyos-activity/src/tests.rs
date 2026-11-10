@@ -43,7 +43,7 @@ impl Machine {
         Procfs {
             proc: self.root.join("proc"),
             sys: self.root.join("sys"),
-            passwd: self.root.join("passwd"),
+            passwd: Some(self.root.join("passwd")),
             ticks: 100,
         }
     }

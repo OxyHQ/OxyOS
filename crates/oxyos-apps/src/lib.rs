@@ -407,16 +407,11 @@ pub fn installed_applications(root: &Path, user: &str) -> PathBuf {
     root.join("users").join(user).join("applications")
 }
 
-/// The session's user: the name the account database gives this process's real user id.
+/// The session's user: the name the account database (through NSS) gives this process's real
+/// user id.
 pub fn session_user() -> Option<String> {
     let uid = rustix::process::getuid().as_raw();
-    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
-    passwd.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        let name = fields.next()?;
-        let _password = fields.next()?;
-        (fields.next()?.parse::<u32>().ok()? == uid).then(|| name.to_string())
-    })
+    oxyos_users::user_by_uid(uid).ok()?.map(|user| user.name)
 }
 
 /// An account's decisions on an installed application's capabilities (decision 8), as the install
