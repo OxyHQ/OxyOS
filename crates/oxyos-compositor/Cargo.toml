@@ -41,6 +41,8 @@ zeroize = { version = "1", features = ["serde"] }
 oxyos-networks = { path = "../oxyos-networks" }
 # The applications the shell lists, which the session's search is told (docs/adr/0051-search.mdx).
 oxyos-apps = { path = "../oxyos-apps" }
+# The applications' scopes' weights by how the person sees them (docs/adr/0066, naps.rs).
+oxyos-scopes = { path = "../oxyos-scopes" }
 # Bluetooth (docs/adr/0055-bluetooth.mdx): BlueZ followed and the pairing agent served by
 # oxyos-bluetooth on a thread of the session's, its commands sent over an async channel.
 oxyos-bluetooth = { path = "../oxyos-bluetooth" }

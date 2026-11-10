@@ -2,7 +2,9 @@
 //! the compositor resizing it by its edges, and which window is the active one.
 
 use super::{Role, Scene, SurfaceKey};
-use oxyos_protocol::{ErrorCode, Event, PointerShape, Rect, ShellKind, Size};
+use oxyos_protocol::{
+    ErrorCode, Event, PointerShape, Rect, ShellKind, Size, Visibility, APP_VISIBILITY_VERSION,
+};
 
 /// How far outside a window's edges a press resizes it, in logical pixels: the band is in the
 /// window's shadow, so it takes nothing from the window's own content.
@@ -388,6 +390,63 @@ impl Scene {
     /// The window that is active (ADR 0016), if any.
     pub fn active_window(&self) -> Option<SurfaceKey> {
         self.active
+    }
+
+    /// How each client with an application window (a toplevel, mapped or not) is presented, all
+    /// its windows together (docs/adr/0066-quality-of-service.mdx, decision 5): focused when the
+    /// active window is its and shown, visible when another of its toplevels is shown, else hidden
+    /// (minimized, on another desktop, the session locked); a client whose windows are none of them
+    /// mapped yet is not among them. One pass over the scene, every turn.
+    pub fn presences(&self) -> std::collections::BTreeMap<super::ClientId, Visibility> {
+        let mut presences = std::collections::BTreeMap::new();
+        for (key, node) in &self.nodes {
+            // A window not mapped yet (its first frame not drawn) says nothing of its client.
+            if node.role != Role::Toplevel || !node.mapped {
+                continue;
+            }
+            let shown = !self.locked && self.visible(*key);
+            let state = if !shown {
+                Visibility::Hidden
+            } else if self.active == Some(*key) {
+                Visibility::Focused
+            } else {
+                Visibility::Visible
+            };
+            let presence = presences.entry(key.client).or_insert(Visibility::Hidden);
+            *presence = (*presence).max(state);
+        }
+        presences
+    }
+
+    /// Each application client told how it is presented where that changed since it was last
+    /// told (`AppVisibility`, never to a client of a version before `APP_VISIBILITY_VERSION`): every
+    /// turn, as the scene's events are drained, so whatever program runs the compositor tells it.
+    /// A client told before whose windows are all closed (its process going on, ADR 0060) is
+    /// hidden; one gone is forgotten.
+    pub(super) fn tell_presences(&mut self) {
+        let mut now = self.presences();
+        self.presented
+            .retain(|client, _| self.clients.contains_key(client));
+        for client in self.presented.keys() {
+            now.entry(*client).or_insert(Visibility::Hidden);
+        }
+        for (client, state) in now {
+            if self.presented.insert(client, state) == Some(state) {
+                continue;
+            }
+            if self
+                .version_of(client)
+                .is_some_and(|version| version >= APP_VISIBILITY_VERSION)
+            {
+                self.emit(client, Event::AppVisibility { state });
+            }
+        }
+    }
+
+    /// How each application client is presented, as last told (whatever its version): what the
+    /// session weighs each application by (naps.rs).
+    pub fn presented(&self) -> &std::collections::BTreeMap<super::ClientId, Visibility> {
+        &self.presented
     }
 
     /// Whether a window is zoomed.

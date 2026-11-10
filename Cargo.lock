@@ -2793,6 +2793,7 @@ dependencies = [
  "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
+ "oxyos-scopes",
  "oxyos-seat",
  "oxyos-solar",
  "oxyos-sound",
@@ -3107,6 +3108,7 @@ dependencies = [
  "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
+ "oxyos-scopes",
  "oxyos-search",
  "oxyos-seat",
  "oxyos-sound",
@@ -3212,6 +3214,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxyos-scope"
+version = "0.1.0"
+dependencies = [
+ "oxyos-scopes",
+]
+
+[[package]]
+name = "oxyos-scopes"
+version = "0.1.0"
+dependencies = [
+ "futures-lite",
+ "zbus",
+]
+
+[[package]]
 name = "oxyos-search"
 version = "0.1.0"
 dependencies = [
@@ -3264,6 +3281,7 @@ dependencies = [
  "oxyos-power",
  "oxyos-preferences",
  "oxyos-protocol",
+ "oxyos-scopes",
  "oxyos-search",
  "oxyos-seat",
  "oxyos-sound",

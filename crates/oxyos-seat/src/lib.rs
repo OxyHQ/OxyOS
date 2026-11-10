@@ -95,6 +95,23 @@ pub enum Event {
     /// holds a logind *block* inhibitor of `idle` ([`holds_idle`]). Reported once as the seat is
     /// taken if one is held already, then as it changes.
     IdleInhibited(bool),
+    /// The session's user's processes holding one of logind's *block* inhibitors (of anything:
+    /// sleep, idle, shutdown), by pid: what is doing something the person asked for, which the
+    /// session never naps (docs/adr/0066-quality-of-service.mdx, decision 5). Reported as the seat
+    /// is taken if any holds one, then as they change.
+    Inhibiting(Vec<u32>),
+}
+
+/// The pids of `uid`'s processes holding a *block* inhibitor, in order, each once.
+pub fn inhibiting(inhibitors: &[Inhibitor], uid: u32) -> Vec<u32> {
+    let mut pids: Vec<u32> = inhibitors
+        .iter()
+        .filter(|(_, _, _, mode, owner, _)| *owner == uid && mode == "block")
+        .map(|(_, _, _, _, _, pid)| *pid)
+        .collect();
+    pids.sort_unstable();
+    pids.dedup();
+    pids
 }
 
 /// One of logind's inhibitors, as `ListInhibitors` lists it: what it inhibits (`:`-separated),
@@ -238,12 +255,16 @@ impl Seat {
         let idle_held = move |manager: &Proxy<'static>| {
             manager
                 .call::<_, _, Vec<Inhibitor>>("ListInhibitors", &())
-                .map(|inhibitors| holds_idle(&inhibitors, uid))
+                .map(|inhibitors| (holds_idle(&inhibitors, uid), inhibiting(&inhibitors, uid)))
         };
-        let mut held = idle_held(&manager).unwrap_or(false);
+        let (mut held, mut holders) = idle_held(&manager).unwrap_or_default();
         if held {
             // The receiver is this function's: the event is queued.
             let _ = sender.send(Event::IdleInhibited(true));
+            wake_write.write_all(&[1])?;
+        }
+        if !holders.is_empty() {
+            let _ = sender.send(Event::Inhibiting(holders.clone()));
             wake_write.write_all(&[1])?;
         }
         let (inhibit_sender, mut inhibit_wake, inhibit_manager) =
@@ -269,17 +290,24 @@ impl Seat {
                         continue;
                     }
                     // A failed look keeps what was known.
-                    let Ok(now) = idle_held(&inhibit_manager) else {
+                    let Ok((now, pids)) = idle_held(&inhibit_manager) else {
                         continue;
                     };
-                    if now == held {
-                        continue;
+                    let mut told = Vec::new();
+                    if now != held {
+                        held = now;
+                        told.push(Event::IdleInhibited(held));
                     }
-                    held = now;
-                    if inhibit_sender.send(Event::IdleInhibited(held)).is_err()
-                        || inhibit_wake.write_all(&[1]).is_err()
-                    {
-                        return;
+                    if pids != holders {
+                        holders = pids;
+                        told.push(Event::Inhibiting(holders.clone()));
+                    }
+                    for event in told {
+                        if inhibit_sender.send(event).is_err()
+                            || inhibit_wake.write_all(&[1]).is_err()
+                        {
+                            return;
+                        }
                     }
                 }
             })?;
@@ -525,6 +553,30 @@ mod tests {
             ],
             1000
         ));
+    }
+
+    #[test]
+    fn the_users_block_inhibitors_are_by_pid_whatever_they_inhibit() {
+        let held = |what: &str, mode: &str, uid: u32, pid: u32| {
+            let mut one = inhibitor(what, mode, uid);
+            one.5 = pid;
+            one
+        };
+        assert!(inhibiting(&[], 1000).is_empty());
+        assert_eq!(
+            inhibiting(
+                &[
+                    held("sleep:shutdown", "block", 1000, 9),
+                    held("idle", "block", 1000, 7),
+                    held("sleep", "block", 1000, 7),
+                    // The session's own delay for sleep, and another user's: neither.
+                    held("sleep", "delay", 1000, 5),
+                    held("idle", "block", 1001, 3),
+                ],
+                1000
+            ),
+            vec![7, 9]
+        );
     }
 
     #[test]

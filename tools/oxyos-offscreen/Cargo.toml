@@ -9,6 +9,8 @@ publish.workspace = true
 oxyos-protocol = { path = "../../crates/oxyos-protocol" }
 oxyos-compositor-core = { path = "../../crates/oxyos-compositor-core" }
 oxyos-apps = { path = "../../crates/oxyos-apps" }
+# The saturation benchmark's scopes, as a session places applications (docs/adr/0066).
+oxyos-scopes = { path = "../../crates/oxyos-scopes" }
 oxyos-ipc = { path = "../../crates/oxyos-ipc" }
 oxyos-client = { path = "../../crates/oxyos-client" }
 oxyos-gpu = { path = "../../crates/oxyos-gpu" }

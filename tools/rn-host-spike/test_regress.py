@@ -510,5 +510,35 @@ class GlidesMeetInput(unittest.TestCase):
         self.assertTrue(self.check({}, lines + [line(ended + 20, "scroll", offset + 5)]))
 
 
+
+class ScopesMade(unittest.TestCase):
+    """A scenario's `scopes` (docs/adr/0066-quality-of-service.mdx, decision 3): the fixture's slices'
+    scopes once a run ended, each named for its application or service and holding its process."""
+
+    def made(self, scopes):
+        import tempfile
+        root = pathlib.Path(tempfile.mkdtemp())
+        for path, procs in scopes.items():
+            (root / path).mkdir(parents=True)
+            if procs is not None:
+                (root / path / "cgroup.procs").write_text(procs)
+        return regress.scopes_made(root)
+
+    def test_each_scope_by_its_application_or_service(self):
+        self.assertEqual(self.made({"app.slice/app-oxyos-so.oxy.allo-10.scope": "10",
+                                    "app.slice/app-oxyos-so.oxy.my\\x2dapp-12.scope": "12",
+                                    "app.slice/app-oxyos-so.oxy.allo-14.scope": "14",
+                                    "background.slice/oxyos-search-11.scope": "11"}),
+                         {"app.slice": ["so.oxy.allo", "so.oxy.allo", "so.oxy.my-app"],
+                          "background.slice": ["search"]})
+
+    def test_a_scope_without_its_process_or_with_another_is_not_one(self):
+        self.assertEqual(self.made({"app.slice/app-oxyos-so.oxy.allo-10.scope": None,
+                                    "app.slice/app-oxyos-so.oxy.inbox-11.scope": "12"}),
+                         {"app.slice": ["?app-oxyos-so.oxy.allo-10.scope", "?app-oxyos-so.oxy.inbox-11.scope"]})
+
+    def test_no_tree_no_scopes(self):
+        self.assertEqual(regress.scopes_made(pathlib.Path("/nonexistent/cgroup")), {})
+
 if __name__ == "__main__":
     unittest.main()

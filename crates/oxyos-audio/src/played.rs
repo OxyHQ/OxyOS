@@ -148,6 +148,7 @@ impl Machine {
             output: side(Direction::Output),
             input: side(Direction::Input),
             generation: 1,
+            audible: Default::default(),
         }
     }
 }

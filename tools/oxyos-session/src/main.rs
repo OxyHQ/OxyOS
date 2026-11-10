@@ -169,6 +169,38 @@ impl oxyos_apps::Registrar for Registered {
     }
 }
 
+/// Where a deploy installs the program that puts a process in its scope (`tools/oxyos-scope`).
+const SCOPE_PROGRAM: &str = "/usr/libexec/oxyos/oxyos-scope";
+
+/// How the session puts each application in a scope of its own in the person's user manager's
+/// `app.slice`, and its search service in `background.slice` (docs/adr/0066-quality-of-service.mdx,
+/// decision 3): through `oxyos-scope`, beside this program (a build tree's) or where a deploy
+/// installs it. Without it, or without the user bus, everything runs in the session's scope as
+/// before, which is said once.
+fn scoping() -> Option<oxyos_apps::Scoping> {
+    let beside = std::env::current_exe()
+        .ok()
+        .and_then(|program| program.parent().map(|dir| dir.join("oxyos-scope")));
+    let program = beside
+        .into_iter()
+        .chain([PathBuf::from(SCOPE_PROGRAM)])
+        .find(|program| program.is_file());
+    match program {
+        None => {
+            eprintln!("[session] no {SCOPE_PROGRAM}: the applications run in the session's scope");
+            None
+        }
+        Some(_) if !oxyos_scopes::user_bus_available() => {
+            eprintln!("[session] no user bus: the applications run in the session's scope");
+            None
+        }
+        Some(program) => Some(oxyos_apps::Scoping {
+            program,
+            fixture: None,
+        }),
+    }
+}
+
 /// The lock's online check (docs/adr/0020-oxy-account-login.mdx, decision 2, step 3): PAM's
 /// answer and the password go to the accounts' service, whose answer stands; unreachable, or
 /// with a password it cannot take, PAM's does. The service rejects a password PAM accepted only
@@ -708,11 +740,29 @@ fn main() -> Result<()> {
     // Search (docs/adr/0051-search.mdx): the user's index, this program's child (`--search-service`,
     // its standard input a socket only this program holds), started with the session after its
     // shell and told the applications the shell's launcher lists. The login screen has none.
+    // Each application, and the search service, in a scope of its own (docs/adr/0066-quality-of-
+    // service.mdx, decision 3); none at the login screen, which launches nothing.
+    let scoping = (!greeter).then(scoping).flatten();
     let mut search = if greeter {
         None
     } else {
         let mut command = Command::new(std::env::current_exe()?);
         command.arg("--search-service");
+        // In the user manager's background.slice: the index is work the person did not ask for
+        // now (ADR 0051, decision 13).
+        let command = scoping
+            .as_ref()
+            .and_then(|scoping| {
+                scoping
+                    .wrap(
+                        &command,
+                        oxyos_apps::ScopeKind::Background,
+                        "search",
+                        "Spotlight's index",
+                    )
+                    .ok()
+            })
+            .unwrap_or(command);
         let mut search = oxyos_compositor::search::Search::new(command, true)?;
         search.set_locale(&settings.locale());
         search.list_applications(oxyos_apps::Listing::read(None));
@@ -785,7 +835,7 @@ fn main() -> Result<()> {
     // The person's files, which files dropped on an application's icon in the dock are opened
     // from (docs/adr/0034-the-dock.mdx).
     let files_scope = oxyos_files::Scope::for_user().ok();
-    let mut launcher = oxyos_apps::Launcher::new(
+    let launcher = oxyos_apps::Launcher::new(
         oxyos_apps::Runtime {
             socket: socket.clone(),
             bloom_host: env_path("OXYOS_BLOOM_HOST"),
@@ -801,6 +851,25 @@ fn main() -> Result<()> {
     .with_installed(installed)
     .with_registrar(Box::new(Registered))
     .with_crash_reports(reports.join("applications"))?;
+    let mut launcher = match scoping {
+        Some(scoping) => launcher.with_scopes(scoping),
+        None => launcher,
+    };
+    // Each application told how it is presented, its scope weighed by it, and napped hidden
+    // (docs/adr/0066-quality-of-service.mdx, decisions 4 and 5); the login screen has none.
+    let mut naps = (!greeter).then(|| {
+        let scopes = launcher
+            .scoped()
+            .then(|| oxyos_scopes::Scopes::start(oxyos_scopes::Manager::User))
+            .and_then(|started| {
+                started
+                    .map_err(|error| {
+                        eprintln!("[session] the applications are not weighed: {error}")
+                    })
+                    .ok()
+            });
+        oxyos_compositor::naps::Naps::new(scopes)
+    });
     // Applications that quit unexpectedly, and resetting one (docs/adr/0061-crashes-and-resetting-
     // an-application.mdx): the person's reports (none at the login screen, whose user is no one),
     // the notice, the sheet, and the resets Settings and the shell ask for.
@@ -1064,6 +1133,32 @@ fn main() -> Result<()> {
         }
         if let Some(activity) = activity.as_mut() {
             activity.serve(&mut compositor, &running, power.as_mut());
+        }
+        if let Some(naps) = naps.as_mut() {
+            let launched: Vec<(u32, String)> = running
+                .iter()
+                .map(|running| (running.pid, running.id.clone()))
+                .collect();
+            let in_background: std::collections::BTreeSet<u32> = background
+                .as_ref()
+                .map(|background| {
+                    background
+                        .background_processes()
+                        .values()
+                        .copied()
+                        .collect()
+                })
+                .unwrap_or_default();
+            // What the person hears or asked to go on is never napped.
+            let mut busy = sound.state().audible.clone();
+            busy.extend(compositor.inhibiting.iter().copied());
+            naps.serve(
+                &compositor,
+                &launched,
+                &in_background,
+                &busy,
+                Instant::now(),
+            );
         }
         // Backups (ADR 0059), before the store, which takes the requests left.
         if let Some(backups) = backups.as_mut() {
@@ -1517,6 +1612,10 @@ fn main() -> Result<()> {
         // The question's deadline, or the applications' to quit (ADR 0064).
         if let Some(due) = ending.wait() {
             wait = wait.min(due);
+        }
+        // A hidden application's nap (docs/adr/0066, decision 5).
+        if let Some(deadline) = naps.as_ref().and_then(|naps| naps.deadline()) {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
         // A reset waiting for its application to quit (docs/adr/0061, decision 5).
         if let Some(deadline) = crashes.deadline() {

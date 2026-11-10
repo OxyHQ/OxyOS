@@ -9,7 +9,8 @@ use crate::wire::{
     MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
     PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
     Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut,
-    SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, Visibility,
+    WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -832,6 +833,11 @@ messages! {
         // formats when it is no longer.
         173 => GpuScanout { surface: u32, formats: u32 },
         174 => GpuScanoutFormat { surface: u32, index: u32, format: Format, modifier: u64 },
+        // To an application, as it connects with a window and whenever it changes
+        // (APP_VISIBILITY_VERSION, docs/adr/0066-quality-of-service.mdx, decision 5): how the
+        // session presents it, all its windows together. Hidden, it stops what the display's
+        // refresh paces and lengthens its timers' slack until it is shown (App Nap).
+        176 => AppVisibility { state: Visibility },
         // To every client, when it connects and whenever it changes (ADR 0029): the session's
         // keyboard layout, the XKB keymap its keys are typed with, as `layout\tvariant\toptions`
         // (variant and options may be empty), in chunks as WindowTitle's: what a client that
