@@ -35,6 +35,22 @@ Oxy shell (separate process)       Oxy applications / Astro (separate processes)
 | Service adapters | Typed asynchronous requests, cancellation/deadlines, event subscriptions and restart recovery | Arbitrary command execution or a universal root API |
 | Session authority | Authenticate through established mechanisms, launch assigned roles, grant narrow capabilities, enforce lock lifecycle | Trust in a client's claimed name, environment variables or UI booleans |
 
+### Crate layers
+
+The Rust workspace keeps these boundaries in its crate graph, checked in CI by `scripts/check-native-boundary.py` (its tests: `scripts/test_check_native_boundary.py`). Every workspace member has one layer, and a dependency on another member may only point at a layer its own may use:
+
+| Layer | Holds | May use |
+| --- | --- | --- |
+| leaf | Pure data and logic, no I/O: gestures, intl, names, package, preferences, solar, vector | leaf |
+| protocol | The display protocol and its transport: protocol, ipc | leaf, protocol, system |
+| system | OS adapters and in-process libraries over the system: devices, sockets, files, engines (seat, kms, gpu, input, audio, sound, speech, auth, keychain, apps, wallpaper...) | leaf, system |
+| service | What a system or session service does: account, install, files, backup, networks, bluetooth, power, controls, activity, search, recovery | leaf, system, service |
+| display | The display compositor: compositor-core (policy) and compositor (I/O) | everything above |
+| client | An application's side of the display: client, paint, client-ffi | leaf, protocol, system, client |
+| program | A binary in `tools/` | every layer but program: no tool is another tool's library |
+
+Services never speak the display protocol, and an application process never links a service's implementation: it reaches the service through its socket. Only `oxyos-session` and `oxyos-offscreen` may link `oxyos-compositor`. Dev-dependencies are not checked (tests may reach any crate). A new crate fails the check until it has a layer. Today's exceptions are listed in the script's `ALLOWED`, each with its reason; an exception whose edge is gone fails the check as well, so the list only shrinks.
+
 ## Implementation choices and limits
 
 - Rust for the protocol/compositor core, with small C/C++ integration boundaries only where upstream libraries require them. Keep unsafe code outside the safe core and review it explicitly when introduced.
