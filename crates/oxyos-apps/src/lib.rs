@@ -1281,6 +1281,90 @@ pub fn command(
     Ok(command)
 }
 
+/// How the launcher puts each process it starts into a control group of its own
+/// (docs/adr/0066-quality-of-service.mdx, decision 3): started through `program` (`oxyos-scope`),
+/// which places itself in its scope, in the person's user manager or, with `fixture`, in the
+/// saturation benchmark's control group, then becomes the application.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scoping {
+    pub program: PathBuf,
+    pub fixture: Option<PathBuf>,
+}
+
+/// The user manager's slice a process is placed in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScopeKind {
+    /// `app.slice`, named for the application's id.
+    Application,
+    /// `background.slice`, named for the service (the search service's index).
+    Background,
+}
+
+impl Scoping {
+    /// `command` started through the placing program, in a scope named for `name`: the same
+    /// program (found as the process would find it: a path as it is, a name on its `PATH`), its
+    /// arguments, environment and directory. A program that is not there fails here, as starting
+    /// it would.
+    pub fn wrap(
+        &self,
+        command: &std::process::Command,
+        kind: ScopeKind,
+        name: &str,
+        description: &str,
+    ) -> Result<std::process::Command, Error> {
+        let program = command.get_program();
+        let path = command
+            .get_envs()
+            .find(|(key, _)| *key == "PATH")
+            .map(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+            .unwrap_or_else(|| std::env::var_os("PATH"));
+        let found = executable(program, path.as_deref())
+            .ok_or_else(|| Error(format!("{}: not found", program.to_string_lossy())))?;
+        let mut scoped = std::process::Command::new(&self.program);
+        if let Some(fixture) = &self.fixture {
+            scoped.arg("--fixture").arg(fixture);
+        }
+        scoped
+            .arg("--description")
+            .arg(description)
+            .arg(match kind {
+                ScopeKind::Application => "app",
+                ScopeKind::Background => "background",
+            })
+            .arg(name)
+            .arg("--")
+            .arg(found)
+            .args(command.get_args());
+        for (key, value) in command.get_envs() {
+            match value {
+                Some(value) => scoped.env(key, value),
+                None => scoped.env_remove(key),
+            };
+        }
+        if let Some(directory) = command.get_current_dir() {
+            scoped.current_dir(directory);
+        }
+        Ok(scoped)
+    }
+}
+
+/// The file `program` names, as `execvp` finds it: a path (with a `/`) as it is, else the first
+/// executable file of that name in `path`'s directories.
+fn executable(program: &std::ffi::OsStr, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let runs = |candidate: &Path| {
+        std::fs::metadata(candidate)
+            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+    };
+    if program.as_encoded_bytes().contains(&b'/') {
+        let candidate = PathBuf::from(program);
+        return runs(&candidate).then_some(candidate);
+    }
+    std::env::split_paths(path?)
+        .map(|directory| directory.join(program))
+        .find(|candidate| runs(candidate))
+}
+
 /// A process a session started, while it runs: its application's id and what it may do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launched {
@@ -1591,6 +1675,9 @@ pub struct Launcher {
     /// Told of each verified application started ([`Launcher::with_registrar`]); none, nothing
     /// is told (the development compositor).
     registrar: Option<Box<dyn Registrar>>,
+    /// How each process started is put in a scope of its own ([`Launcher::with_scopes`]); none,
+    /// it runs where the launcher does.
+    scoping: Option<Scoping>,
 }
 
 impl Launcher {
@@ -1608,7 +1695,20 @@ impl Launcher {
             held: std::collections::BTreeSet::new(),
             fixture_grants: Vec::new(),
             registrar: None,
+            scoping: None,
         }
+    }
+
+    /// Each process started is put in a scope of its own (docs/adr/0066-quality-of-service.mdx,
+    /// decision 3): `app-oxyos-<id>-<pid>.scope` in the user manager's `app.slice`.
+    pub fn with_scopes(mut self, scoping: Scoping) -> Self {
+        self.scoping = Some(scoping);
+        self
+    }
+
+    /// Whether processes started are put in scopes of their own.
+    pub fn scoped(&self) -> bool {
+        self.scoping.is_some()
     }
 
     /// Each process started is given a [`ReportFile`] in `directory` (made the user's alone if it
@@ -1952,6 +2052,12 @@ impl Launcher {
             }
             None => None,
         };
+        // In a scope of its own, placed by itself before it runs the application's program.
+        if let Some(scoping) = &self.scoping {
+            command = scoping
+                .wrap(&command, ScopeKind::Application, id, &application.name)
+                .map_err(|Error(why)| Error(format!("{id}: {why}")))?;
+        }
         let child = command
             .spawn()
             .map_err(|error| Error(format!("{id}: {error}")))?;
