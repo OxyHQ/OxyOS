@@ -216,7 +216,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "OxyOS, collapsed, button",
+      "text": "Settings, collapsed, button",
       "interrupting": true,
       "voice": "en"
      }
@@ -283,7 +283,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "View, collapsed, button",
+      "text": "Search Applications, button",
       "interrupting": true,
       "voice": "en"
      }

@@ -218,7 +218,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "OxyOS, contraído, botón",
+      "text": "Ajustes, contraído, botón",
       "interrupting": true,
       "voice": "es"
      }
@@ -282,7 +282,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Ver, contraído, botón",
+      "text": "Buscar aplicaciones, botón",
       "interrupting": true,
       "voice": "es"
      }

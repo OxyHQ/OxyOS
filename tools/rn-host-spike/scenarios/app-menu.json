@@ -1,5 +1,5 @@
 {
-  "about": "Every application has its own menu in the bar, as on a Mac, even one that declares no menus (docs/adr/0021-menu-bar.mdx): Allo (GenieProbe, which declares none) and Inbox (PressProbe, the `companion`) with the session's shell, in Spanish. With Allo active the bar shows its name in bold and nothing else of the desktop's; its menu has Acerca de Allo, Ajustes… (Ctrl+,, not offered: Allo declares none), Ocultar Allo (Super+H), Ocultar otros (Alt+Super+H), Mostrar todo and Salir de Allo (Super+Q), the chords in OxyOS's one notation. Acerca de Allo opens the system's standard About panel (Allo's icon, name and version, 0.1.0 (1), from its package's entry), which takes the keyboard; Escape closes it and gives the keyboard back to Allo's window. Alt+Super+H hides every other application (Inbox) and the menu's Mostrar todo shows it again, Allo staying active; Ocultar otros from the menu hides it again; Ocultar Allo hides Allo, no window is active, and the bar is the desktop's own menu (Escritorio) and Ver, whose Mostrar todo shows both again. Each step checks every window's state as the shell is told it, the compositor's focus, what each window is delivered (focus moving, never a key of the system's) and that neither application's React tree hears anything.",
+  "about": "Every application has its own menu in the bar, as on a Mac, even one that declares no menus (docs/adr/0021-menu-bar.mdx): Allo (GenieProbe, which declares none) and Inbox (PressProbe, the `companion`) with the session's shell, in Spanish. With Allo active the bar shows its name in bold and nothing else of the desktop's; its menu has Acerca de Allo, Ajustes… (Ctrl+,, not offered: Allo declares none), Ocultar Allo (Super+H), Ocultar otros (Alt+Super+H), Mostrar todo and Salir de Allo (Super+Q), the chords in OxyOS's one notation. Acerca de Allo opens the system's standard About panel (Allo's icon, name and version, 0.1.0 (1), from its package's entry), which takes the keyboard; Escape closes it and gives the keyboard back to Allo's window. Alt+Super+H hides every other application (Inbox) and the menu's Mostrar todo shows it again, Allo staying active; Ocultar otros from the menu hides it again; Ocultar Allo hides Allo, no window is active, and the bar is the desktop's own menu (Escritorio) and Ver, whose Mostrar todo shows both again, and leaving the bar gives the keyboard to the window used last that is shown, Allo's. Each step checks every window's state as the shell is told it, the compositor's focus, what each window is delivered (focus moving, never a key of the system's) and that neither application's React tree hears anything.",
   "locale": "es_ES.UTF-8",
   "module": "GenieProbe",
   "window": [
@@ -66,7 +66,7 @@
       }
     },
     {
-      "name": "its menu: About, Settings… (not offered), Hide, Hide Others, Show All and Quit, each chord as OxyOS writes it",
+      "name": "its menu, which has the keyboard while open: About, Settings… (not offered), Hide, Hide Others, Show All and Quit, each chord as OxyOS writes it",
       "do": [
         "press_output",
         [
@@ -95,7 +95,7 @@
             "app": "so.oxy.allo",
             "minimized": false,
             "hidden": false,
-            "focused": true
+            "focused": false
           },
           "2": {
             "app": "so.oxy.inbox",
@@ -110,7 +110,8 @@
         },
         "delivered": {
           "1": {
-            "focus.out": 1
+            "focus.out": 1,
+            "leave": 1
           },
           "companion": {}
         }
@@ -135,7 +136,7 @@
             "app": "so.oxy.allo",
             "minimized": false,
             "hidden": false,
-            "focused": true
+            "focused": false
           },
           "2": {
             "app": "so.oxy.inbox",
@@ -154,7 +155,7 @@
       }
     },
     {
-      "name": "About Allo: the system's standard About panel, Allo's icon, name and version, with the keyboard",
+      "name": "About Allo: the menu closes, giving the window the keyboard, and the system's standard About panel (Allo's icon, name and version) takes it",
       "do": [
         "press_named",
         "Acerca de Allo"
@@ -182,7 +183,7 @@
             "app": "so.oxy.allo",
             "minimized": false,
             "hidden": false,
-            "focused": true
+            "focused": false
           },
           "2": {
             "app": "so.oxy.inbox",
@@ -196,6 +197,10 @@
           "react": {}
         },
         "delivered": {
+          "1": {
+            "focus.in": 1,
+            "focus.out": 1
+          },
           "companion": {}
         }
       }
@@ -274,7 +279,6 @@
           "react": {}
         },
         "delivered": {
-          "1": {},
           "companion": {}
         }
       }
@@ -309,7 +313,7 @@
             "app": "so.oxy.allo",
             "minimized": false,
             "hidden": false,
-            "focused": true
+            "focused": false
           },
           "2": {
             "app": "so.oxy.inbox",
@@ -328,7 +332,7 @@
       }
     },
     {
-      "name": "Show All: Inbox comes back where it was, Allo stays active and has the keyboard again",
+      "name": "Show All: Inbox comes back where it was (under the pointer, which it is told), Allo stays active and has the keyboard again",
       "do": [
         "press_named",
         "Mostrar todo"
@@ -358,7 +362,9 @@
           "1": {
             "focus.in": 1
           },
-          "companion": {}
+          "companion": {
+            "enter": 1
+          }
         }
       }
     },
@@ -392,7 +398,9 @@
           "1": {
             "focus.out": 1
           },
-          "companion": {}
+          "companion": {
+            "leave": 1
+          }
         }
       }
     },
@@ -432,7 +440,7 @@
       }
     },
     {
-      "name": "Hide Allo: no window is active, and the bar is the desktop's own menu and View",
+      "name": "the menu once more, for Hide Allo",
       "do": [
         "press_output",
         [
@@ -523,7 +531,7 @@
       }
     },
     {
-      "name": "Show All: both come back, neither active",
+      "name": "Show All: both come back, and leaving the bar gives the keyboard to the window used last that is shown, Allo's, which is active again",
       "do": [
         "press_named",
         "Mostrar todo"
@@ -536,7 +544,7 @@
             "app": "so.oxy.allo",
             "minimized": false,
             "hidden": false,
-            "focused": false
+            "focused": true
           },
           "2": {
             "app": "so.oxy.inbox",
@@ -547,8 +555,10 @@
         },
         "in_shell": {
           "texts": [
-            "Escritorio",
-            "Ver"
+            "Allo"
+          ],
+          "absent": [
+            "Escritorio"
           ]
         },
         "react": {},
@@ -556,7 +566,12 @@
           "react": {}
         },
         "delivered": {
-          "companion": {}
+          "1": {
+            "focus.in": 1
+          },
+          "companion": {
+            "enter": 1
+          }
         }
       }
     }

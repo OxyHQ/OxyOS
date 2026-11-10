@@ -73,7 +73,6 @@ export default function MenuBarProbe() {
         </Menubar>
         <Text testID="news">{`new documents: ${news}`}</Text>
         <Text testID="wrap">{`wrap lines: ${wrap ? 'on' : 'off'}`}</Text>
-        <Text testID="settings">{`settings opened: ${settings}`}</Text>
         <TextInput
           testID="note"
           value={note}
@@ -81,6 +80,8 @@ export default function MenuBarProbe() {
           placeholder="note"
           style={{ height: 36, borderWidth: 1, borderColor: '#cccccc', paddingHorizontal: 8 }}
         />
+        {/* After the field, so the presses above it land where they did. */}
+        <Text testID="settings">{`settings opened: ${settings}`}</Text>
       </View>
     </BloomProvider>
   );
