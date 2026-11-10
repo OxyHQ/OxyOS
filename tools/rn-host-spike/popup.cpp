@@ -5,6 +5,7 @@
 #include "report.h"
 
 #include <react/renderer/components/view/conversions.h>
+#include <react/renderer/core/LayoutContext.h>
 #include <react/renderer/core/propsConversions.h>
 #include <yoga/Yoga.h>
 
