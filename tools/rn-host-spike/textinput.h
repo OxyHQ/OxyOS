@@ -133,7 +133,7 @@ class TextEditing {
   // `autoFocus`, as Android's ReactEditText takes it: an input inserted with it takes focus once it
   // is attached. `inserted` sees a transaction before it is applied; `attached` focuses after.
   void inserted(const facebook::react::ShadowViewMutationList& mutations);
-  void attached();
+  void attached();  // and keeps the focused input's caret in view when it is laid out anew
   // A view command from JavaScript (`focus`, `blur`, `setTextAndSelection`).
   void command(const facebook::react::ShadowView& view, const std::string& name, const folly::dynamic& args);
   // Compositor input: committed text, preedit, editing keys and pointer presses and drags.
@@ -147,6 +147,11 @@ class TextEditing {
   // the input and which of Undo, Redo, Cut, Copy, Paste and Select All apply now. False, and no
   // menu, for an input that takes no focus (not editable).
   bool contextMenu(facebook::react::Tag tag, uint32_t surface, float x, float y);
+  // The Menu key or Shift+F10 in the focused input: its context menu from the keyboard, as a PC's
+  // text field opens it (a Mac's Control-Return with Full Keyboard Access, docs/adr/0039-keyboard-
+  // access.mdx, decision 9), at the caret, under it, with the selection kept and a composition
+  // ended. False with no input focused.
+  bool contextMenuAtCaret();
   // A gesture handler took the pointer's gesture (gesture-handler.h): a drag selecting text stops.
   void releaseDrag() {
     dragging_ = false;
@@ -201,8 +206,15 @@ class TextEditing {
   // unfocused or a secure input (whose caret would tell how long the password is).
   std::optional<std::pair<size_t, size_t>> selection(facebook::react::Tag tag) const;
   // The focused input's text as it is now, with that selection (its mounted state may still hold the
-  // text before the latest edit); nullopt for another input or a secure one.
+  // text before the latest edit); nullopt for another input or a secure one. Both without a
+  // composition in progress, as the compositor is told them (`field`): the composition is the input
+  // method's until it is committed, said by its candidates (docs/adr/0041-input-methods.mdx,
+  // decision 5), and the screen reader says the commit as typed text.
   std::optional<std::string> text(facebook::react::Tag tag) const;
+  // Called as an input takes focus, however it took it (a press, Tab, JavaScript, an assistive
+  // technology): the assistive technology's focus goes with it, as VoiceOver's cursor follows the
+  // keyboard's focus and TalkBack's an EditText's (TYPE_VIEW_FOCUSED).
+  void onFocus(std::function<void(facebook::react::Tag)> focused) { onFocus_ = std::move(focused); }
 
   // The caret blinks as Android's Editor blinks it, lit and dark for kBlinkPeriod each, starting
   // lit at every change of the focused input's text, selection or composition, and rests lit once
@@ -325,7 +337,10 @@ class TextEditing {
     std::string text;
     size_t anchor = 0, caret = 0;
   };
-  enum class Edit { Insert, Delete, Replace };
+  // Typing: text typed or deleted with the keys, over the selection or at the caret, which goes
+  // on as one edit while it continues (`record`); Whole: an edit undone on its own whatever comes
+  // before or after it (a composition, an input method's deletion, a drop).
+  enum class Edit { Typing, Whole };
   struct Step {
     Snapshot before, after;
     Edit kind;
@@ -341,6 +356,9 @@ class TextEditing {
   void record(const Snapshot& before, Edit kind);
   // Ends a composition, keeping its text, as one edit.
   void endComposition();
+  // Asks JavaScript to show the focused input's menu at `local`, a point in the input
+  // (`oxyosTextMenu`), with the commands that apply now.
+  bool openMenu(uint32_t surface, facebook::react::Point local);
   // Ctrl+Z, or Ctrl+Shift+Z with `redo`.
   void undo(bool redo);
   // Dispatches onKeyPress for `key`, none if empty. `call`: the input connection's call it reports
@@ -395,9 +413,20 @@ class TextEditing {
   std::map<facebook::react::Tag, facebook::react::Point> scrolls_;
   ClipboardAccess clipboard_;
   std::function<uint64_t()> inputSerial_;
+  std::function<void(facebook::react::Tag)> onFocus_;
+  // An offset into the text without the composition (`text`, `field`) as an offset into text_.
+  size_t withComposition(size_t at) const;
+  // An offset into text_ as one into the text without the composition: inside it, its start.
+  size_t withoutComposition(size_t at) const;
   // A context click focusing an input (contextMenu): where it was, so focus selects what the click
   // selects rather than placing the caret where the last primary press was.
   std::optional<std::pair<uint32_t, facebook::react::Point>> contextPress_;
+  // Focus given by Tab (focusFromKeyboard): it selects the whole text.
+  bool fromKeyboard_ = false;
+  // The focused input and the size of its content box when last mounted (attached).
+  std::optional<std::pair<facebook::react::Tag, facebook::react::Size>> laidOut_;
+  // Focus given by an assistive technology's selection (setSelection): that selection, in bytes.
+  std::optional<std::pair<size_t, size_t>> focusSelection_;
   DragAccess drag_;
   std::optional<PendingDrag> pendingDrag_;
   // The text this client drags out of an input: the input, its text and the range dragged then,

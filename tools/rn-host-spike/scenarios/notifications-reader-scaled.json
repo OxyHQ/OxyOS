@@ -358,7 +358,12 @@
       }
      ]
     },
-    "spoken": [],
+    "spoken": [
+     {
+      "text": "Responder, campo de texto",
+      "interrupting": true
+     }
+    ],
     "announcements": []
    }
   },

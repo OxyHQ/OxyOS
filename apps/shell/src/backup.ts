@@ -168,12 +168,10 @@ function dateFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.D
   return made;
 }
 
-/** A time as the bar's clock shows it (clock.ts's `clockTime`): two-digit hours on a 24-hour
-    clock ("09:30"), the hour as said on a 12-hour one ("9:30 AM"). */
+/** A time as the bar's clock shows it (clock.ts's `clockTime`, of which this pure module keeps
+    its own copy): the locale's short time ("09:30" in en-GB, "9:30 AM" in en-US). */
 function timeOf(at: Date, locale: string): string {
-  const cycle = dateFormat(locale, { hour: "numeric" }).resolvedOptions().hourCycle;
-  const twelve = cycle === "h11" || cycle === "h12";
-  return dateFormat(locale, twelve ? { hour: "numeric", minute: "2-digit" } : { hour: "2-digit", minute: "2-digit" }).format(at);
+  return dateFormat(locale, { timeStyle: "short" }).format(at);
 }
 
 /** Calendar days from `at` to `now`, in the local time zone. */

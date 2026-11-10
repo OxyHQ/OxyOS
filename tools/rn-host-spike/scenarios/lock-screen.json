@@ -94,6 +94,9 @@
         "in_shell": {
           "texts": [
             "Introduce la contraseña"
+          ],
+          "texts_matching": [
+            "^(lunes|martes|miércoles|jueves|viernes|sábado|domingo), \\d{1,2} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)$"
           ]
         },
         "transitions": {
