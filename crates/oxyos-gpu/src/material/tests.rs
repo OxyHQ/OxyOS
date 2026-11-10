@@ -48,14 +48,14 @@ fn halves() -> Vec<Layer<'static>> {
 
 #[test]
 fn a_grey_stays_that_grey() {
-    let layers = [fill(0, 0, W, H, 0x0080_8080)];
+    let layers = [fill(0, 0, W, H, 0x0080_8080), surface()];
     let out = compose_cpu_with_material(W, H, 0, &layers, &[(1, area(10, 10, 40, 30))]);
     assert!(out.iter().all(|&pixel| pixel == 0x0080_8080));
 }
 
 #[test]
 fn a_flat_colour_is_saturated_and_nothing_else() {
-    let layers = [fill(0, 0, W, H, 0x0060_8040)];
+    let layers = [fill(0, 0, W, H, 0x0060_8040), surface()];
     let out = compose_cpu_with_material(W, H, 0, &layers, &[(1, area(10, 10, 40, 30))]);
     // (96, 128, 64) through the matrix, in 4096ths, rounded and clamped.
     let channel = |row: [i32; 3]| {
@@ -101,6 +101,7 @@ fn a_regions_pixels_do_not_depend_on_the_region() {
 #[test]
 fn what_is_above_the_material_is_drawn_over_it() {
     let mut layers = halves();
+    // Drawn by the surface over its material: here a layer above it.
     layers.push(fill(40, 20, 16, 16, 0x00ff_0000));
     let out = compose_cpu_with_material(W, H, 0, &layers, &[(2, area(24, 16, 48, 32))]);
     assert_eq!(out[(28 * W + 48) as usize], 0x00ff_0000);

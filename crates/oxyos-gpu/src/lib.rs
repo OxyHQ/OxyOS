@@ -426,11 +426,14 @@ pub fn compose_cpu_damaged_with_material(
     }
 }
 
+/// A material area's blurred backdrop and where it is (`material::blurred`); none off the output.
+type Blurred = Option<(Rect, Vec<u32>)>;
+
 /// Each material area's blurred backdrop, made once a frame whatever the rectangles it is drawn
 /// in, by its index in the frame's list.
 #[derive(Default)]
 struct Blurs {
-    made: Vec<(usize, Option<(Rect, Vec<u32>)>)>,
+    made: Vec<(usize, Blurred)>,
     backdrop: Vec<u32>,
 }
 

@@ -231,8 +231,8 @@ pub fn blurred(
     Some((shown, out))
 }
 
-/// 5. Draws `blurred` (as `blurred` gives it) onto `out` (the output, `width` wide) within
-/// `within`, by the area's rounded corners and opacity, over what is there.
+/// Draws `blurred` (as `blurred` gives it) onto `out` (the output, `width` wide) within `within`,
+/// by the area's rounded corners and opacity, over what is there (step 5).
 pub fn draw(
     out: &mut [u32],
     width: u32,
