@@ -106,6 +106,16 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
 
 JsThread::Work JsThread::drain() {
   Work work;
+  // Nothing queued, nothing to run: the thread is left asleep. Waking it to find its queue empty
+  // cost an idle application two context switches each turn of its loop (the loop handing the
+  // thread a job, and waiting for it), which an application in the background with nothing to do
+  // turns several times a second (Android's Looper wakes no thread for an empty queue). A task
+  // queued from elsewhere after this look runs with the next drain, as one queued after the
+  // drain ran always has.
+  {
+    std::lock_guard lock(mutex_);
+    if (tasks_.empty()) return work;
+  }
   perform([this, &work] {
     auto started = ThreadSample::now();
     while (true) {
