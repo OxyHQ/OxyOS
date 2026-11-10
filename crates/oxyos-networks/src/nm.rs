@@ -95,23 +95,14 @@ fn failure(error: zbus::Error) -> Failure {
     }
 }
 
-/// The session's user's name, for a connection only it may use.
+/// The session's user's name, for a connection only it may use: `$USER`, else the account
+/// database's (through NSS) for this process's real user id.
 fn user_name() -> Option<String> {
     if let Some(name) = std::env::var("USER").ok().filter(|name| !name.is_empty()) {
         return Some(name);
     }
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
-    let uid = status
-        .lines()
-        .find_map(|line| line.strip_prefix("Uid:"))?
-        .split_whitespace()
-        .next()?
-        .to_string();
-    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
-    passwd.lines().find_map(|line| {
-        let fields: Vec<&str> = line.split(':').collect();
-        (fields.len() > 2 && fields[2] == uid).then(|| fields[0].to_string())
-    })
+    let uid = rustix::process::getuid().as_raw();
+    oxyos_users::user_by_uid(uid).ok()?.map(|user| user.name)
 }
 
 /// A device as read.

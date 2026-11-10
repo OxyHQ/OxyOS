@@ -13,7 +13,9 @@ async-io = "2"
 futures-lite = "2"
 serde = { version = "1", features = ["derive"] }
 # Wi-Fi Diagnostics' echo requests to the router: an unprivileged ICMP datagram socket, polled.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "event"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "event", "process"] }
+# The session's user, from the account database through NSS.
+oxyos-users = { path = "../oxyos-users" }
 serde_json = "1"
 
 [lints]

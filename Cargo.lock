@@ -2599,6 +2599,7 @@ dependencies = [
  "oxyos-keychain",
  "oxyos-preferences",
  "oxyos-seqpacket",
+ "oxyos-users",
  "psl",
  "rand_core 0.6.4",
  "ring",
@@ -2618,6 +2619,7 @@ version = "0.1.0"
 dependencies = [
  "oxyos-account",
  "oxyos-auth",
+ "oxyos-users",
  "rustix",
  "zeroize",
 ]
@@ -2627,6 +2629,7 @@ name = "oxyos-activity"
 version = "0.1.0"
 dependencies = [
  "oxyos-power",
+ "oxyos-users",
  "rustix",
  "serde",
  "serde_json",
@@ -2646,6 +2649,7 @@ version = "0.1.0"
 dependencies = [
  "oxyos-install",
  "oxyos-package",
+ "oxyos-users",
  "rustix",
  "serde",
  "serde_json",
@@ -2667,6 +2671,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "oxyos-seqpacket",
+ "oxyos-users",
  "rustix",
  "zeroize",
 ]
@@ -2929,6 +2934,7 @@ version = "0.1.0"
 dependencies = [
  "oxyos-package",
  "oxyos-seqpacket",
+ "oxyos-users",
  "ring",
  "rustix",
  "serde",
@@ -3070,6 +3076,7 @@ version = "0.1.0"
 dependencies = [
  "async-io",
  "futures-lite",
+ "oxyos-users",
  "rustix",
  "serde",
  "serde_json",
@@ -3290,6 +3297,14 @@ name = "oxyos-speech"
 version = "0.1.0"
 dependencies = [
  "oxyos-protocol",
+ "rustix",
+]
+
+[[package]]
+name = "oxyos-users"
+version = "0.1.0"
+dependencies = [
+ "libc",
  "rustix",
 ]
 

@@ -58,7 +58,8 @@ struct Options {
     runtimes: PathBuf,
     socket: Option<PathBuf>,
     fetcher: PathBuf,
-    passwd: PathBuf,
+    /// `--passwd FILE`: a passwd(5) file's accounts (a scenario's own) for the system's.
+    passwd: Option<PathBuf>,
     repository: String,
     /// `--development`: unprivileged, serving its own user alone.
     development: bool,
@@ -75,7 +76,7 @@ fn options() -> Result<Options, String> {
         runtimes: install::RUNTIMES.into(),
         socket: None,
         fetcher: fetch::FETCH_SOCKET.into(),
-        passwd: "/etc/passwd".into(),
+        passwd: None,
         repository: "file:///var/cache/oxyos/store".into(),
         development: false,
         available: None,
@@ -99,7 +100,7 @@ fn options() -> Result<Options, String> {
             "--runtimes" => options.runtimes = value()?.into(),
             "--socket" => options.socket = Some(value()?.into()),
             "--fetcher" => options.fetcher = value()?.into(),
-            "--passwd" => options.passwd = value()?.into(),
+            "--passwd" => options.passwd = Some(value()?.into()),
             "--repository" => options.repository = value()?,
             "--available" => {
                 options.available = Some(
@@ -231,7 +232,10 @@ fn service(options: &Options) -> Result<(), String> {
         &options.anchor,
         FetcherClient::new(&options.fetcher),
         Hermesc::for_this_process(),
-        Passwd::new(&options.passwd),
+        options
+            .passwd
+            .as_deref()
+            .map_or_else(Passwd::system, Passwd::new),
         machine.clone(),
         oxyos_install::time::now,
     )

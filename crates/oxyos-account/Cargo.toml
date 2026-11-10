@@ -24,6 +24,8 @@ argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "pa
 rand_core = { version = "0.6.4", features = ["getrandom"], optional = true }
 oxyos-keychain = { path = "../oxyos-keychain", optional = true }
 oxyos-seqpacket = { path = "../oxyos-seqpacket" }
+# The running system's users and groups, through NSS.
+oxyos-users = { path = "../oxyos-users" }
 # Comparing the password the machine learned with the one Settings gives, in constant time.
 subtle = { version = "2", optional = true }
 # Whether a relying party id is a registrable domain suffix of an application's web origin

@@ -62,7 +62,7 @@ use oxyos_account::platform::{Platform, TokenReason};
 use oxyos_account::session::{self, Event, Kind, Registrars, Sessions};
 use oxyos_account::setup::Setup;
 use oxyos_account::store::{Store, PICTURES_DIRECTORY, STATE_DIRECTORY};
-use oxyos_account::users::{passwd_entry, SystemUsers};
+use oxyos_account::users::SystemUsers;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -242,10 +242,10 @@ fn machine_name() -> String {
     }
 }
 
-/// The login program's user, if it has one.
+/// The login program's user, if it has one (the system's, through NSS).
 fn enrollers(name: &str) -> Enrollers {
-    let login = match passwd_entry(Path::new("/etc/passwd"), name) {
-        Ok(entry) => entry.map(|user| user.uid),
+    let login = match oxyos_users::user_named(name) {
+        Ok(user) => user.map(|user| user.uid),
         Err(error) => {
             eprintln!("oxyos-accountd: {error}: only root may enroll");
             None

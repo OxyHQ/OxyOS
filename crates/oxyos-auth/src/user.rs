@@ -3,7 +3,7 @@
 //! child is made), its group and user ids, its home, a new session of processes, and an
 //! environment of the caller's choosing alone.
 
-use std::ffi::{CStr, CString, OsStr};
+use std::ffi::{CString, OsStr};
 use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -22,50 +22,21 @@ pub struct User {
 }
 
 impl User {
-    /// The user named `name`, if the account database has one.
-    #[allow(unsafe_code)]
+    /// The user named `name`, if the account database has one (through NSS, `oxyos-users`).
     pub fn named(name: &str) -> io::Result<Option<Self>> {
+        let Some(user) = oxyos_users::user_named(name)? else {
+            return Ok(None);
+        };
         let Ok(c_name) = CString::new(name) else {
             return Ok(None);
         };
-        let mut buffer = vec![0 as libc::c_char; 16 * 1024];
-        // SAFETY: an all-zero passwd is a valid value of the C struct (null pointers, zero ids).
-        let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
-        let mut found: *mut libc::passwd = std::ptr::null_mut();
-        // SAFETY: every pointer is valid and `buffer` is as long as said; getpwnam_r fills
-        // `entry` with strings inside `buffer` and sets `found` to `entry` or leaves it null.
-        let status = unsafe {
-            libc::getpwnam_r(
-                c_name.as_ptr(),
-                &mut entry,
-                buffer.as_mut_ptr(),
-                buffer.len(),
-                &mut found,
-            )
-        };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
-        if found.is_null() {
-            return Ok(None);
-        }
-        let string = |pointer: *const libc::c_char| {
-            if pointer.is_null() {
-                String::new()
-            } else {
-                // SAFETY: the entry's strings point into `buffer`, NUL-terminated, while it lives.
-                unsafe { CStr::from_ptr(pointer) }
-                    .to_string_lossy()
-                    .into_owned()
-            }
-        };
-        let groups = group_list(&c_name, entry.pw_gid)?;
+        let groups = oxyos_users::group_list(&c_name, user.gid)?;
         Ok(Some(Self {
             name: name.to_owned(),
-            uid: entry.pw_uid,
-            gid: entry.pw_gid,
-            home: string(entry.pw_dir).into(),
-            shell: string(entry.pw_shell).into(),
+            uid: user.uid,
+            gid: user.gid,
+            home: user.home,
+            shell: user.shell,
             groups,
         }))
     }
@@ -113,30 +84,5 @@ impl User {
             });
         }
         command.spawn()
-    }
-}
-
-/// The groups `name` belongs to (getgrouplist), `gid` first.
-#[allow(unsafe_code)]
-fn group_list(name: &CStr, gid: u32) -> io::Result<Vec<u32>> {
-    let mut count: libc::c_int = 32;
-    loop {
-        let mut groups = vec![0 as libc::gid_t; count as usize];
-        let asked = count;
-        // SAFETY: `groups` holds `count` ids; getgrouplist writes at most that many and sets
-        // `count` to how many there are.
-        let found =
-            unsafe { libc::getgrouplist(name.as_ptr(), gid, groups.as_mut_ptr(), &mut count) };
-        if found >= 0 {
-            groups.truncate(count as usize);
-            return Ok(groups);
-        }
-        if count <= asked {
-            // It found more than fitted but says no more: a broken database.
-            count = asked.saturating_mul(2);
-        }
-        if count > 65536 {
-            return Err(io::Error::other("too many groups"));
-        }
     }
 }

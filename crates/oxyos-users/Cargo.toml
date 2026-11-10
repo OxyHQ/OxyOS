@@ -1,0 +1,26 @@
+[package]
+name = "oxyos-users"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# glibc's reentrant account database calls (getpwnam_r, getpwuid_r, getgrnam_r, getgrouplist):
+# the system's Name Service Switch, whatever sources nsswitch.conf names.
+libc = "0.2"
+
+[dev-dependencies]
+rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
+
+# The workspace forbids `unsafe`. Calling glibc's account database, a C interface, needs it, so
+# this crate denies it instead and allows it item by item; every unsafe block states why it is
+# sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

@@ -34,12 +34,16 @@
 //!   skeleton is: the directories and the file the user's own, at the modes the session would make
 //!   them with (0755 and 0644 under its 022 umask), each opened without following a link.
 //!
-//! Users are read from `/etc/passwd` (passwd(5)), where `useradd` writes them, and groups from
-//! `/etc/group` (group(5)). A name another account database holds is refused by `useradd` itself
-//! ("already exists").
+//! The system's users and groups are looked up through NSS (`oxyos-users`), as every OxyOS
+//! program looks them up: `useradd` writes them to `/etc/passwd` and `/etc/group`, which NSS's
+//! `files` reads. A name another account database holds is refused by `useradd` itself ("already
+//! exists").
 //!
 //! [`SystemUsers::with_prefix`] runs the same tools on another root's files (`--prefix`), which
-//! they do without privileges: the tests make real users, verifiers and homes that way.
+//! they do without privileges: the tests make real users, verifiers and homes that way, and a
+//! backup is restored onto another root so. That root's users are its files, read here
+//! ([`passwd_entry`], [`passwd_gecos`], [`group_members`]); NSS answers for the running system
+//! alone.
 //!
 //! - **Made again from a backup** ([ADR 0059](../../docs/adr/0059-backups.mdx), decision 7): a
 //!   restored account's group (`groupadd --gid`) and user (`useradd --uid --gid`, no home: the
@@ -198,6 +202,39 @@ impl SystemUsers {
         self.etc("passwd")
     }
 
+    /// `name`'s entry and GECOS field: the running system's through NSS, another root's from its
+    /// passwd(5) file.
+    fn entry(&self, name: &str) -> Result<Option<(UnixUser, String)>, UsersError> {
+        if self.prefix.is_some() {
+            let passwd = self.passwd();
+            return Ok(match passwd_entry(&passwd, name)? {
+                Some(user) => Some((user, passwd_gecos(&passwd, name)?.unwrap_or_default())),
+                None => None,
+            });
+        }
+        Ok(oxyos_users::user_named(name)
+            .map_err(database)?
+            .map(|user| {
+                (
+                    UnixUser {
+                        uid: user.uid,
+                        gid: user.gid,
+                        home: user.home,
+                    },
+                    user.gecos,
+                )
+            }))
+    }
+
+    /// The members of `group`: the running system's through NSS, another root's from its
+    /// group(5) file.
+    fn members(&self, group: &str) -> Result<Option<Vec<String>>, UsersError> {
+        if self.prefix.is_some() {
+            return group_members(&self.etc("group"), group);
+        }
+        oxyos_users::group_members(group).map_err(database)
+    }
+
     /// A restored account's group, `name` with the number `gid` it had on the computer its backup
     /// is of ([ADR 0059](../../docs/adr/0059-backups.mdx), decision 7).
     pub fn make_group(&self, name: &UserName, gid: u32) -> Result<(), UsersError> {
@@ -267,6 +304,11 @@ impl SystemUsers {
 }
 
 /// What a tool's failure was, by its exit status and what it said.
+/// The system's account database could not be read.
+fn database(error: std::io::Error) -> UsersError {
+    UsersError::Failed(format!("the account database: {error}"))
+}
+
 fn failed(tool: &str, output: &std::process::Output) -> UsersError {
     let said = String::from_utf8_lossy(&output.stderr);
     UsersError::Failed(format!(
@@ -282,7 +324,8 @@ fn run(tool: &str, command: &mut Command) -> Result<std::process::Output, UsersE
         .map_err(|error| UsersError::Failed(format!("{tool} cannot run: {error}")))
 }
 
-/// `name`'s entry in a passwd(5) file, its seven fields; none if it has no such user.
+/// `name`'s entry in a passwd(5) file, its seven fields; none if it has no such user. For another
+/// root's file: the running system's users are NSS's.
 fn passwd_fields(passwd: &Path, name: &str) -> Result<Option<Vec<String>>, UsersError> {
     let text = std::fs::read_to_string(passwd)
         .map_err(|error| UsersError::Failed(format!("{}: {error}", passwd.display())))?;
@@ -302,7 +345,7 @@ fn passwd_fields(passwd: &Path, name: &str) -> Result<Option<Vec<String>>, Users
     Ok(None)
 }
 
-/// `name`'s entry in a passwd(5) file.
+/// `name`'s entry in a passwd(5) file (another root's: an install target, a restore's, a test's).
 pub fn passwd_entry(passwd: &Path, name: &str) -> Result<Option<UnixUser>, UsersError> {
     let Some(fields) = passwd_fields(passwd, name)? else {
         return Ok(None);
@@ -326,7 +369,8 @@ pub fn passwd_gecos(passwd: &Path, name: &str) -> Result<Option<String>, UsersEr
     Ok(passwd_fields(passwd, name)?.map(|mut fields| fields.swap_remove(4)))
 }
 
-/// The members of `group` in a group(5) file, its fourth field; none if it has no such group.
+/// The members of `group` in a group(5) file, its fourth field; none if it has no such group. For
+/// another root's file: the running system's groups are NSS's.
 pub fn group_members(group_file: &Path, group: &str) -> Result<Option<Vec<String>>, UsersError> {
     let text = std::fs::read_to_string(group_file)
         .map_err(|error| UsersError::Failed(format!("{}: {error}", group_file.display())))?;
@@ -354,7 +398,7 @@ pub fn group_members(group_file: &Path, group: &str) -> Result<Option<Vec<String
 
 impl Users for SystemUsers {
     fn lookup(&self, name: &UserName) -> Result<Option<UnixUser>, UsersError> {
-        passwd_entry(&self.passwd(), name.as_str())
+        Ok(self.entry(name.as_str())?.map(|(user, _)| user))
     }
 
     fn create(&self, name: &UserName) -> Result<UnixUser, UsersError> {
@@ -468,9 +512,9 @@ impl Users for SystemUsers {
 
     fn set_full_name(&self, name: &UserName, full_name: &str) -> Result<bool, UsersError> {
         let wanted = gecos_full_name(full_name);
-        match passwd_gecos(&self.passwd(), name.as_str())? {
+        match self.entry(name.as_str())? {
             None => return Err(UsersError::Missing),
-            Some(gecos) if gecos == wanted => return Ok(false),
+            Some((_, gecos)) if gecos == wanted => return Ok(false),
             Some(_) => {}
         }
         let output = run(
@@ -489,7 +533,8 @@ impl Users for SystemUsers {
     }
 
     fn is_administrator(&self, name: &UserName) -> Result<bool, UsersError> {
-        Ok(group_members(&self.etc("group"), ADMINISTRATORS)?
+        Ok(self
+            .members(ADMINISTRATORS)?
             .is_some_and(|members| members.iter().any(|member| member == name.as_str())))
     }
 

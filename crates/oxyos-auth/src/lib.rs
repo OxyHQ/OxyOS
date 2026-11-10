@@ -161,29 +161,10 @@ impl Authenticator {
     }
 }
 
-/// The user name of `uid`, from the system's account database.
-#[allow(unsafe_code)]
+/// The user name of `uid`, from the system's account database (through NSS, `oxyos-users`).
 fn user_name(uid: u32) -> Option<CString> {
-    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
-    // SAFETY: an all-zero passwd is a valid value of the C struct (null pointers, zero ids).
-    let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
-    let mut found: *mut libc::passwd = std::ptr::null_mut();
-    // SAFETY: every pointer is valid and `buffer` is as long as said; getpwuid_r fills `entry`
-    // with strings inside `buffer` and sets `found` to `entry` or leaves it null.
-    let status = unsafe {
-        libc::getpwuid_r(
-            uid,
-            &mut entry,
-            buffer.as_mut_ptr(),
-            buffer.len(),
-            &mut found,
-        )
-    };
-    if status != 0 || found.is_null() || entry.pw_name.is_null() {
-        return None;
-    }
-    // SAFETY: pw_name points into `buffer`, NUL-terminated, while `buffer` lives.
-    Some(unsafe { CStr::from_ptr(entry.pw_name) }.to_owned())
+    let user = oxyos_users::user_by_uid(uid).ok()??;
+    CString::new(user.name).ok().filter(|name| !name.is_empty())
 }
 
 /// Slows guessing, as macOS's lock screen does: after five rejections in a row, each further

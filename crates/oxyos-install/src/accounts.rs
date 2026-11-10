@@ -17,18 +17,24 @@ pub trait Accounts {
     fn account(&self, uid: u32) -> Option<Account>;
 }
 
-/// The accounts of a `passwd` file (`/etc/passwd`), read at each question, as the system's
-/// user database changes while the service runs.
+/// The machine's accounts, read at each question, as the system's user database changes while
+/// the service runs: the running system's through NSS (`oxyos-users`), or those of a passwd(5)
+/// file of another root's (a scenario's own, `--passwd FILE`).
 #[derive(Clone, Debug)]
-pub struct Passwd {
-    path: PathBuf,
+pub enum Passwd {
+    System,
+    File(PathBuf),
 }
 
 impl Passwd {
+    /// The running system's accounts, through NSS.
+    pub fn system() -> Self {
+        Self::System
+    }
+
+    /// The accounts of the passwd(5) file at `path`.
     pub fn new(path: &Path) -> Self {
-        Self {
-            path: path.to_path_buf(),
-        }
+        Self::File(path.to_path_buf())
     }
 }
 
@@ -46,22 +52,31 @@ pub fn valid_user_name(name: &str) -> bool {
 
 impl Accounts for Passwd {
     fn account(&self, uid: u32) -> Option<Account> {
-        let text = std::fs::read_to_string(&self.path).ok()?;
-        text.lines().find_map(|line| {
-            let fields: Vec<&str> = line.split(':').collect();
-            if fields.len() < 7 {
-                return None;
+        let (name, gid) = match self {
+            Passwd::System => {
+                let user = oxyos_users::user_by_uid(uid).ok()??;
+                (user.name, user.gid)
             }
-            let name = fields[0];
-            let user_id: u32 = fields[2].parse().ok()?;
-            let group_id: u32 = fields[3].parse().ok()?;
-            (user_id == uid && valid_user_name(name)).then(|| Account {
-                uid,
-                name: name.to_string(),
-                gid: group_id,
-            })
-        })
+            Passwd::File(path) => file_entry(path, uid)?,
+        };
+        valid_user_name(&name).then_some(Account { uid, name, gid })
     }
+}
+
+/// The name and group of `uid`'s first entry in the passwd(5) file at `path` whose name records
+/// may be kept under.
+fn file_entry(path: &Path, uid: u32) -> Option<(String, u32)> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().find_map(|line| {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() < 7 {
+            return None;
+        }
+        let name = fields[0];
+        let user_id: u32 = fields[2].parse().ok()?;
+        let group_id: u32 = fields[3].parse().ok()?;
+        (user_id == uid && valid_user_name(name)).then(|| (name.to_string(), group_id))
+    })
 }
 
 /// Accounts given by the tests.

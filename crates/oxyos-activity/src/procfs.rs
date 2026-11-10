@@ -13,8 +13,9 @@ pub struct Procfs {
     pub proc: PathBuf,
     /// `/sys`, for which block devices are disks.
     pub sys: PathBuf,
-    /// `/etc/passwd`, for the users' names.
-    pub passwd: PathBuf,
+    /// Where the users' names come from: the running system's account database through NSS
+    /// (`None`), or a test's own passwd(5) file.
+    pub passwd: Option<PathBuf>,
     /// The clock's ticks a second (`sysconf(_SC_CLK_TCK)`), which `stat`'s times count.
     pub ticks: u64,
 }
@@ -24,7 +25,7 @@ impl Procfs {
         Self {
             proc: PathBuf::from("/proc"),
             sys: PathBuf::from("/sys"),
-            passwd: PathBuf::from("/etc/passwd"),
+            passwd: None,
             ticks: rustix::param::clock_ticks_per_second(),
         }
     }
