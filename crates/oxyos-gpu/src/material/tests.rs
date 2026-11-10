@@ -38,11 +38,34 @@ fn area(x: i32, y: i32, width: u32, height: u32) -> MaterialArea {
     }
 }
 
-/// Black on the left half, white on the right: a sharp edge at x = 48.
+/// A surface with nothing drawn: its material is all that shows of it.
+static CLEAR: [u8; 4] = [0; 4];
+
+fn surface() -> Layer<'static> {
+    Layer {
+        x: 0,
+        y: 0,
+        width: W,
+        height: H,
+        extent: (1, 1),
+        paint: Paint::Premultiplied(&CLEAR),
+        source: None,
+        changed: None,
+        opacity: 255,
+        radius: 0,
+        filter: Filter::Nearest,
+        clip: None,
+        warp: None,
+    }
+}
+
+/// Black on the left half, white on the right (a sharp edge at x = 48), and the clear surface
+/// whose material the tests draw over them, at index 2.
 fn halves() -> Vec<Layer<'static>> {
     vec![
         fill(0, 0, 48, H, 0x0000_0000),
         fill(48, 0, 48, H, 0x00ff_ffff),
+        surface(),
     ]
 }
 
