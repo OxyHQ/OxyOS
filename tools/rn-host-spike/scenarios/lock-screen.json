@@ -93,7 +93,7 @@
         "react": {},
         "in_shell": {
           "texts": [
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ],
           "texts_matching": [
             "^(lunes|martes|miércoles|jueves|viernes|sábado|domingo), \\d{1,2} de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)$"
@@ -256,7 +256,7 @@
         "delivered": {},
         "in_shell": {
           "texts": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "never": [
             "qzx"
@@ -292,7 +292,7 @@
         "delivered": {},
         "in_shell": {
           "absent": [
-            "Contraseña incorrecta"
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "never": [
             "oxyos.correcta"

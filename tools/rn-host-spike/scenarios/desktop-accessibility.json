@@ -18,11 +18,11 @@
             {"role": "Button", "name": "Inbox", "state": []},
             {"role": "Button", "name": "Cerrar aplicaciones"},
             {"role": "Button", "name": "Abrir aplicaciones", "state": ["selected"]},
-            {"role": "Image", "name": "Fondo de escritorio"}
+            {"role": "Image", "name": "Fondo de pantalla"}
           ],
           "window": [{"role": "TextInput", "name": "Line"}]
         },
-        "at_absent": {"shell": [{"role": "Generic", "name": "Fondo de escritorio"}]}
+        "at_absent": {"shell": [{"role": "Generic", "name": "Fondo de pantalla"}]}
       }
     },
     {
@@ -44,7 +44,7 @@
             {"role": "Button", "name": "Menú de Oxy", "state": ["expanded"]},
             {"role": "Menu", "name": "Oxy"},
             {"role": "MenuItem", "name": "Acerca de este ordenador", "state": ["focused"]},
-            {"role": "MenuItem", "name": "Ajustes del sistema…"},
+            {"role": "MenuItem", "name": "Ajustes del Sistema…"},
             {"role": "MenuItem", "name": "Bloquear pantalla"}
           ]
         },
@@ -69,7 +69,7 @@
           "shell": [
             {"name": "Menú de Oxy"},
             {"name": "Abrir aplicaciones"},
-            {"name": "Fondo de escritorio"},
+            {"name": "Fondo de pantalla"},
             {"role": "Alert"}
           ]
         }
@@ -91,7 +91,7 @@
       "expect": {
         "shell": {"locked": true},
         "react": {},
-        "at": {"shell": [{"role": "Text", "name": "Contraseña incorrecta"}]},
+        "at": {"shell": [{"role": "Text", "name": "Contraseña incorrecta. Vuelve a intentarlo."}]},
         "at_absent": {"window": [{}]}
       }
     },
@@ -112,7 +112,7 @@
           "shell": [
             {"role": "Button", "name": "Menú de Oxy", "state": ["collapsed", "focused"]},
             {"role": "Button", "name": "Abrir aplicaciones"},
-            {"role": "Image", "name": "Fondo de escritorio"}
+            {"role": "Image", "name": "Fondo de pantalla"}
           ]
         },
         "at_absent": {"shell": [{"name": "Contraseña"}, {"role": "Alert"}]}

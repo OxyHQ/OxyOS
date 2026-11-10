@@ -117,7 +117,7 @@
      "shell": [
       {
        "role": "MenuItem",
-       "name": "Ajustes del sistema…",
+       "name": "Ajustes del Sistema…",
        "state": [
         "focused"
        ]
@@ -126,7 +126,7 @@
     },
     "spoken": [
      {
-      "text": "Ajustes del sistema…, elemento de menú",
+      "text": "Ajustes del Sistema…, elemento de menú",
       "interrupting": true
      }
     ],

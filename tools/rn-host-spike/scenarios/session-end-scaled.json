@@ -74,7 +74,7 @@
         "in_shell": {
           "texts": [
             "Are you sure you want to restart your computer now?",
-            "Reopen windows when logging back in",
+            "Reopen windows when signing back in",
             "Cancel",
             "Restart"
           ],
@@ -167,7 +167,7 @@
         "in_shell": {
           "texts": [
             "Are you sure you want to shut down your computer now?",
-            "Reopen windows when logging back in",
+            "Reopen windows when signing back in",
             "Restart",
             "Sleep",
             "Cancel",
@@ -219,7 +219,7 @@
         ]
       ],
       "until_named": [
-        "Are you sure you want to quit all applications and log out now?",
+        "Are you sure you want to quit all apps and log out now?",
         15000
       ],
       "expect": {
@@ -228,8 +228,8 @@
         ],
         "in_shell": {
           "texts": [
-            "Are you sure you want to quit all applications and log out now?",
-            "Reopen windows when logging back in",
+            "Are you sure you want to quit all apps and log out now?",
+            "Reopen windows when signing back in",
             "Cancel",
             "Log Out"
           ],
@@ -256,7 +256,7 @@
         ],
         "in_shell": {
           "absent": [
-            "Are you sure you want to quit all applications and log out now?"
+            "Are you sure you want to quit all apps and log out now?"
           ]
         }
       }
@@ -286,7 +286,7 @@
             "“Allo” canceled log out."
           ],
           "absent": [
-            "Are you sure you want to quit all applications and log out now?"
+            "Are you sure you want to quit all apps and log out now?"
           ]
         },
         "power": {
@@ -406,7 +406,7 @@
         "in_shell": {
           "texts": [
             "Are you sure you want to shut down your computer now?",
-            "Reopen windows when logging back in",
+            "Reopen windows when signing back in",
             "Cancel",
             "Shut Down"
           ],

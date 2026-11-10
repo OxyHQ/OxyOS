@@ -187,7 +187,7 @@
         ],
         "in_shell": {
           "texts": [
-            "That password doesn't open any of the backups there."
+            "That password doesn’t open any of the backups there."
           ],
           "never": [
             "wrong password"
@@ -215,7 +215,7 @@
             "Accounts: Ada Lovelace and Bea Ramos"
           ],
           "absent": [
-            "That password doesn't open any of the backups there."
+            "That password doesn’t open any of the backups there."
           ],
           "never": [
             "played backup password"
@@ -279,7 +279,7 @@
         "in_shell": {
           "texts": [
             "ada-laptop",
-            "Don't turn off this computer."
+            "Don’t turn off this computer."
           ],
           "absent": [
             "Migrate ada-laptop?"
@@ -306,12 +306,12 @@
           "texts": [
             "Ada Lovelace",
             "Bea Ramos",
-            "Sign in to Ada Lovelace's Oxy account again to use it on this computer.",
+            "Sign in to Ada Lovelace’s Oxy account again to use it on this computer.",
             "Sign In Again"
           ],
           "absent": [
             "Transfer Your Data to This Computer",
-            "Don't turn off this computer."
+            "Don’t turn off this computer."
           ]
         }
       }

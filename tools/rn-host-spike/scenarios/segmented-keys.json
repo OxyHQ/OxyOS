@@ -93,7 +93,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Clara",
+       "name": "Claro",
        "state": [
         "checked",
         "focused"
@@ -101,19 +101,19 @@
       },
       {
        "role": "Radio",
-       "name": "Oscura",
+       "name": "Oscuro",
        "state": []
       },
       {
        "role": "Radio",
-       "name": "Automática",
+       "name": "Automático",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Clara, seleccionado, botón de opción",
+      "text": "Claro, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -143,7 +143,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Oscura",
+       "name": "Oscuro",
        "state": [
         "checked",
         "focused"
@@ -151,14 +151,14 @@
       },
       {
        "role": "Radio",
-       "name": "Clara",
+       "name": "Claro",
        "state": []
       }
      ]
     },
     "spoken": [
      {
-      "text": "Oscura, seleccionado, botón de opción",
+      "text": "Oscuro, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -191,7 +191,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Automática",
+       "name": "Automático",
        "state": [
         "checked",
         "focused"
@@ -201,7 +201,7 @@
     },
     "spoken": [
      {
-      "text": "Automática, seleccionado, botón de opción",
+      "text": "Automático, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -231,7 +231,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Clara",
+       "name": "Claro",
        "state": [
         "checked",
         "focused"
@@ -241,7 +241,7 @@
     },
     "spoken": [
      {
-      "text": "Clara, seleccionado, botón de opción",
+      "text": "Claro, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -274,7 +274,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Automática",
+       "name": "Automático",
        "state": [
         "checked",
         "focused"
@@ -284,7 +284,7 @@
     },
     "spoken": [
      {
-      "text": "Automática, seleccionado, botón de opción",
+      "text": "Automático, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -314,7 +314,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Clara",
+       "name": "Claro",
        "state": [
         "checked",
         "focused"
@@ -324,7 +324,7 @@
     },
     "spoken": [
      {
-      "text": "Clara, seleccionado, botón de opción",
+      "text": "Claro, seleccionado, botón de opción",
       "interrupting": true
      }
     ],
@@ -384,7 +384,7 @@
      "window": [
       {
        "role": "Radio",
-       "name": "Clara",
+       "name": "Claro",
        "state": [
         "checked",
         "focused"
@@ -394,7 +394,7 @@
     },
     "spoken": [
      {
-      "text": "Clara, seleccionado, botón de opción",
+      "text": "Claro, seleccionado, botón de opción",
       "interrupting": true
      }
     ],

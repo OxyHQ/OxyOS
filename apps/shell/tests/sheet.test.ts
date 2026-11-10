@@ -55,7 +55,7 @@ test("without the install service, the sheet says so with one button and nothing
   assert.equal(es.refuse, "");
   assert.equal(es.destructive, false);
   const en = sheetView({ kind: "unavailable", action: "update" }, EN);
-  assert.equal(en.title, "Can't Update");
+  assert.equal(en.title, "Can’t Update");
   assert.equal(en.accept, "OK");
   assert.deepEqual(readSheet('{"kind":"unavailable","action":"uninstall"}'), { kind: "unavailable", action: "uninstall" });
 });
@@ -140,7 +140,7 @@ test("emptying the Trash says how many items go for good, and its button is dest
   assert.equal(view.accept, "Vaciar");
   assert.equal(view.refuse, "Cancelar");
   assert.equal(view.destructive, true);
-  assert.equal(sheetView({ kind: "empty-trash", items: 1 }, EN).body, "1 item will be erased. You can't undo this action.");
+  assert.equal(sheetView({ kind: "empty-trash", items: 1 }, EN).body, "1 item will be erased. You can’t undo this action.");
 });
 
 test("a Wi-Fi network's password sheet names it and its kind, with a password field and Join", () => {
@@ -152,10 +152,10 @@ test("a Wi-Fi network's password sheet names it and its kind, with a password fi
   assert.deepEqual(es.password, { label: "Contraseña", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
   const wpa3 = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa3", incorrect: true }, ES);
   assert.equal(wpa3.title, 'La red Wi-Fi “Casa” requiere una contraseña WPA3.');
-  assert.equal(wpa3.error, "La contraseña no es correcta. Inténtalo de nuevo.");
+  assert.equal(wpa3.error, "Contraseña incorrecta. Vuelve a intentarlo.");
   const en = sheetView({ kind: "wifi-password", ssid: "Casa", security: "wpa", incorrect: true }, EN);
   assert.equal(en.title, 'The Wi-Fi network “Casa” requires a WPA2 password.');
-  assert.equal(en.error, "The password is incorrect. Try again.");
+  assert.equal(en.error, "Incorrect password. Try again.");
   assert.equal(en.accept, "Join");
   assert.equal(en.refuse, "Cancel");
 });
@@ -166,7 +166,7 @@ test("a join that failed, and a network OxyOS cannot join, only tell, with one b
   assert.equal(failed.accept, "Aceptar");
   assert.equal(failed.refuse, "");
   assert.equal(failed.password, undefined);
-  assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, EN).title, 'Couldn\'t join the network “Casa”.');
+  assert.equal(sheetView({ kind: "wifi-failed", ssid: "Casa" }, EN).title, "Couldn’t join the network “Casa”.");
   const enterprise = sheetView({ kind: "wifi-unsupported", ssid: "Oficina", security: "enterprise" }, ES);
   assert.equal(enterprise.title, 'OxyOS todavía no puede conectarse a “Oficina”.');
   assert.equal(enterprise.body, "Las redes empresariales (802.1X) aún no son compatibles.");
@@ -175,8 +175,8 @@ test("a join that failed, and a network OxyOS cannot join, only tell, with one b
   const wep = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, ES);
   assert.equal(wep.body, "Las redes WEP no son compatibles: no son seguras.");
   const en = sheetView({ kind: "wifi-unsupported", ssid: "Antiguo", security: "wep" }, EN);
-  assert.equal(en.title, 'OxyOS can\'t join “Antiguo” yet.');
-  assert.equal(en.body, "WEP networks aren't supported: they aren't secure.");
+  assert.equal(en.title, "OxyOS can’t join “Antiguo” yet.");
+  assert.equal(en.body, "WEP networks aren’t supported: they aren’t secure.");
 });
 
 test("a Wi-Fi password is 8 to 63 bytes, or 64 hexadecimal digits", () => {
@@ -217,7 +217,7 @@ test("a device pairing with nothing to compare, and one asking for a service", (
   const service = sheetView({ kind: "bluetooth-service", name: "AirPods", device: "headphones", service: "audio" }, EN);
   assert.equal(service.title, "Allow “AirPods” to play and record audio?");
   assert.equal(service.accept, "Allow");
-  assert.equal(service.refuse, "Don't Allow");
+  assert.equal(service.refuse, "Don’t Allow");
   const es = sheetView({ kind: "bluetooth-service", name: "Pixel", device: "phone", service: "files" }, ES);
   assert.equal(es.title, "¿Permitir que “Pixel” envíe y reciba archivos?");
   assert.equal(es.accept, "Permitir");
@@ -255,12 +255,12 @@ test("a code to type here has its field: the passkey the device shows, or a PIN 
 
 test("a connection that failed says why, with one button", () => {
   const rejected = sheetView({ kind: "bluetooth-failed", name: "AirPods", device: "headphones", reason: "rejected" }, EN);
-  assert.equal(rejected.title, "Couldn't connect to “AirPods”.");
-  assert.equal(rejected.body, "The code didn't match, or the device refused the connection.");
+  assert.equal(rejected.title, "Couldn’t connect to “AirPods”.");
+  assert.equal(rejected.body, "The code didn’t match, or the device refused the connection.");
   assert.equal(rejected.accept, "OK");
   assert.equal(rejected.refuse, "");
   const timeout = sheetView({ kind: "bluetooth-failed", name: "AirPods", device: "headphones", reason: "timeout" }, EN);
-  assert.equal(timeout.body, "Make sure it's turned on, nearby and in pairing mode.");
+  assert.equal(timeout.body, "Make sure it’s turned on, nearby and in pairing mode.");
   const failed = sheetView({ kind: "bluetooth-failed", name: "AirPods", device: "headphones", reason: "failed" }, ES);
   assert.equal(failed.title, "No se ha podido conectar a “AirPods”.");
   assert.equal(failed.body, "Asegúrate de que está encendido y cerca.");
@@ -300,7 +300,7 @@ test("a passkey's sheet asks to use one for the relying party, by the app, with 
   assert.equal(es.body, "Cuenta: ada. Lo pide Astro.");
   assert.equal(es.accept, "Continuar");
   assert.equal(es.refuse, "Cancelar");
-  assert.deepEqual(es.password, { label: "Contraseña de la cuenta Oxy", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
+  assert.deepEqual(es.password, { label: "Contraseña de la cuenta de Oxy", show: "Mostrar contraseña", hide: "Ocultar contraseña" });
   assert.equal(es.passwordKind, "account");
   assert.equal(es.choices, undefined);
   assert.equal(es.error, undefined);
@@ -332,10 +332,10 @@ test("several passkeys are a chooser; a wrong password or too many say so", () =
       { title: "bea@example.com", detail: "Bea" },
     ],
   });
-  assert.equal(es.error, "La contraseña no es correcta. Inténtalo de nuevo.");
+  assert.equal(es.error, "Contraseña incorrecta. Vuelve a intentarlo.");
   const throttled = sheetView({ ...sheet, incorrect: false, retryAfter: 30 }, EN, {});
   assert.equal(throttled.error, "Too many attempts. Try again in 30 seconds.");
-  assert.equal(sheetView({ ...sheet, incorrect: false, retryAfter: 1 }, ES, {}).error, "Demasiados intentos. Inténtalo de nuevo dentro de 1 segundo.");
+  assert.equal(sheetView({ ...sheet, incorrect: false, retryAfter: 1 }, ES, {}).error, "Demasiados intentos. Vuelve a intentarlo en 1 segundo.");
 });
 
 test("creating a passkey names the account and where it is kept", () => {
@@ -352,7 +352,7 @@ test("creating a passkey names the account and where it is kept", () => {
   assert.equal(es.title, "¿Crear una llave de acceso para github.com?");
   assert.equal(
     es.body,
-    "Cuenta: ada. Se guarda en el llavero de tu cuenta Oxy, cifrado de extremo a extremo, en todos tus dispositivos. Lo pide Astro.",
+    "Cuenta: ada. Se guarda en el llavero de tu cuenta de Oxy, cifrada de extremo a extremo, en todos tus dispositivos. Lo pide Astro.",
   );
   assert.equal(sheetView(sheet, EN, {}).title, "Create a passkey for github.com?");
 });
@@ -366,7 +366,7 @@ test("a passkey already there, or none, is only said, with one button", () => {
   assert.equal(excluded.refuse, "");
   assert.equal(excluded.password, undefined);
   const none = sheetView({ ...base, mode: "none" }, EN, {});
-  assert.equal(none.title, "You don't have a passkey for github.com.");
+  assert.equal(none.title, "You don’t have a passkey for github.com.");
   assert.equal(none.accept, "OK");
 });
 
@@ -413,7 +413,7 @@ test("an application that keeps quitting is told with Reopen as its answer, Igno
     es.actions?.map((action) => action.label),
     ["Restablecer…", "Informe…"],
   );
-  assert.equal(es.report?.done, "Listo");
+  assert.equal(es.report?.done, "OK");
 });
 
 test("a report asked from the notification opens at the report, of a quit that happened once", () => {
@@ -433,7 +433,7 @@ test("resetting says what is erased and what is kept, destructively, and that a 
   assert.equal(en.title, "Reset “Mention”?");
   assert.equal(
     en.body,
-    "Mention's data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.",
+    "Mention’s data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.",
   );
   assert.equal(en.accept, "Reset");
   assert.equal(en.refuse, "Cancel");
