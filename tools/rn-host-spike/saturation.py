@@ -759,6 +759,10 @@ class PlayedRtkit:
         self.bus = self.unit = None
         if not self.SCRIPT.exists():
             return
+        # Started by the run's wrapper, outside its unit, where sudo can still run it: perf-device.sh,
+        # whose unit runs under strace's seccomp filter, so nothing in it gains a privilege.
+        if os.environ.get("OXYOS_RTKIT_BUS"):
+            return
         out.mkdir(parents=True, exist_ok=True)
         self.bus = subprocess.Popen(placed(fixture.root / "harness", ["dbus-daemon", "--session", "--nofork",
                                                                       "--print-address=1"]),
@@ -773,6 +777,8 @@ class PlayedRtkit:
         os.environ["OXYOS_RTKIT_BUS"] = address
 
     def stop(self):
+        if self.unit is None and self.bus is None:
+            return
         if self.unit:
             subprocess.run([str(self.SCRIPT), "stop", self.unit], check=False)
             self.unit = None
