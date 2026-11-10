@@ -46,9 +46,8 @@ impl Scene {
             .iter()
             .filter(|(client, grants)| self.application(**client).is_some() || grants.shell)
             .filter(|(client, _)| {
-                !self
-                    .version_of(**client)
-                    .is_some_and(|version| version < MEMORY_PRESSURE_VERSION)
+                self.version_of(**client)
+                    .is_none_or(|version| version >= MEMORY_PRESSURE_VERSION)
             })
             .map(|(client, _)| (self.client_shown(*client), *client))
             .collect();
