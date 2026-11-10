@@ -3038,6 +3038,7 @@ dependencies = [
 name = "oxyos-login"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "oxyos-account",
  "oxyos-auth",
  "oxyos-seat",
@@ -3115,6 +3116,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "signal-hook",
  "zbus",
 ]
 
