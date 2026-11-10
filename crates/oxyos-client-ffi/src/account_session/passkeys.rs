@@ -20,10 +20,10 @@
 use super::{failed, session_socket, SessionError};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use oxyos_account::ipc::Connection;
-use oxyos_account::keychain::passkey::{PasskeyCreate, PasskeyGet, PasskeyUser};
-use oxyos_account::session::{self, Reason};
-use oxyos_account::Secret;
+use oxyos_account_proto::ipc::Connection;
+use oxyos_account_proto::keychain::passkey::{PasskeyCreate, PasskeyGet, PasskeyUser};
+use oxyos_account_proto::session::{self, Reason};
+use oxyos_account_proto::Secret;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::time::Duration;

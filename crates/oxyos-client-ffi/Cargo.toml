@@ -21,8 +21,11 @@ oxyos-wallpaper = { path = "../oxyos-wallpaper" }
 oxyos-apps = { path = "../oxyos-apps" }
 oxyos-files = { path = "../oxyos-files" }
 oxyos-app-storage = { path = "../oxyos-app-storage" }
-# The accounts' service's sockets and their types, without its HTTP client.
-oxyos-account = { path = "../oxyos-account", default-features = false }
+# The accounts service's messages and the clients' side of its sockets: the protocol alone, never
+# the service (its store, its keychain's cryptography, its PIN verifiers).
+oxyos-account-proto = { path = "../oxyos-account-proto" }
+# A password the migration sends, overwritten when it goes.
+oxyos-secret = { path = "../oxyos-secret" }
 # The migration service's socket (docs/adr/0059-backups.mdx, migration.rs): SOCK_SEQPACKET messages
 # of up to 64 KiB, a computer's list of backups among them.
 oxyos-service-socket = { path = "../oxyos-service-socket" }

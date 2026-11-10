@@ -53,16 +53,6 @@ pub fn wait_after(failures: u32) -> Duration {
     FIRST_WAIT.saturating_mul(1 << doublings)
 }
 
-/// What the login screen and Settings are told of an account's PIN.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PinState {
-    None,
-    Set,
-    /// Too many wrong PINs: the password, or Oxy online, first.
-    Locked,
-}
-
 /// An account's PIN: its verifier and the wrong attempts since the last right one.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -116,6 +106,8 @@ impl LocalSignIn {
 
 #[cfg(feature = "local")]
 pub use verifier::{hash_pin, verify_pin, VerifierError};
+// The messages, the protocol's own crate's (`oxyos-account-proto`): clients link them alone.
+pub use oxyos_account_proto::pin::PinState;
 
 /// What a PIN came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

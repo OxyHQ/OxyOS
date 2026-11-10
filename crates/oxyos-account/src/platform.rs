@@ -47,11 +47,15 @@ use crate::store::{Enrollment, State, ERASE_ARMED};
 use crate::users::{verifier_password, Users, UsersError};
 use crate::{AccountId, UserName};
 use rustix::fd::OwnedFd;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, SystemTime};
+// The messages, the protocol's own crate's (`oxyos-account-proto`): clients link them alone.
+pub use oxyos_account_proto::platform::{
+    CheckReason, Checked, Local, LocalView, Snapshot, SnapshotAccount, Status, Token, TokenReason,
+    Verdict,
+};
 
 /// A cached token is minted again this long before it expires.
 pub const REFRESH_BEFORE: Duration = Duration::from_secs(60);
@@ -70,113 +74,6 @@ const REMOVE_WAIT: Duration = if cfg!(test) {
 } else {
     Duration::from_secs(15)
 };
-
-/// What PAM said of a password, given to [`Platform::check`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Local {
-    Accepted,
-    Rejected,
-}
-
-/// What a check came to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Verdict {
-    Accepted,
-    Rejected,
-}
-
-/// Why a check was rejected, when the person should be told more than "wrong password".
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CheckReason {
-    /// Oxy refused a password the machine knows: it was changed elsewhere.
-    PasswordChanged,
-    /// Oxy signed the account out: it must be set up again online.
-    SignInAgain,
-}
-
-/// A check's answer: `{"result", "reason"?}`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Checked {
-    pub result: Verdict,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<CheckReason>,
-}
-
-impl Checked {
-    pub const ACCEPTED: Checked = Checked {
-        result: Verdict::Accepted,
-        reason: None,
-    };
-    pub const REJECTED: Checked = Checked {
-        result: Verdict::Rejected,
-        reason: None,
-    };
-
-    fn rejected(reason: CheckReason) -> Self {
-        Checked {
-            result: Verdict::Rejected,
-            reason: Some(reason),
-        }
-    }
-}
-
-/// The SDK's `OxyHostSnapshot` (Oxy ADR 0058, decision 1).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub status: Status,
-    pub revision: u64,
-    pub account: Option<SnapshotAccount>,
-    pub online: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    SignedIn,
-    SignedOut,
-    Unavailable,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SnapshotAccount {
-    pub id: String,
-    pub handle: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub avatar: Option<String>,
-    /// The account's picture on this machine (its avatar's image, as the accounts' service last
-    /// read it: a root-owned file the session reads, [`crate::store`]); none without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub picture: Option<String>,
-    /// The account's languages, primary first, as the platform last read them online.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub languages: Option<Vec<String>>,
-}
-
-/// An application's token, as it is handed to the application.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Token {
-    pub access_token: Secret,
-    pub expires_at: String,
-}
-
-/// Why a token is asked for (the SDK's `getAccessToken` reason).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TokenReason {
-    #[serde(rename = "boot")]
-    Boot,
-    #[serde(rename = "preflight")]
-    Preflight,
-    /// The token the application had was refused: a fresh one is minted.
-    #[serde(rename = "response-401")]
-    Response401,
-}
 
 /// What removing an account came to.
 #[derive(Debug, PartialEq, Eq)]
@@ -290,23 +187,6 @@ pub fn attestation(desktop_entry_id: &str, system: bool) -> Attestation {
         Attestation::OwnPlatform
     } else {
         Attestation::Entry(desktop_entry_id.to_owned())
-    }
-}
-
-/// An account's local sign-in, as Settings and the lock screen are told it (never a verifier).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LocalView {
-    pub pin: crate::pin::PinState,
-    /// Whether the password signs in on this computer.
-    pub password: bool,
-}
-
-impl LocalView {
-    fn of(local: &crate::pin::LocalSignIn) -> Self {
-        Self {
-            pin: local.pin_state(),
-            password: local.password,
-        }
     }
 }
 
@@ -713,7 +593,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             return Ok(None);
         };
         let local = self.setup.store().local(&enrollment.user)?;
-        Ok(Some(LocalView::of(&local)))
+        Ok(Some(local_view(&local)))
     }
 
     /// Settings' change to `uid`'s account's local sign-in, the person proved by `proof`
@@ -759,7 +639,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
         match (&proof, &change) {
             (Proof::Password(password), LocalChange::PasswordSignIn(true)) => {
                 if local.password {
-                    return Ok(LocalView::of(&local));
+                    return Ok(local_view(&local));
                 }
                 match self
                     .sign_in(&enrollment, password, true)
@@ -844,7 +724,7 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
                 return Err(LocalRefusal::Failed);
             }
         }
-        Ok(LocalView::of(&after))
+        Ok(local_view(&after))
     }
 
     fn check_password(self: &Arc<Self>, user: &str, password: Secret, local: Local) -> Checked {
@@ -1329,5 +1209,13 @@ impl<A: OxyApi + Send + Sync + 'static, U: Users + Send + Sync + 'static> Platfo
             .ok()
             .flatten()
             .map(|enrollment| enrollment.account)
+    }
+}
+
+/// An account's local sign-in, as Settings and the lock screen are told it (never a verifier).
+fn local_view(local: &crate::pin::LocalSignIn) -> LocalView {
+    LocalView {
+        pin: local.pin_state(),
+        password: local.password,
     }
 }

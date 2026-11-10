@@ -1,5 +1,5 @@
 use super::*;
-use oxyos_account::ipc::Listener;
+use oxyos_account_proto::ipc::Listener;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -22,7 +22,7 @@ fn service(
     connections: usize,
     answer: impl Fn(&Value) -> Vec<Value> + Send + 'static,
 ) -> std::thread::JoinHandle<Vec<Value>> {
-    let listener = Listener::bind(socket, oxyos_account::ipc::MODE).unwrap();
+    let listener = Listener::bind(socket, oxyos_account_proto::ipc::MODE).unwrap();
     std::thread::spawn(move || {
         let mut received = Vec::new();
         for _ in 0..connections {
@@ -136,7 +136,7 @@ fn a_subscription_hands_each_snapshot_once_and_says_when_it_ends() {
     let (socket, dir) = socket_path("session");
     let (go, wait) = std::sync::mpsc::channel::<()>();
     let wait = std::sync::Mutex::new(wait);
-    let listener = Listener::bind(&socket, oxyos_account::ipc::MODE).unwrap();
+    let listener = Listener::bind(&socket, oxyos_account_proto::ipc::MODE).unwrap();
     let served = std::thread::spawn(move || {
         let connection = listener.accept().unwrap();
         assert_eq!(
@@ -457,7 +457,7 @@ fn the_header_names_a_message_the_services_size() {
         .find(|line| line.starts_with("#define OXYOS_ACCOUNT_MESSAGE_MAX "))
         .expect("OXYOS_ACCOUNT_MESSAGE_MAX is defined");
     let value: usize = line.rsplit(' ').next().unwrap().parse().unwrap();
-    assert_eq!(value, oxyos_account::ipc::MAX_MESSAGE);
+    assert_eq!(value, oxyos_account_proto::ipc::MAX_MESSAGE);
 }
 
 #[test]
@@ -477,7 +477,7 @@ fn the_local_sign_in_is_read_and_changed_on_the_session_socket() {
     assert_eq!(
         local_sign_in_at(&socket).unwrap(),
         platform::LocalView {
-            pin: oxyos_account::pin::PinState::None,
+            pin: oxyos_account_proto::pin::PinState::None,
             password: true
         }
     );

@@ -39,6 +39,8 @@ use std::io::{self, Read, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
+// The messages, the protocol's own crate's (`oxyos-account-proto`): clients link them alone.
+pub use oxyos_account_proto::store::State;
 
 /// Where the service keeps enrolled accounts.
 pub const STATE_DIRECTORY: &str = "/var/lib/oxyos/accounts";
@@ -80,14 +82,6 @@ impl Enrollment {
             None => State::SignInAgain,
         }
     }
-}
-
-/// Whether an enrolled account can sign in: `ready`, or `signInAgain` once Oxy signed it out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum State {
-    Ready,
-    SignInAgain,
 }
 
 /// An account's file, as written.

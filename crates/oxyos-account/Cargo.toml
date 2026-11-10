@@ -40,6 +40,8 @@ serde_json = "1"
 # Passwords, device secrets and tokens overwritten in memory once used.
 zeroize = "1"
 oxyos-secret = { path = "../oxyos-secret", features = ["serde"] }
+# Its messages, in a crate of their own that clients link instead of this one.
+oxyos-account-proto = { path = "../oxyos-account-proto" }
 # The sockets (SOCK_SEQPACKET, the peer's credentials from the kernel, a process handed over as a
 # pidfd), the effective user id, the subscribers' wakeups (eventfd), a new home's seeded file
 # written without following links, and a redemption's key from the kernel's random numbers.

@@ -22,14 +22,14 @@
 //! and never printed: not in an error, not in `oxyos_last_error`.
 
 use super::fail;
-use oxyos_account::erase::{ErasePreview, Erasing};
-use oxyos_account::ipc::{self, Connection};
-use oxyos_account::keychain;
-use oxyos_account::platform;
-pub use oxyos_account::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
-use oxyos_account::session;
-use oxyos_account::setup::{Appearance, Stage};
-use oxyos_account::Secret;
+use oxyos_account_proto::erase::{ErasePreview, Erasing};
+use oxyos_account_proto::ipc::{self, Connection};
+use oxyos_account_proto::keychain;
+use oxyos_account_proto::platform;
+pub use oxyos_account_proto::platform::{Snapshot, SnapshotAccount, Status, Token, TokenReason};
+use oxyos_account_proto::session;
+use oxyos_account_proto::setup::{Appearance, Stage};
+use oxyos_account_proto::Secret;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::os::fd::{AsFd, AsRawFd};
@@ -50,7 +50,7 @@ const ERASE_PREVIEW_WAIT: Duration = Duration::from_secs(10);
 /// bounds (two calls of at most 30 s).
 const ERASE_WAIT: Duration = Duration::from_secs(180);
 /// How long a save may take: the person is asked in the session's sheet, for at most two minutes
-/// (`oxyos_account::session::SAVE_WAIT`), then the login is written to Oxy (two calls of at most
+/// (`oxyos_account_proto::session::SAVE_WAIT`), then the login is written to Oxy (two calls of at most
 /// 30 s).
 const SAVE_WAIT: Duration = Duration::from_secs(200);
 /// How long `platform` may take.

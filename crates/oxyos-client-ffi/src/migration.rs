@@ -13,7 +13,7 @@
 //! password and a share's password are held in buffers overwritten when dropped, and never printed.
 
 use super::fail;
-use oxyos_account::Secret;
+use oxyos_secret::Secret;
 use oxyos_service_socket::Connection;
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_int, CStr};

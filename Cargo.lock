@@ -2595,6 +2595,7 @@ dependencies = [
  "ciborium",
  "jiff",
  "libc",
+ "oxyos-account-proto",
  "oxyos-apps",
  "oxyos-keychain",
  "oxyos-preferences",
@@ -2611,6 +2612,15 @@ dependencies = [
  "ureq",
  "url",
  "zeroize",
+]
+
+[[package]]
+name = "oxyos-account-proto"
+version = "0.1.0"
+dependencies = [
+ "oxyos-secret",
+ "oxyos-service-socket",
+ "serde",
 ]
 
 [[package]]
@@ -2737,7 +2747,7 @@ name = "oxyos-client-ffi"
 version = "0.1.0"
 dependencies = [
  "base64",
- "oxyos-account",
+ "oxyos-account-proto",
  "oxyos-app-storage",
  "oxyos-apps",
  "oxyos-client",
@@ -2752,6 +2762,7 @@ dependencies = [
  "oxyos-paint",
  "oxyos-preferences",
  "oxyos-protocol",
+ "oxyos-secret",
  "oxyos-service-socket",
  "oxyos-solar",
  "oxyos-wallpaper",

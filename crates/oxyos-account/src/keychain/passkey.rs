@@ -50,67 +50,13 @@ use crate::session::{Answer, Request};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::Path;
+// The messages, the protocol's own crate's (`oxyos-account-proto`): clients link them alone.
+pub use oxyos_account_proto::keychain::passkey::{
+    PasskeyAssertion, PasskeyCreate, PasskeyCreated, PasskeyGet, PasskeyUser, MAX_CREDENTIAL_LIST,
+};
 
 /// How long a ceremony waits for the person, as WebAuthn's default timeout.
 pub const PASSKEY_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
-/// At most this many ids in `allowCredentials` or `excludeCredentials`.
-pub const MAX_CREDENTIAL_LIST: usize = 64;
-
-/// The relying party's user, as WebAuthn's `PublicKeyCredentialUserEntity`.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PasskeyUser {
-    /// The user handle, base64url.
-    pub id: String,
-    pub name: Secret,
-    pub display_name: Secret,
-}
-
-/// `passkeyCreate`: CTAP2's authenticatorMakeCredential.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PasskeyCreate {
-    pub rp_id: String,
-    pub rp_name: Secret,
-    pub user: PasskeyUser,
-    pub client_data_hash: String,
-    #[serde(default)]
-    pub exclude_credentials: Vec<String>,
-    pub algorithms: Vec<i64>,
-}
-
-/// `passkeyGet`: CTAP2's authenticatorGetAssertion.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PasskeyGet {
-    pub rp_id: String,
-    pub client_data_hash: String,
-    #[serde(default)]
-    pub allow_credentials: Vec<String>,
-}
-
-/// `passkeyCreated`: WebAuthn's `AuthenticatorAttestationResponse`, base64url.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PasskeyCreated {
-    pub credential_id: String,
-    pub attestation_object: String,
-    pub authenticator_data: String,
-    /// SubjectPublicKeyInfo, DER (`getPublicKey()`).
-    pub public_key: String,
-    pub public_key_algorithm: i64,
-    pub transports: Vec<String>,
-}
-
-/// `passkeyAssertion`: WebAuthn's `AuthenticatorAssertionResponse`, base64url.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PasskeyAssertion {
-    pub credential_id: String,
-    pub authenticator_data: String,
-    pub signature: String,
-    pub user_handle: String,
-}
 
 /// What the sheet asks of the person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

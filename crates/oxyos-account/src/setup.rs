@@ -110,11 +110,12 @@ use crate::pin::{usable_pin, LocalSignIn, PinRecord};
 use crate::secret::Secret;
 use crate::store::{Enrollment, Store, ADMINISTRATOR_MADE};
 use crate::users::{verifier_password, UnixUser, Users, UsersError};
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+// The messages, the protocol's own crate's (`oxyos-account-proto`): clients link them alone.
+pub use oxyos_account_proto::setup::{Appearance, Stage};
 
 /// What the setup client hands over: the SDK's credential, the account it signed in, the
 /// account's password (none: the account has none), the PIN chosen for this computer, if any, and
@@ -126,38 +127,6 @@ pub struct Request {
     pub password: Option<Secret>,
     pub pin: Option<Secret>,
     pub appearance: Option<Appearance>,
-}
-
-/// The appearance the setup assistant asks for, as the preferences name it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Appearance {
-    Light,
-    Dark,
-    Auto,
-}
-
-impl Appearance {
-    pub fn name(self) -> &'static str {
-        match self {
-            Appearance::Light => "light",
-            Appearance::Dark => "dark",
-            Appearance::Auto => "auto",
-        }
-    }
-}
-
-/// A setup's step, reported as it starts (see the module's doc for what each is).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Stage {
-    Securing,
-    Verifying,
-    Preparing,
-    SigningIn,
-    Finishing,
-    /// Oxy confirms the platform credential the machine now holds (Oxy ADR 0058 R8).
-    Confirming,
 }
 
 /// What a setup tells while it runs, before its answer.

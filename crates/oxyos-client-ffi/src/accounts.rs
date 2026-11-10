@@ -11,7 +11,7 @@ use std::path::PathBuf;
 /// The service's socket: `OXYOS_ACCOUNTD_SOCKET`, else the system's.
 fn socket() -> PathBuf {
     std::env::var_os("OXYOS_ACCOUNTD_SOCKET")
-        .map_or_else(|| oxyos_account::ipc::SOCKET.into(), PathBuf::from)
+        .map_or_else(|| oxyos_account_proto::ipc::SOCKET.into(), PathBuf::from)
 }
 
 /// The enrolled accounts as JSON, `[{"user", "name", "picture" (a file, or null), "signInAgain",
@@ -24,15 +24,15 @@ pub fn accounts_json() -> Result<String, String> {
 }
 
 fn accounts_json_at(socket: &std::path::Path) -> Result<String, String> {
-    let accounts = oxyos_account::ipc::list(socket)
+    let accounts = oxyos_account_proto::ipc::list(socket)
         .map_err(|error| format!("the accounts at {}: {error}", socket.display()))?;
     let items: Vec<String> = accounts
         .iter()
         .map(|account| {
             let pin = match account.pin {
-                oxyos_account::pin::PinState::None => "none",
-                oxyos_account::pin::PinState::Set => "set",
-                oxyos_account::pin::PinState::Locked => "locked",
+                oxyos_account_proto::pin::PinState::None => "none",
+                oxyos_account_proto::pin::PinState::Set => "set",
+                oxyos_account_proto::pin::PinState::Locked => "locked",
             };
             format!(
                 "{{\"user\":{},\"name\":{},\"picture\":{},\"signInAgain\":{},\"pin\":\"{pin}\",\"password\":{}}}",
@@ -42,7 +42,7 @@ fn accounts_json_at(socket: &std::path::Path) -> Result<String, String> {
                     .picture
                     .as_deref()
                     .map_or("null".into(), json_string),
-                account.state == oxyos_account::store::State::SignInAgain,
+                account.state == oxyos_account_proto::store::State::SignInAgain,
                 account.password
             )
         })
@@ -81,7 +81,7 @@ pub unsafe extern "C" fn oxyos_accounts(out: *mut c_char, capacity: usize) -> i6
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxyos_account::ipc::{Account, Answer, Listener, Request};
+    use oxyos_account_proto::ipc::{Account, Answer, Listener, Request};
 
     #[test]
     fn the_accounts_are_the_services_and_none_without_it() {
@@ -92,7 +92,7 @@ mod tests {
             accounts_json_at(&socket).is_err(),
             "no service, no accounts"
         );
-        let listener = Listener::bind(&socket, oxyos_account::ipc::MODE).unwrap();
+        let listener = Listener::bind(&socket, oxyos_account_proto::ipc::MODE).unwrap();
         let service = std::thread::spawn(move || {
             let connection = listener.accept().unwrap();
             assert!(matches!(
@@ -107,8 +107,8 @@ mod tests {
                         uid: 1001,
                         name: "Ada \"Countess\" Lovelace".into(),
                         picture: Some("/var/lib/oxyos/pictures/oxy-a".into()),
-                        state: oxyos_account::store::State::Ready,
-                        pin: oxyos_account::pin::PinState::Set,
+                        state: oxyos_account_proto::store::State::Ready,
+                        pin: oxyos_account_proto::pin::PinState::Set,
                         password: true,
                     },
                     Account {
@@ -117,8 +117,8 @@ mod tests {
                         uid: 1002,
                         name: "Bea".into(),
                         picture: None,
-                        state: oxyos_account::store::State::SignInAgain,
-                        pin: oxyos_account::pin::PinState::None,
+                        state: oxyos_account_proto::store::State::SignInAgain,
+                        pin: oxyos_account_proto::pin::PinState::None,
                         password: false,
                     },
                 ]))

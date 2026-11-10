@@ -1,7 +1,7 @@
 //! WebAuthn's JSON shapes to the service's ceremonies and back, against a played service.
 
 use super::*;
-use oxyos_account::ipc::Listener;
+use oxyos_account_proto::ipc::Listener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -18,7 +18,7 @@ fn socket_path() -> PathBuf {
 
 /// A service answering one connection's one message with `answer`; the message it received.
 fn service(socket: &Path, answer: Value) -> std::thread::JoinHandle<Value> {
-    let listener = Listener::bind(socket, oxyos_account::ipc::MODE).unwrap();
+    let listener = Listener::bind(socket, oxyos_account_proto::ipc::MODE).unwrap();
     std::thread::spawn(move || {
         let connection = listener.accept().unwrap();
         let message = connection.receive::<Value>().unwrap().unwrap().unwrap();
