@@ -33,9 +33,12 @@ JsThread::CausedBy::CausedBy(Cause cause) : previous_(std::exchange(tQueuedFor, 
 
 JsThread::CausedBy::~CausedBy() { tQueuedFor = std::move(previous_); }
 
-JsThread::JsThread(std::function<Cause()> cause, std::function<void(const Stretch&)> worked,
-                   std::function<void()> idle, std::function<void(bool)> settled)
-    : cause_(std::move(cause)), worked_(std::move(worked)), idleHook_(std::move(idle)), settledHook_(std::move(settled)) {
+JsThread::JsThread(std::function<Cause()> cause, std::function<void(const Stretch&)> worked, std::function<void()> idle,
+                   std::function<void(bool)> settled)
+    : cause_(std::move(cause)),
+      worked_(std::move(worked)),
+      idleHook_(std::move(idle)),
+      settledHook_(std::move(settled)) {
   pthread_attr_t attributes;
   pthread_attr_init(&attributes);
   pthread_attr_setstacksize(&attributes, kStackSize);
