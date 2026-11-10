@@ -7,8 +7,12 @@ for hours: `timeout-minutes` ends a job its runner runs, not one no runner runs,
 runner busy, so every queued job, the merge queue's among them, waits behind it. From GitHub, such a
 job is one of these, each force-cancelled:
   - in progress longer than the job's timeout-minutes and a quarter of an hour;
-  - its running step started more than STALLED minutes ago (the gate's longest step takes 25 to 40);
   - an older job on a runner that has started a newer one (a runner runs one job at a time).
+A step's age says nothing: the gate's scenarios are one step, which takes over an hour when the
+runners' gates run together (a runtime built again, five gates taking turns for the timing
+scenarios); taking that for a lost runner cancelled live runs and took their entries out of the
+merge queue (#572, #573 and #574 on 10 November 2026). A runner that came back starts a newer job
+at once, and one that did not is past its timeout soon enough.
 It also cancels the merge queue's runs that no entry of the queue is waiting for any more (a group
 superseded when the queue changed: an entry removed, another put ahead), which would otherwise hold
 runners for nothing; GitHub leaves them running.
@@ -28,7 +32,6 @@ import urllib.error
 import urllib.request
 
 WORKFLOW = "Scenarios"
-STALLED = 60  # minutes without a step starting or ending
 GRACE = datetime.timedelta(minutes=2)  # a merge queue run this young is never taken for superseded
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -140,7 +143,6 @@ def main():
     dry = "--dry-run" in sys.argv
     now = datetime.datetime.now(datetime.timezone.utc)
     limit = datetime.timedelta(minutes=timeout_minutes() + 15)
-    stalled = datetime.timedelta(minutes=STALLED)
     # First, what the merge queue's changes run this for: its superseded runs.
     superseded_runs = cancel_superseded(now, dry)
     jobs = []
@@ -158,15 +160,10 @@ def main():
     ended = 0
     for run, job in jobs:
         started = when(job["started_at"])
-        steps = [when(s.get("started_at")) for s in job.get("steps", []) if s.get("started_at")]
-        steps += [when(s.get("completed_at")) for s in job.get("steps", []) if s.get("completed_at")]
-        last = max(steps, default=started)
         name = job.get("runner_name") or "no runner"
         why = None
         if now - started > limit:
             why = f"in progress {int((now - started).total_seconds() // 60)} min, past its timeout and 15"
-        elif now - last > stalled:
-            why = f"no step started or ended for {int((now - last).total_seconds() // 60)} min"
         elif job.get("runner_name") and newest[job["runner_name"]] > started:
             why = f"{name} has started a newer job"
         if not why:
