@@ -28,7 +28,7 @@
    "do": [
     "wait_named",
     [
-     "Don't Reopen",
+     "Don’t Reopen",
      15000
     ]
    ],
@@ -40,7 +40,7 @@
       "Do you want to try to reopen them again?",
       "Inbox",
       "Reopen",
-      "Don't Reopen"
+      "Don’t Reopen"
      ],
      "keyboard_focus": {
       "target": "system-sheet-accept"
@@ -52,7 +52,7 @@
    "name": "Don't Reopen: nothing opens, and the record keeps nothing to reopen",
    "do": [
     "press_named",
-    "Don't Reopen"
+    "Don’t Reopen"
    ],
    "allow_unchanged": true,
    "expect": {

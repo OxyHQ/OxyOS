@@ -85,7 +85,9 @@ class JsThread : public facebook::react::MessageQueueThread {
   void runOnQueueFirst(std::function<void()>&& task);
   // The loop's turn ends: what it queued runs, if the thread is idle (else once it is: the thread
   // then calls `settled` with work waiting, and the loop hands it over at its next turn's end).
-  // Whether it was handed over.
+  // With nothing queued the thread is left asleep: an idle application's loop turns several times
+  // a second in the background, and waking JavaScript's thread to find nothing cost it two context
+  // switches a turn (Android's Looper wakes no thread for an empty queue). Whether it was handed over.
   bool handOver();
   // Runs `task` on the thread after what is queued, and returns once it ran: at once when called on
   // the thread itself. The UI thread's state is let go meanwhile (ui-thread.h), since the task, or
