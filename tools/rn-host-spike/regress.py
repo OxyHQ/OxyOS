@@ -378,7 +378,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - react_presses: those presses, exactly, as `react` checks its events;
 - diagnostics: the application's frame diagnostics in the step (frame-diagnostics.h), from its
   report's `timing` and `log` lines: "slow", [least, most] slow lines written to the log;
-  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh;
+  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh (each most
+  a speed budget: with --speed-budgets);
   "slow_line", a slow line written in the step having each key given ("subject", a pattern it
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
   unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
@@ -4529,7 +4530,14 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if SPEED_BUDGETS and len(fast_frames) < wanted.get("fast_frames_min", 0):
             fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
-            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+            # A frame the step makes slow (JavaScript holding the thread 120 ms) is slow on any
+            # machine, but one that is not may be on a loaded one (a press's frame took 18 to 49 ms
+            # beside other scenarios at load 45 to 67): how many at most is a speed budget, held
+            # with --speed-budgets; the least always.
+            if key not in wanted:
+                continue
+            most = wanted[key][1] if SPEED_BUDGETS or key == "summaries" else float("inf")
+            if not wanted[key][0] <= got <= most:
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
                      f"{wanted[key][1]}: {logs}")
         if "slow_line" in wanted:
