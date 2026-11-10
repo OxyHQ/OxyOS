@@ -201,6 +201,10 @@ fn the_recovery_entry_boots_its_partition_read_only_verified_into_the_recovery_a
     assert!(entry.contains("systemd.unit=oxyos-recovery.target"));
     assert!(entry.contains(" live-config.nocomponents ") && entry.contains(" noeject "));
     assert!(!entry.contains("username="), "live-config makes no user");
+    assert!(
+        entry.ends_with(" quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles preempt=full\n"),
+        "OxyOS's parameters, as every command line of its own: {entry}"
+    );
     assert_eq!(
         Entry::parse(layout::RECOVERY_ENTRY).unwrap().tries,
         None,
@@ -717,7 +721,10 @@ fn an_install_checks_the_image_lays_the_disk_out_checks_the_recovery_and_sets_th
     let read = |p: &str| fs::read_to_string(target.join(p)).unwrap();
     assert_eq!(read("etc/crypttab"), "oxyos-root UUID=9222c73f-1d6c-4556-be7a-d109c63ee37e /etc/cryptsetup-keys.d/oxyos-root.key luks,discard\n");
     assert!(read("etc/fstab").starts_with("UUID=c52459b1-9b93-4541-b894-f4e224723e5d / ext4"));
-    assert!(read("etc/kernel/cmdline").starts_with("root=/dev/mapper/oxyos-root rw quiet splash"));
+    assert_eq!(
+        read("etc/kernel/cmdline"),
+        "root=/dev/mapper/oxyos-root rw quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles preempt=full\n"
+    );
     assert_eq!(read("etc/kernel/tries"), "3\n");
     assert_eq!(read("etc/kernel/entry-token"), "oxyos\n");
     assert_eq!(
@@ -1536,5 +1543,129 @@ fn safe_mode_entries_follow_the_kernels_entries_and_a_second_sync_changes_nothin
             vec!["oxyos-safe-mode-6.12.74+deb13+1-amd64.conf".to_string()],
             Vec::new()
         )
+    );
+}
+
+// ---- OxyOS's kernel parameters (ADR 0066, decision 2; ADR 0017) ---------------------------------
+
+#[test]
+fn every_oxyos_command_line_carries_the_boot_logos_parameters_and_full_preemption() {
+    assert_eq!(
+        layout::kernel_parameters(),
+        [
+            "quiet",
+            "splash",
+            "loglevel=3",
+            "vt.global_cursor_default=0",
+            "plymouth.ignore-serial-consoles",
+            "preempt=full"
+        ]
+    );
+    assert!(layout::kernel_command_line("UUID=1")
+        .ends_with(" rw quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles preempt=full"));
+}
+
+#[test]
+fn a_parameter_missing_is_added_one_of_another_value_replaced_and_the_rest_kept() {
+    let required = ["quiet", "loglevel=3", "preempt=full"];
+    assert_eq!(
+        layout::with_parameters(
+            "root=UUID=1 ro quiet loglevel=7 preempt=voluntary mitigations=off",
+            &required
+        ),
+        "root=UUID=1 ro quiet loglevel=3 preempt=full mitigations=off"
+    );
+    assert_eq!(
+        layout::with_parameters("root=UUID=1 ro", &required),
+        "root=UUID=1 ro quiet loglevel=3 preempt=full"
+    );
+    // Run again, nothing changes.
+    let once = layout::with_parameters("root=UUID=1 ro", &required);
+    assert_eq!(layout::with_parameters(&once, &required), once);
+    // An entry: its command line alone.
+    let entry = entries::with_parameters_in_entry(KERNEL_ENTRY, &layout::kernel_parameters());
+    assert_eq!(
+        entry,
+        KERNEL_ENTRY.replace(
+            "plymouth.ignore-serial-consoles\n",
+            "plymouth.ignore-serial-consoles preempt=full\n"
+        )
+    );
+}
+
+#[test]
+fn a_converted_machines_entries_are_given_the_parameters_once() {
+    let esp = esp_with(&[]);
+    let directory = esp.path().join("loader/entries");
+    let kernel = "oxyos-6.12.48+deb13-amd64+3.conf";
+    fs::write(directory.join(kernel), KERNEL_ENTRY).unwrap();
+    let recovery =
+        layout::recovery_entry("5f36a183", ROOT_HASH, VERSION, None).replace(" preempt=full", "");
+    fs::write(directory.join(layout::RECOVERY_ENTRY), &recovery).unwrap();
+    // Safe Mode's are made from their kernels' afterwards; another system's are not OxyOS's.
+    let safe_mode = layout::safe_mode_entry(KERNEL_ENTRY).unwrap();
+    fs::write(
+        directory.join("oxyos-safe-mode-6.12.48+deb13-amd64.conf"),
+        &safe_mode,
+    )
+    .unwrap();
+    let other = "title Other\noptions root=/dev/sdb1 quiet\nlinux /other/linux\n";
+    fs::write(directory.join("other-6.1.conf"), other).unwrap();
+    let entries = Entries::new(esp.path());
+    let required = layout::kernel_parameters();
+    assert_eq!(
+        entries.sync_kernel_parameters("oxyos", &required).unwrap(),
+        [kernel.to_string(), layout::RECOVERY_ENTRY.to_string()]
+    );
+    assert!(fs::read_to_string(directory.join(kernel))
+        .unwrap()
+        .contains("plymouth.ignore-serial-consoles preempt=full\nlinux"));
+    assert!(fs::read_to_string(directory.join(layout::RECOVERY_ENTRY))
+        .unwrap()
+        .ends_with(" preempt=full\n"));
+    assert_eq!(
+        fs::read_to_string(directory.join("other-6.1.conf")).unwrap(),
+        other
+    );
+    // The counter is the entry's name, kept.
+    assert!(names(&esp).contains(&kernel.to_string()));
+    // Then Safe Mode's, from the kernel's as it is now.
+    let (written, _) = entries.sync_safe_mode("oxyos").unwrap();
+    assert_eq!(written, ["oxyos-safe-mode-6.12.48+deb13-amd64.conf"]);
+    assert!(fs::read_to_string(directory.join(&written[0]))
+        .unwrap()
+        .contains(" preempt=full oxyos.safe-mode=1\n"));
+    // Run again, nothing is written.
+    assert!(entries
+        .sync_kernel_parameters("oxyos", &required)
+        .unwrap()
+        .is_empty());
+    assert!(entries.sync_safe_mode("oxyos").unwrap().0.is_empty());
+}
+
+#[test]
+fn kernel_installs_command_line_is_given_the_parameters_and_made_where_there_is_none() {
+    let etc = Scratch::new("etc-kernel");
+    fs::create_dir_all(etc.path()).unwrap();
+    let cmdline = etc.path().join("cmdline");
+    let required = layout::kernel_parameters();
+    let running = "BOOT_IMAGE=/vmlinuz initrd=\\oxyos\\initrd.img root=UUID=3e34 ro quiet splash";
+    // None: the running kernel's, as kernel-install would take it, with OxyOS's.
+    assert!(entries::sync_command_line_file(&cmdline, running, &required).unwrap());
+    assert_eq!(
+        fs::read_to_string(&cmdline).unwrap(),
+        "root=UUID=3e34 ro quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles preempt=full\n"
+    );
+    assert!(!entries::sync_command_line_file(&cmdline, running, &required).unwrap());
+    // One written before full preemption was OxyOS's: given it, the rest kept.
+    fs::write(&cmdline, "root=UUID=3e34 ro quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\n").unwrap();
+    assert!(entries::sync_command_line_file(&cmdline, running, &required).unwrap());
+    assert!(fs::read_to_string(&cmdline)
+        .unwrap()
+        .ends_with(" plymouth.ignore-serial-consoles preempt=full\n"));
+    assert_eq!(
+        fs::read_dir(etc.path()).unwrap().count(),
+        1,
+        "nothing staged is left"
     );
 }
