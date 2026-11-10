@@ -4,7 +4,6 @@
  * Info…, which opens Settings › About. A small window of a fixed size, moved by its background, with
  * the window's controls in their place; its facts are Settings › About's (`aboutThisComputer`, model.ts).
  */
-import * as React from "react";
 import { View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Button } from "@oxy.so/bloom/button";
