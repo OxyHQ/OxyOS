@@ -202,7 +202,7 @@ test("Force Quit Applications: its apps, the hung one marked, the frontmost chos
   };
   const view = sheetView(sheet, en);
   assert.equal(view.title, "Force Quit Applications");
-  assert.equal(view.body, "If an app doesn't respond for a while, select its name and click Force Quit.");
+  assert.equal(view.body, "If an app doesn’t respond for a while, select its name and click Force Quit.");
   assert.deepEqual(view.choices?.rows, [
     { title: "Inbox", detail: "", alert: false },
     { title: "Hang Probe", detail: "Not Responding", alert: true },
