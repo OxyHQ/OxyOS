@@ -244,6 +244,10 @@ fn follow(
     wake: &UnixStream,
 ) {
     let mut level = MemoryPressureLevel::Normal;
+    // When the averages were last read, or the level last raised: they are read again EASING later
+    // while it is up, whatever triggers fire meanwhile (a warning's firing every window must not
+    // hold a critical level up).
+    let mut checked = std::time::Instant::now();
     let Ok(easing) = Timespec::try_from(EASING) else {
         return;
     };
@@ -256,8 +260,8 @@ fn follow(
                 .map(|trigger| PollFd::from_borrowed_fd(trigger.file.as_fd(), PollFlags::PRI)),
         );
         let timeout = (level != MemoryPressureLevel::Normal).then_some(&easing);
-        let ready = match poll(&mut fds, timeout) {
-            Ok(ready) => ready,
+        match poll(&mut fds, timeout) {
+            Ok(_) => {}
             Err(rustix::io::Errno::INTR) => continue,
             Err(error) => {
                 eprintln!("[session] memory pressure: {error}; no longer followed");
@@ -286,9 +290,11 @@ fn follow(
             );
         }
         let next = if fired > level {
+            checked = std::time::Instant::now();
             fired
-        } else if ready == 0 {
-            // A while with no trigger: down as far as the averages say.
+        } else if level != MemoryPressureLevel::Normal && checked.elapsed() >= EASING {
+            // Down as far as the averages say, never below what fired now.
+            checked = std::time::Instant::now();
             files
                 .iter()
                 .filter_map(|path| std::fs::read_to_string(path).ok())
