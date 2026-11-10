@@ -142,11 +142,11 @@
       }
     },
     {
-      "name": "over the dock it stays",
+      "name": "over the dock (its shelf, beside its icons) it stays",
       "do": [
         "move_output",
         [
-          640,
+          100,
           690
         ]
       ],
