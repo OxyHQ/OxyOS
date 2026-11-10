@@ -130,7 +130,10 @@ and for Safe Mode on a converted machine ([ADR 0054](./adr/0054-recovery-and-era
 recovery's program (`/usr/sbin/oxyos-recovery`), each kernel-install plugin of `tools/oxyos-recovery`
 and each polkit rule of `config/`, where the image installs them; and for backups ([ADR 0059](./adr/0059-backups))
 the backup service's program (`/usr/libexec/oxyos-backupd`, where its units start it) and each unit of
-`tools/oxyos-backupd`, with restic and rclone checked to be in the image's manifest; so a new one cannot
+`tools/oxyos-backupd`, with restic and rclone checked to be in the image's manifest; and for memory
+([ADR 0066](./adr/0066-quality-of-service), decision 7) every drop-in of the image's units and the user
+manager's, its tmpfiles and modules-load files, where the image installs them, with systemd-oomd in its
+manifest; so a new one cannot
 be left out of a deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
 is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
 `astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
@@ -144,7 +147,11 @@ program, the kernel-install plugin, the polkit rule) and, where the machine boot
 kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
 safe-mode-entry sync` with what `kernel-install inspect` says; run again, it changes nothing), backups
 (Debian's restic and rclone from apt, `oxyos-backupd` enabled, restarted and asked its state, the
-migration's socket enabled; no destination, which is the person's to add), Inbox and
+migration's socket enabled; no destination, which is the person's to add), memory
+([ADR 0066](./adr/0066-quality-of-service), decision 7: zswap's compressor loaded and zswap and MGLRU's
+thrashing protection set now, as every boot sets them; systemd-oomd from apt, enabled and started; the
+slices' protections and oomd's watch on the applications' slice as drop-ins, which a session takes as it
+starts, so a person signed in keeps their session as it is until their next sign-in), Inbox and
 Allo as development packages in `~/oxyos-validation`,
 checks the one-GPU rule on the machine itself, and restarts the login screen only while nobody is
 signed in (or the development session, `probar.sh` on terminal 8). The test machine needs ssh by key,

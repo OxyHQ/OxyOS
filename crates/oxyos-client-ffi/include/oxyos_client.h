@@ -105,6 +105,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_QUIT_REQUESTED 168
 /* The modifiers held changed (protocol version 38), as a Mac's flagsChanged:. */
 #define OXYOS_EVENT_MODIFIERS 169
+/* How short of memory the machine is (docs/adr/0066-quality-of-service.mdx, decision 7, protocol
+ * version 41). */
+#define OXYOS_EVENT_MEMORY_PRESSURE 175
 /* GPU buffers (docs/adr/0031-gpu-buffers.mdx). */
 #define OXYOS_EVENT_GPU_DEVICE 170
 #define OXYOS_EVENT_BUFFER_FAILED 172
@@ -575,6 +578,13 @@ typedef struct OxyOSClient OxyOSClient;
  *   MODIFIERS          to the surface with the keyboard: the modifiers held changed, or were held
  *                      as it took the keyboard; `modifiers` OXYOS_MODIFIER_* bits, as a Mac's
  *                      flagsChanged: (protocol version 38).
+ *   MEMORY_PRESSURE    to an application (and at critical to the shell): how short of memory the
+ *                      machine is, `detail` an OXYOS_MEMORY_PRESSURE_* level, as the session
+ *                      follows the kernel's pressure stall information; an application whose
+ *                      windows are all hidden is told a warning first. At a warning give back what
+ *                      can be made again (caches, a collection of garbage), at critical everything
+ *                      that can; NORMAL once it eases (protocol version 41,
+ *                      docs/adr/0066-quality-of-service.mdx, decision 7).
  *   FILES_CHOSEN       a chunk of the session's answer to oxyos_client_choose_files `code`, `detail`
  *                      its index (0 begins it), `flag` 1 on the last; `text` the chunk; JSON once
  *                      whole (ADR 0029, decision 8).
@@ -995,6 +1005,12 @@ int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t qui
  * of a version before OXYOS_SUDDEN_TERMINATION_VERSION, which asks every application. */
 #define OXYOS_SUDDEN_TERMINATION_VERSION 40
 int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
+/* Memory pressure (docs/adr/0066-quality-of-service.mdx, decision 7): a MEMORY_PRESSURE's `detail`.
+ * A compositor of a version before OXYOS_MEMORY_PRESSURE_VERSION never tells it. */
+#define OXYOS_MEMORY_PRESSURE_NORMAL 0
+#define OXYOS_MEMORY_PRESSURE_WARNING 1
+#define OXYOS_MEMORY_PRESSURE_CRITICAL 2
+#define OXYOS_MEMORY_PRESSURE_VERSION 41
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

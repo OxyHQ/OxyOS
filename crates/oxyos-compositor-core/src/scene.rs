@@ -562,6 +562,9 @@ pub struct Scene {
     session_ending: session_end::SessionEnding,
     /// The session started in Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10).
     safe_mode: bool,
+    /// How short of memory the machine is, and what each client was told
+    /// (docs/adr/0066-quality-of-service.mdx, decision 7).
+    memory_pressure: memory_pressure::MemoryPressure,
     /// The file choosers asked for and the sheets showing them (ADR 0029, decision 8).
     choosers: choosers::Choosers,
     /// The user's preferences as the program running the compositor told them, and the changes
@@ -1225,6 +1228,7 @@ impl Scene {
         self.forget_searcher(client);
         self.forget_background_items(client);
         self.forget_session_end_client(client);
+        self.forget_memory_pressure_client(client);
         self.forget_choosers(client);
         self.forget_preference_changes(client);
         self.forget_display_client(client);
@@ -5257,6 +5261,7 @@ mod safe_mode;
 pub use safe_mode::SAFE_MODE_VERSION;
 /// File choosers (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 mod choosers;
+mod memory_pressure;
 pub use choosers::{ChooserAnswer, FileRequest, MAX_CHOOSERS, SHEET_MARGIN, SHEET_MIN, SHEET_TOP};
 mod displays;
 pub use displays::{

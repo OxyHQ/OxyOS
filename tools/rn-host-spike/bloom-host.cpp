@@ -2219,6 +2219,9 @@ int main(int argc, char** argv) {
         // The modifiers held, as the compositor last told them this turn (protocol version 38, a
         // Mac's flagsChanged:), if it did: a menu's alternates follow Option at once.
         std::optional<uint8_t> modifiersHeld;
+        // How short of memory the machine is, as the session last told it this turn (protocol
+        // version 41, docs/adr/0066-quality-of-service.mdx, decision 7), if it did.
+        std::optional<uint32_t> memoryPressure;
         Part handling = diagnostics.enter(Part::Events);
         auto handleEvent = [&](const OxyOSEvent& event) {
               // What an event dispatches reaches JavaScript on Fabric's next beat: a turn later.
@@ -2258,6 +2261,7 @@ int main(int argc, char** argv) {
               if (event.kind == OXYOS_EVENT_BACKGROUND_ITEM_STATE) backgroundStates.push_back(event);
               if (event.kind == OXYOS_EVENT_QUIT_REQUESTED && !shellMode) quitRequests.push_back(event);
               if (event.kind == OXYOS_EVENT_MODIFIERS) modifiersHeld = event.modifiers;
+              if (event.kind == OXYOS_EVENT_MEMORY_PRESSURE) memoryPressure = event.detail;
               if (event.kind == OXYOS_EVENT_MENU_ITEM_ACTIVATED) menuChoices.push_back(event);
               if (event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT) systemShortcuts.push_back(event);
               if (event.kind == OXYOS_EVENT_INPUT_CANDIDATES) {
@@ -2692,6 +2696,27 @@ int main(int argc, char** argv) {
           instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
                                          folly::dynamic::array("OxyOSBackgroundItemState", told));
           oxyos::Report::get().input("background.state", 0, told);
+        }
+        // The machine short of memory (docs/adr/0066-quality-of-service.mdx, decision 7): what the
+        // host can make again given back now (memory.h), the images' memory cache cleared (a
+        // picture a view draws stays drawn), and JavaScript told through React Native's AppState,
+        // as iOS tells `memoryWarning`, so the application drops its own caches. Normal again
+        // needs nothing.
+        if (memoryPressure && *memoryPressure != OXYOS_MEMORY_PRESSURE_NORMAL) {
+          bool critical = *memoryPressure == OXYOS_MEMORY_PRESSURE_CRITICAL;
+          images.clearCache(OXYOS_IMAGE_IN_MEMORY);
+          instance->callFunctionOnModule("RCTDeviceEventEmitter", "emit",
+                                         folly::dynamic::array("memoryWarning", nullptr));
+          oxyos::Memory::get().relieve(critical);
+          std::cerr << "[host] " << applicationName << ": the machine is short of memory"
+                    << (critical ? " (critical)" : "") << "; given back what can be made again\n";
+        }
+        if (memoryPressure) {
+          oxyos::Report::get().input(
+              "memory.pressure", 0,
+              folly::dynamic::object("level", *memoryPressure == OXYOS_MEMORY_PRESSURE_CRITICAL  ? "critical"
+                                              : *memoryPressure == OXYOS_MEMORY_PRESSURE_WARNING ? "warning"
+                                                                                                   : "normal"));
         }
         for (const auto& result : capabilityResults) {
           auto asked = askedCapabilities.find(result.code);

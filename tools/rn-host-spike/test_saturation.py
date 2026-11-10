@@ -76,6 +76,47 @@ class Placed(unittest.TestCase):
             self.assertTrue(joined.isdigit())
 
 
+class ImageMemory(unittest.TestCase):
+    """The image's memory protections (docs/adr/0066, decision 7) written to the fixture's groups
+    each drop-in stands for, and what a run records of the kernel's kills and the levels told."""
+
+    def test_each_drop_in_on_the_groups_it_stands_for(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            machine = root / "machine"
+            seat = machine / "user.slice/user-seat.slice"
+            manager = seat / "user@.service"
+            fixture = type("Fixture", (), {"root": root, "machine": machine, "session": seat / "session.scope",
+                                           "other": machine / "user.slice/user-other.slice",
+                                           "manager": manager})()
+            for group in (fixture.session, fixture.other, manager / "session.slice", manager / "background.slice",
+                          manager / "app.slice"):
+                group.mkdir(parents=True)
+            written = saturation.apply_image_units(fixture, 4 << 30)
+            self.assertEqual((fixture.session / "memory.min").read_text(), str(512 << 20))
+            self.assertEqual((seat / "memory.min").read_text(), str(512 << 20))
+            self.assertEqual((fixture.other / "memory.low").read_text(), str(128 << 20))
+            self.assertEqual((machine / "user.slice/memory.min").read_text(), str(1 << 30))
+            self.assertEqual((manager / "memory.low").read_text(), str(128 << 20))
+            self.assertEqual((manager / "session.slice/memory.low").read_text(), str(128 << 20))
+            # A fifth of the machine's memory.
+            self.assertEqual((manager / "background.slice/memory.high").read_text(), str(int((4 << 30) * 0.2)))
+            # oomd's settings are no control group's files: nothing written for app.slice.
+            self.assertNotIn("machine/user.slice/user-seat.slice/user@.service/app.slice", written)
+
+    def test_kills_and_levels_told(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = pathlib.Path(root)
+            (root / "memory.events").write_text("low 0\nhigh 3\nmax 0\noom 1\noom_kill 2\noom_group_kill 0\n")
+            self.assertEqual(saturation.oom_kills(root), 2)
+            self.assertEqual(saturation.oom_kills(root / "gone"), 0)
+            log = root / "director.log"
+            log.write_text("[session] memory pressure: Warning\n[launch] x\n[session] memory pressure: Critical\n"
+                           "[session] memory pressure: no trigger \"some\" on /x: refused\n"
+                           "[session] memory pressure: Normal\n")
+            self.assertEqual(saturation.told_pressure(log), ["warning", "critical", "normal"])
+
+
 class Windows(unittest.TestCase):
     def watch(self, samples):
         watch = saturation.Watch.__new__(saturation.Watch)

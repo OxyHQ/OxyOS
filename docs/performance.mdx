@@ -795,7 +795,16 @@ is the machine's memory, so the hog never touches anything outside the run. Wher
 played rtkit (`tools/rn-host-spike/played-rtkit.sh`), the run starts it for the compositor to ask,
 as the session asks the system's; where the accounts' service weighs the users' slices
 (`oxyos-accountd --apply-seat-weights`, beside the development compositor), the run's are weighed
-by it, the person at the seat's and another user's, else both stay at 100 as on today's machine.
+by it, the person at the seat's and another user's, else both stay at 100 as on today's machine. The
+image's memory protections ([ADR 0066](./adr/0066-quality-of-service), decision 7: its drop-ins for
+`user.slice`, each user's slice, the session's scope, the user manager and its `session.slice`,
+`background.slice` and `app.slice`) are written to the groups each stands for, as systemd writes
+them, so S6 measures them; the development compositor follows the fixture's machine's memory
+pressure (`OXYOS_MEMORY_PRESSURE_FIXTURE`, its `memory.pressure`) as the session follows
+`/proc/pressure/memory`; and each row records the processes the kernel's OOM killer ended in the
+machine (the session's among them) and the levels of memory pressure the applications were told.
+zswap and MGLRU are the machine's own and never changed by the benchmark: the table's header says
+how the run found them.
 
 Each row: the inputs measured over every run, their latency at p50, p95, p99 and its most, late
 frames (a drag's frames more than one and a half refreshes apart), composing at p95, the

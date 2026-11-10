@@ -942,6 +942,9 @@ fn events() -> Vec<Event> {
             surface: 3,
             modifiers: MODIFIER_ALT | MODIFIER_SHIFT,
         },
+        Event::MemoryPressure {
+            level: MemoryPressureLevel::Critical,
+        },
         Event::GpuDevice {
             device: 0xe280,
             formats: 2,
@@ -3241,6 +3244,31 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_41_memory_pressure_is_only_version_41s() {
+    assert_eq!(MEMORY_PRESSURE_VERSION, 41);
+    for level in [
+        MemoryPressureLevel::Normal,
+        MemoryPressureLevel::Warning,
+        MemoryPressureLevel::Critical,
+    ] {
+        let event = Event::MemoryPressure { level };
+        assert_eq!(event_since(&event), 41);
+        let mut old = Vec::new();
+        assert!(!write_event_for(&mut old, &event, 40).unwrap());
+        assert!(old.is_empty());
+        let mut new = Vec::new();
+        assert!(write_event_for(&mut new, &event, 41).unwrap());
+        assert!(read_event_for(&mut Cursor::new(new.clone()), 40).is_err());
+        assert_eq!(read_event_for(&mut Cursor::new(new), 41).unwrap(), event);
+    }
+    assert!(MemoryPressureLevel::from_raw(3).is_none());
+    assert_eq!(
+        MemoryPressureLevel::from_raw(0),
+        Some(MemoryPressureLevel::Normal)
+    );
 }
 
 #[test]

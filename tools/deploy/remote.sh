@@ -38,6 +38,11 @@ grep -v '^#' $T/tools/deploy/system-files | while read -r from to mode; do
   sudo -n mv -fT "$staged" "$to"
 done
 for f in $(awk '$2 ~ "^/usr/lib/sysusers.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-sysusers "${f##*/}"; done
+# The modules the image loads at boot (zswap's compressor) loaded now, before the tmpfiles that use
+# them, as systemd-modules-load runs before systemd-tmpfiles-setup.
+for f in $(awk '$2 ~ "^/usr/lib/modules-load.d/" { print $2 }' $T/tools/deploy/system-files); do
+  for m in $(grep -v '^#' "$f"); do sudo -n modprobe "$m"; done
+done
 for f in $(awk '$2 ~ "^/usr/lib/tmpfiles.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-tmpfiles --create "${f##*/}"; done
 sudo -n sysctl -q --system
 sudo -n systemctl daemon-reload
@@ -47,6 +52,21 @@ systemctl is-active -q oxyos-accountd || { echo "accounts: oxyos-accountd is not
 [ "$(cat /proc/sys/kernel/yama/ptrace_scope)" = 1 ] || { echo "accounts: ptrace scope is not 1"; exit 1; }
 getent passwd oxyos-login > /dev/null || { echo "accounts: no oxyos-login user"; exit 1; }
 echo "accounts: $(grep -vc '^#' $T/tools/deploy/system-files) files installed, oxyos-accountd active, ptrace scope 1 (tty1: $(systemctl is-enabled oxyos-login 2>/dev/null || true))"
+# Memory (docs/adr/0066-quality-of-service.mdx, decision 7): zswap and MGLRU's thrashing protection
+# were set above (the image's tmpfiles file, as every boot sets them); systemd-oomd, the image's, is
+# installed, enabled and started. The slices' protections and oomd's watch on the applications'
+# slice are drop-ins, read at the reload above: a session's scope and a user manager take theirs as
+# they start, so a person signed in now keeps the session they have until their next sign-in, and
+# nothing of it is changed here.
+pkgs=$(python3 $T/tools/deploy/system-files.py --apt-memory)
+missing=$(for p in $pkgs; do dpkg-query -W -f="\${Status}" $p 2>/dev/null | grep -q "ok installed" || echo $p; done)
+[ -z "$missing" ] || sudo -n apt-get install -y -q --no-install-recommends $missing > /dev/null
+sudo -n systemctl enable -q --now systemd-oomd.socket systemd-oomd.service
+systemctl is-active -q systemd-oomd || { echo "memory: systemd-oomd is not running"; exit 1; }
+zswap=/sys/module/zswap/parameters
+[ "$(cat $zswap/enabled)" = Y ] && [ "$(cat $zswap/compressor)" = lz4 ] || { echo "memory: zswap is not on with lz4"; exit 1; }
+[ "$(cat /sys/kernel/mm/lru_gen/min_ttl_ms)" = 1000 ] || { echo "memory: MGLRU's min_ttl_ms is not 1000"; exit 1; }
+echo "memory: zswap on ($(cat $zswap/compressor), $(cat $zswap/zpool), $(cat $zswap/max_pool_percent) %, shrinker $(cat $zswap/shrinker_enabled)), MGLRU min_ttl_ms $(cat /sys/kernel/mm/lru_gen/min_ttl_ms), systemd-oomd active; the sessions' protections from their next start"
 # Safe Mode (docs/adr/0054-recovery-and-erasing.mdx, decision 10) where the machine boots systemd-boot
 # with kernel-install's entries (one converted to OxyOS, decision 9): the plugin installed above writes
 # each new kernel's Safe Mode entry beside its own; the kernels already installed get theirs here, from

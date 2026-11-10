@@ -367,6 +367,12 @@ def audit_image(audit, gate):
             "etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service" not in files:
         violations.append("systemd-timesyncd is installed but not enabled (sysinit.target.wants)")
 
+    # Memory (docs/adr/0066-quality-of-service.mdx, decision 7): systemd-oomd enabled, as its
+    # package enables it, to act on the applications' slice its drop-in names.
+    if "systemd-oomd" in packages and \
+            "etc/systemd/system/multi-user.target.wants/systemd-oomd.service" not in files:
+        violations.append("systemd-oomd is installed but not enabled (multi-user.target.wants)")
+
     # 5. The boot logo in the initramfs.
     initrd = audit / "initrd-files.txt"
     if initrd.exists():
