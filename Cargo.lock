@@ -2616,6 +2616,7 @@ dependencies = [
 name = "oxyos-accountd"
 version = "0.1.0"
 dependencies = [
+ "async-channel",
  "futures-lite",
  "oxyos-account",
  "oxyos-auth",

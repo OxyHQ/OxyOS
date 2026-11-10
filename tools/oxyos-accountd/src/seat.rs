@@ -326,22 +326,28 @@ fn protect(
     let claim = holder.map_or(0, |uid| claim_of(claims, uid));
     let held = lows(claim, memory);
     let mut written = Vec::new();
-    let mut write = |unit: String, interface: &str, wanted: u64, floor: u64| -> Result<(), String> {
-        if let Some(bytes) = settle(memory_low(bus, &unit, interface)?, wanted, floor) {
-            match set_memory_low(bus, &unit, bytes) {
-                Ok(()) => written.push(format!("{unit} {} MiB", bytes >> 20)),
-                Err(error) => log(format!("{unit}'s protection not set: {error}")),
+    let mut write =
+        |unit: String, interface: &str, wanted: u64, floor: u64| -> Result<(), String> {
+            if let Some(bytes) = settle(memory_low(bus, &unit, interface)?, wanted, floor) {
+                match set_memory_low(bus, &unit, bytes) {
+                    Ok(()) => written.push(format!("{unit} {} MiB", bytes >> 20)),
+                    Err(error) => log(format!("{unit}'s protection not set: {error}")),
+                }
             }
-        }
-        Ok(())
-    };
+            Ok(())
+        };
     for uid in users {
         let (manager, user) = if Some(uid) == holder {
             (held.manager, held.user)
         } else {
             (FLOORS.manager, FLOORS.user)
         };
-        write(format!("user@{uid}.service"), "Service", manager, FLOORS.manager)?;
+        write(
+            format!("user@{uid}.service"),
+            "Service",
+            manager,
+            FLOORS.manager,
+        )?;
         write(slice(uid), "Slice", user, FLOORS.user)?;
     }
     write("user.slice".into(), "Slice", held.users, FLOORS.users)?;
@@ -443,15 +449,17 @@ pub fn follow(
             .map_err(failed)
         };
     // Boxed: the claims' receiver is not Unpin.
-    let mut changes = Box::pin(stream(rule(
-        SEAT0,
-        "org.freedesktop.DBus.Properties",
-        "PropertiesChanged",
-    ))?
-    .or(stream(rule(LOGIND_PATH, LOGIND_MANAGER, "UserNew"))?)
-    .or(stream(rule(LOGIND_PATH, LOGIND_MANAGER, "UserRemoved"))?)
-    .map(Woken::Bus)
-    .or(told.clone().map(Woken::Claim)));
+    let mut changes = Box::pin(
+        stream(rule(
+            SEAT0,
+            "org.freedesktop.DBus.Properties",
+            "PropertiesChanged",
+        ))?
+        .or(stream(rule(LOGIND_PATH, LOGIND_MANAGER, "UserNew"))?)
+        .or(stream(rule(LOGIND_PATH, LOGIND_MANAGER, "UserRemoved"))?)
+        .map(Woken::Bus)
+        .or(told.clone().map(Woken::Claim)),
+    );
     let mut holder = reconcile(bus, None, claims, memory, log)?;
     loop {
         match futures_lite::future::block_on(changes.next()) {
@@ -555,12 +563,17 @@ pub fn apply_memory_claim_to_tree(
         })
         .unwrap_or_else(machine_memory);
     let lows = lows(bytes, memory);
-    let users = user_slices
-        .file_name()
-        .map_or_else(|| "users".into(), |name| name.to_string_lossy().into_owned());
+    let users = user_slices.file_name().map_or_else(
+        || "users".into(),
+        |name| name.to_string_lossy().into_owned(),
+    );
     let mut applied = Vec::new();
     for (group, name, low) in [
-        (&manager, format!("{users}/{seat}/user@.service"), lows.manager),
+        (
+            &manager,
+            format!("{users}/{seat}/user@.service"),
+            lows.manager,
+        ),
         (&seat_slice, format!("{users}/{seat}"), lows.user),
         (&user_slices.to_path_buf(), users.clone(), lows.users),
     ] {

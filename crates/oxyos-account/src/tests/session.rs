@@ -755,7 +755,10 @@ fn a_sessions_memory_claim_is_handed_over_and_ends_with_its_connection() {
     thread.memory_claim(64 << 20);
     assert!(started.elapsed() < Duration::from_millis(100));
     wait_for("the thread's claim told", || {
-        told.lock().unwrap().iter().any(|claim| claim.bytes == Some(64 << 20))
+        told.lock()
+            .unwrap()
+            .iter()
+            .any(|claim| claim.bytes == Some(64 << 20))
     });
     // An application, registered, may not claim: only the session's registrar carries the seat's
     // claim.

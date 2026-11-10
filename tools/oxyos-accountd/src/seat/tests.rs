@@ -120,12 +120,21 @@ fn a_protection_is_raised_to_its_claim_and_lowered_only_where_raised() {
     // Not there: nothing.
     assert_eq!(settle(None, 428 * MIB, 128 * MIB), None);
     // The claim: raised, and changed with it, either way.
-    assert_eq!(settle(Some(128 * MIB), 428 * MIB, 128 * MIB), Some(428 * MIB));
-    assert_eq!(settle(Some(428 * MIB), 300 * MIB, 128 * MIB), Some(300 * MIB));
+    assert_eq!(
+        settle(Some(128 * MIB), 428 * MIB, 128 * MIB),
+        Some(428 * MIB)
+    );
+    assert_eq!(
+        settle(Some(428 * MIB), 300 * MIB, 128 * MIB),
+        Some(300 * MIB)
+    );
     assert_eq!(settle(Some(428 * MIB), 428 * MIB, 128 * MIB), None);
     // No claim: a raise taken back to the floor; a unit at or under it (a machine without the
     // image's floors) left as it is.
-    assert_eq!(settle(Some(428 * MIB), 128 * MIB, 128 * MIB), Some(128 * MIB));
+    assert_eq!(
+        settle(Some(428 * MIB), 128 * MIB, 128 * MIB),
+        Some(128 * MIB)
+    );
     assert_eq!(settle(Some(0), 128 * MIB, 128 * MIB), None);
     assert_eq!(settle(Some(128 * MIB), 128 * MIB, 128 * MIB), None);
 }
@@ -219,7 +228,10 @@ fn the_benchmarks_tree_is_given_the_claims_protections() {
         ]
     );
     let read = |path: &str| std::fs::read_to_string(users.join(path)).unwrap();
-    assert_eq!(read("user-seat.slice/user@.service/memory.low"), format!("{}\n", 640 * MIB));
+    assert_eq!(
+        read("user-seat.slice/user@.service/memory.low"),
+        format!("{}\n", 640 * MIB)
+    );
     assert_eq!(read("memory.low"), format!("{}\n", 768 * MIB));
     assert!(!users.join("user-other.slice/memory.low").exists());
     // No claim: the floors.
@@ -355,7 +367,13 @@ impl Systemd {
 /// A unit's property as the played systemd has it (unset weights `UNSET`, protection 0).
 fn property(model: &Shared, unit: &str, key: &str) -> u64 {
     let unset = if key == "MemoryLow" { 0 } else { UNSET };
-    model.lock().unwrap().units.get(unit).and_then(|unit| unit.get(key).copied()).unwrap_or(unset)
+    model
+        .lock()
+        .unwrap()
+        .units
+        .get(unit)
+        .and_then(|unit| unit.get(key).copied())
+        .unwrap_or(unset)
 }
 
 struct SliceUnit(Shared, String);
@@ -524,7 +542,8 @@ fn follower(
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let directory = std::env::temp_dir().join(format!("oxyos-accountd-{name}-{}", std::process::id()));
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-accountd-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
     std::fs::create_dir_all(&directory).unwrap();
     directory
@@ -536,7 +555,10 @@ fn units(entries: &[(&str, &[(&str, u64)])]) -> BTreeMap<String, BTreeMap<String
         .map(|(unit, properties)| {
             (
                 unit.to_string(),
-                properties.iter().map(|(key, value)| (key.to_string(), *value)).collect(),
+                properties
+                    .iter()
+                    .map(|(key, value)| (key.to_string(), *value))
+                    .collect(),
             )
         })
         .collect()
@@ -611,7 +633,10 @@ fn the_seats_applications_claim_is_carried_up_and_handed_back() {
     let bus = private_bus(&directory);
     let floors = |uid: u32| -> Vec<(String, Vec<(&'static str, u64)>)> {
         vec![
-            (format!("user@{uid}.service"), vec![("MemoryLow", FLOORS.manager)]),
+            (
+                format!("user@{uid}.service"),
+                vec![("MemoryLow", FLOORS.manager)],
+            ),
             (slice(uid), vec![("MemoryLow", FLOORS.user)]),
         ]
     };
@@ -629,16 +654,20 @@ fn the_seats_applications_claim_is_carried_up_and_handed_back() {
             for (unit, properties) in floors(uid) {
                 model.units.insert(
                     unit,
-                    properties.into_iter().map(|(key, value)| (key.into(), value)).collect(),
+                    properties
+                        .into_iter()
+                        .map(|(key, value)| (key.into(), value))
+                        .collect(),
                 );
             }
         }
         let seat = model.units.get_mut("user-1002.slice").unwrap();
         seat.insert("CPUWeight".into(), 400);
         seat.insert("IOWeight".into(), 400);
-        model
-            .units
-            .insert("user.slice".into(), BTreeMap::from([("MemoryLow".into(), FLOORS.users)]));
+        model.units.insert(
+            "user.slice".into(),
+            BTreeMap::from([("MemoryLow".into(), FLOORS.users)]),
+        );
     }
     let played = play(&bus.address, &model);
     let (claims, _heard) = follower(&bus.address, 4 * GIB);

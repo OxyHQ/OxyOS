@@ -452,16 +452,16 @@ fn run() -> Result<(), String> {
     }
     let session_service = Arc::new(
         Sessions::new(
-        platform.clone(),
-        Registrars::new(
-            options.session_program.clone(),
-            options.login_program.clone(),
-        )
-        .remembering(verified),
-        Eraser::new(
-            Box::new(Systemctl::new()),
-            Box::new(passwords::PamPasswords::new()),
-        ),
+            platform.clone(),
+            Registrars::new(
+                options.session_program.clone(),
+                options.login_program.clone(),
+            )
+            .remembering(verified),
+            Eraser::new(
+                Box::new(Systemctl::new()),
+                Box::new(passwords::PamPasswords::new()),
+            ),
         )
         .with_memory_claims(Box::new(move |claim| {
             // Unbounded: the seat's thread takes them as they come.
