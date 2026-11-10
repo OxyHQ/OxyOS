@@ -130,6 +130,12 @@ class DragDrop {
   void givesFiles(std::function<void(const std::string& uri)> give) { giveFiles_ = std::move(give); }
   // Who is told the window's drag: {"type": "enter"} and {"type": "exit", "dropped": bool}.
   void watchWindow(std::function<void(const folly::dynamic&)> tell) { tellWindow_ = std::move(tell); }
+  // Who is told a drag started from the press: the press is the drag's from then on, so React
+  // Native's touch is cancelled at once and given nothing more of it (PointerInput::cancelResponder),
+  // as a Mac's drag session takes the mouse's events from the moment the view begins it. The
+  // compositor's cancel of the press, a round trip later, then finds the touch already cancelled:
+  // the motions it sent meanwhile reach the drag, not the view that let go of them.
+  void takesPress(std::function<void()> take) { takePress_ = std::move(take); }
 
   // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`:
   // `count` items, the view `preview` (-1: none) being the one pressed, its image (dragStack: as
@@ -258,6 +264,7 @@ class DragDrop {
   Presence presence_ = Presence::Outside;
   std::function<void(const folly::dynamic&)> tellWindow_;
   std::function<void(const std::string& uri)> giveFiles_;
+  std::function<void()> takePress_;
 };
 
 }  // namespace oxyos

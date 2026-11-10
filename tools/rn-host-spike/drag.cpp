@@ -738,6 +738,7 @@ bool DragDrop::start(const std::vector<std::pair<std::string, std::string>>& con
   drags_[drag] = std::move(done);
   if (cancelled) cancelled_[drag] = std::move(cancelled);
   live_ = drag;
+  if (takePress_) takePress_();
   return true;
 }
 
