@@ -815,6 +815,7 @@ fn events() -> Vec<Event> {
             mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
         },
         Event::ClipboardEmpty {},
+        Event::TurnEnd {},
         Event::ClipboardSend {
             offer: 4,
             mime: TextChunk::new("text/plain;charset=utf-8").unwrap(),
@@ -3241,6 +3242,20 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_41_turn_ends_are_only_version_41s() {
+    let end = Event::TurnEnd {};
+    assert_eq!(event_since(&end), 41);
+    assert_eq!(TURNS_VERSION, 41);
+    let mut old = Vec::new();
+    assert!(!write_event_for(&mut old, &end, 40).unwrap());
+    assert!(old.is_empty());
+    let mut new = Vec::new();
+    assert!(write_event_for(&mut new, &end, 41).unwrap());
+    assert_eq!(new, [1, 0, 0, 0, 83]);
+    assert_eq!(read_event_for(&mut new.as_slice(), 41).unwrap(), end);
 }
 
 #[test]

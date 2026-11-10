@@ -76,7 +76,7 @@ fn connect(socket: &Path) -> (Connection, Vec<Event>) {
 }
 
 /// The next event but those every client is told whatever it does: the outputs and the keyboard
-/// layout (ADR 0029).
+/// layout (ADR 0029), and each turn's end (ADR 0033, version 41).
 fn next(connection: &Connection) -> Event {
     loop {
         match connection.recv_event().unwrap().0 {
@@ -84,7 +84,8 @@ fn next(connection: &Connection) -> Event {
             | Event::ApplicationOutputWorkArea { .. }
             | Event::ApplicationOutputRemoved { .. }
             | Event::SurfaceOutput { .. }
-            | Event::KeyboardLayout { .. } => {}
+            | Event::KeyboardLayout { .. }
+            | Event::TurnEnd {} => {}
             event => return event,
         }
     }

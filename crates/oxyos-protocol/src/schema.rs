@@ -712,6 +712,13 @@ messages! {
         // Preference's, for every output when the shell connects and whenever one changes. Each
         // shell draws its own output's.
         82 => OutputWallpaper { output: u32, index: u8, last: bool, text: PreeditText },
+        // To a client of version 41 or newer, after the events one turn of the compositor sent it
+        // (ADR 0033, version 41): those events are one change, as the turn made them (a key's
+        // composition committed and the key it gave back; Super+Tab's switcher opened and ended),
+        // and the client library reads them whole before it says no event is queued, however the
+        // kernel scheduled the compositor between their packets. The library takes it; an
+        // application never sees it.
+        83 => TurnEnd {},
         // To the session's shell of `output` (its `shortcuts` grant, ADR 0024): a system shortcut
         // the compositor took from the keyboard, for the shell to show: the application switcher's
         // and the search's. `serial` is a user input of the shell's, as a key press's is.

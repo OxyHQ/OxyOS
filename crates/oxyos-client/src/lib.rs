@@ -13,7 +13,7 @@ use oxyos_protocol::{
     MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES,
     MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES, MAX_NOTIFICATION_BODY_BYTES,
     MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES, MAX_NOTIFICATION_REPLY_BYTES,
-    MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION, VERSION,
+    MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION, TURNS_VERSION, VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -98,6 +98,9 @@ pub struct Client {
     /// The text of the SystemData event last returned (version 37,
     /// docs/adr/0063-activity-monitor.mdx), read whole from the file it carried.
     system_data: Option<String>,
+    /// An event of a turn of the compositor's was returned and its `TurnEnd` not read yet (ADR
+    /// 0033, version 41): what is still to come of that turn is waited for.
+    in_turn: bool,
 }
 
 /// What one offer to the clipboard holds: each media type with its content.
@@ -170,6 +173,7 @@ impl Client {
             text_inputs: text_input::TextInputs::default(),
             candidate_lists: candidates::CandidateLists::default(),
             gpu: gpu::Gpu::default(),
+            in_turn: false,
         })
     }
 
@@ -1365,27 +1369,54 @@ impl Client {
 
     /// Blocks for the next event; `None` once the compositor closes the connection.
     pub fn next_event(&mut self) -> io::Result<Option<Event>> {
-        match self.connection.recv_event_for(self.version) {
-            Ok((event, fd)) => {
-                self.descriptor = fd;
-                self.observe(event).map(Some)
+        loop {
+            match self.connection.recv_event_for(self.version) {
+                Ok((event, fd)) => {
+                    if let Some(event) = self.turn(event) {
+                        self.descriptor = fd;
+                        return self.observe(event).map(Some);
+                    }
+                }
+                Err(error) if closed(&error) => return Ok(None),
+                Err(error) => return Err(error),
             }
-            Err(error) if closed(&error) => Ok(None),
-            Err(error) => Err(error),
         }
     }
 
-    /// Returns a queued event without blocking.
+    /// Returns a queued event without blocking, but for the rest of a turn whose events it has
+    /// begun returning (ADR 0033, version 41): the compositor sent them as one change, so none is
+    /// said to be queued until its `TurnEnd` is read. The compositor is sending them, so that
+    /// wait is its packets' alone.
     pub fn poll(&mut self) -> io::Result<Poll> {
-        match self.connection.try_recv_event_for(self.version) {
-            Ok(Some((event, fd))) => {
-                self.descriptor = fd;
-                self.observe(event).map(Poll::Event)
+        loop {
+            let received = if self.in_turn {
+                self.connection.recv_event_for(self.version).map(Some)
+            } else {
+                self.connection.try_recv_event_for(self.version)
+            };
+            match received {
+                Ok(Some((event, fd))) => {
+                    if let Some(event) = self.turn(event) {
+                        self.descriptor = fd;
+                        return self.observe(event).map(Poll::Event);
+                    }
+                }
+                Ok(None) => return Ok(Poll::Empty),
+                Err(error) if closed(&error) => return Ok(Poll::Closed),
+                Err(error) => return Err(error),
             }
-            Ok(None) => Ok(Poll::Empty),
-            Err(error) if closed(&error) => Ok(Poll::Closed),
-            Err(error) => Err(error),
         }
+    }
+
+    /// Follows the compositor's turns (version 41): `TurnEnd` ends one and is the library's
+    /// alone; any other event is one of a turn whose end is still to come.
+    fn turn(&mut self, event: Event) -> Option<Event> {
+        if matches!(event, Event::TurnEnd {}) {
+            self.in_turn = false;
+            return None;
+        }
+        self.in_turn = self.version >= TURNS_VERSION;
+        Some(event)
     }
 
     /// Copies: offers `contents` (each media type with its bytes, the most faithful first) as

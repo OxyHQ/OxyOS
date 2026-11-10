@@ -93,6 +93,8 @@ pub struct Peer {
     protocol: ServerConnection,
     /// Events not sent yet, each with the descriptor it carries (a ClipboardSend's pipe).
     outbox: VecDeque<(Event, Option<OwnedFd>)>,
+    /// Events were put in its outbox since the last `TurnEnd` (ADR 0033, version 41).
+    turn_open: bool,
     /// Pipes of pastes this client must answer, in the order of their ClipboardSend events.
     pipes: VecDeque<OwnedFd>,
     buffers: HashMap<u64, SharedBuffer>,
@@ -1255,6 +1257,7 @@ impl Compositor {
                 connection,
                 protocol: ServerConnection::new(),
                 outbox: VecDeque::new(),
+                turn_open: false,
                 pipes: VecDeque::new(),
                 buffers: HashMap::new(),
                 presses: 0,
@@ -1418,6 +1421,7 @@ impl Compositor {
                 for event in self.gpu_buffers.announcement() {
                     peer.outbox.push_back((event, None));
                 }
+                peer.turn_open = true;
                 let (grants, pid) = (peer.grants, peer.pid);
                 let version = peer.protocol.version().unwrap_or(oxyos_protocol::VERSION);
                 if self.scene.connect(client, grants).is_err() {
@@ -1709,10 +1713,17 @@ impl Compositor {
                     None
                 };
                 peer.outbox.push_back((event, pipe));
+                peer.turn_open = true;
             }
         }
         let mut unresponsive = Vec::new();
         for (client, peer) in &mut self.peers {
+            // What this turn sent it ends here: the client reads it whole, as one change (ADR 0033,
+            // version 41), however the kernel schedules this process between its packets. A client
+            // of an older version is sent nothing for it (`write_event_for`).
+            if std::mem::take(&mut peer.turn_open) {
+                peer.outbox.push_back((Event::TurnEnd {}, None));
+            }
             // Each client's events as its version defines them (ADR 0033).
             let version = peer.protocol.version().unwrap_or(oxyos_protocol::VERSION);
             while let Some((event, pipe)) = peer.outbox.front() {
