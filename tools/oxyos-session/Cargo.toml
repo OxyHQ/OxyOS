@@ -6,42 +6,42 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-oxyos-protocol = { path = "../../crates/oxyos-protocol" }
-oxyos-compositor-core = { path = "../../crates/oxyos-compositor-core" }
-oxyos-ipc = { path = "../../crates/oxyos-ipc" }
-oxyos-gpu = { path = "../../crates/oxyos-gpu" }
-oxyos-gpu-device = { path = "../../crates/oxyos-gpu-device" }
-oxyos-kms = { path = "../../crates/oxyos-kms" }
-oxyos-input = { path = "../../crates/oxyos-input" }
-oxyos-seat = { path = "../../crates/oxyos-seat" }
-oxyos-compositor = { path = "../../crates/oxyos-compositor" }
+oxyos-protocol.workspace = true
+oxyos-compositor-core.workspace = true
+oxyos-ipc.workspace = true
+oxyos-gpu.workspace = true
+oxyos-gpu-device.workspace = true
+oxyos-kms.workspace = true
+oxyos-input.workspace = true
+oxyos-seat.workspace = true
+oxyos-compositor.workspace = true
 # The search service, which this program runs as its child (docs/adr/0051-search.mdx).
-oxyos-search = { path = "../../crates/oxyos-search" }
+oxyos-search.workspace = true
 # The system's sounds through PipeWire (docs/adr/0044-system-sounds.mdx).
-oxyos-sound = { path = "../../crates/oxyos-sound" }
+oxyos-sound.workspace = true
 # The account's files, which a file chooser's answer is checked against (ADR 0029, decision 8).
-oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
-oxyos-controls = { path = "../../crates/oxyos-controls" }
+oxyos-files.workspace = true
+oxyos-controls.workspace = true
 # Battery and energy (docs/adr/0057-battery-and-energy.mdx).
-oxyos-power = { path = "../../crates/oxyos-power" }
+oxyos-power.workspace = true
 # The backup service's socket (docs/adr/0059-backups.mdx).
-oxyos-backup = { path = "../../crates/oxyos-backup" }
-oxyos-auth = { path = "../../crates/oxyos-auth" }
+oxyos-backup.workspace = true
+oxyos-auth.workspace = true
 # The accounts' service's session socket: what it launches registered, the lock's online check
 # (docs/adr/0020-oxy-account-login.mdx). Its sockets only, not its HTTP client.
-oxyos-account = { path = "../../crates/oxyos-account", default-features = false }
-oxyos-apps = { path = "../../crates/oxyos-apps" }
+oxyos-account.workspace = true
+oxyos-apps.workspace = true
 # Where the user's Desktop and Documents are, for screenshots (xdg-user-dirs).
-oxyos-preferences = { path = "../../crates/oxyos-preferences" }
+oxyos-preferences.workspace = true
 # Holding, and noting, the installed versions it runs (docs/adr/0030-installing-applications.mdx).
-oxyos-install = { path = "../../crates/oxyos-install" }
-serde_json = "1"
-rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
-signal-hook = { version = "0.3", default-features = false }
+oxyos-install.workspace = true
+serde_json.workspace = true
+rustix = { workspace = true, features = ["std", "process"] }
+signal-hook.workspace = true
 
 [dev-dependencies]
 # AutoFill's tests wait on the provider's descriptor and speak to a played accounts' service.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "net", "time"] }
+rustix = { workspace = true, features = ["std", "event", "net", "time"] }
 
 [lints]
 workspace = true

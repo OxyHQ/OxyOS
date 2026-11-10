@@ -8,7 +8,7 @@ publish.workspace = true
 [dependencies]
 # PNG and JPEG decoding in Rust (image-rs's png, zune-jpeg), and colour management (moxcms) to turn
 # an image's embedded ICC profile (Display P3, say) into the sRGB the compositor composes.
-png = "0.18"
+png.workspace = true
 zune-jpeg = "0.5"
 # A JPEG drawn smaller than it is decoded at a half, a quarter or an eighth of its size from its
 # DCT coefficients (as libjpeg's scale-on-decode), never whole: jpeg-decoder's `scale`.
@@ -19,7 +19,7 @@ image-webp = "0.2"
 gif = "0.14"
 
 # Remote images, fetched with the application's network and its HTTP cache (remote.rs).
-oxyos-net = { path = "../oxyos-net" }
+oxyos-net.workspace = true
 
 [lints]
 workspace = true

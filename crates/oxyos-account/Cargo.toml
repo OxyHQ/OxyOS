@@ -20,53 +20,45 @@ local = ["dep:argon2", "dep:rand_core"]
 [dependencies]
 # A PIN's verifier: Argon2id in the PHC string format, as the keybag's key is derived (ADR 0050),
 # its salt from the system's CSPRNG.
-argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "password-hash", "rand", "zeroize"], optional = true }
-rand_core = { version = "0.6.4", features = ["getrandom"], optional = true }
-oxyos-keychain = { path = "../oxyos-keychain", optional = true }
-oxyos-seqpacket = { path = "../oxyos-seqpacket" }
+argon2 = { workspace = true, features = ["password-hash", "rand"], optional = true }
+rand_core = { workspace = true, optional = true }
+oxyos-keychain = { workspace = true, optional = true }
+oxyos-seqpacket.workspace = true
 # Comparing the password the machine learned with the one Settings gives, in constant time.
-subtle = { version = "2", optional = true }
+subtle = { workspace = true, optional = true }
 # Whether a relying party id is a registrable domain suffix of an application's web origin
 # (WebAuthn's rule), by the Public Suffix List.
 psl = { version = "2", optional = true }
 # HTTP to Oxy's API with TLS in Rust (rustls, verified against the system's certificates), as
 # `oxyos-net` uses it; no cookies, no redirects.
-ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"], optional = true }
-url = { version = "2", optional = true }
+ureq = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 # Oxy's API speaks JSON, and so do the service's sockets and its state files.
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 # Passwords, device secrets and tokens overwritten in memory once used.
-zeroize = "1"
+zeroize.workspace = true
 # The sockets (SOCK_SEQPACKET, the peer's credentials from the kernel, a process handed over as a
 # pidfd), the effective user id, the subscribers' wakeups (eventfd), a new home's seeded file
 # written without following links, and a redemption's key from the kernel's random numbers.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "process", "event", "fs", "rand", "time"] }
+rustix = { workspace = true, features = ["std", "net", "process", "event", "fs", "rand", "time"] }
 # The preferences a new account's home is seeded with (its appearance, chosen at setup), in the
 # session's own format.
-oxyos-preferences = { path = "../oxyos-preferences" }
+oxyos-preferences.workspace = true
 # A token's expiry, an RFC 3339 time (`expiresAt`).
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+jiff.workspace = true
 # The peer's pidfd (`SO_PEERPIDFD`), which rustix does not wrap: one getsockopt.
-libc = "0.2"
+libc.workspace = true
 
 [dev-dependencies]
 # The passkeys' registrations and assertions read and verified as a relying party would, by
 # implementations independent of the service's (ring's ECDSA, ciborium's CBOR reading).
-ring = "0.17.14"
-ciborium = { version = "0.2.2", default-features = false, features = ["std"] }
-sha2 = "0.10.9"
+ring.workspace = true
+ciborium.workspace = true
+sha2.workspace = true
 # The session's launcher, launching under a live registrar across the service's restarts and an
 # upgrade of the image's policy and entries (`tests/restart.rs`).
-oxyos-apps = { path = "../oxyos-apps" }
+oxyos-apps.workspace = true
 
-[lints.rust]
-# The workspace forbids `unsafe`. Reading the peer's pidfd needs one getsockopt, so this crate
-# denies it instead and allows it there alone, saying why it is sound.
-unsafe_code = "deny"
-unsafe_op_in_unsafe_fn = "deny"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
-undocumented_unsafe_blocks = "deny"
-missing_safety_doc = "deny"
+[lints]
+workspace = true

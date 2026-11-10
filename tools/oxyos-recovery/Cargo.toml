@@ -10,15 +10,15 @@ name = "oxyos-recovery"
 path = "src/main.rs"
 
 [dependencies]
-oxyos-recovery = { path = "../../crates/oxyos-recovery" }
-zeroize = "1"
+oxyos-recovery.workspace = true
+zeroize.workspace = true
 # Restore from Backup (docs/adr/0059-backups.mdx, decision 7): the backups' library, the source a
 # request names as it wrote it, and a backup's date as the person reads it.
-oxyos-backup = { path = "../../crates/oxyos-backup" }
-serde_json = "1"
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+oxyos-backup.workspace = true
+serde_json.workspace = true
+jiff.workspace = true
 # The console's echo turned off while a password is typed.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "termios"] }
+rustix = { workspace = true, features = ["std", "termios"] }
 
 [lints]
 workspace = true

@@ -8,38 +8,38 @@ publish.workspace = true
 [dependencies]
 # The file system's own calls: renaming without replacing (renameat2), inotify, poll, extended
 # attributes (tags, and copies that keep them) and the user's id.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "event", "process", "pipe"] }
+rustix = { workspace = true, features = ["std", "fs", "event", "process", "pipe"] }
 # A Mac's Finder tags (`com.apple.metadata:_kMDItemUserTags`), a binary property list, read and
 # written by the proven codec rather than one of our own (docs/adr/0049-file-tags.mdx).
 plist = { version = "1", default-features = false }
 # Requests and answers between the Bloom host and the service, as JSON.
-serde_json = "1"
+serde_json.workspace = true
 # The Trash's deletion dates, in local time as the freedesktop.org Trash specification writes them.
-jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
 
 # expo-file-system's base64 content.
-base64 = "0.23"
+base64.workspace = true
 # File digests (`File.digest`, `md5`): RustCrypto's MD5, SHA-1 and SHA-2.
 md-5 = "0.10"
-sha1 = "0.10"
-sha2 = "0.10"
+sha1.workspace = true
+sha2.workspace = true
 # Downloads and uploads of files (the `service` feature).
-oxyos-net = { path = "../oxyos-net", optional = true }
+oxyos-net = { workspace = true, optional = true }
 # An application's id, by the registry's own rule.
-oxyos-apps = { path = "../oxyos-apps" }
+oxyos-apps.workspace = true
 # The backup service's socket (docs/adr/0059-backups.mdx): SOCK_SEQPACKET, one JSON message per
 # packet, a pipe handed over with a message, as every OxyOS service's.
-oxyos-install = { path = "../oxyos-install" }
+oxyos-install.workspace = true
 # A folder got back from a backup comes as a tar archive, read by the proven crate (its own
 # extraction is not used: every item is checked here before it is written, never through a link).
 tar = { version = "0.4", default-features = false }
 # Where the user's folders are (xdg-user-dirs' `user-dirs.dirs`).
-oxyos-preferences = { path = "../oxyos-preferences" }
+oxyos-preferences.workspace = true
 
 [dev-dependencies]
 # The backup service itself, run on the tests' own folders as `oxyos-backupd --development` runs
 # it, over Debian's restic.
-oxyos-backup = { path = "../oxyos-backup" }
+oxyos-backup.workspace = true
 
 [features]
 # The service an application's host runs (`Service`, transfers through `oxyos-net`). Without it,

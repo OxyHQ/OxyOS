@@ -6,22 +6,22 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-oxyos-protocol = { path = "../oxyos-protocol" }
+oxyos-protocol.workspace = true
 # logind's SetBrightness on the session.
-oxyos-seat = { path = "../oxyos-seat" }
+oxyos-seat.workspace = true
 # UPower, NetworkManager and BlueZ over the system bus, in safe Rust.
-zbus = "5"
+zbus.workspace = true
 # Following the bus's signals and the order to stop at once, on zbus's own executor (follow.rs).
-async-io = "2"
-futures-lite = "2"
+async-io.workspace = true
+futures-lite.workspace = true
 # Waiting on sysfs attributes' notifications and the order to stop (follow.rs).
-rustix = { version = "1.1.6", default-features = false, features = ["std", "event"] }
+rustix = { workspace = true, features = ["std", "event"] }
 # The volumes of PipeWire's chosen output and input, through the session's own client
 # (docs/adr/0056-sound-devices.mdx).
-oxyos-audio = { path = "../oxyos-audio" }
+oxyos-audio.workspace = true
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 
 [lints]
 workspace = true

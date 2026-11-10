@@ -29,7 +29,7 @@ tinystr = "0.8"
 zerovec = "0.11"
 writeable = "0.6"
 # Time zones from the system's database (/usr/share/zoneinfo), not a copy bundled in.
-jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
 
 [lints]
 workspace = true

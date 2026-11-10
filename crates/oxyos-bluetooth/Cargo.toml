@@ -8,15 +8,15 @@ publish.workspace = true
 [dependencies]
 # BlueZ over the system bus, in safe Rust (docs/adr/0055-bluetooth.mdx): its objects followed, its
 # calls made and the session's pairing agent served, on one connection the caller's thread runs.
-zbus = "5"
-async-io = "2"
-futures-lite = "2"
+zbus.workspace = true
+async-io.workspace = true
+futures-lite.workspace = true
 # The caller's commands and the agent's answers, awaited with the bus on that one thread.
-async-channel = "2"
-serde = { version = "1", features = ["derive"] }
+async-channel.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 
 [lints]
 workspace = true

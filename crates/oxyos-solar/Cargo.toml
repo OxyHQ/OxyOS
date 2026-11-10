@@ -7,7 +7,7 @@ publish.workspace = true
 
 [dependencies]
 # The system's time zone, by name.
-jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+jiff = { workspace = true, features = ["tz-system", "tzdb-zoneinfo"] }
 
 [lints]
 workspace = true

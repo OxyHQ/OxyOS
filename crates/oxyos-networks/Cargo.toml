@@ -7,14 +7,14 @@ publish.workspace = true
 
 [dependencies]
 # NetworkManager over the system bus, in safe Rust (docs/adr/0038-networks.mdx).
-zbus = "5"
+zbus.workspace = true
 # Waiting for an activation's outcome with a deadline, on zbus's own executor.
-async-io = "2"
-futures-lite = "2"
-serde = { version = "1", features = ["derive"] }
+async-io.workspace = true
+futures-lite.workspace = true
+serde = { workspace = true, features = ["derive"] }
 # Wi-Fi Diagnostics' echo requests to the router: an unprivileged ICMP datagram socket, polled.
-rustix = { version = "1.1.6", default-features = false, features = ["std", "net", "event"] }
-serde_json = "1"
+rustix = { workspace = true, features = ["std", "net", "event"] }
+serde_json.workspace = true
 
 [lints]
 workspace = true

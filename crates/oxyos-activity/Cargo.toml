@@ -8,14 +8,14 @@ publish.workspace = true
 [dependencies]
 # The processor's and the GPU's time as the battery's energy counts them, so Activity Monitor and
 # Settings › Battery count one way (docs/adr/0057-battery-and-energy.mdx, decision 7).
-oxyos-power = { path = "../oxyos-power" }
-serde = { version = "1", features = ["derive"] }
+oxyos-power.workspace = true
+serde = { workspace = true, features = ["derive"] }
 # The clock's ticks, the page's size, who the session is, and a process signalled through its
 # pidfd so a pid used again is never signalled (quit.rs).
-rustix = { version = "1.1.6", default-features = false, features = ["std", "param", "process", "fs"] }
+rustix = { workspace = true, features = ["std", "param", "process", "fs"] }
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true
 
 [lints]
 workspace = true
