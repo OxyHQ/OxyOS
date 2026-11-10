@@ -29,7 +29,7 @@
  * its own (the asking window's stand).
  */
 import * as React from 'react';
-import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry, View } from 'react-native';
+import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { homeName } from './home-name';
 import {
@@ -97,7 +97,6 @@ function PopupSurface({
   }, [trackingRef]);
   if (anchorTag == null) return null;
   return (
-    <View pointerEvents="box-none" collapsable={false} style={POPUP_BOX}>
     <OxyOSPopupView
       anchorTag={anchorTag}
       side={side}
@@ -121,22 +120,12 @@ function PopupSurface({
       testID={testID}
       collapsable={false}
       // Out of the window's layout: the panel sizes itself, the compositor places it.
-      style={POPUP_VIEW}
+      style={{ position: 'absolute', left: 0, top: 0 }}
     >
       {children}
     </OxyOSPopupView>
-    </View>
   );
 }
-
-// A popup is a surface of its own, as wide as its content, never the width left to it where it
-// is mounted: laid out inside its anchor (a dock icon, a button), what could shrink did, a menu's
-// labels, and a desktop menu stayed at its least width with its labels cut. Its view is laid out
-// in a box of its own, out of the window's layout, zero tall and wider than any output, where it
-// takes its content's width (`alignSelf`); Yoga parses `width: 'max-content'` but lays it out as
-// `auto`. A scroll view's content counts its direct children alone, so the box widens none.
-const POPUP_BOX = { position: 'absolute', left: 0, top: 0, width: 100000, height: 0, overflow: 'visible' };
-const POPUP_VIEW = { alignSelf: 'flex-start' };
 
 // The application's own window, the platform's `windows`; not the shell's (it has none), nor a host
 // drawing offscreen. Bloom's `PlatformWindow`: its state as a store (`getState`, `subscribe`).

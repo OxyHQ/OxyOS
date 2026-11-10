@@ -4,7 +4,9 @@
 #include "accessibility.h"
 #include "report.h"
 
+#include <react/renderer/components/view/conversions.h>
 #include <react/renderer/core/propsConversions.h>
+#include <yoga/Yoga.h>
 
 #include <algorithm>
 #include <cstring>
@@ -20,6 +22,23 @@ using namespace facebook::react;
 namespace facebook::react {
 
 const char OxyOSPopupViewComponentName[] = "OxyOSPopupView";
+
+void OxyOSPopupViewShadowNode::layout(LayoutContext layoutContext) {
+  // Its parent's pass placed it and laid it out inside the box it is mounted in. Lay its subtree
+  // out again as a root, with no width or height given (popup.h): its own size is its content's.
+  const LayoutMetrics placed = getLayoutMetrics();
+  YGNodeCalculateLayout(&yogaNode_, YGUndefined, YGUndefined,
+                        yogaDirectionFromLayoutDirection(placed.layoutDirection));
+  LayoutMetrics metrics = layoutMetricsFromYogaNode(yogaNode_);
+  metrics.frame.origin = placed.frame.origin;
+  metrics.pointScaleFactor = layoutContext.pointScaleFactor;
+  metrics.fontSizeMultiplier = layoutContext.fontSizeMultiplier;
+  metrics.wasLeftAndRightSwapped = placed.wasLeftAndRightSwapped;
+  if (metrics != placed) setLayoutMetrics(metrics);
+  yogaNode_.setHasNewLayout(false);
+  // Its children's metrics, from that layout.
+  ConcreteViewShadowNode::layout(layoutContext);
+}
 
 OxyOSPopupViewProps::OxyOSPopupViewProps(
     const PropsParserContext& context,
