@@ -493,8 +493,9 @@ impl Compositor {
             .1
     }
 
-    /// The frame's buffer as the compositor reads it, once its acquire point has signalled.
-    fn pixels(&self, frame: &Received) -> Vec<u32> {
+    /// Waits for the frame's acquire point, as a compositor latches a frame before it shows it,
+    /// and so before it ever releases its buffer: the GPU's copy into the buffer is done.
+    fn latch(&self, frame: &Received) {
         let timeline = self.timeline(frame.timeline);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while timeline.signalled().unwrap() < frame.acquire {
@@ -504,6 +505,11 @@ impl Compositor {
             );
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+
+    /// The frame's buffer as the compositor reads it, once its acquire point has signalled.
+    fn pixels(&self, frame: &Received) -> Vec<u32> {
+        self.latch(frame);
         let (_, fd, offset, stride) = self
             .planes
             .iter()
@@ -734,7 +740,11 @@ fn with_every_buffer_held_the_first_released_is_taken() {
             .expect("presented");
         compositor.frame()
     };
+    // Released as a compositor releases a buffer: once it latched its frame (its acquire point
+    // signalled) and showed a newer one. Released before the GPU's copy into it was done, a
+    // timeline's later point says nothing yet, and the buffer is rightly not taken.
     let release = |compositor: &Compositor, frame: &Received| {
+        compositor.latch(frame);
         compositor
             .timeline(frame.timeline)
             .signal(frame.release)
@@ -758,6 +768,7 @@ fn with_every_buffer_held_the_first_released_is_taken() {
     assert!(c.buffer != a.buffer && c.buffer != b.buffer);
     assert!(c.release < a.release && c.release < b.release);
     // The compositor releases A a moment after the next frame begins waiting; C it never releases.
+    compositor.latch(&a);
     let timeline = compositor.timeline(a.timeline).export().unwrap();
     let node = compositor.node.clone();
     let releasing = std::thread::spawn(move || {
