@@ -177,6 +177,7 @@ export function LocalSignInSection({ actions, strings }: { actions: LocalSignInA
           accessibilityRole="button"
           rightElement={
             <Switch
+              size="xs"
               checked={local.password}
               disabled={local.pin === "none" && local.password}
               onCheckedChange={(on: boolean) => open(on ? "passwordOn" : "passwordOff")}

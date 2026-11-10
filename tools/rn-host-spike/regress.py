@@ -222,6 +222,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
+- windows_placed: each window named, by its number, exactly at [x, y, width, height] (the global
+  space's logical pixels) once the step settled: where a launched application's window opened and
+  its size (Settings at the size its entry declares, docs/adr/0013-launching-applications.mdx);
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
   in the frame composed last, exactly that share of the way from where it is to its view, edge by
   edge (within a pixel), as the fingers have it;
@@ -4226,6 +4229,9 @@ def check_views(index, step, result, results, failures):
             # were dropped.
             if end is not None and last != end:
                 fail(f"{who} ended at {last}, not at {end}")
+    for number, rect in expect.get("windows_placed", {}).items():
+        if placed.get(number) != rect:
+            fail(f"window {number} is at {placed.get(number)}, expected {rect}")
     if "windows_placed_as" in expect:
         then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})
         if placed != then:

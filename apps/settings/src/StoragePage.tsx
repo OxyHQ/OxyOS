@@ -40,7 +40,7 @@ type Words = Messages["storage"];
 /** How many of the largest files Review Files lists. */
 const LARGEST = 50;
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
 
 /** The index's sums as one text, to tell whether they changed. */
@@ -211,6 +211,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
           testID="storage-empty-trash"
           rightElement={
             <Switch
+              size="xs"
               checked={emptyAutomatically}
               // Turned on, as a Mac asks before it erases anything; turned off at once.
               onCheckedChange={(on: boolean) =>

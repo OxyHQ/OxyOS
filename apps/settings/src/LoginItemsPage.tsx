@@ -31,7 +31,7 @@ import type { SettingsActions, SettingsSnapshot } from "./model";
 
 type Props = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const ROW_OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
 
 /** One application's row, drawn: its name and its kind, as a Mac's list shows them. Decorative: the
@@ -232,6 +232,7 @@ function BackgroundActivity({ snapshot, actions, strings, locale }: Props) {
             rightElement={
               // Named with its application, as the switch is reached alone (Tab, the reader's focus).
               <Switch
+                size="xs"
                 checked={row.allowed}
                 onCheckedChange={(allowed: boolean) => act.decide(row.id, "background", allowed)}
                 accessibilityLabel={words.allowFor(row.name)}

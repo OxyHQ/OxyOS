@@ -374,6 +374,24 @@ const en = {
   /** Settings › Passwords (docs/adr/0050-keychain-autofill-and-passkeys.mdx, decision 8). */
   passwords: passwordsEn,
   groups: { connections: "Connections", personal: "Personal", general: "General" },
+  /** Settings' own menus in the menu bar, as a Mac's System Settings declares them (ADR 0021): Edit
+      (its editing commands act on the focused field; Find… takes the sidebar's search) and View
+      (Back and Forward through the pages visited). */
+  menus: {
+    edit: {
+      title: "Edit",
+      undo: "Undo",
+      redo: "Redo",
+      cut: "Cut",
+      copy: "Copy",
+      paste: "Paste",
+      pasteAndMatchStyle: "Paste and Match Style",
+      delete: "Delete",
+      selectAll: "Select All",
+      find: "Find…",
+    },
+    view: { title: "View", back: "Back", forward: "Forward" },
+  },
   /** The Oxy account at the top of the sidebar (docs/adr/0020-oxy-account-login.mdx), as a Mac's
       Apple Account: its group's heading, and its page. */
   account: {
@@ -561,7 +579,7 @@ const en = {
     always: "Always",
     unlocked: "When unlocked",
     previewsDescription: "What notifications say, on the lock screen. When unlocked, it shows only how many each app has.",
-    applications: "Application notifications",
+    applications: "Application Notifications",
     playSound: "Play sound for notifications",
     /** A switch's name: the sound and whose it is, as the row is read alone. */
     playSoundFor: (app: string) => `Play sound for ${app}'s notifications`,
@@ -1306,7 +1324,7 @@ const en = {
   /** Settings › Spotlight (docs/adr/0051-search.mdx), as a Mac's: the kinds of results it shows,
       the folders kept out of its index, and the index's state. */
   spotlight: {
-    results: "Search results",
+    results: "Search Results",
     resultsFooter: "Only selected categories will appear in Spotlight search results.",
     categories: {
       application: "Applications",
@@ -1451,6 +1469,21 @@ const es: Messages = {
   title: "Ajustes",
   passwords: passwordsEs,
   groups: { connections: "Conexiones", personal: "Personal", general: "General" },
+  menus: {
+    edit: {
+      title: "Edición",
+      undo: "Deshacer",
+      redo: "Rehacer",
+      cut: "Cortar",
+      copy: "Copiar",
+      paste: "Pegar",
+      pasteAndMatchStyle: "Pegar y adaptar estilo",
+      delete: "Eliminar",
+      selectAll: "Seleccionar todo",
+      find: "Buscar…",
+    },
+    view: { title: "Visualización", back: "Atrás", forward: "Adelante" },
+  },
   account: {
     group: "Cuenta de Oxy",
     handle: (handle: string) => `@${handle}`,

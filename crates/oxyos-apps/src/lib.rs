@@ -353,6 +353,9 @@ pub enum Launch {
         module: String,
         bundle: Option<PathBuf>,
         runtime: Option<u32>,
+        /// The size its window opens at, in layout pixels (`X-OxyOS-Window-Size`, `780x560`), as
+        /// a Mac's application opens its window at its own size; without one, the session's.
+        window: Option<(u32, u32)>,
     },
 }
 
@@ -660,6 +663,16 @@ pub fn parse(
                         })?,
                 ),
             },
+            window: match keys.get("X-OxyOS-Window-Size") {
+                None => None,
+                Some(size) => Some(window_size(size).ok_or_else(|| {
+                    Error(format!(
+                        "{id}'s X-OxyOS-Window-Size is not WIDTHxHEIGHT, each from {} to {}",
+                        WINDOW_SIDES.start(),
+                        WINDOW_SIDES.end()
+                    ))
+                })?),
+            },
         },
         (None, Some(value)) => Launch::Exec(exec(value)?),
         (None, None) => return Err(Error(format!("{id} has neither Exec nor a Bloom module"))),
@@ -684,6 +697,36 @@ pub fn parse(
             })
             .unwrap_or_default(),
     }))
+}
+
+/// The size `application`'s window opens at: a file chooser's at a chooser's; else the size its
+/// entry declares (`X-OxyOS-Window-Size`), as a Mac's application opens its window at its own;
+/// else the session's.
+fn opening_size(application: &Application, runtime: &Runtime, chooser: bool) -> (u32, u32) {
+    match &application.launch {
+        _ if chooser => CHOOSER_WINDOW,
+        Launch::Bloom {
+            window: Some(size), ..
+        } => *size,
+        _ => runtime.window,
+    }
+}
+
+/// The sides a window an entry declares may have, in layout pixels: no smaller than a window's
+/// controls and a line of content, no larger than any display a session drives.
+const WINDOW_SIDES: std::ops::RangeInclusive<u32> = 200..=8192;
+
+/// `X-OxyOS-Window-Size`'s value: `WIDTHxHEIGHT`, two whole numbers in [`WINDOW_SIDES`].
+fn window_size(value: &str) -> Option<(u32, u32)> {
+    let (width, height) = value.split_once('x')?;
+    let side = |text: &str| {
+        Some(text)
+            .filter(|text| !text.is_empty() && !text.starts_with('0'))
+            .filter(|text| text.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|text| text.parse::<u32>().ok())
+            .filter(|side| WINDOW_SIDES.contains(side))
+    };
+    Some((side(width)?, side(height)?))
 }
 
 /// What the trust rule asks of a file or directory, as `lstat` gives it (a link is not followed).
@@ -1885,9 +1928,11 @@ impl Launcher {
             }
         }
         let mut runtime = self.runtime.clone();
-        if let Start::Chooser { .. } = how {
-            runtime.window = CHOOSER_WINDOW;
-        }
+        runtime.window = opening_size(
+            &application,
+            &self.runtime,
+            matches!(how, Start::Chooser { .. }),
+        );
         let (mut command, grants) = match system {
             Some(system) => {
                 let (pinned, runtime) =

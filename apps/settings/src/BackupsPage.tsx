@@ -59,7 +59,7 @@ import { folderPath, selectedAfterRemoving } from "./spotlight";
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 type Words = Messages["backups"];
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
 /** The reasons that are the share's: the person goes back to its form to put them right. */
 const SHARE_REASONS = new Set(["invalidHost", "invalidShare", "invalidUser", "invalidDomain", "shareRefused", "unreachable"]);
@@ -198,6 +198,7 @@ function SwitchRow({
       testID={`${testID}-row`}
       rightElement={
         <Switch
+          size="xs"
           checked={value}
           onCheckedChange={onChange}
           disabled={disabled}

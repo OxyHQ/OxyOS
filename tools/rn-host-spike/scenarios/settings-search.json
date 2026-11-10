@@ -1,0 +1,288 @@
+{
+ "about": "Settings' sidebar search, as a Mac's System Settings has one (docs/adr/0019-settings.mdx, decision 5; Bloom's SettingsLayout search): Ctrl+F (Edit › Find…, Settings' own menu, docs/adr/0021-menu-bar.mdx) gives the field at the top of the sidebar the keyboard; what is typed filters the sidebar to the pages whose words begin with it (the words Settings declares to Spotlight, searchable.json, and the names the sidebar shows); Escape clears it; Return chooses the first result, its page shown and the keyboard on its row (docs/adr/0039-keyboard-access.mdx), and ↓ goes on through the results; with nothing found the sidebar says No Results. View › Back (Ctrl+[) is enabled once a page was left, as the toolbar's Back is, and goes back.",
+ "locale": "en_US.UTF-8",
+ "module": "OxyOSSettings",
+ "window": [
+  900,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.settings",
+  "title": "Settings"
+ },
+ "settings": {
+  "app": "so.oxy.settings",
+  "preferences": {
+   "appearance": "light",
+   "accent": "oxy"
+  }
+ },
+ "steps": [
+  {
+   "name": "Settings' window: its Edit and View menus in the bar, Find… with Ctrl+F, Back and Forward disabled (nowhere to go); nothing focused",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": null,
+    "keyboard_focus": null,
+    "texts": [
+     "Appearance",
+     "Wallpaper",
+     "Keyboard",
+     "Trackpad"
+    ],
+    "menus": {
+     "bar": [
+      "Edit",
+      "View"
+     ],
+     "Edit > Find…": {
+      "disabled": false,
+      "shortcut": "Mod+F"
+     },
+     "View > Back": {
+      "disabled": true,
+      "shortcut": "Mod+["
+     },
+     "View > Forward": {
+      "disabled": true,
+      "shortcut": "Mod+]"
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+F: the sidebar's search field has the keyboard",
+   "do": [
+    "key",
+    [
+     29,
+     33
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search"
+   }
+  },
+  {
+   "name": "scroll: the sidebar holds the two pages it finds, Mouse and Trackpad, in their order",
+   "do": [
+    "type",
+    "scroll"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search",
+    "texts": [
+     "Mouse",
+     "Trackpad"
+    ],
+    "absent": [
+     "Wallpaper",
+     "Keyboard",
+     "Displays",
+     "Notifications"
+    ]
+   }
+  },
+  {
+   "name": "Escape clears the field, which keeps the keyboard: every page again",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search",
+    "texts": [
+     "Wallpaper",
+     "Keyboard",
+     "Displays",
+     "Mouse",
+     "Trackpad"
+    ]
+   }
+  },
+  {
+   "name": "disp: Displays alone",
+   "do": [
+    "type",
+    "disp"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search",
+    "texts": [
+     "Displays"
+    ],
+    "absent": [
+     "Wallpaper",
+     "Keyboard"
+    ]
+   }
+  },
+  {
+   "name": "Return chooses the first result: Displays' page shown, the keyboard on its row, View › Back enabled",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": null,
+    "keyboard_focus": {
+     "target": "settings-nav-displays",
+     "ring": true
+    },
+    "react": {
+     "focus@settings-nav-displays": 1
+    },
+    "menus": {
+     "View > Back": {
+      "disabled": false
+     },
+     "View > Forward": {
+      "disabled": true
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+F again: the field, its text selected to type over",
+   "do": [
+    "key",
+    [
+     29,
+     33
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search"
+   }
+  },
+  {
+   "name": "zzz replaces it and finds nothing: the sidebar says No Results",
+   "do": [
+    "type",
+    "zzz"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search",
+    "texts": [
+     "No Results"
+    ],
+    "absent": [
+     "Displays",
+     "Appearance"
+    ]
+   }
+  },
+  {
+   "name": "Escape: every page again",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search",
+    "texts": [
+     "Appearance",
+     "Displays"
+    ],
+    "absent": [
+     "No Results"
+    ]
+   }
+  },
+  {
+   "name": "trackpad: Trackpad alone of the pages here",
+   "do": [
+    "type",
+    "trackpad"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "settings-search",
+    "texts": [
+     "Trackpad"
+    ],
+    "absent": [
+     "Mouse",
+     "Keyboard"
+    ]
+   }
+  },
+  {
+   "name": "↓: Trackpad chosen, the keyboard on its row",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": null,
+    "keyboard_focus": {
+     "target": "settings-nav-trackpad",
+     "ring": true
+    },
+    "react": {
+     "focus@settings-nav-trackpad": 1
+    }
+   }
+  },
+  {
+   "name": "View opens in the shell's bar: Back and Forward with their chords",
+   "do": [
+    "press_named",
+    "View"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "Back",
+      "Ctrl+[",
+      "Forward",
+      "Ctrl+]"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Back: the page before, Displays, shown; the command run once",
+   "do": [
+    "press_named",
+    "Back"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "delivered": {
+     "1": {
+      "menu.activated": 1
+     }
+    },
+    "menus": {
+     "View > Forward": {
+      "disabled": false
+     }
+    }
+   }
+  }
+ ]
+}
