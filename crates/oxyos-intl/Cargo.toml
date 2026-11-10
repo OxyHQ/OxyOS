@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The system's POSIX locale, read and split as every other crate reads it.
+oxyos-names = { path = "../oxyos-names" }
 # ICU4X with CLDR's data compiled in: locales (parsing, canonicalization, likely subtags,
 # fallback), dates in the Gregorian calendar, decimal numbers and plural rules. The workspace
 # already has its core crates (through `url`), at these versions. Date, currency and percent data

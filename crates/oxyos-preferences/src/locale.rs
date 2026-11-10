@@ -3,6 +3,7 @@
 //! `LC_ALL`, `LC_MESSAGES`, `LANG`), as one BCP 47 tag every client is told.
 
 use crate::{Preferences, Refused};
+use oxyos_names::locale::PosixLocale;
 
 /// The languages OxyOS speaks: its shell's, login screen's and Settings' catalogues and the
 /// reader's speech have them complete.
@@ -70,13 +71,13 @@ fn likely_region(language: &str) -> &'static str {
 /// A POSIX locale's language and territory (`es_MX.UTF-8@euro` is `es` and `MX`): none for `C`
 /// and `POSIX`, the codeset and the modifier ignored.
 fn posix_parts(locale: &str) -> (Option<String>, Option<String>) {
-    let name = locale.split(['.', '@']).next().unwrap_or_default();
-    if matches!(name, "" | "C" | "POSIX") {
+    let Some(PosixLocale {
+        language,
+        territory,
+        ..
+    }) = PosixLocale::parse(locale)
+    else {
         return (None, None);
-    }
-    let (language, territory) = match name.split_once('_') {
-        Some((language, territory)) => (language, Some(territory)),
-        None => (name, None),
     };
     let language = (!language.is_empty() && language.bytes().all(|b| b.is_ascii_alphabetic()))
         .then(|| language.to_ascii_lowercase());
@@ -116,12 +117,7 @@ pub fn session_locale(preferences: &Preferences, environment: Option<&str>) -> S
 
 /// The POSIX locale messages are in, from this process's environment: `LC_ALL`, else
 /// `LC_MESSAGES`, else `LANG` (an empty one is unset, as POSIX says).
-pub fn environment_locale() -> Option<String> {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .into_iter()
-        .filter_map(|name| std::env::var(name).ok())
-        .find(|value| !value.is_empty())
-}
+pub use oxyos_names::locale::environment_messages_locale as environment_locale;
 
 #[cfg(test)]
 mod tests {
@@ -210,5 +206,34 @@ mod tests {
             (Some("ca".into()), Some("ES".into()))
         );
         assert_eq!(posix_parts("C.UTF-8"), (None, None));
+    }
+
+    /// `posix_parts` before oxyos-names split the locale, as it was.
+    fn posix_parts_before(locale: &str) -> (Option<String>, Option<String>) {
+        let name = locale.split(['.', '@']).next().unwrap_or_default();
+        if matches!(name, "" | "C" | "POSIX") {
+            return (None, None);
+        }
+        let (language, territory) = match name.split_once('_') {
+            Some((language, territory)) => (language, Some(territory)),
+            None => (name, None),
+        };
+        let language = (!language.is_empty() && language.bytes().all(|b| b.is_ascii_alphabetic()))
+            .then(|| language.to_ascii_lowercase());
+        let territory = territory
+            .filter(|t| t.len() == 2 && t.bytes().all(|b| b.is_ascii_alphabetic()))
+            .map(str::to_ascii_uppercase);
+        (language, territory)
+    }
+
+    #[test]
+    fn the_parts_are_what_they_were() {
+        for &locale in oxyos_names::locale::EXAMPLES {
+            assert_eq!(
+                posix_parts(locale),
+                posix_parts_before(locale),
+                "{locale:?}"
+            );
+        }
     }
 }

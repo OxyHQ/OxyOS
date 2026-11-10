@@ -129,6 +129,38 @@ fn the_default_locale_follows_posix() {
     assert_eq!(posix_locale(environment(&[])), "en-US");
 }
 
+/// `from_posix` before oxyos-names split the locale, as it was.
+fn from_posix_before(value: &str) -> Option<Locale> {
+    let (name, modifier) = value.split_once('@').unwrap_or((value, ""));
+    let name = name.split_once('.').map_or(name, |(name, _codeset)| name);
+    if matches!(name, "C" | "POSIX") {
+        return None;
+    }
+    let mut locale = Locale::try_from_str(&name.replace('_', "-")).ok()?;
+    let script = match modifier {
+        "latin" => Some(icu_locale_core::subtags::script!("Latn")),
+        "cyrillic" => Some(icu_locale_core::subtags::script!("Cyrl")),
+        _ => None,
+    };
+    locale.id.script = script.or(locale.id.script);
+    LocaleCanonicalizer::new_extended().canonicalize(&mut locale);
+    Some(locale)
+}
+
+#[test]
+fn posix_locales_read_as_they_were() {
+    for &value in oxyos_names::locale::EXAMPLES {
+        assert_eq!(from_posix(value), from_posix_before(value), "{value:?}");
+        assert_eq!(
+            posix_locale(environment(&[("LANG", value)])),
+            from_posix_before(value)
+                .and_then(|locale| lookup(&locale))
+                .map_or_else(|| "en-US".into(), |id| id.to_string()),
+            "{value:?}"
+        );
+    }
+}
+
 #[test]
 fn a_long_month_date_in_spanish() {
     // CLDR es: `d 'de' MMMM 'de' y`.

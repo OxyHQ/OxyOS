@@ -166,7 +166,7 @@ impl Scope {
         documents: &Path,
         cache: &Path,
     ) -> io::Result<Scope> {
-        if !oxyos_apps::valid_id(id) {
+        if !oxyos_names::valid_app_id(id) {
             return Err(io::Error::other(format!(
                 "{id:?} is not an application id (a reverse domain name)"
             )));

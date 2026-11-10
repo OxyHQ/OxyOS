@@ -6,6 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The application id's rule, the registry's, for the person's lists of applications, and the
+# environment's POSIX locale, read and split as every other crate reads it.
+oxyos-names = { path = "../oxyos-names" }
 
 [lints]
 workspace = true

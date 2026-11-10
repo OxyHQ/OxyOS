@@ -59,6 +59,7 @@ png = "0.18"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
 [dev-dependencies]
+oxyos-names = { path = "../oxyos-names" }
 oxyos-client = { path = "../oxyos-client" }
 # Only cards that drive displays are opened (tests/scanout.rs).
 oxyos-gpu-device = { path = "../oxyos-gpu-device" }

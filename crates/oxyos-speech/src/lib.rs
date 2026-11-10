@@ -27,15 +27,16 @@ pub enum Language {
 impl Language {
     /// The session's: `LC_ALL`, else `LC_MESSAGES`, else `LANG` (POSIX's order).
     pub fn from_env() -> Self {
-        ["LC_ALL", "LC_MESSAGES", "LANG"]
-            .iter()
-            .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+        oxyos_names::locale::environment_messages_locale()
             .map_or(Self::English, |value| Self::of_locale(&value))
     }
 
-    /// A POSIX locale (`es_ES.UTF-8`) or a BCP 47 tag (`es-MX`).
+    /// A POSIX locale (`es_ES.UTF-8`) or a BCP 47 tag (`es-MX`, whose language is before its
+    /// first `-`).
     pub fn of_locale(locale: &str) -> Self {
-        let language = locale.split(['_', '-', '.', '@']).next().unwrap_or("");
+        let language = oxyos_names::locale::PosixLocale::parse(locale)
+            .and_then(|posix| posix.language.split('-').next())
+            .unwrap_or("");
         if language.eq_ignore_ascii_case("es") {
             Self::Spanish
         } else {

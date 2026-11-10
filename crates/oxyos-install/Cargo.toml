@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The package ids it keeps files under: the application id's rule.
+oxyos-names = { path = "../oxyos-names" }
 # The package's manifest, signatures and tree checks, and its strict JSON reader, which the
 # store's TUF metadata is read with too.
 oxyos-package = { path = "../oxyos-package" }
