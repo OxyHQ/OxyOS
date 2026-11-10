@@ -149,11 +149,11 @@
     {
       "name": "A press on the sidebar's Red: exactly the two items carrying it, from the home and from Documents, report.txt's red dot over its blue one",
       "do": [
-        "press",
-        [
-          61,
-          524
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Red"
+        }
       ],
       "expect": {
         "texts": [
@@ -218,11 +218,11 @@
     {
       "name": "Green: the Mac's file, its tags read from its own attribute, Green's dot and none for Holiday, which has no colour",
       "do": [
-        "press",
-        [
-          61,
-          620
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Green"
+        }
       ],
       "expect": {
         "texts": [
@@ -260,11 +260,11 @@
     {
       "name": "Home again",
       "do": [
-        "press",
-        [
-          66,
-          144
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Home"
+        }
       ],
       "expect": {
         "texts": [
@@ -319,11 +319,11 @@
     {
       "name": "Hide Sidebar: the list wide enough for its Tags column, notes.txt's tag in it",
       "do": [
-        "press",
-        [
-          263,
-          26
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Hide Sidebar"
+        }
       ],
       "expect": {
         "texts": [
@@ -342,11 +342,11 @@
     {
       "name": "A press selects todo.txt, said with its columns",
       "do": [
-        "press",
-        [
-          150,
-          206
-        ]
+        "press_named",
+        {
+          "role": "ListItem",
+          "name": "todo.txt"
+        }
       ],
       "expect": {
         "at": {
@@ -502,11 +502,11 @@
     {
       "name": "A secondary press opens todo.txt's menu at the press: its row of colour dots, Finder's seven",
       "do": [
-        "press_secondary",
-        [
-          150,
-          206
-        ]
+        "press_secondary_named",
+        {
+          "role": "ListItem",
+          "name": "todo.txt"
+        }
       ],
       "expect": {
         "at": {

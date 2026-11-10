@@ -109,7 +109,7 @@
     },
     {
       "name": "choose Archive in the menu",
-      "do": ["press-popup", [60, 80]],
+      "do": ["press-popup", [60, 60]],
       "expect": {
         "transitions": {"frames_min": 3, "count": 1, "seen": [{"kind": "popup", "arriving": false, "first": 255, "ended": true}]},
         "popups": 0,
@@ -399,7 +399,7 @@
     },
     {
       "name": "More actions opens its submenu beside it, as a desktop's (Bloom 15.80.0): a popup of its own, a child of the menu's, its top at the row's and one 2px seam right of the menu",
-      "do": ["press-popup", [60, 200]],
+      "do": ["press-popup", [60, 148]],
       "expect": {
         "popups": 2,
         "popup_rects": [[745, 473, 266, 222], [1013, 648, 266, 72]],
@@ -447,7 +447,7 @@
     },
     {
       "name": "the menu still takes presses in logical coordinates",
-      "do": ["press-popup", [60, 80]],
+      "do": ["press-popup", [60, 60]],
       "expect": {
         "popups": 0,
         "focus_surface": 1,
@@ -583,7 +583,7 @@
     },
     {
       "name": "the menu still works after the move and resize",
-      "do": ["press-popup", [60, 80]],
+      "do": ["press-popup", [60, 60]],
       "expect": {
         "popups": 0,
         "focus_surface": 1,

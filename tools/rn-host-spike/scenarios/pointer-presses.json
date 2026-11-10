@@ -126,11 +126,11 @@
     {
       "name": "Rename chosen in the popup",
       "do": [
-        "press-popup",
-        [
-          40,
-          30
-        ]
+        "press_named",
+        {
+          "role": "MenuItem",
+          "name": "Rename"
+        }
       ],
       "expect": {
         "popups": 0,

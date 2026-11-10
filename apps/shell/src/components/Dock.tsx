@@ -405,7 +405,9 @@ const DockIcon = memo(function DockIcon({
       onPointerCancel={startDrag ? onPointerUp : undefined}
     >
       <ContextMenu anchor={menu ? menu.anchor : null} onAnchorChange={onAnchorChange}>
-        <Tooltip visible={hovered && !menu} onVisibleChange={setHovered} position="top">
+        {/* The icon's name shows at once, as a Mac's Dock shows it: a desktop's one-second help-tag
+          delay (Bloom's default there) is for tags that explain, not for a name. */}
+        <Tooltip visible={hovered && !menu} onVisibleChange={setHovered} position="top" delay={0}>
           <TooltipTrigger>{trigger}</TooltipTrigger>
           <TooltipTextBubble>{name}</TooltipTextBubble>
         </Tooltip>

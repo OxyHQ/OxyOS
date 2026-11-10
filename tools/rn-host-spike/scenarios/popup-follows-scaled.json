@@ -56,7 +56,7 @@
     },
     {
       "name": "the menu still takes its rows' presses where they are, and closes with the keyboard back on its trigger",
-      "do": ["press-popup", [60, 80]],
+      "do": ["press-popup", [60, 60]],
       "expect": {
         "popups": 0, "focus_surface": 1, "texts": ["Chosen: Archive"],
         "react": {"touchStart@action-Archive": 1, "touchEnd@action-Archive": 1},
