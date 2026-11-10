@@ -16,6 +16,10 @@ import { useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
 import { personName } from "../session-user";
 
+/** The footer's distance from the screen's foot, and the least space between it and the content. */
+const FOOTER_INSET = 24;
+const FOOTER_GAP = 24;
+
 /**
  * The backdrop of the lock and login screens: the wallpaper dimmed, and the date and the time
  * large in its material (LockClock), with `children` at the bottom.
@@ -65,24 +69,31 @@ export function LockBackdrop({
           <SafeModeLabel />
         </Box>
       ) : null}
-      {clock ? (
-        <Box className="items-center" style={{ marginTop: "9%" }}>
-          <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
+      {/* One column, as a Mac's login window lays it out: the clock at the top, the content low on
+          the screen, and the footer in a band of its own at the foot. The content's foot is 11 %
+          of the screen up, or above the footer's band where that is taller (a short screen), so
+          the two never meet, whatever the screen's size or scale. */}
+      <Box className="absolute inset-0">
+        {clock ? (
+          <Box className="items-center" style={{ marginTop: "9%" }}>
+            <LockClock now={now} Masked={Masked} blurTarget={wallpaperTarget} />
+          </Box>
+        ) : null}
+        {/* One place in the tree whether or not the clock shows: what the content holds (a setup
+            under way) is kept as the clock comes and goes. */}
+        <Box className="items-center" style={clock ? { marginTop: "auto" } : { marginTop: "8%" }}>
+          {children}
         </Box>
-      ) : null}
-      {/* One place in the tree whether or not the clock shows: what the content holds (a setup
-          under way) is kept as the clock comes and goes. */}
-      <Box
-        className="absolute items-center"
-        style={clock ? { left: 0, right: 0, bottom: "11%" } : { left: 0, right: 0, top: "8%" }}
-      >
-        {children}
+        {clock ? (
+          <Box
+            testID={`${testID}-foot`}
+            className="items-center justify-end"
+            style={{ minHeight: "11%", paddingTop: footer ? FOOTER_GAP : 0, paddingBottom: footer ? FOOTER_INSET : 0 }}
+          >
+            {footer}
+          </Box>
+        ) : null}
       </Box>
-      {footer ? (
-        <Box className="absolute items-center" style={{ left: 0, right: 0, bottom: 24 }}>
-          {footer}
-        </Box>
-      ) : null}
       {overlay}
     </Box>
   );

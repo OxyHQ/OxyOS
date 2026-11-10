@@ -57,10 +57,18 @@
             "oxy-"
           ]
         },
+        "at_apart": {
+          "shell": [
+            "Añadir cuenta",
+            "Reposo",
+            "Reiniciar",
+            "Apagar"
+          ]
+        },
         "output_pixels": {
-          "581,469": "#1f9e5a",
-          "570,460": "#1f9e5a",
-          "709,469": "!#1f9e5a"
+          "581,435": "#1f9e5a",
+          "570,426": "#1f9e5a",
+          "709,435": "!#1f9e5a"
         }
       }
     },
@@ -164,6 +172,14 @@
             "Vuelve a intentarlo en"
           ],
           "shaken": "login-field"
+        },
+        "at_apart": {
+          "shell": [
+            "Añadir cuenta",
+            "Reposo",
+            "Reiniciar",
+            "Apagar"
+          ]
         }
       },
       "allow_unchanged": true

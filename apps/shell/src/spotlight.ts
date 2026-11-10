@@ -266,13 +266,22 @@ export function kindName(item: SearchItem, messages: ShellMessages): string {
     say it, what it is (an application nothing more, as a Mac's row of one). Elsewhere its
     section's header says what it is. */
 export function rowDetail(item: SearchItem, messages: ShellMessages, top = false): string {
-  if (item.location) return item.location;
+  const location = locationText(item, messages);
+  if (location) return location;
   return top && item.category !== "application" ? kindName(item, messages) : "";
+}
+
+/** Where a result is, as the person reads it: the standard folder it is in by its name in their
+    language ("Documentos › Trabajo"), else the location as the service gave it. */
+export function locationText(item: SearchItem, messages: ShellMessages): string | undefined {
+  const named = item.place && messages.places[item.place.key];
+  if (named) return [named, ...item.place!.within].join(" › ");
+  return item.location;
 }
 
 /** A row's name for assistive technologies: "Title, kind, location". */
 export function rowLabel(item: SearchItem, messages: ShellMessages): string {
-  return [item.title, kindName(item, messages), item.location].filter(Boolean).join(", ");
+  return [item.title, kindName(item, messages), locationText(item, messages)].filter(Boolean).join(", ");
 }
 
 const normalize = (value: string) =>

@@ -455,6 +455,35 @@ fn reports_are_the_persons_alone_and_bounded() {
 }
 
 #[test]
+fn reports_written_within_one_tick_of_the_clock_go_oldest_first() {
+    // The file system's timestamps are the kernel's coarse clock: on a fast machine many reports
+    // are written within one tick, and the order is then their names', never the ids'.
+    let scratch = Scratch::new("tick");
+    let reports = Reports::new(scratch.0.join("reports"));
+    let mut written = vec![
+        reports.write("so.oxy.zebra", &utc(1_000), "z").unwrap(),
+        reports.write("so.oxy.zebra", &utc(1_000), "z").unwrap(),
+    ];
+    for n in 0..(MAX_REPORTS - 2) as i64 {
+        written.push(
+            reports
+                .write(&format!("so.oxy.a{n}"), &utc(2_000 + n), "a")
+                .unwrap(),
+        );
+    }
+    let tick = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    for path in &written {
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(tick).unwrap();
+    }
+    let listed: Vec<_> = reports.list().into_iter().map(|(path, _)| path).collect();
+    assert_eq!(listed, written);
+    // One more: the first written goes, and then the second.
+    reports.write("so.oxy.b", &utc(9_000), "b").unwrap();
+    assert!(!written[0].exists() && written[1].exists());
+}
+
+#[test]
 fn the_first_quit_is_a_notification_and_the_next_the_sheet_once() {
     let scratch = Scratch::new("notice");
     let mut session = Session::new();

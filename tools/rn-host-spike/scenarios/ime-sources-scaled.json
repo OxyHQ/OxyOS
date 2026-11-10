@@ -29,7 +29,12 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "Line, campo de texto",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     },
@@ -166,16 +171,20 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [
-          {
-            "text": "EE. UU.",
-            "interrupting": false
-          }
-        ],
         "announcements": [
           {
             "politeness": "polite",
             "text": "EE. UU."
+          }
+        ],
+        "spoken_any_order": [
+          {
+            "text": "ni",
+            "interrupting": true
+          },
+          {
+            "text": "EE. UU.",
+            "interrupting": false
           }
         ]
       }
@@ -217,7 +226,12 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "a",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     },
@@ -413,16 +427,20 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [
-          {
-            "text": "EE. UU.",
-            "interrupting": false
-          }
-        ],
         "announcements": [
           {
             "politeness": "polite",
             "text": "EE. UU."
+          }
+        ],
+        "spoken_any_order": [
+          {
+            "text": "ni",
+            "interrupting": true
+          },
+          {
+            "text": "EE. UU.",
+            "interrupting": false
           }
         ]
       }
@@ -579,16 +597,20 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [
-          {
-            "text": "EE. UU.",
-            "interrupting": false
-          }
-        ],
         "announcements": [
           {
             "politeness": "polite",
             "text": "EE. UU."
+          }
+        ],
+        "spoken_any_order": [
+          {
+            "text": "か",
+            "interrupting": true
+          },
+          {
+            "text": "EE. UU.",
+            "interrupting": false
           }
         ]
       }
@@ -634,7 +656,12 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "b",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     }

@@ -71,6 +71,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   nested in that group (at any depth), the items in order, each to the right of or below the last,
   inside the group's rectangle: one control, never an empty group beside loose buttons, nor a second copy
   elsewhere. With "only": true the buttons the group holds are exactly its items;
+- at_apart: by "window", "shell", "launched" or a popup's, node names each held exactly once
+  whose rectangles no two overlap: controls laid out apart (the login screen's Add Account and its
+  power buttons at any size);
 - at_hit: what a press lands on, by the tree's geometry: "x,y" (the window's coordinates, as
   `press` takes them) -> the node matching the keys given is the innermost one whose rectangle holds it;
 - announcements: what the assistive technology would have said in the step, exactly and in
@@ -81,7 +84,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
-  minute it was said or the one before);
+  minute it was said or the one before); spoken_any_order: the same, each said once, in either
+  order, for a step whose one input makes two processes speak (a source switched mid-composition:
+  the field's commit, echoed as the application's tree comes, and the source's name, said by the
+  shell), whose order the machine decides;
 - shaken: a view (by testID) committed left and right of its place in the step, and back at the
   end: a wrong password's field shaking;
 - output_pixels: as pixels, in output coordinates rather than the window's (the primary's);
@@ -882,6 +888,25 @@ def package_size(package):
         value, unit = value / 1000, unit + 1
     digits = 0 if unit == 0 or value >= 10 else 1
     return f"{value:,.{digits}f} {units[unit]}"
+
+
+def spoken_matches(said, wanted, any_order=False):
+    """Whether the utterances `said` are those `wanted` (each a text, or keys matching an
+    utterance), each once: in order, or with `any_order` in either."""
+    wanted = [w if isinstance(w, dict) else {"text": w} for w in wanted]
+    if len(said) != len(wanted):
+        return False
+    def matches(u, w):
+        return all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
+    if not any_order:
+        return all(matches(u, w) for u, w in zip(said, wanted))
+    left = list(said)
+    for w in wanted:
+        match = next((u for u in left if matches(u, w)), None)
+        if match is None:
+            return False
+        left.remove(match)
+    return True
 
 
 def same_text(got, wanted, t_ns):
@@ -5117,6 +5142,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if got is None or not matches(got, node):
                 fail(f"a press at {point} lands on {got and {k: got[k] for k in ('role', 'name', 'rect')}}, "
                      f"expected {node}")
+    if "at_apart" in expect:
+        for role, names in expect["at_apart"].items():
+            nodes = held_nodes(role)
+            found = []
+            for label in names:
+                named = [n for n in nodes if n.get("name") == label]
+                if len(named) != 1:
+                    fail(f"the assistive technology holds {len(named)} {role} nodes named {label!r}, expected one")
+                else:
+                    found.append(named[0])
+            for i, a in enumerate(found):
+                for b in found[i + 1:]:
+                    if overlaps(a["rect"], b["rect"]):
+                        fail(f"{a['name']!r} {a['rect']} and {b['name']!r} {b['rect']} overlap")
     if "at" in expect:
         for role, wanted in expect["at"].items():
             nodes = held_nodes(role)
@@ -5129,14 +5168,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if len(said) != len(wanted) or not all(all(a.get(k) == v for k, v in w.items())
                                                for a, w in zip(said, wanted)):
             fail(f"the assistive technology would have said {said}, expected {wanted}")
-    if "spoken" in expect:
-        # What the screen reader said between the step's input and its settling.
-        said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
-        wanted = [w if isinstance(w, dict) else {"text": w} for w in expect["spoken"]]
-        if len(said) != len(wanted) or not all(all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
-                                               for u, w in zip(said, wanted)):
-            fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
-                 f"expected {expect['spoken']}")
+    for key in ("spoken", "spoken_any_order"):
+        if key in expect:
+            # What the screen reader said between the step's input and its settling.
+            said = [u for u in spoken or [] if result.get("t_inject", 0) <= u["t"] <= end]
+            if not spoken_matches(said, expect[key], key == "spoken_any_order"):
+                fail(f"the screen reader said {[(u['text'], u['interrupting'], u.get('voice')) for u in said]}, "
+                     f"expected {'in any order ' if key == 'spoken_any_order' else ''}{expect[key]}")
     if "at_absent" in expect:
         # Nodes it must not hold ({} matches any node: none at all there).
         for role, unwanted in expect["at_absent"].items():
