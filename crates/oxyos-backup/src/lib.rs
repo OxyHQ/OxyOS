@@ -11,8 +11,11 @@
 //! - [`restore`]: restoring a whole computer, from the recovery and in setup;
 //! - [`migrate`]: *Migrate from a Backup*, the login screen's, through a service of its own;
 //! - [`ipc`]: the service's socket and its vocabulary;
-//! - [`service`]: the service: its schedule, its backups and its conversations.
+//! - [`service`]: the service: its schedule, its backups and its conversations;
+//! - [`daemon`]: the service run: its socket, its schedule and its conversations, as
+//!   `oxyos-backupd` and the development compositor (`--play-backup`) run it.
 
+pub mod daemon;
 pub mod disks;
 pub mod engine;
 pub mod ipc;

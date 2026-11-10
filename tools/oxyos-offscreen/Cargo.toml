@@ -22,7 +22,7 @@ oxyos-priority = { path = "../../crates/oxyos-priority" }
 oxyos-power = { path = "../../crates/oxyos-power" }
 # The development backup service, played on a run's own folders (`--play-backup`,
 # docs/adr/0059-backups.mdx), and its socket, which a step asks.
-oxyos-backupd = { path = "../oxyos-backupd" }
+oxyos-backup = { path = "../../crates/oxyos-backup" }
 oxyos-install = { path = "../../crates/oxyos-install" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 # Wi-Fi Diagnostics' probe of the played network (`--network-bus`, docs/adr/0038-networks.mdx).

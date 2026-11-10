@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shellMessages } from "../src/messages.ts";
 import { chordLabel, systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
-import { sheetView, startsOnAnswer } from "../src/sheet.ts";
+import { sheetView, startsOnAnswer, type SheetText } from "../src/sheet.ts";
 
 const en = shellMessages("en-US");
 const es = shellMessages("es-ES");
@@ -19,6 +19,9 @@ test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in ord
     "Applications",
     "Show Desktops",
     "—",
+    // Force Quit… in its own part, before the session's ends, as a Mac's (docs/adr/0067).
+    "Force Quit… Alt+Super+Esc",
+    "—",
     "Sleep",
     "Restart…",
     "Shut Down…",
@@ -32,7 +35,8 @@ test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in ord
 
 test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear pantalla, Cerrar sesión de…", () => {
   const rows = systemMenuRows(es, { canLock: true, power: true, name: "Nate Isern" });
-  assert.deepEqual(read(rows).slice(4), [
+  assert.deepEqual(read(rows).slice(4, 5), ["Forzar salida… Alt+Super+Esc"]);
+  assert.deepEqual(read(rows).slice(6), [
     "Reposo",
     "Reiniciar…",
     "Apagar equipo…",
@@ -44,7 +48,7 @@ test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear p
 
 test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q", () => {
   const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate", option: true });
-  assert.deepEqual(read(rows).slice(4), [
+  assert.deepEqual(read(rows).slice(6), [
     "Sleep",
     "Restart",
     "Shut Down",
@@ -56,7 +60,7 @@ test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q
   assert.ok(ends.length === 2 && ends.every((row) => row.kind === "item" && row.confirm === false));
   const logOut = rows.find((row) => row.kind === "item" && row.id === "session.logOut");
   assert.equal(logOut?.kind === "item" && logOut.confirm, false);
-  assert.deepEqual(read(systemMenuRows(es, { canLock: true, power: true, name: "Nate", option: true })).slice(4), [
+  assert.deepEqual(read(systemMenuRows(es, { canLock: true, power: true, name: "Nate", option: true })).slice(6), [
     "Reposo",
     "Reiniciar",
     "Apagar equipo",
@@ -182,4 +186,37 @@ test("the keyboard starts on the default button of every power sheet, and on Can
   assert.ok(startsOnAnswer({ kind: "end-session-cancelled", action: "restart", application: "Pages" }));
   assert.ok(!startsOnAnswer({ kind: "empty-trash", items: 2 }));
   assert.ok(startsOnAnswer({ kind: "crash", id: "a", name: "A", times: 1, report: "", show: "notice" }));
+});
+
+// Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx), as a Mac's ⌥⌘⎋ window: the
+// session's launched apps, the hung one marked in red and said, the frontmost chosen, Force Quit the
+// default button (Return), Cancel (Escape).
+test("Force Quit Applications: its apps, the hung one marked, the frontmost chosen", () => {
+  const sheet: SheetText = {
+    kind: "force-quit",
+    applications: [
+      { id: "so.oxy.inbox", name: "Inbox", responding: true },
+      { id: "so.oxy.hangprobe", name: "Hang Probe", responding: false },
+    ],
+    chosen: 1,
+  };
+  const view = sheetView(sheet, en);
+  assert.equal(view.title, "Force Quit Applications");
+  assert.equal(view.body, "If an app doesn’t respond for a while, select its name and click Force Quit.");
+  assert.deepEqual(view.choices?.rows, [
+    { title: "Inbox", detail: "", alert: false },
+    { title: "Hang Probe", detail: "Not Responding", alert: true },
+  ]);
+  assert.equal(view.accept, "Force Quit");
+  assert.equal(view.refuse, "Cancel");
+  assert.ok(view.defaultAnswer && startsOnAnswer(sheet));
+  const spanish = sheetView(sheet, es);
+  assert.equal(spanish.title, "Forzar salida de las aplicaciones");
+  assert.equal(spanish.accept, "Forzar salida");
+  assert.equal(spanish.choices?.rows[1].detail, "No responde");
+  // None open: said, and nothing to force quit.
+  const none = sheetView({ kind: "force-quit", applications: [] }, en);
+  assert.equal(none.body, "No apps are open.");
+  assert.equal(none.accept, "");
+  assert.equal(none.choices, undefined);
 });

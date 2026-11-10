@@ -27,8 +27,13 @@
 #include <optional>
 
 #include <pthread.h>
+#include <sys/types.h>
 
 namespace oxyos {
+
+// The JavaScript thread's id (gettid), once it started; 0 before. Async-signal-safe: a hang's report
+// (bloom-host.cpp) hands its signal to the thread it concerns.
+pid_t jsThreadId();
 
 class JsThread : public facebook::react::MessageQueueThread {
  public:
@@ -58,7 +63,8 @@ class JsThread : public facebook::react::MessageQueueThread {
     bool ran = false;
     ThreadSpan span;
   };
-  // Runs every task queued, those they queue included, on the thread; returns once they ran.
+  // Runs every task queued, those they queue included, on the thread; returns once they ran. With
+  // none queued, it returns at once and the thread sleeps on.
   Work drain();
 
   // React Native's timers (TimerManager's platform registry). The loop fires those due; firing one

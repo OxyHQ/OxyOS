@@ -406,7 +406,7 @@ const DockIcon = memo(function DockIcon({
       onPointerCancel={startDrag ? onPointerUp : undefined}
     >
       <ContextMenu anchor={menu ? menu.anchor : null} onAnchorChange={onAnchorChange}>
-        <Tooltip visible={hovered && !menu} onVisibleChange={setHovered} position="top">
+        <Tooltip visible={hovered && !menu} onVisibleChange={setHovered} position="top" delay={0}>
           <TooltipTrigger>{trigger}</TooltipTrigger>
           <TooltipTextBubble>{name}</TooltipTextBubble>
         </Tooltip>
