@@ -12,7 +12,7 @@
         "popup_events": {"open@message-actions": 1},
         "window_rect": [128, 120, 1024, 560], "popup_rect": [745, 513, 266, 222],
         "frame_px": {"window": [1280, 700], "popup": [333, 278]},
-        "output_pixels": {"1100,916": "#fff7f9", "1100,918": "#0f1317", "1330,641": "#fff7f9", "1330,642": "#fef7fe"}
+        "output_pixels": {"1100,916": "#fff7f9", "1100,918": "#0f1317", "1330,641": "#f8f8f8", "1330,642": "#fef7fe"}
       }
     },
     {
@@ -21,7 +21,7 @@
       "expect": {
         "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {}, "delivered": {},
         "window_rect": [28, 100, 1024, 560], "popup_rect": [645, 493, 266, 222],
-        "output_pixels": {"1000,891": "#fff7f9", "1000,893": "#0f1317", "1205,616": "#fff7f9", "1205,617": "#fef7fe"}
+        "output_pixels": {"1000,891": "#fff7f9", "1000,893": "#0f1317", "1205,616": "#f8f8f8", "1205,617": "#fef7fe"}
       }
     },
     {
@@ -31,7 +31,7 @@
         "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {"reposition@message-actions": 1}, "delivered": {"2": {"enter": 1}},
         "window_rect": [28, 100, 900, 520], "popup_rect": [899, 493, 266, 222],
         "frame_px": {"window": [1125, 650]},
-        "output_pixels": {"1200,616": "#0f1317", "1200,617": "#cecacc", "1200,618": "#fff7f9", "1200,891": "#fff7f9", "1200,893": "#0f1317", "1060,616": "#fff7f9", "1060,617": "#fef7fe"}
+        "output_pixels": {"1200,616": "#0f1317", "1200,617": "#cecacc", "1200,618": "#f9f9f9", "1200,891": "#fff7f9", "1200,893": "#0f1317", "1060,616": "#f8f8f8", "1060,617": "#fef7fe"}
       }
     },
     {
@@ -41,7 +41,7 @@
         "popups": 1, "focus_surface": 2, "react": {}, "popup_events": {"reposition@message-actions": 2}, "delivered": {"2": {"leave": 1}},
         "window_rect": [28, 100, 1024, 560], "popup_rect": [645, 493, 266, 222],
         "frame_px": {"window": [1280, 700]},
-        "output_pixels": {"1000,891": "#fff7f9", "1000,893": "#0f1317", "1205,616": "#fff7f9", "1205,617": "#fef7fe"}
+        "output_pixels": {"1000,891": "#fff7f9", "1000,893": "#0f1317", "1205,616": "#f8f8f8", "1205,617": "#fef7fe"}
       }
     },
     {

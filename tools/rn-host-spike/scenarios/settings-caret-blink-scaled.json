@@ -106,7 +106,7 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
+          "1690,779": "#dfdfdf",
           "1730,779": "#8c798d"
         }
       }
@@ -152,7 +152,7 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
+          "1690,779": "#dfdfdf",
           "1730,779": "#8c798d"
         },
         "host_input": {
@@ -209,7 +209,7 @@
         },
         "output_pixels": {
           "1690,779": "#9422ae",
-          "1730,779": "#ffeefc"
+          "1730,779": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -324,7 +324,7 @@
         },
         "output_pixels": {
           "1690,779": "#9422ae",
-          "1730,779": "#ffeefc"
+          "1730,779": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -377,7 +377,7 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
+          "1690,779": "#dfdfdf",
           "1730,779": "#8c798d"
         },
         "host_input": {
@@ -490,7 +490,7 @@
           }
         },
         "output_pixels": {
-          "1690,779": "#e9dce3",
+          "1690,779": "#dfdfdf",
           "1730,779": "#8c798d"
         },
         "host_input": {
@@ -547,7 +547,7 @@
         },
         "output_pixels": {
           "1690,779": "#9422ae",
-          "1730,779": "#ffeefc"
+          "1730,779": "#dfdfdf"
         },
         "host_input": {
           "first_mouse.declined": 0,
