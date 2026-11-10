@@ -33,9 +33,10 @@
 //     device's time) to the frame showing its answer, the slow and dropped frames, and JavaScript's
 //     work on its thread (its stretches, the slow ones, the longest).
 //
-// An input's answer is the first frame presented once JavaScript ran what the input's turn queued for
-// it (its events, through Fabric's beat) and the loop applied what that committed; an input whose turn
-// queued nothing for JavaScript (a scroll the loop moved itself) is answered by the next frame.
+// An input's answer is the first frame showing what JavaScript committed as it ran the batch the
+// input's turn handed it (its events, through Fabric's beat; js-thread.h), or the first frame after
+// JavaScript ran that batch and went idle; an input whose turn handed JavaScript nothing (a scroll the
+// loop moved itself) is answered by the next frame.
 //
 // A frame the compositor holds is not a slow frame. The compositor answers a shown window's frame
 // at its display's next refresh; it withholds the answer while the window is not shown or the
