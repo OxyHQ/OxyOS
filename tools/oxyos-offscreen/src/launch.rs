@@ -3144,16 +3144,6 @@ fn settle(
             .is_some_and(|writer| writer.writing())
     };
     let mut was_writing = writing(session);
-    // A question asked of the session's search (typing in a file manager's search field) is an
-    // answer still to come: the results the asker shows when it comes. Its end starts the
-    // stillness, as a change does.
-    let searching = |session: &Session| {
-        session
-            .search
-            .as_ref()
-            .is_some_and(|search| search.answering())
-    };
-    let mut was_searching = searching(session);
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -3193,16 +3183,12 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
-        let searching_now = searching(session);
-        let answered_search = was_searching && !searching_now;
-        was_searching = searching_now;
         let shell_changed = shell_now != shell_last
             || launched_changed
             || companion_changed
             || drawn_changed
             || order_changed
-            || written
-            || answered_search;
+            || written;
         if shell_changed {
             shell_last = shell_now;
             last.1 = Instant::now();
@@ -3300,7 +3286,6 @@ fn settle(
         if !changed
             && !shell_changed
             && !writing_now
-            && !searching_now
             && answered
             && sheet_shown
             && named_shown

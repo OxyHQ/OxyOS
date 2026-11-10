@@ -312,13 +312,6 @@ impl Search {
 
     /// A turn: what the threads did, the askers gone, the asks made, and the service started
     /// when it is needed and may be.
-    /// Whether a question asked of the search is still to be answered: held for the service to
-    /// start, or sent to it. What it answers is the asker's to show, so a development
-    /// compositor's step is not answered before it (docs/adr/0051-search.mdx).
-    pub fn answering(&self) -> bool {
-        !self.held.is_empty() || !self.answering.is_empty()
-    }
-
     pub fn serve(&mut self, scene: &mut Scene) {
         let mut buffer = [0u8; 64];
         while matches!((&self.woken).read(&mut buffer), Ok(read) if read > 0) {}
