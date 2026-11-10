@@ -57,7 +57,14 @@ step's expected result) and measures, from what the processes report and from /p
   application's index.hbc) is resident and shared (docs/adr/0030-installing-applications.mdx,
   decision 17); and the host's own account (its report's `memory` line): Hermes' heap, malloc's,
   Skia's caches and the painter's buffers. --check holds each host's footprint and PSS to
-  MEMORY_BUDGETS.
+  MEMORY_BUDGETS;
+- saturation (not among the parts run by default): input to present while the machine is busy
+  (saturation.py, docs/adr/0066-quality-of-service.mdx): each interaction (a list scrolled, the
+  pointer over a window following it, a window dragged, keys typed) under each load S0 to S7, every
+  input's latency from its device's time to the frame answering it, the compositor's wait to run,
+  pressure and each load's progress, in a control group delegated to the run where it makes the
+  tree a session's machine has. --check holds every load's p95 to the unloaded one's plus a refresh,
+  and a drag to no late frame.
 
 The development compositor turns every 5 ms when nothing wakes it, so its own idle numbers say
 nothing of a session's (oxyos-session waits on its devices and clients); the hosts' do.
@@ -76,6 +83,9 @@ Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs
                [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
        perf.py --offscreen BIN [--out DIR] [--check] search
        perf.py [--out DIR] [--check] session
+       perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
+               [--loads S0,...] [--interactions scroll,...] [--check] saturation
+               (in a delegated control group: tools/rn-host-spike/perf-saturation.sh, perf-device.sh)
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -97,6 +107,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 SCENARIOS = HERE / "scenarios"
 sys.path.insert(0, str(HERE))
 from regress import animated_values, content_shown_ms, display_hz  # noqa: E402  (beside this file)
+import saturation  # noqa: E402  (beside this file)
 
 
 def refresh_ms(scenario):
@@ -385,10 +396,11 @@ def read_report(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def run_scenario(options, scenario, out, during=None, app_cache=None):
+def run_scenario(options, scenario, out, during=None, app_cache=None, cgroup=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
     `during(sampler, out)` called meanwhile, the applications' caches in `app_cache` when given
-    (kept across runs). Returns (summary, app report, shell report, sampler)."""
+    (kept across runs), in the control group `cgroup` when given (`saturation`'s session). Returns
+    (summary, app report, shell report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
                "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out),
                # A run measuring speed never counts what React re-renders (regress.py): the count's
@@ -403,6 +415,8 @@ def run_scenario(options, scenario, out, during=None, app_cache=None):
         command += ["--renderer", options.renderer]
     if app_cache:
         command += ["--app-cache", str(app_cache)]
+    if cgroup:
+        command = saturation.placed(cgroup, command)
     run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     sampler = Sampler(run.pid)
     sampler.start()
@@ -875,14 +889,14 @@ def minimal_pdf(words):
 class SearchService:
     """The search service as the program runs it, its control socket ours, asking as the shell."""
 
-    def __init__(self, offscreen, root):
+    def __init__(self, offscreen, root, prefix=()):
         import socket
         self.root = root
         ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         environment = dict(os.environ, HOME=str(root / "home"), XDG_CACHE_HOME=str(root / "cache"),
                            XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"),
                            USER="perf")
-        self.process = subprocess.Popen([offscreen, "--search-service"], stdin=theirs.fileno(),
+        self.process = subprocess.Popen([*prefix, offscreen, "--search-service"], stdin=theirs.fileno(),
                                         env=environment, stderr=open(root / "service.log", "w"))
         theirs.close()
         self.socket = ours
@@ -1322,6 +1336,8 @@ def show(results):
         print("session idle: no oxyos-session of this user is running")
     if "search" in results:
         show_search(results["search"])
+    if "saturation" in results:
+        saturation.show(results["saturation"], table)
 
 
 def show_search(r):
@@ -1356,6 +1372,8 @@ def check(results):
             over.append(f"search: {r['idle_rss_mib']} MiB resident idle")
         if r["index_bytes_per_file"] > SEARCH_BUDGETS["index_bytes_per_file"]:
             over.append(f"search: the index takes {r['index_bytes_per_file']} bytes a file")
+    if "saturation" in results:
+        over += saturation.check(results["saturation"])
     for name, r in results.get("interactions", {}).items():
         refresh = r["refresh_ms"]
         if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
@@ -1421,7 +1439,9 @@ def main():
     parser.add_argument("parts", nargs="*",
                         help="interactions, responses, shell, cold-start, idle, memory, refresh, genie (all "
                              "by default), search (the search service, only when named, needs --offscreen "
-                             "alone) and session (the running session idle, only when named)")
+                             "alone), session (the running session idle, only when named) and saturation "
+                             "(input to present under loads, only when named, in a delegated control group: "
+                             "perf-saturation.sh, perf-device.sh)")
     parser.add_argument("--offscreen")
     parser.add_argument("--runtimes", help="the runtimes (regress.py)")
     parser.add_argument("--packages", help="the applications' packages and the probes (regress.py)")
@@ -1431,10 +1451,13 @@ def main():
     parser.add_argument("--renderer", choices=["cpu", "gpu"], default=None,
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
+    parser.add_argument("--loads", default=None, help="saturation: only these loads (S0,S1,...; all by default)")
+    parser.add_argument("--interactions", default=None,
+                        help="saturation: only these interactions (scroll,pointer,drag,typing; all by default)")
     options = parser.parse_args()
     every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
     parts = options.parts or every
-    if not set(parts) <= set(every) | {"session", "search"}:
+    if not set(parts) <= set(every) | {"session", "search", "saturation"}:
         parser.error(f"unknown parts {parts}")
     if set(parts) - {"session", "search"} and not (options.offscreen and options.runtimes and options.packages):
         parser.error("--offscreen, --runtimes and --packages are needed for every part but session and search")
@@ -1469,6 +1492,8 @@ def main():
         results["session"] = session_idle(SESSION_WINDOW_S)
     if "search" in parts:
         results["search"] = search(options, out)
+    if "saturation" in parts:
+        results["saturation"] = saturation.run(options, out, run_scenario, (SearchService, search_home))
     results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)
