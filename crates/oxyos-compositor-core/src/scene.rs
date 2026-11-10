@@ -197,6 +197,10 @@ struct Node {
     /// A toplevel zoomed to fill the work area (ADR 0016), and the frame it had before.
     maximized: bool,
     unzoomed: Option<((i32, i32), Size)>,
+    /// A toplevel tiled or centred (ADR 0016, decision 12), and the frame it had before.
+    placed: Option<tiling::Placed>,
+    /// How many configures it was sent.
+    configures: u64,
     /// The sizes a toplevel can take.
     limits: window::Limits,
     /// Local input region; `None` accepts input everywhere, an empty rectangle nowhere.
@@ -355,6 +359,9 @@ struct Move {
     surface: SurfaceKey,
     pointer: (i32, i32),
     origin: (i32, i32),
+    /// The pointer has moved since the move began: a laid-out window has taken back its size,
+    /// and a tile may be previewed (ADR 0016, decision 12).
+    moved: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -370,6 +377,10 @@ pub enum RenderItem {
     /// a copy's green plus, a link's curved arrow, in `rect` (global, logical) below and right of
     /// the pointer's tip, above everything. A move, and a drop that would be refused, show none.
     DragBadge { rect: Rect, action: DragActions },
+    /// Where a window being dragged would be tiled if released now (docs/adr/0016-windows.mdx,
+    /// decision 12): a translucent pane in `rect` (global, logical), drawn just beneath the
+    /// window, with a window's corners. It takes no input.
+    TilePreview { rect: Rect },
     /// A window the shell's surface `surface` shows live (docs/adr/0022-window-views.mdx), drawn
     /// above that surface: the window's frame scaled into `rect` (its proportions kept), only
     /// within `clip` (within `rect` and the surface), its corners rounded by `radius`, at
@@ -847,7 +858,15 @@ impl Scene {
                 .map(|(serial, _, s, framing)| (serial, origin, s, framing));
         }
         self.nodes.get_mut(&key).expect("present").output = target.id;
-        self.reconfigure(key, None, size);
+        // A tiled window takes its tile on the display it goes to (ADR 0016, decision 12).
+        let retiled = self
+            .work_area(target.id)
+            .and_then(|area| self.retiled(key, area))
+            .filter(|_| !fullscreen);
+        match retiled {
+            Some((origin, size)) => self.reconfigure(key, Some(origin), size),
+            None => self.reconfigure(key, None, size),
+        }
         self.reconstrain_children(key);
     }
 
@@ -941,6 +960,8 @@ impl Scene {
             let (origin, size) = node.upcoming();
             let (origin, size) = if node.fullscreen {
                 ((rect.x, rect.y), Size::new(rect.width, rect.height))
+            } else if let Some(tiled) = self.retiled(key, area) {
+                tiled
             } else if node.maximized {
                 let size = node.limits.clamp(Size::new(area.width, area.height));
                 let size = Size::new(size.width.min(area.width), size.height.min(area.height));
@@ -959,6 +980,10 @@ impl Scene {
             node.unzoomed = node
                 .unzoomed
                 .map(|(origin, size)| within(area, origin, size));
+            if let Some(placed) = &mut node.placed {
+                let (origin, size) = placed.previous;
+                placed.previous = within(area, origin, size);
+            }
             self.reconfigure(key, Some(origin), size);
             self.reconstrain_children(key);
         }
@@ -1962,6 +1987,7 @@ impl Scene {
                         surface: key(surface),
                         pointer: self.pointer,
                         origin: node.origin,
+                        moved: false,
                     });
                     self.set_pointer_focus(None);
                 }
@@ -2187,6 +2213,8 @@ impl Scene {
                 restore: None,
                 maximized: false,
                 unzoomed: None,
+                placed: None,
+                configures: 0,
                 limits: window::Limits::NONE,
                 input_region: None,
                 requested: Vec::new(),
@@ -2319,6 +2347,7 @@ impl Scene {
             fullscreen: node.fullscreen,
             maximized: node.maximized,
         };
+        self.nodes.get_mut(&key).expect("present").configures += 1;
         self.emit(key.client, event);
     }
 
@@ -3567,7 +3596,13 @@ impl Scene {
 
     fn list(&self, in_flight: bool) -> Vec<RenderItem> {
         let mut out = Vec::new();
+        let preview = self
+            .tile_target()
+            .and_then(|(window, output, tile)| Some((window, tile.rect(self.work_area(output)?))));
         for root in &self.roots {
+            if let Some((_, rect)) = preview.filter(|(window, _)| window == root) {
+                out.push(RenderItem::TilePreview { rect });
+            }
             self.push_tree(*root, &mut out, in_flight);
         }
         out.extend(self.drag_badge());
@@ -3582,7 +3617,8 @@ impl Scene {
                     }
                     RenderItem::Cover { .. }
                     | RenderItem::View { .. }
-                    | RenderItem::DragBadge { .. } => false,
+                    | RenderItem::DragBadge { .. }
+                    | RenderItem::TilePreview { .. } => false,
                 });
                 if !covered {
                     covers.push(RenderItem::Cover {
@@ -3631,6 +3667,7 @@ impl Scene {
                 RenderItem::Surface { rect, .. }
                 | RenderItem::Cover { rect, .. }
                 | RenderItem::DragBadge { rect, .. }
+                | RenderItem::TilePreview { rect }
                 | RenderItem::View { clip: rect, .. } => rect.intersects(output.rect),
             })?;
         match top {
@@ -3931,6 +3968,7 @@ impl Scene {
                 surface: key,
                 pointer: current,
                 origin: current,
+                moved: false,
             },
             origin.0,
             origin.1,
@@ -3956,6 +3994,7 @@ impl Scene {
             return;
         }
         let size = node.limits.clamp(size);
+        self.forget_layout(key);
         self.reconfigure(key, None, size);
         // Maximized or tiled, its frame goes there animated (ADR 0016).
         self.appeared(key, appearances::Change::Zoomed);
@@ -4202,7 +4241,13 @@ impl Scene {
             return;
         }
         self.follow_capture_target();
-        if let Some(moving) = self.moving {
+        if let Some(mut moving) = self.moving {
+            // Dragged away, a tiled window takes back the size it had (ADR 0016, decision 12).
+            if !moving.moved && (x, y) != moving.pointer {
+                moving.moved = true;
+                moving = self.untile_for_drag(moving);
+                self.moving = Some(moving);
+            }
             self.move_window(moving, x, y);
             return;
         }
@@ -4476,9 +4521,12 @@ impl Scene {
             if let Some(moving) = self.moving {
                 if self.buttons_down == 0 {
                     // The move owned the pointer; the window that started it gets no capture.
+                    // Released over a tile previewed, the window takes it.
+                    let tile = self.tile_target();
                     self.moving = None;
                     self.capture = None;
                     self.reconstrain_children(moving.surface);
+                    self.tile_on_release(tile);
                     self.refresh_pointer_focus();
                 }
                 return;
@@ -5319,6 +5367,7 @@ pub use controls::{
 pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
 pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest, TrackpadGestures};
+pub mod tiling;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};
