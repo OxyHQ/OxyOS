@@ -218,10 +218,15 @@ class Mounter : public SchedulerDelegate {
   // passive effects among it), as the loop and JavaScript took turns: what an effect sends after its
   // commit is handled with the mount, in the order the forced order is about.
   bool applyWhenJavaScriptIdle = false;
-  // Whether anything waits to be applied.
+  // Whether anything waits to be applied, and since when (the oldest).
   bool pending() {
     std::lock_guard lock(mutex_);
     return !queue_.empty();
+  }
+  std::optional<std::chrono::steady_clock::time_point> waitingSince() {
+    std::lock_guard lock(mutex_);
+    if (queue_.empty()) return std::nullopt;
+    return queuedAt_;
   }
   // The UI thread: applies what was handed over, in order. True if it mounted or handled anything.
   bool apply() {
@@ -306,6 +311,9 @@ class Mounter : public SchedulerDelegate {
     std::string name;
     folly::dynamic args = nullptr;
   };
+  void queued() {
+    if (queue_.empty()) queuedAt_ = std::chrono::steady_clock::now();
+  }
   // Pulls every surface's transaction into the queue, then what waited for it.
   void pullLocked() {
     for (auto& [surface, coordinator] : coordinators_) {
@@ -313,6 +321,7 @@ class Mounter : public SchedulerDelegate {
       // transaction is returned even when nothing was committed.
       auto transaction = coordinator->pullTransaction(/* willPerformAsynchronously */ true);
       if (transaction && !transaction->getMutations().empty()) {
+        queued();
         queue_.push_back(Item{.kind = Item::Kind::Transaction,
                               .surface = surface,
                               .batch = !oxyos::UiThread::isCurrent() && runningBatch ? runningBatch() : 0,
@@ -320,6 +329,7 @@ class Mounter : public SchedulerDelegate {
       }
     }
     unpulled_ = false;
+    if (!waiting_.empty()) queued();
     for (auto& item : waiting_) queue_.push_back(std::move(item));
     waiting_.clear();
   }
@@ -335,6 +345,7 @@ class Mounter : public SchedulerDelegate {
       if (unpulled_) {
         waiting_.push_back(std::move(item));
       } else {
+        queued();
         queue_.push_back(std::move(item));
       }
     }
@@ -371,6 +382,7 @@ class Mounter : public SchedulerDelegate {
   std::mutex mutex_;
   bool unpulled_ = false;
   std::deque<Item> queue_;
+  std::chrono::steady_clock::time_point queuedAt_{};  // when the queue last stopped being empty
   std::vector<Item> waiting_;
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
@@ -709,6 +721,7 @@ int main(int argc, char** argv) {
   // This thread is the UI thread (ui-thread.h), and holds the host's state from now on but while it
   // waits: JavaScript's thread, started next, reaches that state only between.
   oxyos::UiThread::adopt();
+  oxyos::UiThread::wholeLogLines();
   oxyos::UiThread::Lock uiState;
   // Set while the loop waits for JavaScript to settle (a resize's layout): its thread wakes the loop
   // once it is idle.
@@ -2515,7 +2528,15 @@ int main(int argc, char** argv) {
         // What JavaScript handed over since the last turn (Mounter): its commits mounted, its view
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
         // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
-        bool pulled = (!mounter.applyWhenJavaScriptIdle || js->idle()) && mounter.apply();
+        // What JavaScript handed over is applied once JavaScript is idle, after all it ran with its
+        // commits (a layout effect's, an effect's), so a frame shows the whole of what JavaScript did,
+        // as when the two took turns; while JavaScript keeps working, once a refresh has passed since
+        // it was handed over, so a long piece of work shows at the display's pace. (A commit made on
+        // the UI thread applies it at once, behind which it is.)
+        auto handedSince = mounter.waitingSince();
+        bool applyNow = js->idle() || (!mounter.applyWhenJavaScriptIdle && handedSince &&
+                                       Clock::now() >= *handedSince + refresh.period());
+        bool pulled = applyNow && mounter.apply();
         // What JavaScript has answered: the batches it ran through, and that whose commits the frame
         // shows now.
         diagnostics.javascriptApplied(std::max(js->done(), mounter.appliedBatch()));
@@ -3715,8 +3736,7 @@ int main(int argc, char** argv) {
         toJavaScript.handOver();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
-        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() ||
-                         (mounter.applyWhenJavaScriptIdle && mounter.pending());
+        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending();
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the
@@ -3737,7 +3757,10 @@ int main(int argc, char** argv) {
         diagnostics.endTurn(dirty && !settling && !window->ready(oxyos::Window::kToplevel), idleTurns >= 2);
         if (idleTurns >= 2) {
           std::optional<Clock::time_point> deadline;
-          for (auto due : {settleBy, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
+          auto handedSince = mounter.applyWhenJavaScriptIdle ? std::nullopt : mounter.waitingSince();
+          std::optional<Clock::time_point> applyBy;
+          if (handedSince) applyBy = *handedSince + refresh.period();
+          for (auto due : {settleBy, applyBy, gestures->nextDeadline(), window->pasteDeadline(), window->painterDeadline(),
                            dragDrop.nextDeadline(),
                            shellMode ? shellState.nextChange() : std::nullopt, worklets.nextFrame(),
                            reanimated.nextFrame(), animated.nextFrame(),

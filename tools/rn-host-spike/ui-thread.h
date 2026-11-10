@@ -43,6 +43,11 @@ class UiThread {
     int depth_;
   };
 
+  // The host's log (stderr) a whole line at a time, whichever thread writes it: `std::cerr` keeps what
+  // each thread writes until its line ends, then writes the line at once, so the two threads' lines
+  // never interleave in the session's log (frame-diagnostics.h's lines among them). Once, at start.
+  static void wholeLogLines();
+
   // Wakes the loop from its sleep, from any thread.
   static void wake();
   // The descriptor the loop polls, and what it reads when it turns.
