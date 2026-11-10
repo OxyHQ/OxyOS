@@ -281,6 +281,18 @@ fn main() -> Result<()> {
     if greeter && (shell_command.is_none() || !command.is_empty()) {
         return Err(USAGE.into());
     }
+    // This thread is the turn (it reads input, serves clients, composes and flips): above every
+    // application (docs/adr/0066-quality-of-service.mdx, decision 2), rtkit's nice −15 and a 1 ms
+    // slice, asked from a thread of its own so the first frame never waits for rtkit's answer.
+    // What the turn starts from here (threads, the shell, applications) begins at nice 0.
+    if let Err(error) = oxyos_priority::raise_calling_thread(
+        oxyos_priority::Rtkit::System,
+        oxyos_priority::TURN_NICE,
+        oxyos_priority::SLICE,
+        "session",
+    ) {
+        eprintln!("[session] the turn's priority: {error}; it runs as an application does");
+    }
     // The user's preferences; what the file does not say (or is not there) is the default.
     // The login screen has no person's preferences to speak: its locale is the system's alone
     // (ADR 0040).
@@ -448,9 +460,10 @@ fn main() -> Result<()> {
     match gpu {
         Ok(gpu) if gpu.exports_dma_buf() => {
             eprintln!(
-                "[session] composing on {} ({:?}) into the displays' buffers, {}",
+                "[session] composing on {} ({:?}), {}, into the displays' buffers, {}",
                 gpu.device_name(),
                 gpu.device_kind(),
+                gpu.queue_priority(),
                 if gpu.exports_sync_file() {
                     "each handed to the display with its completion (IN_FENCE_FD)"
                 } else {

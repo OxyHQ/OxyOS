@@ -81,6 +81,16 @@ clients …, the frame … (uploading …, waiting for the GPU …), events …`
 in which the GPU composed frames, how long they took (`[compositor] the GPU composed N frames in
 the last 10 s: … median, … at the 95th percentile, … at most`).
 
+**The turn's priority** ([ADR 0066](./adr/0066-quality-of-service), decision 2) is said once, as
+the session starts: what rtkit gave its turn thread and its slice
+(`[session] the turn's priority: thread 1425: nice -15 from rtkit, a slice requested; now nice -15, a
+1.00 ms slice, reset on fork`; refused, `rtkit refused: …` and nice 0), and the priority of the GPU's
+queue it composes on (`[session] composing on … (Integrated), its queue at medium priority (high
+refused: ERROR_NOT_PERMITTED_KHR), …`: i915, xe and amdgpu give a queue high priority only to a
+process with `CAP_SYS_NICE`). `ps -L -o tid,cls,ni,comm -p PID` shows the turn at `TS -15` and every
+other thread at 0, and `/proc/PID/task/TID/sched`'s `se.slice` reads 1000000 (a host's UI thread, its
+main one, and its JavaScript thread, `oxyos-js`, too).
+
 **Each Bloom host** (an application, the shell, the login screen) writes, named by the
 application's id (else its module), lines of five kinds (`tools/rn-host-spike/frame-diagnostics.h`):
 
