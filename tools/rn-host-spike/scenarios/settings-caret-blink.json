@@ -209,7 +209,7 @@
         },
         "pixels": {
           "872,369": "#9422ae",
-          "904,369": "#dfdfdf"
+          "904,369": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 0,
@@ -324,7 +324,7 @@
         },
         "pixels": {
           "872,369": "#9422ae",
-          "904,369": "#dfdfdf"
+          "904,369": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 1,
@@ -547,7 +547,7 @@
         },
         "pixels": {
           "872,369": "#9422ae",
-          "904,369": "#dfdfdf"
+          "904,369": "#ffeefc"
         },
         "host_input": {
           "first_mouse.declined": 0,

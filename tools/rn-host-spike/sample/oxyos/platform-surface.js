@@ -120,12 +120,18 @@ function PopupSurface({
       testID={testID}
       collapsable={false}
       // Out of the window's layout: the panel sizes itself, the compositor places it.
-      style={{ position: 'absolute', left: 0, top: 0 }}
+      style={POPUP_VIEW}
     >
       {children}
     </OxyOSPopupView>
   );
 }
+
+// A popup is a surface of its own, as wide as its content: `max-content`, never the width left
+// to it where it is mounted (inside its anchor, a dock icon's or a button's), which a menu's
+// labels, which may shrink, shrank to fit, a desktop menu staying at its least width with its
+// labels cut.
+const POPUP_VIEW = { position: 'absolute', left: 0, top: 0, width: 'max-content' };
 
 // The application's own window, the platform's `windows`; not the shell's (it has none), nor a host
 // drawing offscreen. Bloom's `PlatformWindow`: its state as a store (`getState`, `subscribe`).
