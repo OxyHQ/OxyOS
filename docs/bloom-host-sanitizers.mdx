@@ -23,12 +23,13 @@ session's log, before the process ends with 128 + the signal:
 .../lib/libhermesvm.so(+0x3180c9) [0x...]
 ```
 
-The thread's name tells the JavaScript thread (the main one, named after the executable) from
-Hermes' collector (`hades`) and the image decoders (`oxyos-image-N`). The registers tell a bad
+The thread's name tells the host's loop (the main one, named after the executable) from the
+JavaScript thread (`oxyos-js`), Hermes' collector (`hades`) and the image decoders (`oxyos-image-N`). The registers tell a bad
 pointer from a bad index. The scenarios run with `MALLOC_PERTURB_=165` (`regress.py`), so memory
 read after it was freed holds `0xa5a5a5a5a5a5a5a5` and memory never written `0x5a5a5a5a5a5a5a5a`:
-either in a register at the fault names the bug's kind. The handler runs on a stack of its own,
-so a stack overflow on the JavaScript thread is reported too.
+either in a register at the fault names the bug's kind. The handler runs on a stack of its own
+on each of the two threads, so a stack overflow on the loop or on the JavaScript thread is reported
+too.
 
 The frames are offsets into the runtime's objects. The host and `libreactnative.so` of a deploy
 run are its build directory's (`$W/<host dir>`); `libhermesvm.so` is `$W/rn-<version>/hermes-build`'s, built

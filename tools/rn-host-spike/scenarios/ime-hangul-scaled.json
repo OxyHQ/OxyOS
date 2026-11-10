@@ -29,7 +29,12 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "Line, campo de texto",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     },
@@ -190,7 +195,12 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "한",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     },
@@ -234,7 +244,12 @@
         "shell": {
           "candidates": null
         },
-        "spoken": [],
+        "spoken": [
+          {
+            "text": "한",
+            "interrupting": true
+          }
+        ],
         "announcements": []
       }
     }

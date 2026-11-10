@@ -546,6 +546,16 @@ const en = (f: Formats) => ({
     pinLocked: "Too many incorrect PINs. Use your password.",
     pinLockedNoPassword: "Too many incorrect PINs. Sign out, then sign in with Oxy at the login screen to choose a new PIN.",
   },
+  /** The home's standard folders as a person reads them, by their key (oxyos-files' favourites),
+      whatever they are called on disk, as Finder names them. */
+  places: {
+    desktop: "Desktop",
+    documents: "Documents",
+    downloads: "Downloads",
+    pictures: "Pictures",
+    music: "Music",
+    videos: "Videos",
+  } as Record<string, string>,
   screenshots: {
     captureScreen: "Capture Entire Screen",
     captureWindow: "Capture Selected Window",
@@ -1134,6 +1144,14 @@ const es = (f: Formats): Catalogue => ({
     usePin: "Usar PIN",
     pinLocked: "Demasiados PIN incorrectos. Usa tu contraseña.",
     pinLockedNoPassword: "Demasiados PIN incorrectos. Cierra sesión e inicia sesión con Oxy en la pantalla de inicio para elegir un PIN nuevo.",
+  },
+  places: {
+    desktop: "Escritorio",
+    documents: "Documentos",
+    downloads: "Descargas",
+    pictures: "Imágenes",
+    music: "Música",
+    videos: "Vídeos",
   },
   screenshots: {
     captureScreen: "Capturar pantalla completa",

@@ -83,7 +83,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 38, the session asking applications to quit before it ends (`QuitRequested`,
 /// `QuitReply`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx), both ways, and the
 /// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
-/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008).
+/// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
+/// version 40, an application telling whether it may be ended at once as the session ends
+/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -131,6 +133,7 @@ const REQUESTS_ADDED: Added = &[
     (33, 165..=165),
     (38, 168..=168),
     (39, 70..=70),
+    (40, 169..=169),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

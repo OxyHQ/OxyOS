@@ -63,7 +63,12 @@
     "shell": {
      "candidates": null
     },
-    "spoken": [],
+    "spoken": [
+     {
+      "text": "Line, campo de texto",
+      "interrupting": true
+     }
+    ],
     "announcements": []
    }
   },
@@ -523,7 +528,12 @@
     "shell": {
      "candidates": null
     },
-    "spoken": [],
+    "spoken": [
+     {
+      "text": "你号",
+      "interrupting": true
+     }
+    ],
     "announcements": []
    }
   },
@@ -617,7 +627,12 @@
     "shell": {
      "candidates": null
     },
-    "spoken": [],
+    "spoken": [
+     {
+      "text": "👋",
+      "interrupting": true
+     }
+    ],
     "announcements": []
    }
   },

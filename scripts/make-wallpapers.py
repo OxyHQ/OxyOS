@@ -51,7 +51,7 @@ def hue_of(hex_text):
 
 def mix(a, b, t):
     ca, cb = rgb(a), rgb(b)
-    return hexed(tuple(x + (y - x) * t for x, y in zip(ca, cb)))
+    return hexed(tuple(x + (y - x) * t for x, y in zip(ca, cb, strict=True)))
 
 
 # Drawing ---------------------------------------------------------------------------------------

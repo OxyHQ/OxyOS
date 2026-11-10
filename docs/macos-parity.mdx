@@ -1,0 +1,217 @@
+---
+title: macOS parity
+description: What macOS does to feel unsaturated, unbreakable, fluid, compact and well built, where OxyOS stands on each, one ranked roadmap, and who owns each item.
+order: 10
+---
+
+# macOS parity
+
+This page condenses five research reports written on 10 November 2026 against main at `e388598a`:
+**saturation** (why macOS never feels loaded), **robustness** (why nothing ever seems to break),
+**fluidity** (why motion never stutters), **details** (why it looks compact and professional) and
+**code** (how the codebase must be shaped to get there). Device evidence comes from the ThinkPad
+P14s Gen 3 (read only, with a person signed in) and from seldon. The roadmap below merges the
+five reports' rankings into one list, and the last table says who owns each item. Keep that table
+current: whoever opens a pull request for an item updates its row in the same pull request.
+
+**Correction.** The robustness report says the ThinkPad has no swap. It does: 22 GB of disk swap
+(`/dev/nvme0n1p4`) is active. What it lacks is compression in front of that swap (zswap is off, no
+zram), working-set protection, a pressure signal to apps and an OOM policy that protects the
+compositor. The memory item (S6) below is written with that correction, and it prefers zswap over
+zram because a disk swap exists.
+
+## The short version
+
+| Area | What macOS does | Where OxyOS stands |
+| --- | --- | --- |
+| Saturation | Every thread carries a declared urgency (QoS class, task role) and **every** resource enforces it: the CPU scheduler, disk I/O tiers, timer coalescing, memory (compressor, swap, pressure notifications, jetsam), heat. The window server is in a reserved priority band and sets each app's role. | The right intent in places (the search crawler at `SCHED_IDLE`, backups at the idle class, hosts with 0 wakeups when idle, Low Power Mode), but no structure: the compositor, the shell and every app share one logind scope at nice 0; hidden apps are never throttled; nothing reacts to memory pressure; two "idle" settings are defeated by the platform (the NVMe's `none` scheduler ignores I/O priority; backupd is idle only inside `system.slice`). Invisible when idle (the compositor's run-queue wait is under 1 µs), visible the moment the 16 threads saturate. |
+| Robustness | Each failure is contained in the smallest unit, restarted by itself with a throttle, and the person is put back where they were. The window server shows the wait cursor over a hung app and ⌥⌘⎋ always works; a watchdog ends a hung window server; Resume, autosave and Versions make any end recoverable; the system volume is sealed and updates atomically. | Apps: at or near parity (ADR 0061 crash notice, sheet, reports and Reset; services followed again after a restart; 5 s ping hang detection; Safe Mode; Recovery). The gaps are when the **platform** fails (a hung shell, a hung or crashed session, the login screen crash-looping, system daemons leaving no report, a kernel panic hanging forever) and **what comes back after an unclean end** (nothing). |
+| Fluidity | Almost nothing a person watches move depends on the app's main thread being free: animations run in the render server, one frame clock with deadlines, gestures tracked 1:1 handing velocity to interruptible springs, a no-blocking discipline measured as hitches and hangs. | The compositor's own motion is there (springs, the genie, Mission Control, swipes, direct scanout, overlay planes, explicit sync, 6–7 ms host time key to frame). Inside apps it is not: the host runs JavaScript, worklets, the native driver, scroll physics, drawing and presenting on **one thread**; blocking JavaScript for 500 ms stopped every animation and glide for 504–516 ms. |
+| Details | One text system (13 pt body, per-size tracking, an alpha label hierarchy), neutral surfaces with one accent used sparingly, blurred materials, compact menus and forms, one alert design, standard menus and shortcuts in one notation, consistent wording. | Text sizes differ per role (12/14/15), secondary and tertiary text are the same colour, surfaces are tinted and four "primary" colours share a screen, `glass()` blurs nothing, Settings uses a touch-style grouped list (rows 52 tall, 44×26 switches), two unrelated alert designs, the frontmost app's name never appears in the menu bar for apps without menus, mixed Log Out/Sign Out and US/UK spelling. 88 scenarios were screenshotted on seldon to show it. |
+| Code | Layering enforced by tools (Chromium `DEPS`, Fuchsia visibility), one IDL generating every binding, small single-purpose libraries with one owner, a test pyramid, presubmit formatting for every language. | Strong base: 0 TODOs, `unsafe` forbidden by default, a pure-state-machine compositor core with more test lines than code, one macro schema for the protocol with fuzzing. Weak: nothing checks the crate graph and it has inverted 9 times; concepts copied up to 6 times with diverging rules; no Biome, ruff, clang-format or C++ warnings; the hottest files are the largest (regress.py 6,903 lines and 244 commits in two months; launch.rs `run` 1,401 lines; bloom-host.cpp `main` 2,973 lines). |
+
+## Saturation
+
+macOS maps one QoS class onto every resource in one table (XNU `thread_qos_policy_params`): base
+priority 46 (47 in the frontmost app) down to 4 for background, I/O tier 0–3, timer latency tier
+0–3. The clutch scheduler picks QoS buckets by earliest deadline (0 ms for user-interactive, 250 ms
+for background), and ranks apps inside a bucket by interactivity. WindowServer runs at
+`BASEPRI_GRAPHICS` 76, above every app thread (63 at most). App Nap lowers a hidden, silent app's
+priority, timers and I/O, and lifts it at once on foreground or IPC. Memory goes compressor, then
+swap, then pressure notifications, then jetsam or the "out of application memory" sheet.
+
+On Debian trixie's 6.12 kernel every one of these has an equivalent: cgroup v2 `cpu.weight` per
+app scope (the thread group), `cpu.idle` for background groups, the EEVDF slice hint for a shorter
+deadline, rtkit for high priority, `preempt=full` (a `PREEMPT_DYNAMIC` switch), mq-deadline or
+io.cost for I/O priority, zswap, MGLRU `min_ttl_ms`, `memory.min/low/high`, PSI triggers and
+systemd-oomd. Not available: uclamp and sched_ext are not built.
+
+Two Linux traps decide the design: nice and `SCHED_IDLE` only order tasks **inside one cgroup**
+(between cgroups only weights count), and I/O priority is a hint to the elevator, ignored by `none`
+and never applied to buffered writeback.
+
+What the ThinkPad shows (6.12.101, systemd 257.13, i5-1240P with P-cores 0–7 and E-cores 8–15, 40 GB
+RAM, 22 GB swap):
+
+- Everything OxyOS draws is in `session-3.scope`, TS nice 0, no rtkit, no `CAP_SYS_NICE`, no Vulkan
+  global priority, voluntary preemption.
+- ADR 0051 decision 13's premise ("no user manager") is false: `user@1002.service` runs with
+  `Delegate=yes` (cpu, memory, pids), its own `session.slice` and `app.slice`. The session does not
+  use it.
+- `system.slice` has no cpu subtree, so backupd's idle threads sit in a group that competes with the
+  whole `user.slice` at equal weight. Another user's slice (two game servers) competes with the
+  signed-in person at equal weight.
+- Hidden apps are not told they are hidden (`docs/performance.mdx`, What remains) and keep their
+  frame clock, animations and timers at full priority.
+- zswap off, no zram, `min_ttl_ms` 0, `memory.low/min/high` unset everywhere, no systemd-oomd; the
+  session reads PSI only to show it in Activity Monitor.
+- There is no load mode in `perf.py`, and input time is the host's, not the device's.
+
+## Robustness
+
+| macOS mechanism | OxyOS today | Gap |
+| --- | --- | --- |
+| Separate processes; a crash ends one | Apps, shell, search, reader, services separate; compositor, launcher and supervisor are one process | A session crash ends everything |
+| launchd KeepAlive, throttled, never gives up | systemd `Restart=on-failure` with the default start limit; the login program 5 in 30 s, then the console | Services and the login screen can die for good; the login restart is a fixed 1 s, not the doubling ADR 0061 promises |
+| Wait cursor over a hung app in about 2 s; ⌥⌘⎋ Force Quit always responsive | Ping after input, 5 s, Force Quit only in the Dock menu | No cursor, no title mark, no window, no shortcut, no hang report |
+| Dock and Finder relaunched | Shell restarted with a doubling wait (crash only) | A hung shell is not detected; a shell dying at start ends the session |
+| watchdogd ends a hung WindowServer | None; the power key is held by the session's inhibitor | A hung session is a hung machine |
+| ReportCrash for every process | Bloom apps only; no coredump; `LimitCORE=0` | System processes leave no trace |
+| Kernel panic: restart and "restarted because of a problem" | `kernel.panic=0`, no watchdog, no pstore data | Hangs forever (the 1 November NVIDIA freeze left nothing) |
+| Resume and window restoration after any end | Reopen on an orderly logout only, app ids only | An unclean end restores nothing; no window state |
+| Autosave and Versions | Crash-safe key-value storage and preferences | No document versions |
+| Compressor, swap, "out of application memory" | 22 GB disk swap, nothing in front of it; one scope; `oom_score_adj` 0 for the compositor | The OOM killer is as likely to pick the compositor as the runaway app |
+| Signed System Volume, snapshot boot, atomic updates | A/B `/usr` with dm-verity chosen (ADR 0023 decision 6), its ADR not written; development deploys swap file by file | Not yet |
+
+## Fluidity
+
+| Already on par (keep measuring) | Missing |
+| --- | --- |
+| Input to present: 6.1–6.6 ms host time per key on the ThinkPad; gate budgets of 15–25 ms (#501) | A UI thread separate from JavaScript in the host |
+| Direct scanout and overlay planes (ADR 0031) | A frame clock with a composition deadline and target presentation time for clients (two clients judder today) |
+| Compositor transitions and swipes on springs (ADR 0011) | Velocity kept when a zoom, minimize or close is interrupted (only swipes keep it) |
+| Live resize with one configure in flight (Dropsea 8.67/12.07 ms p50/p95 on the Iris Xe) | Window chrome a busy app cannot hold (the title bar cannot move a window while its JavaScript is busy) |
+| Hang discipline: every slow frame logged with its cause | The Mac's rubber band and momentum into the edge; instant-looking launch (46–207 ms to first frame, a blank frame first); variable refresh |
+
+## Details
+
+The ten highest-impact fixes, from the details report (macOS 27's choices where they differ from
+Tahoe's; the full-width Dock shelf and Super as the system's ⌘ are owner decisions not reopened):
+
+1. Every frontmost app gets its own bold app menu (About, Settings…, Hide, Hide Others, Show All,
+   Quit), and system apps declare standard menus. Today a window with no menus leaves "OxyOS · Ver".
+2. One text system: 13 pt base, per-size tracking, label/secondary/tertiary/quaternary alphas.
+3. Neutral surfaces and one accent, only for selection, the default button, the focus ring and an
+   on switch (today purple, a fixed blue, green and near-black all act as primary).
+4. Menu metrics and one menu style: rows about 22–24, 13 pt, content-sized width, accent highlight,
+   arrow cursor, a right-aligned shortcut column, a visible shadow.
+5. Real materials: blur behind every shell panel (`glass()` changes only alpha; the blur engine
+   exists, `LockClock` uses it).
+6. Settings in compact macOS form density (section radius about 10, rows about 36–40, hairline
+   separators, mini switches, Title Case section titles, a sidebar search field).
+7. One alert component: content-sized, default trailing and accent-filled, Cancel never default, the
+   app's icon, Return answering OK-only notices.
+8. Standard shortcuts (Hide Others, Show All, Force Quit, minimize and close all, Dock toggle,
+   tiling) and one localized chord notation in a fixed modifier order and aligned column.
+9. Wording: one term for Log Out, one wrong-password message, US spelling, typographic apostrophes,
+   ellipses where a command asks first; in Spanish one "Ajustes del Sistema", no "pantalla de inicio" for the login
+   window (it reads as the Home Screen), agreement fixes.
+10. Interaction states: a native focus ring, hover distinct from selection, one disabled alpha,
+    tooltips after about 1 s, the arrow cursor except on links.
+
+## Code
+
+The code report's measurements: 290,701 lines of Rust in 58 workspace members, 35,195 of C++, 69,410
+of TS/JS, 12,945 of Python. The crate graph has 9 inversions (the app runtime `client-ffi` links the
+account service and its keychain crypto, `boot-logo` links the whole compositor, `offscreen` links
+the `backupd` binary crate, `controls`/`sound`/`speech` take domain types from the display
+protocol, five crates depend on `oxyos-install` only for its socket). Concepts with several owners:
+the service socket (×4), the application-id rule (×4, two different rules), passwd lookups (×6,
+some through NSS, some reading the file), POSIX locale parsing (×5), `Secret` (×4, two not
+zeroized), text chunking (×4 plus 15 inline), JSON escaping (×2). Mirrored by hand: the protocol's
+version tables, the 2,481-line C header, the TS session-state types. Two god objects: `Compositor`
+and `Scene`, 88 fields each.
+
+The report's plan, in phases: 0 stop the bleeding (lint every language with a baseline, check the
+layering, workspace dependencies, the `rn-host-spike` rename), 1 the scenario contract as one serde
+codec (regress.py and launch.rs are the two most-changed files), 2 one owner per concept, 3 generate
+what is mirrored, 4 the host and the apps' layout, 5 the god objects. Behaviour stays the same in
+every pull request, moves are separate from edits, and moves of hot files land in quiet windows.
+
+## Roadmap
+
+One list, ranked by what a person feels weighed against effort. Ids are stable: S saturation,
+R robustness, F fluidity, D details, C code. Impact and effort are H (high), M (medium) or L (low).
+
+| Rank | Id | Item | Impact | Effort | Source |
+| ---: | --- | --- | :---: | :---: | --- |
+| 1 | R1 | A hung app is visible and killable: the compositor pings on pointer enter and motion, shows the wait cursor itself after 2 s, "(Not Responding)" after 5 s, Super+Alt+Escape opens a Force Quit window, a hang report is written | H | M | robustness 1, details 8 |
+| 2 | S0 | Saturation benchmark (`perf.py saturation`, loads S1–S7, input-to-present from libinput's time to the flip): every S item is judged by it | H | M | saturation §6 |
+| 3 | S1 | The UI path first: the compositor's turn thread at rtkit high priority (nice −15, not real time), the EEVDF slice hint, `preempt=full`, Vulkan global priority high | H | L | saturation P1, fluidity 3 |
+| 4 | F1 | The host's animation, scrolling and drawing on a thread separate from JavaScript | H | H | fluidity 1 |
+| 5 | R2 | The session survives a hung shell (8 s watchdog, compositor-drawn emergency Force Quit), a shell dying at start is restarted, the login screen and services back off and never give up | H | L | robustness 2 |
+| 6 | S5 | Background services really background: `CPUWeight=idle` on backupd, utility weights on installd, an mq-deadline udev rule for SSDs, E-cores for background on hybrid CPUs | M | L | saturation P5 |
+| 7 | D1 | A bold app menu for every frontmost app; standard menus in system apps | H | M | details 1 |
+| 8 | S2 | One cgroup per app in the user manager's `app.slice`; compositor and shell stay in the session scope; amend ADR 0051 decision 13 | H | M | saturation P2, robustness 5 |
+| 9 | S6 | Memory: zswap in front of the existing swap, MGLRU `min_ttl_ms`, `oom_score_adj` around −900 for the session and −500 for the shell, `MemoryMin` for the session, PSI levels to hosts (hidden apps first), systemd-oomd on `app.slice` only, an "out of application memory" Force Quit sheet first | H | M | saturation P6, robustness 5 (corrected) |
+| 10 | R3 | A hung or crashed session ends cleanly: a heartbeat to the login worker, the power key freed, "your session ended because of a problem", `reopen-at-login` written continuously | H | M | robustness 3 |
+| 11 | S3 | Frontmost boost: scope weights 400 focused, 100 visible, 20 hidden, idle for windowless background activity | M | L | saturation P3 |
+| 12 | F2 | A frame clock in the compositor: a composition deadline before vblank and a target presentation time for clients | H | M | fluidity 2 |
+| 13 | D2–D5 | The text system, neutral surfaces with one accent, menu metrics, blurred materials | H | M | details 2–5 |
+| 14 | S4 | App Nap: occlusion told to the host, its frame clock stopped, `AppState` inactive and background, timer slack, then a weight nap, freezing only on battery | M | M | saturation P4 |
+| 15 | R4 | A report for every process (systemd-coredump), `kernel.panic=10`, `panic_on_oops`, a hardware watchdog, "restarted because of a problem" from pstore | M | L | robustness 4 |
+| 16 | F3 | Window chrome the compositor acts on itself (drag region, traffic lights), so a busy app cannot hold its window | M | M | fluidity 5 |
+| 17 | F4 | Every compositor motion interruptible with its velocity kept | M | M | fluidity 4 |
+| 18 | D6–D10 | Settings density, one alert component, shortcuts and their notation, wording, interaction states | M | M | details 6–10 |
+| 19 | F5 | The Mac's scroll feel: rubber band, momentum into the edge, offset applied on the UI thread (after F1) | M | M | fluidity 6 |
+| 20 | F6 | Launch that looks instant: Dock feedback in the next frame, arrival on the first frame with content, a pre-started host | M | M | fluidity 7 |
+| 21 | R5 | Window and app state restoration (`useRestorableState`), document versions on backupd's snapshots | M | H | robustness 6 |
+| 22 | S7 | The person at the seat outranks other users (`CPUWeight=400` on the active seat's user slice) | L | L | saturation P7 |
+| 23 | S8 | A real-time input and cursor thread with libinput's device time carried to the host | M | H | saturation P8 |
+| 24 | R6 | Atomic OS updates: write the A/B ADR; until then deploy into a build directory and switch one symlink | M | M | robustness 7 |
+| 25 | R7 | Sudden and Automatic Termination: clean apps killed at once at logout | L | M | robustness 8 |
+| 26 | F7 | Variable refresh and rate hints (after F2) | L | H | fluidity 8 |
+| 27 | S9 | Timer slack for OxyOS's services, a thermal hint during gestures, a QoS vocabulary in `@oxyos/platform` | L | L | saturation P9–P11 |
+
+The code track runs beside the list, not against it: it does not change what a person sees, and it
+makes every item above cheaper to land.
+
+| Id | Item | Effort | Source |
+| --- | --- | :---: | --- |
+| C1 | Lint and format every language with a baseline: Biome, ruff, clang-format and `-Wall -Wextra` on the host's own sources, `[workspace.dependencies]` and one `[workspace.lints]` | L | code 0.3–0.5 |
+| C2 | The crate layering checked in CI, with an allowlist that may only shrink; then one inversion fixed per pull request | L | code 0.6, 2.7, 2.8 |
+| C3 | One owner per concept: service socket, application id, passwd lookups (NSS), locale parsing, a zeroizing `Secret`, then the account client crate | M | code 2.1–2.5 |
+| C4 | Rename `tools/rn-host-spike` (it holds the production host) | L | code 0.1 |
+| C5 | One serde codec for scenario steps and results; then split `launch.rs` and `regress.py` | M | code 1.1–1.5 |
+| C6 | Generate the protocol's version tables, the C header's constants, `client-ffi::convert` and the TS state types | M | code 3.1–3.5 |
+| C7 | The host's layout: app glue out of `sample/`, the JS adapter in TypeScript, `host-modules.cpp` one file per module, `bloom-host.cpp` `main` split, host unit tests on GitHub CI | H | code 4.1–4.7 |
+| C8 | The god objects: `CompositorConfig`, `frame` split, a session broker, `Scene` subsystems, fakes behind a feature, typed errors | H | code 5.1–5.7 |
+
+## Ownership
+
+Status as of 10 November 2026. Branches without a number had not opened a pull request yet.
+
+| Id | Owner (pull request or branch) | Status |
+| --- | --- | --- |
+| R1 | — | open |
+| S0 | `perf/saturation-benchmark` | in progress |
+| S1 | — | open |
+| F1 | `feat/host-ui-thread` | in progress |
+| R2, R3, R4 | robustness agent (worktree `robust`, branch not pushed yet) | in progress |
+| S5, S2, S3, S4, S6, S7, S8, S9 | — | open |
+| D1 | `feat/app-menu-every-app` | in progress |
+| D8 | `feat/oxy-menu-system-shortcuts` (Oxy menu, system shortcuts), `feat/window-tiling` (tiling) | in progress |
+| D2–D10 (lock, login, Spotlight details) | `fix/login-lock-spotlight-details` | in progress |
+| D10 (states the host reports) | `fix/host-tells-the-truth` | in progress |
+| Menus and popups behaviour | #499 | open |
+| Shader warm-up (left out of the fluidity report) | `perf/persistent-pipeline-cache` | in progress |
+| F2, F3, F4, F5, F6, F7, R5, R6, R7 | — | open |
+| Measurement budgets on the reserved cores | #501 | open |
+| C1 | #504 (`build/cargo-workspace`), #506 (`lint/biome-baseline`), `lint/ruff-baseline`, `lint/cpp-host-warnings` | in progress |
+| C2 | #505 (`ci/crate-layering`); inversions: `refactor/domain-states-out-of-protocol`, `refactor/splash-out-of-compositor`, `refactor/backupd-daemon-into-backup`, `refactor/account-client` | in progress |
+| C3 | `refactor/service-socket`, `refactor/app-id`, `refactor/posix-locale`, `refactor/users-nss`, `refactor/secret` | in progress |
+| C4, C5 (and splitting `launch.rs`, `regress.py`, `bloom-host.cpp`) | the owner, at a quiet moment: several agents edit those files | scheduled |
+| C6, C7, C8 | — | open |
+
+Related work already merged: scrolling glides and nested scroll views (#498), the desktop
+interaction coverage audit (#497), input-method compositions (#496).

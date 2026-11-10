@@ -106,6 +106,7 @@ AsyncStorage::~AsyncStorage() {
 }
 
 void AsyncStorage::request(folly::dynamic request, Done done) {
+  ++outstanding_;
   {
     std::lock_guard lock(mutex_);
     requests_.emplace_back(folly::toJson(request), std::move(done));
@@ -148,7 +149,10 @@ bool AsyncStorage::deliver() {
   uint64_t count;
   while (read(wake_, &count, sizeof count) > 0) {
   }
-  for (auto& [answer, done] : answers) done(folly::parseJson(answer));
+  for (auto& [answer, done] : answers) {
+    --outstanding_;
+    done(folly::parseJson(answer));
+  }
   return true;
 }
 

@@ -151,7 +151,9 @@ export function storeInstaller(StoreInstallerError) {
     const known = [...packages.keys()].filter((slug) => !installing.has(slug));
     if (known.length === 0) return;
     status(known).then(
-      (states) => Object.entries(states).forEach(([slug, state]) => tell(slug, state)),
+      (states) => {
+        for (const [slug, state] of Object.entries(states)) tell(slug, state);
+      },
       () => {},
     );
   });

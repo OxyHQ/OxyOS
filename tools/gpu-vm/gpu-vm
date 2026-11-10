@@ -22,7 +22,6 @@ at the kernel's version) too, built with make and the kernel's compiler (gcc-14)
 """
 
 import argparse
-import json
 import lzma
 import os
 import shlex

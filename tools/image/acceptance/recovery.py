@@ -40,7 +40,6 @@ firmware's variables kept from boot to boot, as a computer keeps its disk and NV
 Screens, both serial logs and QEMU's log of each boot are kept under `--out`/recovery/.
 """
 
-import pathlib
 import re
 import time
 
@@ -134,7 +133,7 @@ class Scenario:
     def unlock(self, password=PASSWORD, attempts=3):
         """Types the disk's password at Plymouth's field. A key the machine misses (QEMU under
         load) leaves a wrong password and an empty field again: typed again, up to `attempts`."""
-        for attempt in range(attempts):
+        for _attempt in range(attempts):
             prompt = self.wait_for_prompt(self.args.timeout)
             self.save(prompt, "passphrase-field")
             time.sleep(0.5)
