@@ -539,6 +539,14 @@ account's decisions on its capabilities; the development compositor takes it as 
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
 
+A scenario's `scopes` ({"app.slice": [ID, ...], "background.slice": [NAME, ...]}) runs the development
+compositor with a control group tree of the run's own standing for the person's user manager's
+(`OXYOS_CGROUP_FIXTURE`, a plain directory: docs/adr/0066-quality-of-service.mdx, decision 3), so every
+process it starts for an application is placed by `oxyos-scope` as a session's launcher places it; once
+the run ended, each slice's scopes (`app-oxyos-<ID>-<pid>.scope`, `oxyos-<NAME>-<pid>.scope`), each
+holding the process it was made for, are exactly those listed, an application once for each of its
+processes, in any order.
+
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
 as oxyos-session reads `oxyos.safe-mode=1` on the kernel's command line): nothing opened at login,
@@ -2983,6 +2991,27 @@ def check_home(state, wanted, fail):
                 fail(f"{relative} {'is missing' if want else 'is still there'}")
         elif state.get(relative) != want:
             fail(f"{relative} does not hold {want!r}")
+
+
+def unescape_unit(text):
+    """A unit name's part as systemd-escape wrote it (`\\xNN` for a byte), back as it was."""
+    return re.sub(r"\\x([0-9a-f]{2})", lambda m: chr(int(m.group(1), 16)), text)
+
+
+def scopes_made(root):
+    """The scopes the fixture's slices hold once a run ended (docs/adr/0066, decision 3): by slice,
+    the sorted ids of `app-oxyos-<ID>-<pid>.scope` and names of `oxyos-<NAME>-<pid>.scope`, each
+    holding the process it was made for (its `cgroup.procs` naming that pid)."""
+    made = {}
+    for slice in sorted(path for path in root.iterdir() if path.is_dir()) if root.is_dir() else []:
+        names = []
+        for scope in sorted(path for path in slice.iterdir() if path.is_dir()):
+            found = re.fullmatch(r"(?:app-)?oxyos-(.+)-(\d+)\.scope", scope.name)
+            procs = scope / "cgroup.procs"
+            held = procs.read_text().split() if procs.is_file() else []
+            names.append(unescape_unit(found.group(1)) if found and held == [found.group(2)] else f"?{scope.name}")
+        made[slice.name] = sorted(names)
+    return made
 
 
 CRASH_REPORTS = ".local/state/oxyos/crash-reports/"
@@ -6823,6 +6852,13 @@ def main():
     # application window's host, between a modal's own focus and the host following the modal
     # coming: "window-focus-first" (decision 27).
     env.pop("OXYOS_HOST_TEST_ORDER", None)
+    # Each application in a scope of its own, in a tree of the run's own standing for the user
+    # manager's (docs/adr/0066-quality-of-service.mdx, decision 3), never the machine's; the
+    # saturation benchmark's caller gives its own (its delegated control group's), inherited.
+    if "scopes" in scenario:
+        shutil.rmtree(out / "cgroup", ignore_errors=True)
+        (out / "cgroup").mkdir(parents=True)
+        env["OXYOS_CGROUP_FIXTURE"] = str(out / "cgroup")
     if "host_order" in scenario:
         if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first", "window-focus-first"):
             raise ValueError(f"unknown host_order {scenario['host_order']!r}")
@@ -6957,6 +6993,11 @@ def main():
             for path in kept:
                 if path.exists() and secret.encode() in path.read_bytes():
                     failures.append(f"a secret typed is in {path}")
+    if "scopes" in scenario:
+        got = scopes_made(out / "cgroup")
+        wanted = {slice: sorted(ids) for slice, ids in scenario["scopes"].items()}
+        if got != wanted:
+            failures.append(f"the scopes made were {got}, expected exactly {wanted}")
     if "applications_launched" in scenario and summary.get("applications") != scenario["applications_launched"]:
         failures.append(f"the shell started {summary.get('applications')}, expected exactly "
                         f"{scenario['applications_launched']}")

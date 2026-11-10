@@ -1,0 +1,13 @@
+[package]
+name = "oxyos-scope"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Placing itself in its scope (docs/adr/0066-quality-of-service.mdx, decision 3).
+oxyos-scopes = { path = "../../crates/oxyos-scopes" }
+
+[lints]
+workspace = true
