@@ -773,7 +773,7 @@ the input was injected, leaves that wait out.
 | S3 | a cold `cargo build` of oxyos-search, `-j` every CPU, started over as it ends | an application the session launches |
 | S4 | five hidden applications animating each frame in JavaScript, one hidden running JavaScript without rest | Bloom applications the session launches, their windows minimized |
 | S5 | restic's full first backup of 1.5 GiB of random files, and the search index of 20,000 files built, each started over | the backup in `system.slice/oxyos-backupd.service` with the unit file's own settings; the index as the session runs it |
-| S6 | an application writing over 110 % of the machine's memory again and again | an application the session launches, the machine 3 GiB |
+| S6 | an application writing over 110 % of the machine's memory again and again, each page compressing about 2:1 as an application's does | an application the session launches, the machine 3 GiB |
 | S7 | another user's processes computing for every CPU | another user's slice |
 
 **The machine is the run's control group.** The run needs a control group delegated to it, in which

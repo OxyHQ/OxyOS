@@ -9,7 +9,9 @@
 //! - `processes N`: N processes of one thread each (a build's jobs, `stress-ng --cpu N`), ended
 //!   with this one;
 //! - `memory MIB`: MIB of memory taken a chunk at a time and then written again and again, a page
-//!   at a time, so every page stays in use (a memory hog: reclaim, swap, thrashing);
+//!   at a time, so every page stays in use (a memory hog: reclaim, swap, thrashing); each page half
+//!   pseudo-random bytes and half zeros, so it compresses about 2:1 as an application's memory does
+//!   with lz4 (zswap, docs/adr/0066-quality-of-service.mdx, decision 7), never to nothing;
 //! - `repeat -- COMMAND ARGS...`: COMMAND run again each time it ends (a build started over), in
 //!   a process group of its own that ends with this process.
 //!
@@ -222,12 +224,14 @@ fn memory(mib: u64, work: &AtomicU64) -> Result<()> {
     let total = usize::try_from(mib << 20)?;
     let mut chunks: Vec<Vec<u8>> = Vec::new();
     let mut taken = 0;
-    // Taken a chunk at a time, each page written as it is taken (an untouched page is no memory).
+    // Taken a chunk at a time, each page written as it is taken (an untouched page is no memory):
+    // its first half pseudo-random, its second zeros.
+    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
     while taken < total {
         let size = CHUNK.min(total - taken);
         let mut chunk = vec![0u8; size];
-        for page in chunk.iter_mut().step_by(PAGE) {
-            *page = 1;
+        for page in chunk.chunks_mut(PAGE) {
+            fill_half(page, &mut state);
         }
         work.fetch_add((size / PAGE) as u64, Ordering::Relaxed);
         chunks.push(chunk);
@@ -243,6 +247,19 @@ fn memory(mib: u64, work: &AtomicU64) -> Result<()> {
             }
             work.fetch_add((chunk.len() / PAGE) as u64, Ordering::Relaxed);
         }
+    }
+}
+
+/// A page's first half filled with a xorshift's bytes, its second left as it is (zeros): lz4 makes
+/// it about half its size.
+fn fill_half(page: &mut [u8], state: &mut u64) {
+    let half = page.len() / 2;
+    for word in page[..half].chunks_mut(8) {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        let bytes = state.to_le_bytes();
+        word.copy_from_slice(&bytes[..word.len()]);
     }
 }
 
@@ -337,6 +354,22 @@ mod tests {
                 .kind,
             Kind::Repeat(args("cargo build -j 4"))
         );
+    }
+
+    #[test]
+    fn a_hogs_page_is_half_noise_and_half_zeros() {
+        let mut page = vec![0u8; PAGE];
+        let mut state = 1;
+        fill_half(&mut page, &mut state);
+        let (noise, zeros) = page.split_at(PAGE / 2);
+        assert!(zeros.iter().all(|byte| *byte == 0));
+        // Noise: nearly every byte value appears, few bytes are zero.
+        let distinct = noise
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        assert!(distinct > 200, "{distinct} distinct bytes");
+        assert!(noise.iter().filter(|byte| **byte == 0).count() < 32);
     }
 
     #[test]
