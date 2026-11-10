@@ -225,7 +225,7 @@ messages! {
         // by the window's number, the commit's serial and the command's index in it, as it was
         // told them (MenuBar). Anything else is answered with nothing.
         84 => ActivateMenuItem { window: u32, serial: u32, index: u32 },
-        // Version 40: which of the application's standard commands an entry of the menus being
+        // Version 41: which of the application's standard commands an entry of the menus being
         // received is (its About, its Settings…), after the entry and before MenusCommit; only a
         // command without a check, each role at most once in a commit, an entry at most one.
         85 => MenuItemRole { surface: u32, index: u32, role: MenuRole },
@@ -278,7 +278,7 @@ messages! {
         // as one: the same application id, launched or claimed alike.
         110 => HideApplication { window: u32 },
         111 => QuitApplication { window: u32 },
-        // Version 40 (ADR 0021): hides every application but the one of `window` (0: every
+        // Version 41 (ADR 0021): hides every application but the one of `window` (0: every
         // application), as a Mac's Hide Others; and shows every hidden application again, as its
         // Show All, without changing the active window.
         113 => HideOtherApplications { window: u32 },
@@ -369,6 +369,12 @@ messages! {
         // `applicationShouldTerminate:`. `quit`: it ends its own process; otherwise the whole end
         // is cancelled. An answer to nothing the client was asked is ignored.
         168 => QuitReply { serial: u32, quit: bool },
+        // Sudden Termination (version 40, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
+        // decision 10): whether the application may be ended at once when the session ends,
+        // without being asked, as a Mac's `NSSupportsSuddenTermination`: nothing unsaved, no write
+        // pending, no quit handler that wants to be asked. Told as it changes; none told, it is
+        // asked, as before.
+        169 => SuddenTermination { enabled: bool },
         // GPU buffers (ADR 0031). A DMA-BUF's planes, one descriptor each, then the buffer: its
         // DRM format (premultiplied Argb8888, opaque Xrgb8888), modifier, size and plane count,
         // checked and imported before it is used (BufferFailed when a well-formed one cannot be).
@@ -701,7 +707,7 @@ messages! {
         // To an application: the person chose one of its commands in the shell's bar, the entry
         // `index` of its commit `menus`. `serial` is the choice, a user input as a key press's is.
         74 => MenuItemActivated { surface: u32, serial: u64, menus: u32, index: u32 },
-        // Version 40, to the session's shell: an entry of the menus being told is one of the
+        // Version 41, to the session's shell: an entry of the menus being told is one of the
         // application's standard commands (MenuItemRole), after its MenuBarItem and before
         // MenuBarCommitted. A shell of version 39 is never told it.
         75 => MenuBarItemRole { window: u32, index: u32, role: MenuRole },

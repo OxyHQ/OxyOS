@@ -507,7 +507,7 @@ typedef struct OxyOSClient OxyOSClient;
  *               flag: OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
  *   MENU_BAR_TEXT  code: the window; detail: the entry; height: OXYOS_MENU_LABEL or
  *               OXYOS_MENU_SHORTCUT; text: a chunk of it, appended.
- *   MENU_BAR_ROLE  (version 40) code: the window; detail: the entry; height: OXYOS_MENU_ROLE_ABOUT
+ *   MENU_BAR_ROLE  (version 41) code: the window; detail: the entry; height: OXYOS_MENU_ROLE_ABOUT
  *               or _SETTINGS: the application's standard command it is, which the shell shows in
  *               the application's own menu.
  *   MENU_BAR_COMMITTED  code: the window: the bar is whole.
@@ -762,7 +762,7 @@ typedef struct OxyOSAccessibleDetail {
 #define OXYOS_MENU_SHORTCUT 2
 #define OXYOS_NO_MENU_PARENT 0xFFFFFFFF
 /* Which of the application's standard commands an entry is: none, its About, its Settings…
- * (ADR 0021), told to a compositor of version 40 or newer. */
+ * (ADR 0021), told to a compositor of version 41 or newer. */
 #define OXYOS_MENU_ROLE_NONE 0
 #define OXYOS_MENU_ROLE_ABOUT 1
 #define OXYOS_MENU_ROLE_SETTINGS 2
@@ -836,7 +836,7 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
 #define OXYOS_MANAGE_FORCE_QUIT_APPLICATION 10
 /* Hides every application but the one of `window` (0: every application), as a Mac's Hide Others,
  * and shows every hidden application again without changing the active window, as its Show All
- * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 40. */
+ * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 41. */
 #define OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS 11
 #define OXYOS_MANAGE_SHOW_ALL_APPLICATIONS 12
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
@@ -1004,6 +1004,13 @@ int oxyos_client_background_item(OxyOSClient* client, uint32_t serial, uint8_t k
 #define OXYOS_SESSION_END_SHUT_DOWN 3
 #define OXYOS_QUIT_REQUESTS_VERSION 38
 int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t quit);
+/* Sudden Termination (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10):
+ * whether the application may be ended at once when the session ends, without being asked
+ * (`enabled` 1: nothing unsaved, no write pending, no quit handler that wants to be asked), as a
+ * Mac's NSSupportsSuddenTermination; told as it changes. An error, sending nothing, to a compositor
+ * of a version before OXYOS_SUDDEN_TERMINATION_VERSION, which asks every application. */
+#define OXYOS_SUDDEN_TERMINATION_VERSION 40
+int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),

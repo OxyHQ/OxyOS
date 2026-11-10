@@ -53,7 +53,9 @@ export default function LocaleProbe() {
         setEvents((told) => ({ ...told, calendar: told.calendar + 1 })),
       ),
     ];
-    return () => subscriptions.forEach((subscription) => subscription.remove());
+    return () => {
+      for (const subscription of subscriptions) subscription.remove();
+    };
   }, []);
   const rows = [
     `I18n: ${I18nManager.getConstants().localeIdentifier} ${I18nManager.isRTL ? 'rtl' : 'ltr'}`,

@@ -251,6 +251,18 @@ void TextEditing::attached() {
   for (Tag tag : pending) {
     if (tree_.views().count(tag)) focus(tag);
   }
+  // The focused input laid out at another size (its window resized): its text scrolls to keep the
+  // caret in view, and back as far as the text allows, as an EditText's and an NSTextField's do,
+  // so the caret told to the compositor, and an input method's candidates under it, stay with it.
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) {
+    laidOut_.reset();
+    return;
+  }
+  auto size = it->second.view.layoutMetrics.getContentFrame().size;
+  bool resized = laidOut_ && laidOut_->first == focused_ && laidOut_->second != size;
+  laidOut_ = {focused_, size};
+  if (resized) reveal();
 }
 
 void TextEditing::command(const ShadowView& view, const std::string& name, const folly::dynamic& args) {
@@ -382,7 +394,17 @@ void TextEditing::focus(Tag tag, std::optional<size_t> at) {
     } else if (auto offset = offsetAt(surface, point.x, point.y, false)) {
       anchor_ = caret_ = *offset;
     }
-  } else if (props->selectTextOnFocus) {
+  } else if (focusSelection_) {
+    // An assistive technology's selection (setSelection), within the text at characters.
+    auto within = [&](size_t at) {
+      at = std::min(at, text_.size());
+      while (at > 0 && continuation(text_, at)) --at;
+      return at;
+    };
+    anchor_ = within(std::min(focusSelection_->first, focusSelection_->second));
+    caret_ = within(std::max(focusSelection_->first, focusSelection_->second));
+  } else if (props->selectTextOnFocus || fromKeyboard_) {
+    // Tab selects the whole text, as a Mac's field tabbed into does (focusFromKeyboard).
     anchor_ = 0;
   } else if (pressed && taps_ != Taps::Single) {
     // A double or triple click on an input without focus: its first press focused it.
@@ -404,16 +426,20 @@ void TextEditing::focus(Tag tag, std::optional<size_t> at) {
   it->second.view.eventEmitter->dispatchEvent("focus", folly::dynamic::object("target", tag));
   Report::get().deliver("focus", 0, it->second.view);
   if (!at) selectionChanged();
+  if (onFocus_) onFocus_(tag);
   if (tracing()) std::cerr << "[text] focus " << tag << " \"" << logged(text_) << "\" caret " << caret_ << "\n";
 }
 
 void TextEditing::focusFromKeyboard(Tag tag) {
   press_.reset();
+  if (tag == focused_) {
+    if (anchor_ != 0 || caret_ != text_.size()) selectRange(0, text_.size());
+    return;
+  }
+  // Focus selects everything at once, so React hears one selection change, not the caret's first.
+  fromKeyboard_ = true;
   focus(tag);
-  if (focused_ != tag || (anchor_ == 0 && caret_ == text_.size())) return;
-  anchor_ = 0;
-  caret_ = text_.size();
-  selectionChanged();
+  fromKeyboard_ = false;
 }
 
 void TextEditing::blur() {
@@ -570,10 +596,7 @@ void TextEditing::transaction(const OxyOSTextTransaction& change, bool current) 
   update(std::move(text), anchor, caret);
   keyPress(key, batch ? "batch" : "setComposingText");
   if (!composing) {
-    Edit kind = wasComposing || deletes || (commits && from != to) ? Edit::Replace
-                : commits                                         ? Edit::Insert
-                                                                  : Edit::Delete;
-    record(snapshot, kind);
+    record(snapshot, wasComposing || deletes || (commits && from != to) ? Edit::Whole : Edit::Typing);
   }
 }
 
@@ -612,12 +635,8 @@ std::optional<TextEditing::Field> TextEditing::field() const {
   // it begins.
   bool composing = composeStart_ != composeEnd_;
   field.text = composing ? text_.substr(0, composeStart_) + text_.substr(composeEnd_) : text_;
-  auto outside = [&](size_t at) {
-    if (!composing || at <= composeStart_) return at;
-    return at >= composeEnd_ ? at - (composeEnd_ - composeStart_) : composeStart_;
-  };
-  field.anchor = outside(anchor_);
-  field.cursor = outside(caret_);
+  field.anchor = withoutComposition(anchor_);
+  field.cursor = withoutComposition(caret_);
   return field;
 }
 
@@ -1063,7 +1082,7 @@ void TextEditing::textDragEnded(const std::optional<std::string>& action) {
   if (history.text != drag.text) history = History{};
   history.entries.resize(history.done);
   history.entries.push_back(
-      {Snapshot{drag.text, drag.from, drag.to}, Snapshot{text, drag.from, drag.from}, Edit::Delete});
+      {Snapshot{drag.text, drag.from, drag.to}, Snapshot{text, drag.from, drag.from}, Edit::Whole});
   if (history.entries.size() > kHistoryLimit) history.entries.erase(history.entries.begin());
   history.done = history.entries.size();
   history.text = text;
@@ -1136,7 +1155,7 @@ bool TextEditing::dropOwn(Tag tag, uint32_t surface, float x, float y, bool copy
   Snapshot before{text_, anchor_, caret_};
   merging_ = false;
   update(std::move(text), start, start + dragged.size());
-  record(before, copy ? Edit::Insert : Edit::Replace);
+  record(before, Edit::Whole);
   merging_ = false;
   return true;
 }
@@ -1163,7 +1182,7 @@ void TextEditing::dropText(Tag tag, uint32_t surface, float x, float y, std::str
   Snapshot before{text_, anchor_, caret_};
   merging_ = false;
   update(text_.substr(0, from) + text + text_.substr(from), from, from + text.size());
-  record(before, Edit::Insert);
+  record(before, Edit::Whole);
   merging_ = false;
 }
 
@@ -1334,8 +1353,17 @@ void TextEditing::selectRange(size_t anchor, size_t caret) {
 }
 
 bool TextEditing::setSelection(Tag tag, size_t start, size_t end) {
-  if (focused_ != tag) focus(tag);
-  if (focused_ != tag) return false;
+  if (focused_ != tag) {
+    // Focus takes the selection at once: React hears one selection change.
+    focusSelection_ = {start, end};
+    focus(tag);
+    focusSelection_.reset();
+    return focused_ == tag;
+  }
+  // The assistive technology's offsets are into the text it is told, without a composition, which
+  // ending keeps as text.
+  start = withComposition(start);
+  end = withComposition(end);
   endComposition();
   auto within = [this](size_t at) {
     at = std::min(at, text_.size());
@@ -1354,12 +1382,23 @@ bool TextEditing::setSelection(Tag tag, size_t start, size_t end) {
 
 std::optional<std::pair<size_t, size_t>> TextEditing::selection(Tag tag) const {
   if (tag != focused_ || secure()) return std::nullopt;
-  return std::make_pair(std::min(anchor_, caret_), std::max(anchor_, caret_));
+  return std::make_pair(withoutComposition(std::min(anchor_, caret_)), withoutComposition(std::max(anchor_, caret_)));
 }
 
 std::optional<std::string> TextEditing::text(Tag tag) const {
   if (tag != focused_ || secure()) return std::nullopt;
-  return text_;
+  if (composeStart_ == composeEnd_) return text_;
+  return text_.substr(0, composeStart_) + text_.substr(composeEnd_);
+}
+
+size_t TextEditing::withoutComposition(size_t at) const {
+  if (composeStart_ == composeEnd_ || at <= composeStart_) return at;
+  return at >= composeEnd_ ? at - (composeEnd_ - composeStart_) : composeStart_;
+}
+
+size_t TextEditing::withComposition(size_t at) const {
+  if (composeStart_ == composeEnd_ || at <= composeStart_) return at;
+  return at + (composeEnd_ - composeStart_);
 }
 
 void TextEditing::selectionChanged() {
@@ -1415,10 +1454,7 @@ void TextEditing::replace(size_t from, size_t to, const std::string& insert, con
   size_t caret = from + insert.size();
   update(std::move(text), caret, caret);
   if (!composing) {
-    Edit kind = wasComposing || (!insert.empty() && from != to) ? Edit::Replace
-                : insert.empty()                                ? Edit::Delete
-                                                                : Edit::Insert;
-    record(before, kind);
+    record(before, wasComposing ? Edit::Whole : Edit::Typing);
   }
 }
 
@@ -1469,11 +1505,14 @@ void TextEditing::record(const Snapshot& before, Edit kind) {
   auto& history = histories_[focused_];
   Snapshot after{text_, anchor_, caret_};
   history.entries.resize(history.done);
-  // Typing, or deleting, goes on as one edit while it continues where the last one ended and the
-  // caret did not move in between, as Android's UndoInputFilter merges them.
+  // Typing goes on as one edit, as NSTextView's typing does (one Undo Typing): what is typed and
+  // deleted with the keys, from the first key, which may replace a selection, while it continues
+  // where the last key left the caret. A move of the caret or the selection ends it (merging_
+  // goes false), and so does an edit that is no typing (a paste, a cut, a drop, a composition),
+  // which is one of its own.
   if (merging_ && history.done > 0) {
     auto& last = history.entries.back();
-    if (last.kind == kind && kind != Edit::Replace && last.after.caret == before.caret) {
+    if (last.kind == Edit::Typing && kind == Edit::Typing && last.after.caret == before.caret) {
       last.after = std::move(after);
       history.text = text_;
       return;
@@ -1491,7 +1530,7 @@ void TextEditing::endComposition() {
   composeStart_ = composeEnd_ = 0;
   segments_.clear();
   // Its text stays, as Android's finishComposingText leaves it, and is one edit.
-  if (composeBefore_) record(*composeBefore_, Edit::Replace);
+  if (composeBefore_) record(*composeBefore_, Edit::Whole);
   composeBefore_.reset();
   reportComposition();
 }
@@ -1642,14 +1681,37 @@ bool TextEditing::contextMenu(Tag tag, uint32_t surface, float x, float y) {
   }
   auto placement = locate_(tag);
   if (!placement) return false;
+  return openMenu(surface, Point{x - placement->frame.origin.x, y - placement->frame.origin.y});
+}
+
+bool TextEditing::contextMenuAtCaret() {
+  auto it = tree_.views().find(focused_);
+  auto placement = locate_(focused_);
+  if (it == tree_.views().end() || !placement) return false;
+  // The keys edit nothing: the selection stays as it is, as the menu's commands act on it.
+  endComposition();
+  merging_ = false;
+  // Under the caret's end of the selection, where Windows' and GTK's fields open it from the keys,
+  // in the text as drawn (scrolled); a secure field's caret too, which no input method is told.
+  const auto& view = it->second.view;
+  auto caret = TextInputGeometry(view, text_).caret(caret_);
+  auto content = view.layoutMetrics.getContentFrame();
+  Point scroll{};
+  if (auto at = scrolls_.find(focused_); at != scrolls_.end()) scroll = at->second;
+  return openMenu(placement->surface,
+                  Point{content.origin.x + caret.x - scroll.x, content.origin.y + caret.top + caret.height - scroll.y});
+}
+
+bool TextEditing::openMenu(uint32_t surface, Point local) {
+  auto it = tree_.views().find(focused_);
+  if (it == tree_.views().end()) return false;
   auto commands = this->commands();
-  Point local{x - placement->frame.origin.x, y - placement->frame.origin.y};
-  folly::dynamic payload = folly::dynamic::object("target", tag)("x", local.x)("y", local.y)("undo", commands.undo)(
-      "redo", commands.redo)("cut", commands.cut)("copy", commands.copy)("paste", commands.paste)(
-      "selectAll", commands.selectAll);
+  folly::dynamic payload = folly::dynamic::object("target", focused_)("x", local.x)("y", local.y)(
+      "undo", commands.undo)("redo", commands.redo)("cut", commands.cut)("copy", commands.copy)(
+      "paste", commands.paste)("selectAll", commands.selectAll);
   it->second.view.eventEmitter->dispatchEvent("oxyosTextMenu", folly::dynamic(payload));
   Report::get().deliver("oxyosTextMenu", surface, it->second.view, payload);
-  if (tracing()) std::cerr << "[text] context menu " << tag << " " << folly::toJson(payload) << "\n";
+  if (tracing()) std::cerr << "[text] context menu " << focused_ << " " << folly::toJson(payload) << "\n";
   return true;
 }
 

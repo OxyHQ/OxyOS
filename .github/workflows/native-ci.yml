@@ -3,7 +3,7 @@ name: Native foundation
 on:
   push:
     branches: [main]
-    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml']
+    paths: ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'tools/**', 'scripts/check-native-boundary.py', 'scripts/test_check_native_boundary.py', 'docs/native-foundation.mdx', '.github/workflows/native-ci.yml', 'apps/**', 'scripts/*.mjs', 'biome.jsonc']
   # Every pull request and every merge queue entry: its jobs are required checks of main
   # (docs/developing.mdx), so they report whatever a change touches.
   pull_request:
@@ -33,6 +33,13 @@ jobs:
       APT_PACKAGES: libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # The TypeScript and JavaScript (apps/, the sample's platform and probes, shell-preview, the
+      # scripts' modules) through Biome, the Oxy linter (biome.jsonc; ~/Oxy/docs/lint-and-format.md),
+      # once: it reads the same files on either architecture. Its log says "Checked N files", without
+      # which Biome did not run.
+      - name: Biome
+        if: matrix.runner == 'ubuntu-latest'
+        run: npx --yes @biomejs/biome@2.5.15 ci apps tools/rn-host-spike/sample tools/shell-preview scripts
       - id: toolchain
         run: |
           python3 -c 'import tomllib; print("version=" + tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])' >> "$GITHUB_OUTPUT"
@@ -135,6 +142,13 @@ jobs:
           sudo "$offscreen" --ignored --exact uinput::tests::libinput_counts_the_virtual_touchpads_swipes_and_pinches_of_three_and_four_fingers
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: python3 scripts/check-native-boundary.py
+      # The boundary script's crate layers on graphs written by hand (docs/native-architecture.mdx).
+      - run: python3 scripts/test_check_native_boundary.py
+      # The Python (ruff.toml: pyflakes, syntax errors, bugbear; lint only), once: the same files on
+      # either architecture.
+      - name: Ruff
+        if: matrix.runner == 'ubuntu-latest'
+        run: pipx run ruff==0.17.4 check .
       # regress.py's own checks (the input-delivery invariant) on records written by hand.
       - run: python3 tools/rn-host-spike/test_regress.py
       # The scenario gate's builds below every gate's scenarios (tools/gate/run-scenarios.sh).

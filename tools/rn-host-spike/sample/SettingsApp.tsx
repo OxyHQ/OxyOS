@@ -417,7 +417,9 @@ function useSettingsModel(): { snapshot: SettingsSnapshot; actions: SettingsActi
     // A change between the first read and the subscription is not lost.
     setValues(native?.getValues() ?? null);
     setDisplays(native?.getDisplays() ?? null);
-    return () => subscriptions.forEach((subscription) => subscription.remove());
+    return () => {
+      for (const subscription of subscriptions) subscription.remove();
+    };
   }, []);
   // The session's applications as its registry names them, read again as the host says they changed
   // (one installed, updated or removed while Settings is open, or the session's language changed).

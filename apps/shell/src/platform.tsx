@@ -178,6 +178,9 @@ export type SearchItem = {
   tags?: readonly string[];
   snippet?: string;
   location?: string;
+  /** The standard folder `location` starts at (`documents`, `pictures`…) and the folders below
+      it: shown in the person's language, as Finder names the home's folders. */
+  place?: { key: string; within: readonly string[] };
 };
 /** A search's answer: its items ranked, best first; the top hit (none when none is good enough);
     and whether the index is still being built. */

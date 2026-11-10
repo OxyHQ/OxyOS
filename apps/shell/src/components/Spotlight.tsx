@@ -49,6 +49,7 @@ import {
   TOP_HIT_HEIGHT,
   draggable,
   kindName,
+  locationText,
   localResults,
   moveSelection,
   openingOf,
@@ -113,6 +114,8 @@ const MAGNIFIER = 20;
 const ROW_ICON = 20;
 const TOP_HIT_ICON = 32;
 const ROW_TEXT = { fontSize: 13, lineHeight: 16 } as const;
+/** How much faster a row's detail shrinks than its name: the detail gives way first. */
+const DETAIL_SHRINK = 100;
 const ROW_INSET = 8;
 const ROW_RADIUS = 8;
 /** The preview: its padding, its icon, and the largest picture of an image. */
@@ -189,7 +192,7 @@ function factsOf(item: SearchItem, messages: ShellMessages): { label: string; va
   const facts: [string, string | undefined][] = [
     [words.kind, kindName(item, messages)],
     [words.size, item.size === undefined || item.category === "folder" ? undefined : sizeText(item.size, messages)],
-    [words.where, item.location],
+    [words.where, locationText(item, messages)],
     [words.created, when(item.created)],
     [words.modified, when(item.modified)],
     [words.lastOpened, when(item.lastUsed)],
@@ -373,11 +376,17 @@ const Row = memo(function Row({
       }}
     >
       <ResultIcon item={item} size={top ? TOP_HIT_ICON : ROW_ICON} applications={applications} />
-      <Text numberOfLines={1} style={{ ...ROW_TEXT, flexShrink: 1, color: ink }}>
+      {/* The name first, as Spotlight's rows give it: what is beside it gives way before the name
+          does (it shrinks a hundred times as fast, down to nothing), and the name is cut in the
+          middle only when it alone is too wide, keeping its start and its extension. */}
+      <Text numberOfLines={1} ellipsizeMode="middle" style={{ ...ROW_TEXT, flexShrink: 1, color: ink }}>
         {item.title}
       </Text>
       {detail ? (
-        <Text numberOfLines={1} style={{ ...ROW_TEXT, flexShrink: 2, color: selected ? onAccent : palette.secondary, opacity: selected ? 0.8 : 1 }}>
+        <Text
+          numberOfLines={1}
+          style={{ ...ROW_TEXT, flexShrink: DETAIL_SHRINK, minWidth: 0, color: selected ? onAccent : palette.secondary, opacity: selected ? 0.8 : 1 }}
+        >
           {`— ${detail}`}
         </Text>
       ) : null}
@@ -547,7 +556,7 @@ function SpotlightPanel({
     actions.openUrl?.(url);
     close(false);
   }, [selectedItem, actions, close]);
-  const escape = useCallback(() => {
+  const dismiss = useCallback(() => {
     if (text) change("");
     else close(true);
   }, [text, close]);
@@ -583,7 +592,7 @@ function SpotlightPanel({
   // What a key does, from the platform's keys before the field, else the field's own.
   const onKey = (key: string, ctrl: boolean): boolean => {
     if (key === "Escape") {
-      escape();
+      dismiss();
       return true;
     }
     if (key === "Enter") {
@@ -611,8 +620,8 @@ function SpotlightPanel({
 
   const latestReveal = useRef(reveal);
   latestReveal.current = reveal;
-  const latestEscape = useRef(escape);
-  latestEscape.current = escape;
+  const latestEscape = useRef(dismiss);
+  latestEscape.current = dismiss;
   const lastReveal = useRef(revealRequest);
   useEffect(() => {
     if (lastReveal.current !== revealRequest) latestReveal.current();

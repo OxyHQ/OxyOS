@@ -140,7 +140,7 @@ pub const OXYOS_EVENT_MENU_BAR_TEXT: u32 = 72;
 pub const OXYOS_EVENT_MENU_BAR_COMMITTED: u32 = 73;
 /// To an application: a command of its menus chosen in the shell's bar.
 pub const OXYOS_EVENT_MENU_ITEM_ACTIVATED: u32 = 74;
-/// To the session's shell (version 40): an entry of the menus being told is one of the
+/// To the session's shell (version 41): an entry of the menus being told is one of the
 /// application's standard commands (code: the window; detail: the entry; height:
 /// OXYOS_MENU_ROLE_*), after its MENU_BAR_ITEM and before MENU_BAR_COMMITTED.
 pub const OXYOS_EVENT_MENU_BAR_ROLE: u32 = 75;
@@ -226,7 +226,7 @@ pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
 pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
 /// Hides every application but the window's (window 0: every one), and shows every application
 /// hidden again (ADR 0021: Hide Others and Show All). Refused to a compositor of a version before
-/// 40.
+/// 41.
 pub const OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS: u8 = 11;
 pub const OXYOS_MANAGE_SHOW_ALL_APPLICATIONS: u8 = 12;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
@@ -500,6 +500,9 @@ pub const OXYOS_SESSION_END_RESTART: u32 = 2;
 pub const OXYOS_SESSION_END_SHUT_DOWN: u32 = 3;
 /// The first version whose compositor asks applications to quit and takes their answer.
 pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSION as u32;
+/// The first version whose compositor takes `oxyos_client_set_sudden_termination`
+/// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
+pub const OXYOS_SUDDEN_TERMINATION_VERSION: u32 = oxyos_protocol::SUDDEN_TERMINATION_VERSION as u32;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -3085,6 +3088,30 @@ pub unsafe extern "C" fn oxyos_client_reply_to_quit(
     }
 }
 
+/// Whether the application may be ended at once when the session ends, without being asked
+/// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10): `enabled` non-zero,
+/// nothing is unsaved, no write is pending and no quit handler wants to be asked; 0, it is asked.
+/// 0 on success; an error, sending nothing, to a compositor of a version before 40.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_sudden_termination(
+    client: *mut OxyOSClient,
+    enabled: u8,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::SuddenTermination {
+                enabled: enabled != 0,
+            },
+        )
+    }
+}
+
 /// Locks the session (the session's shell, with the `shell` grant). 0 on success.
 ///
 /// # Safety
@@ -3763,7 +3790,7 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility_detailed(
 /// Declares a toplevel's menus (ADR 0021), replacing its last: `count` entries in order, each
 /// parent before what it holds, as the commit `serial` (above every earlier one of the window;
 /// a MENU_ITEM_ACTIVATED names it with the chosen entry's index), each entry's role told only to
-/// a compositor of version 40 or newer (an older one's shell shows it where it is declared). A
+/// a compositor of version 41 or newer (an older one's shell shows it where it is declared). A
 /// label longer than the protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
 /// be another. More entries, an unknown kind or flags: OXYOS_ERROR, and nothing is sent. 0 on
 /// success.

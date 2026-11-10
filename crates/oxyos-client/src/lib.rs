@@ -1646,7 +1646,7 @@ pub struct Menu<'a> {
     /// A command's key chord (`Mod+N`); empty for none.
     pub shortcut: &'a str,
     /// Which of the application's standard commands it is (its About, its Settings…), which a
-    /// compositor of version 40 or newer tells the shell; an older one is told nothing of it, and
+    /// compositor of version 41 or newer tells the shell; an older one is told nothing of it, and
     /// its shell shows the command where it is declared.
     pub role: Option<MenuRole>,
 }
