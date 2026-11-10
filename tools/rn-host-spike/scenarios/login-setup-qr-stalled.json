@@ -120,7 +120,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
             "Step 2 of 4",
             "Back"
           ],
@@ -134,7 +134,7 @@
             "Set a password",
             "Use another account",
             "Your account couldn't be checked. Try again.",
-            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Oxy couldn’t be reached to finish signing in. You’re still signed in: check the connection, then try again.",
             "Finishing signing in…"
           ],
           "focus_input": "login-setup-pin-password"
@@ -161,7 +161,7 @@
         "in_shell": {
           "texts": [
             "Enter Your PIN Again",
-            "To be sure it's the one you meant.",
+            "To be sure it’s the one you meant.",
             "Step 2 of 4"
           ],
           "absent": [
@@ -170,7 +170,7 @@
             "Set a password",
             "Send code",
             "Your account couldn't be checked. Try again.",
-            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Oxy couldn’t be reached to finish signing in. You’re still signed in: check the connection, then try again.",
             "Finishing signing in…"
           ],
           "focus_input": "login-setup-pin-again-password",
@@ -209,7 +209,7 @@
           ],
           "absent": [
             "Your account couldn't be checked. Try again.",
-            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Oxy couldn’t be reached to finish signing in. You’re still signed in: check the connection, then try again.",
             "Finishing signing in…"
           ]
         }
@@ -231,7 +231,7 @@
           ],
           "absent": [
             "Your account couldn't be checked. Try again.",
-            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Oxy couldn’t be reached to finish signing in. You’re still signed in: check the connection, then try again.",
             "Finishing signing in…"
           ]
         }
@@ -273,7 +273,7 @@
           ],
           "absent": [
             "Your account couldn't be checked. Try again.",
-            "Oxy couldn't be reached to finish signing in. You're still signed in: check the connection, then try again.",
+            "Oxy couldn’t be reached to finish signing in. You’re still signed in: check the connection, then try again.",
             "Finishing signing in…"
           ]
         },

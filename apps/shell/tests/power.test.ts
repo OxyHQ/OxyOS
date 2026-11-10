@@ -110,14 +110,14 @@ test("the question to shut down, restart and log out, its countdown and its defa
     [shutDown.defaultAnswer, shutDown.focusAnswer, shutDown.destructive, shutDown.checkbox?.checked],
     [true, true, false, true],
   );
-  assert.equal(shutDown.checkbox?.label, "Reopen windows when logging back in");
+  assert.equal(shutDown.checkbox?.label, "Reopen windows when signing back in");
   const restart = sheetView({ kind: "end-session", action: "restart", seconds: 59, reopenWindows: false }, en);
   assert.equal(restart.title, "Are you sure you want to restart your computer now?");
   assert.equal(restart.body, "If you do nothing, the computer will restart automatically in 59 seconds.");
   assert.equal(restart.accept, "Restart");
   assert.equal(restart.checkbox?.checked, false);
   const logOut = sheetView({ kind: "end-session", action: "logOut", seconds: 60, reopenWindows: true }, en);
-  assert.equal(logOut.title, "Are you sure you want to quit all applications and log out now?");
+  assert.equal(logOut.title, "Are you sure you want to quit all apps and log out now?");
   assert.equal(logOut.body, "If you do nothing, you will be logged out automatically in 60 seconds.");
   assert.equal(logOut.accept, "Log Out");
 });
@@ -161,18 +161,18 @@ test("what kept an end from happening: the application named, as a Mac says it",
   assert.equal(sheetView({ kind: "end-session-cancelled", action: "shutDown", application: "Pages" }, es).title, "“Pages” ha cancelado el apagado.");
   assert.equal(sheetView({ kind: "end-session-cancelled", action: "logOut", application: "Pages" }, es).title, "“Pages” ha cancelado el cierre de sesión.");
   const timedOut = sheetView({ kind: "end-session-timed-out", action: "restart", application: "Pages" }, en);
-  assert.equal(timedOut.title, "Restart has timed out because the application “Pages” failed to quit.");
+  assert.equal(timedOut.title, "Restart has timed out because the app “Pages” failed to quit.");
   assert.equal(timedOut.body, "To try again, quit Pages and restart again.");
   const failed = sheetView({ kind: "end-session-failed", action: "shutDown", reason: "notPermitted" }, en);
-  assert.equal(failed.title, "Your computer can't shut down now.");
+  assert.equal(failed.title, "Your computer can’t shut down now.");
   assert.equal(
     failed.body,
-    "Someone else is logged in to this computer, or an application is keeping it on. An administrator must shut it down.",
+    "Someone else is signed in to this computer, or an app is keeping it on. An administrator must shut it down.",
   );
-  assert.equal(sheetView({ kind: "end-session-failed", action: "sleep", reason: "unavailable" }, en).title, "Your computer can't sleep now.");
+  assert.equal(sheetView({ kind: "end-session-failed", action: "sleep", reason: "unavailable" }, en).title, "Your computer can’t sleep now.");
   assert.equal(
     sheetView({ kind: "end-session-failed", action: "restart", reason: "failed" }, es).body,
-    "OxyOS no ha podido conectar con el servicio de energía del sistema.",
+    "El sistema no ha respondido. Vuelve a intentarlo en un momento.",
   );
 });
 
