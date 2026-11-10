@@ -22,6 +22,20 @@ const en = {
   inspect: "Inspect",
   inspectProcess: "Inspect Process",
   view: "View",
+  /** The Edit menu, as a Mac's: its editing commands act on the focused field (ADR 0021); Find…
+      takes the search field. */
+  edit: {
+    title: "Edit",
+    undo: "Undo",
+    redo: "Redo",
+    cut: "Cut",
+    copy: "Copy",
+    paste: "Paste",
+    pasteAndMatchStyle: "Paste and Match Style",
+    delete: "Delete",
+    selectAll: "Select All",
+    find: "Find…",
+  },
   needsAdministrator: "Quitting another user’s process needs an administrator.",
   /** The table's columns. */
   columns: {
@@ -161,6 +175,18 @@ const es: Messages = {
   inspect: "Inspeccionar",
   inspectProcess: "Inspeccionar proceso",
   view: "Visualización",
+  edit: {
+    title: "Edición",
+    undo: "Deshacer",
+    redo: "Rehacer",
+    cut: "Cortar",
+    copy: "Copiar",
+    paste: "Pegar",
+    pasteAndMatchStyle: "Pegar y adaptar estilo",
+    delete: "Eliminar",
+    selectAll: "Seleccionar todo",
+    find: "Buscar…",
+  },
   needsAdministrator: "Salir de los procesos de otro usuario requiere un administrador.",
   columns: {
     name: "Nombre del proceso",

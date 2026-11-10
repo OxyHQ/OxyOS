@@ -270,6 +270,12 @@ def sourced(path, name, architecture="amd64"):
     ).stdout
 
 
+def kernel_parameters():
+    """OxyOS's kernel parameters (crates/oxyos-recovery/kernel-parameters), one a line."""
+    text = (ROOT / "crates" / "oxyos-recovery" / "kernel-parameters").read_text()
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.startswith("#")]
+
+
 def check_boot_logo():
     """The boot logo (docs/adr/0017-boot-logo.mdx): Plymouth's script plugin on DRM/KMS, with
     nothing that draws text (the label plugin brings Pango, Cairo and GLib)."""
@@ -300,8 +306,10 @@ def check_boot_logo():
         violations.append(f"{script.relative_to(ROOT)}: missing, or draws text (the label plugin)")
     for architecture in ARCHITECTURES:
         live = sourced(CONFIG / "binary", "LB_BOOTAPPEND_LIVE", architecture).split()
-        for argument in ("quiet", "splash", "loglevel=3", "vt.global_cursor_default=0",
-                         "plymouth.ignore-serial-consoles"):
+        # OxyOS's parameters, on every command line of its own (docs/adr/0066-quality-of-service.mdx,
+        # decision 2): the boot logo's and full preemption, one list for the live medium, an
+        # installed system, the recovery and a converted machine.
+        for argument in kernel_parameters():
             if argument not in live:
                 violations.append(f"config/binary ({architecture}): LB_BOOTAPPEND_LIVE lacks {argument}")
         if "nosplash" not in sourced(CONFIG / "binary", "LB_BOOTAPPEND_LIVE_FAILSAFE", architecture).split():

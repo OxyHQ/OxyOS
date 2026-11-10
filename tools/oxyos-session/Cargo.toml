@@ -14,6 +14,8 @@ oxyos-gpu-device = { path = "../../crates/oxyos-gpu-device" }
 oxyos-kms = { path = "../../crates/oxyos-kms" }
 oxyos-input = { path = "../../crates/oxyos-input" }
 oxyos-seat = { path = "../../crates/oxyos-seat" }
+# The turn above every application: rtkit's high priority and a short slice (docs/adr/0066).
+oxyos-priority = { path = "../../crates/oxyos-priority" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 # The search service, which this program runs as its child (docs/adr/0051-search.mdx).
 oxyos-search = { path = "../../crates/oxyos-search" }
