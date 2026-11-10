@@ -278,6 +278,19 @@ def thread_schedstat(pid):
         return None
 
 
+def turn_thread(pid):
+    """The development compositor's turn (its main thread): its nice and the EEVDF slice it runs
+    with (`se.slice`, ns), what docs/adr/0066's step 2 asks for it."""
+    try:
+        stat = pathlib.Path(f"/proc/{pid}/task/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        sched = pathlib.Path(f"/proc/{pid}/task/{pid}/sched").read_text()
+    except OSError:
+        return None
+    slice_ns = next((int(line.split(":")[1]) for line in sched.splitlines() if line.startswith("se.slice")), None)
+    # After the name: state is field 3, nice field 19.
+    return {"nice": int(stat[16]), "policy": int(stat[38]), "slice_ns": slice_ns}
+
+
 def read_progress(path):
     try:
         return json.loads(pathlib.Path(path).read_text())
@@ -307,6 +320,7 @@ class Watch:
             self.samples.append({
                 "t": time.monotonic_ns(),
                 "compositor": thread_schedstat(pid) if pid else None,
+                "turn": turn_thread(pid) if pid else None,
                 "session": pressure(self.fixture.session),
                 "apps": pressure(self.fixture.manager / "app.slice"),
                 "loads": {name: read_progress(path) for name, path in self.progress_files.items()},
@@ -324,7 +338,7 @@ class Watch:
             return {}
         a, b = before[-1], after[0]
         seconds = max((b["t"] - a["t"]) / 1e9, 1e-9)
-        result = {"seconds": round(seconds, 3)}
+        result = {"seconds": round(seconds, 3), "turn": b.get("turn")}
         if a["compositor"] and b["compositor"]:
             ran = b["compositor"][2] - a["compositor"][2]
             waited = b["compositor"][1] - a["compositor"][1]
@@ -521,9 +535,12 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
     host's JavaScript, the compositor's wait, pressure and the loads' progress."""
     name, source, steps, key, what = interaction
     latencies, compose, js, late, frames = [], [], [], 0, 0
-    waits, pressures, progress, failed = [], [], [], []
+    waits, pressures, progress, failed, turns = [], [], [], [], []
     for run in range(options.runs):
         scenario = scenario_of(source)
+        # The application under the hand is one the session launched, with its id (its launch
+        # record), wherever the session puts what it launches.
+        scenario.setdefault("app", {"id": f"so.oxy.perf.{name}", "title": name.capitalize()})
         applications = loads.applications(load)
         if applications:
             scenario["also_launch"] = applications
@@ -571,6 +588,8 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
         window = watch["it"].between(start, end)
         if "compositor_wait_us" in window:
             waits.append(window["compositor_wait_us"])
+        if window.get("turn"):
+            turns.append(window["turn"])
         pressures.append({where: window.get(f"{where}_pressure", {}) for where in ("session", "apps")})
         progress.append(window.get("loads", {}))
 
@@ -600,7 +619,46 @@ def measure(options, out, run_scenario, fixture, loads, load, interaction):
                      for where in ("session", "apps")},
         "loads": loads_progress,
         "failed": failed,
+        # The turn thread as the last run left it: its nice, policy and slice.
+        "turn": turns[-1] if turns else None,
     }
+
+
+class PlayedRtkit:
+    """rtkit as the session asks it (docs/adr/0066, decision 2), played for the run where the tree
+    has it (`tools/rn-host-spike/played-rtkit.sh`): on a bus of the run's own, in a unit of its own
+    with CAP_SYS_NICE alone, changing only the threads of this run's control groups. The development
+    compositor asks it (`OXYOS_RTKIT_BUS`) as the session asks the system's; a tree without it runs
+    the compositor as it starts."""
+
+    SCRIPT = HERE / "played-rtkit.sh"
+
+    def __init__(self, offscreen, fixture, out):
+        self.bus = self.unit = None
+        if not self.SCRIPT.exists():
+            return
+        out.mkdir(parents=True, exist_ok=True)
+        self.bus = subprocess.Popen(placed(fixture.root / "harness", ["dbus-daemon", "--session", "--nofork",
+                                                                      "--print-address=1"]),
+                                    stdout=subprocess.PIPE, text=True)
+        address = self.bus.stdout.readline().strip()
+        started = subprocess.run([str(self.SCRIPT), "start", offscreen, address, str(fixture.root), str(out)],
+                                 capture_output=True, text=True)
+        if started.returncode != 0:
+            self.stop()
+            raise SystemExit(f"the played rtkit did not start: {started.stderr.strip()[-500:]}")
+        self.unit = started.stdout.strip().splitlines()[-1]
+        os.environ["OXYOS_RTKIT_BUS"] = address
+
+    def stop(self):
+        if self.unit:
+            subprocess.run([str(self.SCRIPT), "stop", self.unit], check=False)
+            self.unit = None
+        if self.bus:
+            self.bus.terminate()
+            self.bus.wait()
+            self.bus = None
+        os.environ.pop("OXYOS_RTKIT_BUS", None)
 
 
 def run(options, out, run_scenario, search):
@@ -611,17 +669,22 @@ def run(options, out, run_scenario, search):
     chosen = [i for i in INTERACTIONS if not options.interactions or i[0] in options.interactions.split(",")]
     os.environ["OXYOS_CGROUP_FIXTURE"] = str(fixture.manager)
     loads = Loads(options, fixture, out / "saturation", search)
+    rtkit = PlayedRtkit(loads.offscreen, fixture, out / "saturation" / "rtkit")
     results = {"cpus": fixture.cpus, "cgroup": str(fixture.root), "machine_mib": MACHINE_MIB,
                "kernel": platform.release(), "loads": {}, "what": dict(LOADS)}
-    for load, what in chosen_loads:
-        print(f"saturation: {load}, {what}", file=sys.stderr, flush=True)
-        loads.start(load)
-        try:
-            results["loads"][load] = {name: measure(options, out / "saturation", run_scenario, fixture, loads,
-                                                    load, interaction)
-                                      for interaction in chosen for name in [interaction[0]]}
-        finally:
-            loads.stop()
+    results["played_rtkit"] = rtkit.unit is not None
+    try:
+        for load, what in chosen_loads:
+            print(f"saturation: {load}, {what}", file=sys.stderr, flush=True)
+            loads.start(load)
+            try:
+                results["loads"][load] = {name: measure(options, out / "saturation", run_scenario, fixture, loads,
+                                                        load, interaction)
+                                          for interaction in chosen for name in [interaction[0]]}
+            finally:
+                loads.stop()
+    finally:
+        rtkit.stop()
     return results
 
 
@@ -644,7 +707,12 @@ def show(results, table):
                          entry["compositor_wait_us"] if entry["compositor_wait_us"] is not None else "—",
                          " / ".join(str(pressure.get(kind, "—")) for kind in ("cpu", "memory", "io")),
                          loads(entry) + (f"; {len(entry['failed'])} runs failed" if entry.get("failed") else "")])
-    print(f"saturation on {len(results['cpus'])} CPUs ({results['kernel']}):")
+    turn = next((entry["turn"] for interactions in results["loads"].values() for entry in interactions.values()
+                 if entry.get("turn")), None)
+    said = "" if not turn else (f", the compositor's turn at nice {turn['nice']}, policy {turn['policy']}, "
+                                f"a {turn['slice_ns'] / 1e6:.2f} ms slice")
+    print(f"saturation on {len(results['cpus'])} CPUs ({results['kernel']}){said}"
+          f"{', rtkit played' if results.get('played_rtkit') else ''}:")
     print(table(rows, ["load", "interaction", "inputs", "input to present ms p50 / p95 / p99 / max", "late frames",
                        "compose ms p95", "app JS ms p95", "compositor wait µs a run", "session pressure % cpu / mem / io",
                        "the load's progress"]))
