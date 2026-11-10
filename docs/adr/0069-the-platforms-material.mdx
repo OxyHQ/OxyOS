@@ -6,7 +6,7 @@ order: 78
 
 # ADR 0069: The platform's material
 
-Status: **proposed**. Bloom 17.42.0 ([OxyHQ/Bloom#723](https://github.com/OxyHQ/Bloom/pull/723)) asks for the material, and OxyOS does not provide it yet. Builds on:
+Status: **proposed; steps 2 and 3 implemented** (the protocol, the scene, the CPU reference, the client library, and the Vulkan shader that agrees with the reference byte for byte). Bloom 17.42.0 ([OxyHQ/Bloom#723](https://github.com/OxyHQ/Bloom/pull/723)) asks for the material, and OxyOS does not report the capability yet (step 4). Builds on:
 
 - [ADR 0001](./0001-native-platform-boundaries) (what a client may see)
 - [ADR 0011](./0011-transitions) (the compositor's renderers and their byte-for-byte agreement)
@@ -83,5 +83,5 @@ A floating surface (`SurfacePaint floating`) mounts `Material` and lays its own 
 - Staged in four pull requests, each verified on its own:
   1. This ADR.
   2. The protocol request, the scene, the CPU reference and the client library (version 45).
-  3. The Vulkan shader and its agreement tests.
+  3. The Vulkan shader and its agreement tests (done). The device blurs each area before it composes the frame: it composes the layers beneath afresh over the area's source into a scratch buffer, averages them into cells, and runs the box passes along rows and then columns, one dispatch each (`shaders/compose.wgsl`'s `cells` and `box_blur`, the passes `material::passes` lists). The composition then draws the area as an entry of the layer table, just before its layer: it samples the cells bilinearly, saturates them and mixes them over what is beneath. The compositor composes material frames on the GPU too (`compose_with_material`, `compose_damaged_with_material` and the scanout variants), and its check counts them as any other. A screen centred on a larger display (the development compositor) is blurred to the display's edges, as the reference would compose it at the display's size.
   4. The host view, the adapter's capability, the shell's `glass()` and the scenarios. This one needs the Bloom pin at 17.42.0 or later (OxyOS #540).

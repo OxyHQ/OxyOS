@@ -3,11 +3,17 @@
 //! (docs/adr/0004). Both live in device memory where the device has it: pixels arrive through
 //! a staging buffer, the background is filled on the device, and the output is copied back into
 //! host-cached memory. GPU timestamps measure the composition itself.
+//!
+//! A material area (docs/adr/0069-the-platforms-material.mdx) is blurred before the frame is
+//! composed: the layers beneath it composed afresh over its source into a scratch buffer, averaged
+//! into cells and blurred there by the passes `material` makes, each a dispatch; the composition
+//! then draws it as an entry of the layer table, just before the layer it belongs to.
 
 #![allow(unsafe_code)]
 
-use super::{shader, shader_images, Layer, Paint};
+use super::{material, shader, shader_images, Layer, Paint};
 use ash::vk;
+use material::MaterialArea;
 use std::fmt;
 
 mod bins;
@@ -123,17 +129,35 @@ struct Push {
 const PUSH_BYTES: usize = 32 * 4;
 
 /// The push constants of `shaders/compose.wgsl`'s `Frame`: the region a dispatch composes, the
-/// output's size, the background, the layers' count, and where the bins are and their shape. 11
-/// words, within the 128 bytes every device has.
-const FRAME_BYTES: usize = 11 * 4;
+/// output's size, the background, the layers' count, where the bins are and their shape, the
+/// table's first entry, and where the pixels go. 18 words, within the 128 bytes every device has.
+const FRAME_BYTES: usize = 18 * 4;
+
+/// The push constants of `shaders/compose.wgsl`'s `BlurPass`: 9 words.
+const PASS_BYTES: usize = 9 * 4;
+
+/// The layers a dispatch composes: the first entry of the table, how many, and where their bins
+/// start, in words.
+#[derive(Clone, Copy)]
+struct Table {
+    first: u32,
+    layers: u32,
+    bins_offset: u32,
+}
 
 fn frame_bytes(
     region: &crate::Rect,
     (width, height): (u32, u32),
     background: u32,
-    layers: u32,
+    table: Table,
     bins: &Bins,
+    into: Option<(crate::Rect, u64)>,
 ) -> [u8; FRAME_BYTES] {
+    // The output, or a backdrop's rectangle in the scratch buffer.
+    let (into, rect, offset) = match into {
+        Some((rect, offset)) => (1, rect, offset as u32),
+        None => (0, crate::Rect::default(), 0),
+    };
     let words = [
         region.x as u32,
         region.y as u32,
@@ -142,17 +166,70 @@ fn frame_bytes(
         width,
         height,
         background,
-        layers,
-        // After the layer table, in words.
-        layers * (PUSH_BYTES / 4) as u32,
+        table.layers,
+        table.bins_offset,
         bins.across,
         bins.words,
+        table.first,
+        into,
+        rect.x as u32,
+        rect.y as u32,
+        rect.width,
+        rect.height,
+        offset,
     ];
     let mut bytes = [0; FRAME_BYTES];
     for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
         chunk.copy_from_slice(&word.to_ne_bytes());
     }
     bytes
+}
+
+fn pass_bytes(words: [u32; PASS_BYTES / 4]) -> [u8; PASS_BYTES] {
+    let mut bytes = [0; PASS_BYTES];
+    for (chunk, word) in bytes.chunks_exact_mut(4).zip(words) {
+        chunk.copy_from_slice(&word.to_ne_bytes());
+    }
+    bytes
+}
+
+/// A material area a frame draws (docs/adr/0069-the-platforms-material.mdx): the layer it is drawn
+/// before, its source (`material::source`), its cells, and where they are in the scratch buffer,
+/// in words: blurred into `cells`, through `spare` between passes. Its backdrop is composed at the
+/// start of the scratch buffer, which every area's takes in turn.
+struct Blur {
+    at: usize,
+    area: MaterialArea,
+    source: crate::Rect,
+    cols: u32,
+    rows: u32,
+    cells: u64,
+    spare: u64,
+}
+
+impl Blur {
+    /// Its entry of the layer table (mode 4): its rectangle, corners and opacity, and its cells.
+    fn push(&self, width: u32, height: u32) -> Push {
+        let rect = self.area.rect;
+        Push {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+            src_width: self.cols,
+            src_height: self.rows,
+            src_offset: self.cells as u32,
+            out_width: width,
+            out_height: height,
+            mode: 4,
+            opacity: u32::from(self.area.opacity),
+            radius: crate::shape::radius_on(self.area.radius, rect.width, rect.height),
+            shadow_x: self.source.x,
+            shadow_y: self.source.y,
+            ..Push::default()
+        }
+        .whole()
+    }
 }
 
 impl Push {
@@ -276,6 +353,8 @@ enum Role {
     Scanout,
     /// The frame's layer table, written by the host, read by the shader.
     Layers,
+    /// The material areas' backdrops and cells, written and read by the shaders alone.
+    Scratch,
 }
 
 #[derive(Debug)]
@@ -372,7 +451,7 @@ pub struct VulkanCompositor {
     command: vk::CommandBuffer,
     fence: vk::Fence,
     queries: vk::QueryPool,
-    buffers: [Option<Buffer>; 5],
+    buffers: [Option<Buffer>; 6],
     device_name: String,
     kind: DeviceKind,
     queue_priority: QueuePriority,
@@ -422,6 +501,9 @@ pub struct VulkanCompositor {
     completed_ms: Vec<f64>,
     /// Clients' GPU buffers imported and sampled in place, where the device can (ADR 0031).
     images: Option<Images>,
+    /// A material area's passes (`shaders/compose.wgsl`'s `cells` and `box_blur`).
+    pipeline_cells: vk::Pipeline,
+    pipeline_box: vk::Pipeline,
     /// A copy of the last deferred submission's completion as a sync file, while it is pending:
     /// what a client's buffer it read is released after (`completion_sync_file`).
     pending_sync_file: Option<std::os::fd::OwnedFd>,
@@ -505,7 +587,7 @@ impl VulkanCompositor {
             command: vk::CommandBuffer::null(),
             fence: vk::Fence::null(),
             queries: vk::QueryPool::null(),
-            buffers: [None, None, None, None, None],
+            buffers: [None, None, None, None, None, None],
             device_name: opened.name,
             kind: opened.kind,
             queue_priority: opened.queue_priority,
@@ -530,6 +612,8 @@ impl VulkanCompositor {
             completed_when: None,
             completed_ms: Vec::new(),
             images: None,
+            pipeline_cells: vk::Pipeline::null(),
+            pipeline_box: vk::Pipeline::null(),
             pending_sync_file: None,
             timed: false,
             last_handovers: Handovers::default(),
@@ -779,8 +863,9 @@ impl VulkanCompositor {
     /// Creates the pipeline, descriptors, commands, fence and timestamp queries.
     fn build(&mut self, family: u32, images: bool) -> Result<(), Error> {
         let device = &self.device;
-        // The layers' pixels, the output, the layer table, and the table again for its bins.
-        let mut bindings: Vec<vk::DescriptorSetLayoutBinding> = [0, 1, 2, 4]
+        // The layers' pixels, the output, the layer table, the table again for its bins, and the
+        // material areas' scratch buffer.
+        let mut bindings: Vec<vk::DescriptorSetLayoutBinding> = [0, 1, 2, 4, 5]
             .map(|binding| {
                 vk::DescriptorSetLayoutBinding::default()
                     .binding(binding)
@@ -808,7 +893,7 @@ impl VulkanCompositor {
             )?;
             let ranges = [vk::PushConstantRange::default()
                 .stage_flags(vk::ShaderStageFlags::COMPUTE)
-                .size(FRAME_BYTES as u32)];
+                .size(FRAME_BYTES.max(PASS_BYTES) as u32)];
             let layouts = [self.set_layout];
             self.pipeline_layout = device.create_pipeline_layout(
                 &vk::PipelineLayoutCreateInfo::default()
@@ -817,7 +902,7 @@ impl VulkanCompositor {
                 None,
             )?;
             let layout = self.pipeline_layout;
-            let pipeline = |code: &[u32]| -> Result<vk::Pipeline, Error> {
+            let pipeline = |code: &[u32], name: &std::ffi::CStr| -> Result<vk::Pipeline, Error> {
                 let module = device.create_shader_module(
                     &vk::ShaderModuleCreateInfo::default().code(code),
                     None,
@@ -825,7 +910,7 @@ impl VulkanCompositor {
                 let stage = vk::PipelineShaderStageCreateInfo::default()
                     .stage(vk::ShaderStageFlags::COMPUTE)
                     .module(module)
-                    .name(c"main");
+                    .name(name);
                 let pipelines = device.create_compute_pipelines(
                     vk::PipelineCache::null(),
                     &[vk::ComputePipelineCreateInfo::default()
@@ -836,13 +921,15 @@ impl VulkanCompositor {
                 device.destroy_shader_module(module, None);
                 Ok(pipelines.map_err(|(_, result)| Error::from(result))?[0])
             };
-            self.pipeline = pipeline(&shader())?;
+            self.pipeline = pipeline(&shader(), c"main")?;
             if images {
-                self.pipeline_images = pipeline(&shader_images())?;
+                self.pipeline_images = pipeline(&shader_images(), c"main")?;
             }
+            self.pipeline_cells = pipeline(&shader(), c"cells")?;
+            self.pipeline_box = pipeline(&shader(), c"box_blur")?;
             let mut sizes = vec![vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(4)];
+                .descriptor_count(5)];
             if images {
                 sizes.push(
                     vk::DescriptorPoolSize::default()
@@ -960,12 +1047,26 @@ impl VulkanCompositor {
         background: u32,
         layers: &[Layer<'_>],
     ) -> Result<Vec<u32>, Error> {
+        self.compose_with_material(width, height, background, layers, &[])
+    }
+
+    /// The same with `materials` (docs/adr/0069-the-platforms-material.mdx), as
+    /// [`crate::compose_cpu_with_material`] composes them, byte for byte.
+    pub fn compose_with_material(
+        &mut self,
+        width: u32,
+        height: u32,
+        background: u32,
+        layers: &[Layer<'_>],
+        materials: &[(usize, MaterialArea)],
+    ) -> Result<Vec<u32>, Error> {
         Ok(self
             .run(
                 width,
                 height,
                 background,
                 layers,
+                materials,
                 Destination::Output { deferred: false },
                 None,
             )?
@@ -986,6 +1087,7 @@ impl VulkanCompositor {
             height,
             background,
             layers,
+            &[],
             Destination::Output { deferred: true },
             None,
         )?;
@@ -1033,12 +1135,27 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
         damage: &[crate::Rect],
     ) -> Result<Vec<u32>, Error> {
+        self.compose_damaged_with_material(width, height, background, layers, &[], damage)
+    }
+
+    /// The same with `materials`, as [`crate::compose_cpu_damaged_with_material`] composes them:
+    /// each pixel composed is what [`Self::compose_with_material`] makes of it.
+    pub fn compose_damaged_with_material(
+        &mut self,
+        width: u32,
+        height: u32,
+        background: u32,
+        layers: &[Layer<'_>],
+        materials: &[(usize, MaterialArea)],
+        damage: &[crate::Rect],
+    ) -> Result<Vec<u32>, Error> {
         Ok(self
             .run(
                 width,
                 height,
                 background,
                 layers,
+                materials,
                 Destination::Output { deferred: false },
                 Some(damage),
             )?
@@ -1059,6 +1176,19 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
         damage: Option<&[crate::Rect]>,
     ) -> Result<Option<std::os::fd::OwnedFd>, Error> {
+        self.compose_to_scanout_with_material(index, background, layers, &[], damage)
+    }
+
+    /// The same with `materials` (on the target, as [`crate::compose_cpu_with_material`] composes
+    /// them at its size).
+    pub fn compose_to_scanout_with_material(
+        &mut self,
+        index: usize,
+        background: u32,
+        layers: &[Layer<'_>],
+        materials: &[(usize, MaterialArea)],
+        damage: Option<&[crate::Rect]>,
+    ) -> Result<Option<std::os::fd::OwnedFd>, Error> {
         let target = self.target(index)?;
         let (width, height) = (target.width, target.height);
         self.run(
@@ -1066,6 +1196,7 @@ impl VulkanCompositor {
             height,
             background,
             layers,
+            materials,
             Destination::Scanout { index, keep: false },
             damage,
         )?;
@@ -1082,6 +1213,18 @@ impl VulkanCompositor {
         layers: &[Layer<'_>],
         damage: Option<&[crate::Rect]>,
     ) -> Result<(), Error> {
+        self.compose_to_scanout_kept_with_material(index, background, layers, &[], damage)
+    }
+
+    /// The same with `materials`, as [`Self::compose_to_scanout_with_material`].
+    pub fn compose_to_scanout_kept_with_material(
+        &mut self,
+        index: usize,
+        background: u32,
+        layers: &[Layer<'_>],
+        materials: &[(usize, MaterialArea)],
+        damage: Option<&[crate::Rect]>,
+    ) -> Result<(), Error> {
         let target = self.target(index)?;
         let (width, height) = (target.width, target.height);
         self.run(
@@ -1089,6 +1232,7 @@ impl VulkanCompositor {
             height,
             background,
             layers,
+            materials,
             Destination::Scanout { index, keep: true },
             damage,
         )?;
@@ -1118,7 +1262,7 @@ impl VulkanCompositor {
             )
         };
         let bytes = u64::from(width) * u64::from(height) * 4;
-        self.reserve(4, 4, bytes, PUSH_BYTES as u64)?;
+        self.reserve(4, 4, bytes, PUSH_BYTES as u64, 4)?;
         let readback = self.buffers[3].as_ref().expect("reserved").buffer;
         let family = self.family;
         // SAFETY: every handle is live and owned by this compositor; the command buffer is not in
@@ -1237,12 +1381,14 @@ impl VulkanCompositor {
         Ok(out)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run(
         &mut self,
         width: u32,
         height: u32,
         background: u32,
         layers: &[Layer<'_>],
+        materials: &[(usize, MaterialArea)],
         into: Destination,
         damage: Option<&[crate::Rect]>,
     ) -> Result<Option<Vec<u32>>, Error> {
@@ -1282,6 +1428,48 @@ impl VulkanCompositor {
             }
             _ => None,
         };
+        // On the tiles' grid.
+        let regions = bins::on_tiles(&regions.unwrap_or_else(|| vec![output]), &output);
+        // The material areas drawn: under a layer of the frame, seen (not faded out), on the
+        // output and within what is composed, each with its place in the scratch buffer, after the
+        // backdrop the largest source takes.
+        let backdrop_words = materials
+            .iter()
+            .filter_map(|(_, area)| material::source(area, width, height))
+            .map(|source| u64::from(source.width) * u64::from(source.height))
+            .max()
+            .unwrap_or(0);
+        let mut scratch_words = backdrop_words;
+        let blurs: Vec<Blur> = materials
+            .iter()
+            .filter(|(at, area)| *at < layers.len() && area.opacity > 0)
+            .filter_map(|&(at, area)| {
+                let source = material::source(&area, width, height)?;
+                let shown = area.rect.intersect(&output)?;
+                if !regions
+                    .iter()
+                    .any(|region| region.intersect(&shown).is_some())
+                {
+                    return None;
+                }
+                let cols = source.width.div_ceil(material::CELL);
+                let rows = source.height.div_ceil(material::CELL);
+                let words = u64::from(cols) * u64::from(rows);
+                let cells = scratch_words;
+                scratch_words += 2 * words;
+                Some(Blur {
+                    at,
+                    area,
+                    source,
+                    cols,
+                    rows,
+                    cells,
+                    spare: cells + words,
+                })
+            })
+            .collect();
+        // Each layer's index in the frame, for where its material areas go.
+        let count = layers.len();
         // A scanout target, and whether its frame is also copied for `read_kept`.
         let (scanout, keep) = match scanout {
             Some((index, keep)) => (Some(index), keep),
@@ -1296,16 +1484,17 @@ impl VulkanCompositor {
                 .as_ref()
                 .is_some_and(|images| images.image(image).is_some())
         };
-        let owned: Vec<Layer<'_>> = layers
+        let owned: Vec<(usize, Layer<'_>)> = layers
             .iter()
-            .filter(|layer| layer.valid())
-            .filter_map(|layer| match layer.paint {
-                Paint::Imported { image, .. } if held(image) => Some(*layer),
-                Paint::Imported { .. } => layer.on_cpu(),
-                _ => Some(*layer),
+            .enumerate()
+            .filter(|(_, layer)| layer.valid())
+            .filter_map(|(index, layer)| match layer.paint {
+                Paint::Imported { image, .. } if held(image) => Some((index, *layer)),
+                Paint::Imported { .. } => layer.on_cpu().map(|layer| (index, layer)),
+                _ => Some((index, *layer)),
             })
             .collect();
-        let layers: Vec<&Layer<'_>> = owned.iter().collect();
+        let layers: Vec<&Layer<'_>> = owned.iter().map(|(_, layer)| layer).collect();
         // The images the frame samples, a slot each.
         let mut slots: Vec<u64> = Vec::new();
         for layer in &layers {
@@ -1345,14 +1534,23 @@ impl VulkanCompositor {
             return Ok(None);
         }
         let out_bytes = out_words as u64 * 4;
+        // The table: the layers and the material areas, and each area's backdrop's layers, each
+        // with their bins and starting at an entry.
+        let entries = layers.len() + blurs.len();
+        let table_bytes = entries * PUSH_BYTES
+            + Bins::words_for(width, height, entries) * 4
+            + blurs.len()
+                * (PUSH_BYTES
+                    + layers.len() * PUSH_BYTES
+                    + Bins::words_for(width, height, layers.len()) * 4);
         // The source buffer holds two frames' pixels, so kept ones leave room for new ones.
         let source = self.buffers[0].as_ref().map(|buffer| buffer.buffer);
         self.reserve(
             (frame_words * 8).max(4),
             (frame_words * 4).max(4),
             out_bytes,
-            (layers.len() * PUSH_BYTES + Bins::words_for(width, height, layers.len()) * 4)
-                .max(PUSH_BYTES) as u64,
+            table_bytes.max(PUSH_BYTES) as u64,
+            (scratch_words * 4).max(4),
         )?;
         if self.buffers[0].as_ref().map(|buffer| buffer.buffer) != source {
             // A new source buffer holds no pixels.
@@ -1416,7 +1614,7 @@ impl VulkanCompositor {
         } else {
             self.pipeline_images
         };
-        let [Some(source), _, Some(upload), Some(readback), Some(table_buffer)] = &self.buffers
+        let [Some(source), _, Some(upload), Some(readback), Some(table_buffer), _] = &self.buffers
         else {
             unreachable!("reserved");
         };
@@ -1583,20 +1781,64 @@ impl VulkanCompositor {
         }
         self.last_uploaded = uploaded * 4;
         self.last_host_ms.0 = copying.elapsed().as_secs_f64() * 1e3;
-        // The layers drawn, bottom to top, into the table the shader reads; and what it composes:
-        // the whole output, or each damaged region (each pixel of it once, every layer over it).
-        let table: Vec<Push> = layer_pushes.iter().flatten().copied().collect();
-        // On the tiles' grid; and each bin's layers after the table (`bins`).
-        let regions = bins::on_tiles(&regions.unwrap_or_else(|| vec![output]), &output);
+        // The layers drawn, bottom to top, into the table the shader reads, each layer's material
+        // areas just before it; and what it composes: the whole output, or each damaged region
+        // (each pixel of it once, every layer over it).
+        let drawn: Vec<(usize, Push)> = owned
+            .iter()
+            .zip(&layer_pushes)
+            .filter_map(|((index, _), push)| push.map(|push| (*index, push)))
+            .collect();
+        let mut table: Vec<Push> = Vec::with_capacity(entries);
+        let mut next = drawn.iter().peekable();
+        for index in 0..count {
+            table.extend(
+                blurs
+                    .iter()
+                    .filter(|blur| blur.at == index)
+                    .map(|blur| blur.push(width, height)),
+            );
+            while let Some((_, push)) = next.next_if(|(at, _)| *at == index) {
+                table.push(*push);
+            }
+        }
         self.last_composed = regions
             .iter()
             .map(|region| u64::from(region.width) * u64::from(region.height))
             .sum();
+        // Each bin's layers after the table (`bins`).
         let bins = Bins::new(&table, width, height, &regions);
         let mut words: Vec<u8> = table.iter().flat_map(|push| push.bytes()).collect();
         words.extend(bins.bits.iter().flat_map(|word| word.to_ne_bytes()));
-        // SAFETY: the table buffer is mapped, coherent and holds at least a layer per layer
-        // (`reserve`); the last submission, which read it, is done (`complete`).
+        // Each material area's backdrop: the layers beneath it, composed over its source alone.
+        let backdrops: Vec<(Table, Bins, Vec<crate::Rect>)> = blurs
+            .iter()
+            .map(|blur| {
+                words.resize(words.len().next_multiple_of(PUSH_BYTES), 0);
+                let first = (words.len() / PUSH_BYTES) as u32;
+                let beneath: Vec<Push> = drawn
+                    .iter()
+                    .filter(|(index, _)| *index < blur.at)
+                    .map(|(_, push)| *push)
+                    .collect();
+                let regions = bins::on_tiles(&[blur.source], &output);
+                let bins = Bins::new(&beneath, width, height, &regions);
+                words.extend(beneath.iter().flat_map(|push| push.bytes()));
+                let bins_offset = (words.len() / 4) as u32;
+                words.extend(bins.bits.iter().flat_map(|word| word.to_ne_bytes()));
+                let table = Table {
+                    first,
+                    layers: beneath.len() as u32,
+                    bins_offset,
+                };
+                (table, bins, regions)
+            })
+            .collect();
+        if words.len() as u64 > table_buffer.size {
+            return Err(Error("the layer table outgrew its buffer".into()));
+        }
+        // SAFETY: the table buffer is mapped, coherent and holds `words` (checked above); the last
+        // submission, which read it, is done (`complete`).
         unsafe {
             std::ptr::copy_nonoverlapping(words.as_ptr(), table_buffer.mapped, words.len());
         }
@@ -1694,19 +1936,107 @@ impl VulkanCompositor {
                 &[self.set],
                 &[],
             );
+            // Each material area blurred first, its passes in order, each after the last.
+            let between = || {
+                barrier(
+                    vk::AccessFlags::SHADER_WRITE,
+                    vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+                    vk::PipelineStageFlags::COMPUTE_SHADER,
+                    vk::PipelineStageFlags::COMPUTE_SHADER,
+                )
+            };
+            for (blur, (beneath, beneath_bins, beneath_regions)) in blurs.iter().zip(&backdrops) {
+                // The backdrop, at the scratch buffer's start.
+                for region in beneath_regions {
+                    device.cmd_push_constants(
+                        command,
+                        self.pipeline_layout,
+                        vk::ShaderStageFlags::COMPUTE,
+                        0,
+                        &frame_bytes(
+                            region,
+                            (width, height),
+                            background,
+                            *beneath,
+                            beneath_bins,
+                            Some((blur.source, 0)),
+                        ),
+                    );
+                    device.cmd_dispatch(
+                        command,
+                        region.width.div_ceil(bins::TILE.0),
+                        region.height.div_ceil(bins::TILE.1),
+                        1,
+                    );
+                }
+                between();
+                let groups = (blur.cols.div_ceil(8), blur.rows.div_ceil(8));
+                let pass = |read: u64, write: u64, (width, before): (u32, u32), axis: u32| {
+                    pass_bytes([
+                        read as u32,
+                        write as u32,
+                        blur.cols,
+                        blur.rows,
+                        blur.source.width,
+                        blur.source.height,
+                        width,
+                        before,
+                        axis,
+                    ])
+                };
+                // Its cells.
+                device.cmd_bind_pipeline(
+                    command,
+                    vk::PipelineBindPoint::COMPUTE,
+                    self.pipeline_cells,
+                );
+                device.cmd_push_constants(
+                    command,
+                    self.pipeline_layout,
+                    vk::ShaderStageFlags::COMPUTE,
+                    0,
+                    &pass(0, blur.cells, (0, 0), 0),
+                );
+                device.cmd_dispatch(command, groups.0, groups.1, 1);
+                between();
+                // The box passes along rows, then along columns: an even number of them, so the
+                // last leaves the cells where the first found them.
+                device.cmd_bind_pipeline(
+                    command,
+                    vk::PipelineBindPoint::COMPUTE,
+                    self.pipeline_box,
+                );
+                let (mut read, mut write) = (blur.cells, blur.spare);
+                let passes = material::passes(material::box_width(blur.area.sigma));
+                for axis in [0, 1] {
+                    for &box_pass in &passes {
+                        device.cmd_push_constants(
+                            command,
+                            self.pipeline_layout,
+                            vk::ShaderStageFlags::COMPUTE,
+                            0,
+                            &pass(read, write, box_pass, axis),
+                        );
+                        device.cmd_dispatch(command, groups.0, groups.1, 1);
+                        between();
+                        std::mem::swap(&mut read, &mut write);
+                    }
+                }
+                device.cmd_bind_pipeline(command, vk::PipelineBindPoint::COMPUTE, pipeline);
+            }
+            let whole = Table {
+                first: 0,
+                layers: table.len() as u32,
+                // After the layer table, in words.
+                bins_offset: (table.len() * PUSH_BYTES / 4) as u32,
+            };
             for region in &regions {
                 device.cmd_push_constants(
                     command,
                     self.pipeline_layout,
                     vk::ShaderStageFlags::COMPUTE,
                     0,
-                    &frame_bytes(
-                        region,
-                        (width, height),
-                        background,
-                        table.len() as u32,
-                        &bins,
-                    ),
+                    &frame_bytes(region, (width, height), background, whole, &bins, None),
                 );
                 device.cmd_dispatch(
                     command,
@@ -2089,6 +2419,7 @@ impl VulkanCompositor {
         upload_bytes: u64,
         out_bytes: u64,
         layers_bytes: u64,
+        scratch_bytes: u64,
     ) -> Result<(), Error> {
         let mut rebind = false;
         for (slot, role, bytes) in [
@@ -2097,6 +2428,7 @@ impl VulkanCompositor {
             (2, Role::Upload, upload_bytes),
             (3, Role::Readback, out_bytes),
             (4, Role::Layers, layers_bytes),
+            (5, Role::Scratch, scratch_bytes),
         ] {
             if self.buffers[slot]
                 .as_ref()
@@ -2108,24 +2440,26 @@ impl VulkanCompositor {
             if let Some(old) = self.buffers[slot].replace(buffer) {
                 self.free(old);
             }
-            rebind |= slot < 2 || slot == 4;
+            // The set names the source, the output, the table and the scratch buffer.
+            rebind |= !(2..4).contains(&slot);
             if slot == 1 {
                 // A new output buffer holds no frame.
                 self.output_holds = None;
             }
         }
         if rebind {
-            let [Some(source), Some(output), _, _, Some(table)] = &self.buffers else {
+            let [Some(source), Some(output), _, _, Some(table), Some(scratch)] = &self.buffers
+            else {
                 unreachable!("reserved");
             };
-            let infos = [source, output, table].map(|buffer| {
+            let infos = [source, output, table, scratch].map(|buffer| {
                 [vk::DescriptorBufferInfo::default()
                     .buffer(buffer.buffer)
                     .offset(0)
                     .range(vk::WHOLE_SIZE)]
             });
             // The table's bins (binding 4) are the same buffer's, after the layers.
-            let writes = [(0, 0), (1, 1), (2, 2), (4, 2)].map(|(binding, info)| {
+            let writes = [(0, 0), (1, 1), (2, 2), (4, 2), (5, 3)].map(|(binding, info)| {
                 vk::WriteDescriptorSet::default()
                     .dst_set(self.set)
                     .dst_binding(binding)
@@ -2189,6 +2523,7 @@ impl VulkanCompositor {
                 Memory::HOST_VISIBLE | Memory::HOST_COHERENT,
                 Memory::DEVICE_LOCAL,
             ),
+            Role::Scratch => (Usage::STORAGE_BUFFER, Memory::empty(), Memory::DEVICE_LOCAL),
         };
         let export = role == Role::Scanout;
         let mut external = vk::ExternalMemoryBufferCreateInfo::default()
@@ -2293,6 +2628,8 @@ impl Drop for VulkanCompositor {
             self.device.destroy_descriptor_pool(self.pool, None);
             self.device.destroy_pipeline(self.pipeline, None);
             self.device.destroy_pipeline(self.pipeline_images, None);
+            self.device.destroy_pipeline(self.pipeline_cells, None);
+            self.device.destroy_pipeline(self.pipeline_box, None);
             self.device
                 .destroy_pipeline_layout(self.pipeline_layout, None);
             self.device

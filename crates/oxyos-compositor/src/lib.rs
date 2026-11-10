@@ -3641,17 +3641,18 @@ impl Compositor {
             gpu.frames += 1;
             // The device's own output holds another screen's frame: this one is composed whole.
             let composed = match &damage {
-                Some(damage) if self.gpu_holds == Some(id) => gpu
+                Some(damage) if self.gpu_holds == Some(id) => {
+                    gpu.compositor.compose_damaged_with_material(
+                        width, height, DESKTOP, &layers, &materials, damage,
+                    )
+                }
+                _ => gpu
                     .compositor
-                    .compose_damaged(width, height, DESKTOP, &layers, damage),
-                _ => gpu.compositor.compose(width, height, DESKTOP, &layers),
+                    .compose_with_material(width, height, DESKTOP, &layers, &materials),
             };
             self.gpu_holds = Some(id);
             match composed {
                 Ok(pixels) if pixels == self.screens[index].framebuffer => {}
-                // The shader does not draw the material yet (docs/adr/0069-the-platforms-material.mdx,
-                // the third step): a frame with any is the reference's alone, not a mismatch.
-                Ok(_) if !materials.is_empty() => {}
                 Ok(_) => gpu.mismatches += 1,
                 Err(error) => {
                     eprintln!("[gpu] {error}");
@@ -3670,7 +3671,7 @@ impl Compositor {
         }
         // On a display, the frame completes when it is on screen, at the kernel's flip time, in
         // a later turn (`complete_flip`).
-        let presented = self.present(index, &layers, damage.as_deref());
+        let presented = self.present(index, &layers, &materials, damage.as_deref());
         if !presented {
             // Paced as a display (no display, not away): shown at its next vblank, in a later turn.
             let paced = self.screens[index].paced && self.screens[index].display.is_none();
@@ -3685,7 +3686,7 @@ impl Compositor {
             }
             if self.gpu_only && self.reads_back {
                 self.flush();
-                self.framebuffer_from_gpu(index, &layers);
+                self.framebuffer_from_gpu(index, &layers, &materials);
             }
         }
     }
@@ -3858,7 +3859,7 @@ impl Compositor {
             // The clients hear the frame was shown before the director reads it back, so its
             // check delays no client's next frame.
             self.flush();
-            self.framebuffer_from_gpu(index, &[]);
+            self.framebuffer_from_gpu(index, &[], &[]);
         }
     }
 
@@ -4163,7 +4164,12 @@ impl Compositor {
     /// the frame shown (read back after the flip) or, with nothing shown, composed for it, whole,
     /// its device time recorded as a display's frame's is. An error counts as a mismatch, and the
     /// run fails.
-    pub fn framebuffer_from_gpu(&mut self, index: usize, layers: &[oxyos_gpu::Layer<'_>]) {
+    pub fn framebuffer_from_gpu(
+        &mut self,
+        index: usize,
+        layers: &[oxyos_gpu::Layer<'_>],
+        materials: &[(usize, oxyos_gpu::material::MaterialArea)],
+    ) {
         let Some(gpu) = &mut self.gpu else {
             return;
         };
@@ -4188,7 +4194,9 @@ impl Compositor {
             }
             _ => {
                 self.gpu_holds = Some(screen.id);
-                let composed = gpu.compositor.compose(width, height, DESKTOP, layers);
+                let composed = gpu
+                    .compositor
+                    .compose_with_material(width, height, DESKTOP, layers, materials);
                 if self.records {
                     gpu.device_ms.extend(gpu.compositor.last_gpu_ms());
                     gpu.host_ms.push(gpu.compositor.last_host_ms());
@@ -4217,6 +4225,7 @@ impl Compositor {
         &mut self,
         index: usize,
         layers: &[oxyos_gpu::Layer<'_>],
+        materials: &[(usize, oxyos_gpu::material::MaterialArea)],
         damage: Option<&[oxyos_gpu::Rect]>,
     ) -> bool {
         if self.away {
@@ -4236,7 +4245,7 @@ impl Compositor {
         }
         let assigned = overlaid.and_then(|layer| self.assign_overlay(index, layers, layer));
         if self.gpu.is_some() && !self.screens[index].scanout.is_empty() {
-            return self.present_composed(index, layers, damage, assigned);
+            return self.present_composed(index, layers, materials, damage, assigned);
         }
         self.composing_again(index);
         let screen = &mut self.screens[index];
@@ -4279,6 +4288,7 @@ impl Compositor {
         &mut self,
         index: usize,
         layers: &[oxyos_gpu::Layer<'_>],
+        materials: &[(usize, oxyos_gpu::material::MaterialArea)],
         damage: Option<&[oxyos_gpu::Rect]>,
         mut assigned: Option<scanout::Assigned>,
     ) -> bool {
@@ -4320,6 +4330,19 @@ impl Compositor {
                         ..*layer
                     })
                     .collect();
+                // The material areas where their layers are on the display (a screen centred on a
+                // larger one blurs to the display's edges, not its own).
+                let materials: Vec<(usize, oxyos_gpu::material::MaterialArea)> = materials
+                    .iter()
+                    .map(|&(at, area)| {
+                        let rect = oxyos_gpu::Rect {
+                            x: area.rect.x + dx,
+                            y: area.rect.y + dy,
+                            ..area.rect
+                        };
+                        (at, oxyos_gpu::material::MaterialArea { rect, ..area })
+                    })
+                    .collect();
                 let damage: Option<Vec<oxyos_gpu::Rect>> = damage.map(|rects| {
                     rects
                         .iter()
@@ -4337,11 +4360,22 @@ impl Compositor {
                 let composed = if self.gpu_only && self.reads_back && now.is_none() {
                     screen.shown_kept = true;
                     gpu.compositor
-                        .compose_to_scanout_kept(target, DESKTOP, &shifted, damage.as_deref())
+                        .compose_to_scanout_kept_with_material(
+                            target,
+                            DESKTOP,
+                            &shifted,
+                            &materials,
+                            damage.as_deref(),
+                        )
                         .map(|()| None)
                 } else {
-                    gpu.compositor
-                        .compose_to_scanout(target, DESKTOP, &shifted, damage.as_deref())
+                    gpu.compositor.compose_to_scanout_with_material(
+                        target,
+                        DESKTOP,
+                        &shifted,
+                        &materials,
+                        damage.as_deref(),
+                    )
                 }
                 .map_err(|error| std::io::Error::other(error.to_string()));
                 if composed.is_ok() {
