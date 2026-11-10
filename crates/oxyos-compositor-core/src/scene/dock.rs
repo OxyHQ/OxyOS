@@ -139,6 +139,20 @@ impl Scene {
         self.events.push((client, Event::Ping { serial }));
     }
 
+    /// Sends `client` a Ping of its own, whatever else is unanswered, if its version answers
+    /// one: its Pong says it has read and handled every event sent before it (the client library
+    /// answers it as it reads it). The serial it sent, or none.
+    pub(super) fn ping_after_events(&mut self, client: ClientId) -> Option<u32> {
+        let dock = &mut self.dock;
+        if dock.versions.get(&client).is_none_or(|v| *v < PING_VERSION) {
+            return None;
+        }
+        dock.next_ping = dock.next_ping.wrapping_add(1).max(1);
+        let serial = dock.next_ping;
+        self.events.push((client, Event::Ping { serial }));
+        Some(serial)
+    }
+
     /// Pings `client` whatever it was sent, unless a Ping to it is unanswered: the program keeps
     /// its shell answering (the shell's watch, docs/adr/0061, decision 6).
     pub fn ping_client(&mut self, client: ClientId) {
@@ -179,6 +193,7 @@ impl Scene {
             self.dock.pings.remove(&client);
             self.dock.not_responding.remove(&client);
         }
+        self.drop_answered(client, serial);
     }
 
     /// Marks the clients that did not answer a Ping within [`PING_TIMEOUT`] of the clock (the
@@ -193,6 +208,7 @@ impl Scene {
             .map(|(client, _)| *client)
             .collect();
         self.dock.not_responding.extend(late);
+        self.drop_unanswered();
     }
 
     /// When the next unanswered Ping is late, after the clock: the program's turn waits no longer.
@@ -211,6 +227,7 @@ impl Scene {
                 };
                 next.saturating_sub(late)
             })
+            .chain(self.drop_deadline())
             .min()
     }
 

@@ -5,6 +5,7 @@
 //! both sides' and the modifiers held. Content moves only after a drop, to the target that
 //! accepted it, through pipes the source writes (ReceiveDrop, DragSend), as a paste's do.
 
+use super::dock::PING_TIMEOUT;
 use super::*;
 use crate::scene::launch::assemble;
 use oxyos_protocol::{
@@ -12,6 +13,7 @@ use oxyos_protocol::{
     MAX_OPEN_FILES_BYTES, MAX_TRASH_FILES_BYTES, MODIFIER_ALT, MODIFIER_SUPER,
 };
 use std::collections::VecDeque;
+use std::time::Duration;
 
 /// The first protocol version with drag and drop: a client of an older one is never sent a drag
 /// event, and its surfaces are no target.
@@ -57,6 +59,22 @@ pub(super) struct Drags {
     file_type_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
     /// A dragged file's volume in chunks (DragFileVolume), by client.
     file_volume_receiving: BTreeMap<(ClientId, u32), (String, u16)>,
+    /// The drag released over a target that has not yet answered where it was released.
+    releasing: Option<Releasing>,
+}
+
+/// A drag released over a target, decided once the target has answered every event it was sent
+/// before the release (a Ping after them, answered): its answer to the last motion, which it may
+/// not have read when the person let go, is the one a drop on it is decided by, as a Mac's drag
+/// asks its destination where it is dropped. A target that does not answer in a Ping's time is
+/// decided by what it said last.
+#[derive(Debug)]
+struct Releasing {
+    /// The release's serial, the drop's.
+    serial: u64,
+    target: ClientId,
+    ping: u32,
+    sent: Duration,
 }
 
 /// What a source said of a drag before starting it: the types it offers, its files' types
@@ -617,8 +635,11 @@ impl Scene {
     }
 
     /// The pointer moved during a drag: the icon follows it, the target may change, and the target
-    /// under it is told the motion.
+    /// under it is told the motion. Released, the drag stays where it was let go.
     pub(super) fn drag_motion(&mut self) {
+        if self.released() {
+            return;
+        }
         self.place_drag_icon();
         if self.retarget_drag() {
             return;
@@ -655,8 +676,76 @@ impl Scene {
         }
     }
 
-    /// The person released the drag: a drop on a target whose action is not none, else a cancel.
+    /// The person released the drag: decided once its target has answered where it was released
+    /// (`Releasing`), at once without one.
     fn drop_drag(&mut self, serial: u64) {
+        if self.drags.releasing.is_some() {
+            return;
+        }
+        let target = self
+            .drags
+            .current
+            .as_ref()
+            .and_then(|drag| drag.target)
+            .map(|target| target.surface.client);
+        if let Some(target) = target {
+            if let Some(ping) = self.ping_after_events(target) {
+                self.drags.releasing = Some(Releasing {
+                    serial,
+                    target,
+                    ping,
+                    sent: self.clock,
+                });
+                return;
+            }
+        }
+        self.decide_drop(serial);
+    }
+
+    /// The released drag's target answered the Ping sent after the release: it is decided now.
+    pub(super) fn drop_answered(&mut self, client: ClientId, ping: u32) {
+        if self
+            .drags
+            .releasing
+            .as_ref()
+            .is_some_and(|releasing| releasing.target == client && releasing.ping == ping)
+        {
+            let releasing = self.drags.releasing.take().expect("checked");
+            self.decide_drop(releasing.serial);
+        }
+    }
+
+    /// The released drag's target did not answer in a Ping's time: it is decided by what it said
+    /// last.
+    pub(super) fn drop_unanswered(&mut self) {
+        if self
+            .drags
+            .releasing
+            .as_ref()
+            .is_some_and(|releasing| self.clock.saturating_sub(releasing.sent) >= PING_TIMEOUT)
+        {
+            let releasing = self.drags.releasing.take().expect("checked");
+            self.decide_drop(releasing.serial);
+        }
+    }
+
+    /// When the released drag's target is late, after the clock.
+    pub(super) fn drop_deadline(&self) -> Option<Duration> {
+        self.drags
+            .releasing
+            .as_ref()
+            .map(|releasing| (releasing.sent + PING_TIMEOUT).saturating_sub(self.clock))
+    }
+
+    /// Whether the drag was released and waits for its target's answer: the pointer no longer
+    /// moves it.
+    fn released(&self) -> bool {
+        self.drags.releasing.is_some()
+    }
+
+    /// The released drag: a drop on a target whose action is not none, else a cancel.
+    fn decide_drop(&mut self, serial: u64) {
+        self.drags.releasing = None;
         let Some(drag) = self.drags.current.take() else {
             return;
         };
@@ -789,6 +878,7 @@ impl Scene {
     /// Ends the drag going on without a drop: its target is told it left, its source why. The
     /// buttons still held release nothing.
     pub(super) fn cancel_drag(&mut self, reason: DragCancelReason) {
+        self.drags.releasing = None;
         let Some(drag) = self.drags.current.take() else {
             return;
         };
@@ -978,6 +1068,14 @@ impl Scene {
                 drag.target = None;
                 self.negotiate_drag();
             }
+            // Released over it, the drag has no target to wait for now.
+            if let Some(releasing) = self
+                .drags
+                .releasing
+                .take_if(|releasing| releasing.target == client)
+            {
+                self.decide_drop(releasing.serial);
+            }
         }
         let gone: VecDeque<Dropped> = {
             let (gone, kept) = std::mem::take(&mut self.drags.dropped)
@@ -1000,7 +1098,7 @@ impl Scene {
     /// The surfaces changed under a still pointer (one appeared, went, moved): the target is what
     /// is under it now.
     pub(super) fn refresh_drag_target(&mut self) {
-        if self.drags.current.is_some() {
+        if self.drags.current.is_some() && !self.released() {
             self.retarget_drag();
         }
     }
