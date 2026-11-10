@@ -1704,6 +1704,30 @@ pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bo
     }
 }
 
+/// The saturation benchmark's scopes (docs/adr/0066-quality-of-service.mdx, decision 3): with
+/// `OXYOS_CGROUP_FIXTURE` naming a delegated control group that stands for the person's user
+/// manager's (docs/performance.mdx), each application this compositor starts, and its search
+/// service, is placed in that layout as a session places it, by `oxyos-scope` beside this program.
+/// Without it (the gate, a developer's run), everything runs where this program does, as before.
+fn fixture_scoping() -> Option<oxyos_apps::Scoping> {
+    let oxyos_scopes::Manager::Fixture(fixture) = oxyos_scopes::Manager::fixture_from_env()? else {
+        return None;
+    };
+    let program = std::env::current_exe().ok()?.parent()?.join("oxyos-scope");
+    if !program.is_file() {
+        eprintln!(
+            "[launch] {} is set but there is no {}: the applications are not placed",
+            oxyos_scopes::FIXTURE_ENV,
+            program.display()
+        );
+        return None;
+    }
+    Some(oxyos_apps::Scoping {
+        program,
+        fixture: Some(fixture),
+    })
+}
+
 fn main() -> Result<()> {
     // A load of the saturation benchmark (load.rs, perf.py saturation), run as an application or a
     // process the benchmark places.

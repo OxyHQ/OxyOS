@@ -141,7 +141,7 @@ it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds t
 installs the runtime, the system applications, their entries and policy, the input methods, the
 sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
 (the one before kept as `.old`), the login, accounts and PIN stack (every file of
-`tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their
+`tools/deploy/system-files`: the session, `oxyos-scope` (which puts each application in a scope of its own, ADR 0066), the login program, `oxyos-accountd`, `oxyos-pin-check`, their
 units, PAM services, sysusers, tmpfiles and the ptrace scope), Safe Mode's parts (the recovery's
 program, the kernel-install plugin, the polkit rule) and, where the machine boots systemd-boot with
 kernel-install's entries, a Safe Mode entry beside each installed kernel's (`oxyos-recovery
