@@ -312,10 +312,12 @@ export function ActivityMonitor({ source, locale }: ActivityMonitorProps) {
   // Edit › Find… (Ctrl+F): the keyboard to the search field, its text selected to type over, as
   // a Mac's Find takes its field.
   const searchRef = React.useRef<React.ComponentRef<typeof Search>>(null);
+  const queryRef = React.useRef(query);
+  queryRef.current = query;
   const findProcess = React.useCallback(() => {
     const field = searchRef.current;
     field?.focus();
-    field?.setSelection?.(0, Number.MAX_SAFE_INTEGER);
+    field?.setSelection(0, queryRef.current.length);
   }, []);
 
   const quit = React.useCallback(

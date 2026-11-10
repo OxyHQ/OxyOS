@@ -59,12 +59,12 @@
       }
     },
     {
-      "name": "Find… from the bar: the keyboard is the window's again, the field's text selected, the command run once",
+      "name": "Find… from the bar: the keyboard is the window's again (the pointer back over it), the field's text selected, the command run once",
       "do": ["press_named", "Find…"],
       "allow_unchanged": true,
       "expect": {
         "focus_input": "activity-search",
-        "delivered": {"1": {"focus.in": 1, "menu.activated": 1}},
+        "delivered": {"1": {"enter": 1, "focus.in": 1, "menu.activated": 1}},
         "menus": {"Edit > Cut": {"disabled": false}, "Edit > Copy": {"disabled": false}}
       }
     },
