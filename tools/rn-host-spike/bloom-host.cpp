@@ -2224,16 +2224,21 @@ int main(int argc, char** argv) {
     // events behind the one its page has not answered, while the loop goes on animating, scrolling
     // and drawing (docs/adr/0067-the-ui-thread.mdx). `answer` is -1 until it comes, then whether
     // JavaScript took the key.
+    // Each with the number the report received it as (Report::received), the cause of what its handling
+    // delivers.
     struct OfferedKey {
       OxyOSEvent event;
+      uint64_t seq;
       std::shared_ptr<std::atomic<int>> answer;
       folly::dynamic offered;
     };
     std::optional<OfferedKey> offeredKey;
-    std::deque<OxyOSEvent> heldBehindKey;
+    std::deque<std::pair<OxyOSEvent, uint64_t>> heldBehindKey;
+    // The number of the event being handled, as received.
+    uint64_t handlingSeq = 0;
     auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
       auto answer = std::make_shared<std::atomic<int>>(-1);
-      offeredKey = OfferedKey{event, answer, offered};
+      offeredKey = OfferedKey{event, handlingSeq, answer, offered};
       // At the priority the events and device events the loop hands JavaScript have, in the order
       // they came: what was handed after the key (the modifiers' change) runs after it.
       instance->getRuntimeScheduler()->scheduleTask(
@@ -2592,7 +2597,7 @@ int main(int argc, char** argv) {
           auto key = std::move(*offeredKey);
           offeredKey.reset();
           busy = true;
-          oxyos::Report::Handling keyHandling(key.event);
+          oxyos::Report::Handling keyHandling(key.event, key.seq);
           bool taken = key.answer->load() == 1;
           if (taken) {
             keyChords.taken(key.event.code);
@@ -2600,9 +2605,10 @@ int main(int argc, char** argv) {
           }
           finishEvent(key.event, taken, std::nullopt, false);
           while (!offeredKey && !heldBehindKey.empty()) {
-            auto held = heldBehindKey.front();
+            auto [held, seq] = heldBehindKey.front();
             heldBehindKey.pop_front();
-            oxyos::Report::Handling heldHandling(held);
+            oxyos::Report::Handling heldHandling(held, seq);
+            handlingSeq = seq;
             dispatched(held);
           }
         }
@@ -2610,8 +2616,10 @@ int main(int argc, char** argv) {
         // ran past what it has then.
         uint64_t queuedBeforeInput = js->queued();
         bool connected = window->dispatch([&](const OxyOSEvent& event) {
+          // Window::dispatch reported it received just before.
+          handlingSeq = oxyos::Report::get().receivedSeq();
           if (offeredKey || !heldBehindKey.empty()) {
-            heldBehindKey.push_back(event);
+            heldBehindKey.emplace_back(event, handlingSeq);
             return;
           }
           dispatched(event);

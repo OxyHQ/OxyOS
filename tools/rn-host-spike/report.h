@@ -146,6 +146,9 @@ class Report {
   class Handling {
    public:
     explicit Handling(const OxyOSEvent& event);
+    // An event received before others it is handled after (a key that waited for JavaScript's answer,
+    // and the events held behind it): `seq`, the number `received` gave it (receivedSeq).
+    Handling(const OxyOSEvent& event, uint64_t seq);
     ~Handling();
     Handling(const Handling&) = delete;
     Handling& operator=(const Handling&) = delete;
@@ -158,6 +161,8 @@ class Report {
   };
   // The name `received` gives an input event, or null for an event that is not the person's input.
   static const char* inputKind(const OxyOSEvent& event);
+  // The number `received` gave the event it wrote last.
+  uint64_t receivedSeq() const { return received_; }
   // An event delivered to React (touch, text, scroll, …) on `view`.
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());

@@ -450,7 +450,9 @@ void Report::received(const OxyOSEvent& event) {
       "pid", static_cast<int64_t>(getpid()))("seq", ++received_));
 }
 
-Report::Handling::Handling(const OxyOSEvent& event) {
+Report::Handling::Handling(const OxyOSEvent& event) : Handling(event, Report::get().received_) {}
+
+Report::Handling::Handling(const OxyOSEvent& event, uint64_t seq) {
   auto& report = Report::get();
   kind_ = report.handlingKind_;
   serial_ = report.handlingSerial_;
@@ -458,8 +460,9 @@ Report::Handling::Handling(const OxyOSEvent& event) {
   seq_ = report.handlingSeq_;
   if (const char* kind = inputKind(event)) {
     report.handlingKind_ = kind;
-    // The event `received` wrote last, when it is this one (Window::dispatch writes it first).
-    report.handlingSeq_ = report.received_;
+    // The event `received` wrote last, when it is this one (Window::dispatch writes it first), or
+    // the number it was received as (an event handled after others received since).
+    report.handlingSeq_ = seq;
     report.handlingSerial_ = event.serial;
     report.handlingSurface_ = event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ? event.code : event.surface;
   }
