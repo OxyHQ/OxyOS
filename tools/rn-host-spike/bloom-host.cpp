@@ -1090,10 +1090,11 @@ int main(int argc, char** argv) {
   mounter.runningBatch = [thread = js.get()] { return thread->running(); };
   mounter.wakeWhenIdle = &wakeUiWhenIdle;
   mounter.mountAtFrame = focusFirst || windowFocusFirst;
-  // A call JavaScript makes into the host sees the tree with what it committed before the call, as
-  // when each task's commits were mounted as it ended: a drag's image is of the item its press just
-  // selected. Unless a scenario applies everything at the frame. What the mount draws there (a
-  // modal's last frame) is drawn on the CPU: the GPU's painter is the UI thread's.
+  // A call JavaScript makes into the host that reads the tree (applyCommitsBeforeCall) sees it with
+  // what JavaScript committed before the call, as when each task's commits were mounted as it ended:
+  // a drag's image is of the item its press just selected. Unless a scenario applies everything at
+  // the frame. What the mount draws there (a modal's last frame) is drawn on the CPU: the GPU's
+  // painter is the UI thread's.
   oxyos::hostCallBarrier() = [&mounter] {
     if (oxyos::UiThread::isCurrent() || mounter.mountAtFrame) return;
     oxyos::CpuPaintScope cpu;
@@ -1491,6 +1492,8 @@ int main(int argc, char** argv) {
                                       std::function<void(std::optional<std::string>)> done,
                                       std::function<void(const std::string&)> cancelled) {
       auto vanish = options.isObject() ? options.getDefault("vanish", false) : folly::dynamic(false);
+      // Its image is of the view as JavaScript left it before the call (the item its press selected).
+      oxyos::applyCommitsBeforeCall();
       dragDrop.start(data, actions, preview, count, vanish.isBool() && vanish.asBool(), std::move(done),
                      std::move(cancelled));
     };
@@ -2927,8 +2930,10 @@ int main(int argc, char** argv) {
           handleEvent(event);
         };
         // A key JavaScript answered: its handling ends, then the events that waited behind it go on, in
-        // order, until one is another key offered to JavaScript.
-        while (offeredKey && offeredKey->answer->load() >= 0) {
+        // order, until one is another key offered to JavaScript. Once JavaScript is idle and what it
+        // did is applied, as when each key was handled in its turn: the key after it, offered or the
+        // platform's (Tab), meets the focus that key moved.
+        while (offeredKey && offeredKey->answer->load() >= 0 && js->idle() && !mounter.javascriptPending()) {
           auto key = std::move(*offeredKey);
           offeredKey.reset();
           busy = true;
@@ -3819,7 +3824,8 @@ int main(int argc, char** argv) {
         if (!toJavaScript.keyOffered() || !mounter.javascriptPending()) toJavaScript.handOver();
         // While the window waits for JavaScript to settle (a resize), or an input for its answer,
         // JavaScript's thread wakes the loop as it goes idle.
-        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending();
+        wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending() ||
+                         offeredKey.has_value();
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the

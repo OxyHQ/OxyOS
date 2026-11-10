@@ -41,18 +41,17 @@ namespace jsi = facebook::jsi;
 // the services), so none runs while the loop works. A value that is no function is returned as is.
 jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method);
 
-// What a call into the host does first, its state held: the host's tree takes what JavaScript
-// committed before the call (bloom-host.cpp's mounting layer), so a method that reads it (a drag's
-// image of a view, the focused field) sees what JavaScript did before calling it, as on the one thread.
+// What JavaScript committed before a call into the host, applied to the host's tree by the call (its
+// state held), for a call that reads the tree as JavaScript left it: a drag's image of the view its
+// press just selected, as when each task's commits were mounted as it ended (bloom-host.cpp's
+// mounting layer sets it). Only such a call does: the frames show JavaScript's work whole otherwise.
 std::function<void()>& hostCallBarrier();
+inline void applyCommitsBeforeCall() {
+  if (auto& barrier = hostCallBarrier()) barrier();
+}
 
-// The UI thread's state held for a call into the host, after its barrier.
+// The UI thread's state held for a call into the host.
 class HostCall {
- public:
-  HostCall() {
-    if (auto& barrier = hostCallBarrier()) barrier();
-  }
-
  private:
   UiThread::Lock lock_;
 };
