@@ -3089,6 +3089,43 @@ struct Wait<'a> {
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
 /// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
 /// that do not change for it also count as settled (a step whose expected answer is nothing).
+/// `ppoll`'s number, the one call a Bloom host's loop sleeps in when it has nothing to do
+/// (bloom-host.cpp: "an application doing nothing never turns").
+#[cfg(target_arch = "x86_64")]
+const PPOLL: &str = "271";
+#[cfg(target_arch = "aarch64")]
+const PPOLL: &str = "73";
+
+/// Whether a Bloom host is in the middle of a turn of its loop: its main thread anywhere but
+/// asleep in `ppoll` waiting for work (running, preempted, waiting on its JavaScript thread).
+/// What it is doing then is a step's answer still to come, however long since its last frame: on
+/// a loaded machine one turn ran 350 to 830 ms (a caret's blink, a page Back opened, a row −
+/// removed), longer than the settling's stillness, and the step settled in the middle of it.
+/// A process that is not a Bloom host (a native client, Astro) is never asked: its loop sleeps in
+/// calls of its own.
+fn host_turning(pid: i32) -> bool {
+    let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+        return false;
+    };
+    if comm.trim_end() != "oxyos-bloom-hos" {
+        return false;
+    }
+    // The call its main thread is blocked in ("running" when it is not blocked); gone, it is no
+    // answer to wait for.
+    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/syscall"))
+        .is_ok_and(|call| call.split_whitespace().next() != Some(PPOLL))
+}
+
+/// Whether the application's host, or the companion's, is in the middle of a turn
+/// (`host_turning`): the step is not answered until each has gone back to waiting for work.
+fn hosts_turning(session: &Session) -> bool {
+    [Some(CLIENT), session.companion_client()]
+        .into_iter()
+        .flatten()
+        .filter_map(|client| session.compositor.peers.get(&client).map(|peer| peer.pid))
+        .any(host_turning)
+}
+
 fn settle(
     session: &mut Session,
     children: &mut Children,
@@ -3183,6 +3220,11 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
+        // A host in the middle of a turn: its stillness starts once it is back to waiting.
+        let turning = hosts_turning(session);
+        if turning {
+            last.1 = Instant::now();
+        }
         let shell_changed = shell_now != shell_last
             || launched_changed
             || companion_changed
@@ -3286,6 +3328,7 @@ fn settle(
         if !changed
             && !shell_changed
             && !writing_now
+            && !turning
             && answered
             && sheet_shown
             && named_shown

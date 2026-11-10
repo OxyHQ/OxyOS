@@ -323,7 +323,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "stopped_by" "hold" and "press". With "kept_by" (the same kinds of input on another surface of
   the application while it glides, a popup's), the glide goes on to its end as without it;
 - scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
-  the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
+  the momentum's) carries as its `timestamp` when the host dispatched it (after it received the
+  input behind it, a glide's frame the last before it, and before it reported the event), as React
   Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
   device's time of the input behind it, nor nothing;
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
@@ -3234,6 +3235,39 @@ def android_fling_distance(velocity, friction):
     return math.copysign(distance, velocity)
 
 
+def android_spline_positions(samples=100):
+    """SplineOverScroller's SPLINE_POSITION, computed as its static initializer computes it (as
+    scroll-physics.h does): the share of a fling's distance gone at each hundredth of its time."""
+    start_tension, end_tension, inflexion = 0.5, 1.0, 0.35
+    p1, p2 = start_tension * inflexion, 1.0 - end_tension * (1.0 - inflexion)
+    positions, x_min = [], 0.0
+    for i in range(samples):
+        alpha, x_max = i / samples, 1.0
+        while True:
+            x = x_min + (x_max - x_min) / 2.0
+            coefficient = 3.0 * x * (1.0 - x)
+            tx = coefficient * ((1.0 - x) * p1 + x * p2) + x * x * x
+            if abs(tx - alpha) < 1e-5:
+                break
+            if tx > alpha:
+                x_max = x
+            else:
+                x_min = x
+        positions.append(coefficient * ((1.0 - x) * start_tension + x) + x * x * x)
+    return positions + [1.0]
+
+
+def android_fling_time(share):
+    """When a fling has gone `share` of its distance, as a share of its time (its spline, as
+    SplineOverScroller.update steps it, inverted)."""
+    positions = android_spline_positions()
+    samples = len(positions) - 1
+    for i in range(samples):
+        if positions[i + 1] >= share:
+            return (i + (share - positions[i]) / (positions[i + 1] - positions[i])) / samples
+    return 1.0
+
+
 def edge_stretch(distance):
     """EdgeEffect's dampStretchVector: the stretch drawn for a pull of `distance` (a share of the
     view's size)."""
@@ -3371,7 +3405,15 @@ def check_glide(wanted, report, start, end, fail):
     speeding = glide_speeding(after[0:1] + after[2:-1], axis)
     if speeding:
         fail(f"{view} sped up as it glided: {speeding}")
-    if len(steps) < wanted.get("frames_min", 0):
+    # The glide is drawn a frame at a time (never a jump), but where it is is its clock's, as
+    # Android's: a glide that met the end was there when its spline had gone that far, and a first
+    # frame drawn after that (late, on a loaded machine) rightly shows it there, in one frame.
+    def late_first():
+        if not steps or not distance or not wanted.get("to_end"):
+            return False
+        met_end_by = fling["ms"] * android_fling_time(abs(offsets[-1] - offsets[0]) / abs(distance))
+        return (after[2]["t"] - fling["t"]) / 1e6 >= met_end_by
+    if len(steps) < wanted.get("frames_min", 0) and not late_first():
         fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get(axis)
     reached_end = wanted.get("to_end", False)
@@ -5354,11 +5396,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  and line.get("event") in kinds]
         if not lines:
             fail("no scroll event was delivered")
+        # Dispatched after the host received the input behind it (its `received` line; a glide's
+        # frame has none: the last input received before it) and before the host reported it:
+        # never the device's time, which comes before the host received it. Bounds of the host's
+        # own, not a gap in time, which a loaded machine stretched past 2 ms between stamping an
+        # event and writing its line.
+        received = {line["seq"]: line["t"] for line in report if line["kind"] == "received" and "seq" in line}
+        inputs = sorted(received.values())
         for line in lines:
             stamp = line.get("timestamp")
-            if stamp is None or abs(stamp - line["t"] / 1e6) > 2:
+            behind = received.get(line.get("input_seq"))
+            if behind is None:
+                behind = max((t for t in inputs if t <= line["t"]), default=None)
+            if (stamp is None or stamp > line["t"] / 1e6 + 0.01
+                    or (behind is not None and stamp < behind / 1e6 - 0.01)):
                 fail(f"{line['event']}@{line.get('target')} carried timestamp {stamp}, dispatched at "
-                     f"{line['t'] / 1e6:.1f} ms")
+                     f"{line['t'] / 1e6:.1f} ms, after the input behind it at "
+                     f"{'none' if behind is None else f'{behind / 1e6:.1f} ms'}")
                 break
     if "stretch" in expect:
         check_stretch(expect["stretch"], report, start, end, fail)

@@ -478,6 +478,51 @@ class GlidesOnlySlow(unittest.TestCase):
                          [(2, -1875, -3125)])
 
 
+class AGlidesClockIsItsOwn(unittest.TestCase):
+    """`glide`'s frames_min (touchpad-scroll-scaled.json, step 2): a glide to the end is drawn in
+    frames, unless its first frame came after its spline had already reached the end."""
+
+    def check(self, first_ms):
+        # Flung at 1200 px/s from 280, 45.6 px short of the end, its spline 634.9 ms long.
+        fling = {"kind": "fling", "t": 0, "target": "inbox", "friction": 0.015, "vy": 1200.0, "vx": 0.0,
+                 "dy": regress.android_fling_distance(1200.0, 0.015), "dx": 0.0, "ms": 634.9}
+        line = lambda ms, event, y: {"kind": "deliver", "t": int(ms * 1e6), "event": event, "target": "inbox",
+                                     "surface": 1, "y": y, "x": 0}
+        report = [line(0, "scrollEndDrag", 280.0), line(0.1, "momentumScrollBegin", 280.0), fling,
+                  line(first_ms, "scroll", 325.6), line(first_ms + 0.1, "momentumScrollEnd", 325.6)]
+        failures = []
+        regress.check_glide({"view": "inbox", "velocity": [900, 1800], "to_end": True, "frames_min": 2},
+                            report, 0, int(10e9), failures.append)
+        return failures
+
+    def test_a_first_frame_after_the_spline_met_the_end_shows_it_there(self):
+        self.assertAlmostEqual(regress.android_fling_time(45.6 / 266.7) * 634.9, 38.6, places=1)
+        self.assertEqual(self.check(101), [])
+
+    def test_a_jump_to_the_end_the_clock_did_not_make_fails(self):
+        self.assertEqual(self.check(16), ["inbox glided in 1 frames, expected at least 2"])
+
+
+class ScrollsStampedAtDispatch(unittest.TestCase):
+    """`scroll_times: "dispatch"` (touchpad-hold-scaled.json): between the host receiving the input
+    behind it and its line, however long the host was preempted between the two."""
+
+    def check(self, stamp_ms):
+        report = [{"kind": "received", "t": int(100e6), "seq": 7, "event": "scroll"},
+                  dict(deliver(int(102.6e6), "scroll", "ScrollView#3", "list"), input_seq=7, timestamp=stamp_ms)]
+        step = {"name": "flick", "do": ["wait", 0], "expect": {"scroll_times": "dispatch"}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(200e6)}, report, 0, failures)
+        return [f for f in failures if "timestamp" in f]
+
+    def test_stamped_when_dispatched_however_late_its_line(self):
+        self.assertEqual(self.check(100.1), [])
+
+    def test_the_devices_time_or_a_later_one_fails(self):
+        self.assertEqual(len(self.check(98.0)), 1)
+        self.assertEqual(len(self.check(103.0)), 1)
+
+
 class GlidesMeetInput(unittest.TestCase):
     """`glide`'s check of a fling (regress.check_glide) and of the input that meets it, on reports
     written by hand: input on the glide's surface stops it where it is, input on another surface of
