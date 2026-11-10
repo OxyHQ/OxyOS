@@ -61,7 +61,8 @@ LOADS = [
     ("S3", "a cold `cargo build` of oxyos-search, -j every CPU, started over as it ends (an application's)"),
     ("S4", "five hidden applications animating at the display's rate and one hidden one running JavaScript without rest"),
     ("S5", "a full first backup (restic, the backup service's unit settings) and the search index built, each started over"),
-    ("S6", f"an application writing over 110 % of the machine's memory again and again (a machine of {MACHINE_MIB} MiB)"),
+    ("S6", f"an application writing over 110 % of the machine's memory again and again, its pages compressing "
+           f"about 2:1 (a machine of {MACHINE_MIB} MiB)"),
     ("S7", "another user's processes computing on every CPU"),
 ]
 
