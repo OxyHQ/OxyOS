@@ -144,3 +144,64 @@ fn a_request_of_a_newer_version_is_refused_from_an_older_client() {
     }
     client.join().unwrap();
 }
+
+/// What a client of `version` is sent from its Welcome until its window's first Configure, and,
+/// from version 42, until the end of that Configure's turn, read raw.
+fn raw_events(path: &std::path::Path, version: u16) -> Vec<Event> {
+    let connection = Connection::connect(path).unwrap();
+    let (mut state, hello) = ClientConnection::new(2, version);
+    connection.send_request(&hello, None).unwrap();
+    let (welcome, _) = connection.recv_event_for(version).unwrap();
+    state.receive(&welcome).unwrap();
+    assert_eq!(state.version(), Some(version));
+    connection
+        .send_request(
+            &Request::CreateToplevel {
+                surface: 1,
+                size: Size::new(200, 100),
+            },
+            None,
+        )
+        .unwrap();
+    let mut events = vec![welcome];
+    let mut configured = false;
+    loop {
+        let (event, _) = connection.recv_event_for(version).unwrap();
+        configured |= matches!(event, Event::Configure { .. });
+        let ended = matches!(event, Event::TurnEnd {});
+        events.push(event);
+        if configured && (version < 42 || ended) {
+            return events;
+        }
+    }
+}
+
+#[test]
+fn each_turn_ends_with_turn_end_from_version_42_and_never_before() {
+    for version in [42, 41] {
+        let (mut compositor, listener, socket) = compositor(&format!("turns-{version}"));
+        let path = socket.clone();
+        let client = std::thread::spawn(move || raw_events(&path, version));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !client.is_finished() {
+            assert!(Instant::now() < deadline, "the client was not served");
+            compositor.serve(&listener).unwrap();
+        }
+        let events = client.join().unwrap();
+        let ends: Vec<usize> = (0..events.len())
+            .filter(|index| matches!(events[*index], Event::TurnEnd {}))
+            .collect();
+        if version == 42 {
+            // The handshake's turn and the window's, each ended once after its events.
+            assert!(ends.len() >= 2, "{events:?}");
+            assert_eq!(ends.last(), Some(&(events.len() - 1)), "{events:?}");
+            assert!(
+                ends.windows(2).all(|pair| pair[1] > pair[0] + 1),
+                "a turn's end follows events: {events:?}"
+            );
+            assert!(ends[0] > 0, "{events:?}");
+        } else {
+            assert!(ends.is_empty(), "{events:?}");
+        }
+    }
+}

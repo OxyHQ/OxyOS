@@ -30,7 +30,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 40;
+pub const VERSION: u16 = 42;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -63,6 +63,9 @@ pub const QUIT_REQUESTS_VERSION: u16 = 38;
 /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10): an older one closes the
 /// connection for it, so a client tells it only to this version or newer.
 pub const SUDDEN_TERMINATION_VERSION: u16 = 40;
+/// The first version whose compositor ends what each of its turns sent a client with `TurnEnd`
+/// (ADR 0033): the client library reads a turn's events whole only from this version on.
+pub const TURNS_VERSION: u16 = 42;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";

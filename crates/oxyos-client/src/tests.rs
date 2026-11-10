@@ -140,6 +140,64 @@ fn destroying_a_surface_destroys_its_buffers() {
 }
 
 #[test]
+fn a_turn_of_the_compositors_is_read_whole_however_its_packets_are_spaced() {
+    let (mut client, server) = connected();
+    assert_eq!(client.version(), VERSION);
+    let key = |pressed| Event::Key {
+        surface: 1,
+        serial: 1,
+        key: 57,
+        pressed,
+        time_ns: 0,
+    };
+    // The turn's first event, read; its second still on its way, as when the kernel schedules the
+    // compositor out between its packets.
+    server.send_event(&key(true), None).unwrap();
+    assert_eq!(client.poll().unwrap(), Poll::Event(key(true)));
+    let rest = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        server.send_event(&key(false), None).unwrap();
+        server.send_event(&Event::TurnEnd {}, None).unwrap();
+        server
+    });
+    // Not "nothing queued": the rest of the turn, then its end, which no application sees.
+    assert_eq!(client.poll().unwrap(), Poll::Event(key(false)));
+    assert_eq!(client.poll().unwrap(), Poll::Empty);
+    let server = rest.join().unwrap();
+    // A turn of one event, then nothing: nothing more is waited for.
+    server.send_event(&key(true), None).unwrap();
+    server.send_event(&Event::TurnEnd {}, None).unwrap();
+    assert_eq!(client.poll().unwrap(), Poll::Event(key(true)));
+    assert_eq!(client.poll().unwrap(), Poll::Empty);
+}
+
+#[test]
+fn a_connection_of_version_41_is_read_event_by_event() {
+    let (client, server) = Connection::pair().unwrap();
+    let compositor = std::thread::spawn(move || {
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        let welcome = protocol.receive(&hello).unwrap().expect("welcome");
+        server.send_event(&welcome, None).unwrap();
+        server
+    });
+    let mut client = Client::handshake_versions(client, MIN_VERSION, 41).unwrap();
+    let server = compositor.join().unwrap();
+    assert_eq!(client.version(), 41);
+    let event = Event::Key {
+        surface: 1,
+        serial: 1,
+        key: 57,
+        pressed: true,
+        time_ns: 0,
+    };
+    // No turn's end ever comes: nothing is waited for after an event.
+    server.send_event_for(&event, None, 41).unwrap();
+    assert_eq!(client.poll().unwrap(), Poll::Event(event));
+    assert_eq!(client.poll().unwrap(), Poll::Empty);
+}
+
+#[test]
 fn polling_reports_empty_and_closed_and_protocol_errors_end_the_connection() {
     let (mut client, server) = connected();
     assert_eq!(client.poll().unwrap(), Poll::Empty);

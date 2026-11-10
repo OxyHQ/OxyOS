@@ -20,6 +20,19 @@ const PRESSES: usize = 400;
 /// How long the client stays silent after reading: a turn that waited for it would take this.
 const SILENCE: Duration = Duration::from_secs(3);
 
+/// Serves while the client reads what it was sent: it reads a turn of the compositor's whole (ADR
+/// 0033, version 42), so the rest of a turn its socket could not hold comes as the socket has room.
+fn drain(compositor: &mut Compositor, listener: &Listener, until_drained: &mpsc::Receiver<()>) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while until_drained.try_recv().is_err() {
+        assert!(
+            Instant::now() < deadline,
+            "the client never read its events"
+        );
+        compositor.serve(listener).unwrap();
+    }
+}
+
 #[test]
 fn a_client_that_reads_its_events_and_sends_nothing_never_holds_the_turn() {
     let directory = std::env::temp_dir().join(format!("oxyos-slow-clients-{}", std::process::id()));
@@ -69,8 +82,9 @@ fn a_client_that_reads_its_events_and_sends_nothing_never_holds_the_turn() {
         }
         shown.send(()).unwrap();
         // Busy: nothing read while the compositor sends more than the socket holds. Then, twice,
-        // everything the socket holds read at once: the first time it answers the Ping the input
-        // brought (ADR 0034), the second time it sends nothing.
+        // everything it was sent read at once, a turn of the compositor's whole (its rest coming
+        // as the socket has room, ADR 0033 version 42): the first time it answers the Ping the
+        // input brought (ADR 0034), the second time it sends nothing.
         for _ in 0..2 {
             until_read.recv().unwrap();
             loop {
@@ -126,13 +140,13 @@ fn a_client_that_reads_its_events_and_sends_nothing_never_holds_the_turn() {
     }
     compositor.serve(&listener).unwrap();
     read.send(()).unwrap();
-    until_drained.recv_timeout(Duration::from_secs(10)).unwrap();
+    drain(&mut compositor, &listener, &until_drained);
     // The Pong read, and the socket filled again from the outbox.
     for _ in 0..3 {
         compositor.serve(&listener).unwrap();
     }
     read.send(()).unwrap();
-    until_drained.recv_timeout(Duration::from_secs(10)).unwrap();
+    drain(&mut compositor, &listener, &until_drained);
 
     // The socket has room and the client sent nothing: each turn sends what it can and goes on.
     for turn in 0..5 {

@@ -176,6 +176,8 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
             fullscreen: false,
             maximized: false,
         },
+        // Each turn of the compositor's ends so (ADR 0033, version 42).
+        Event::TurnEnd {},
     ] {
         server.send_event(&event, None).unwrap();
     }
@@ -219,6 +221,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
             None,
         )
         .unwrap();
+    played.server.send_event(&Event::TurnEnd {}, None).unwrap();
     let second = played.next_frame();
     assert_ne!(second.buffer, first.buffer);
     assert_eq!(played.pixel(&second, 5, 100), ORANGE);
@@ -241,6 +244,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
                 None,
             )
             .unwrap();
+        played.server.send_event(&Event::TurnEnd {}, None).unwrap();
         if serial == 4 {
             // Released: the first image is drawn into again.
             played.timelines[&first.timeline]
@@ -297,6 +301,7 @@ fn without_a_gpu_table_the_client_draws_into_shared_memory() {
             None,
         )
         .unwrap();
+    server.send_event(&Event::TurnEnd {}, None).unwrap();
     let shared = loop {
         let (request, fd) = server.recv_request().unwrap();
         if let Request::AttachBuffer { .. } = request {
