@@ -7483,6 +7483,67 @@ mod tests {
     }
 
     #[test]
+    fn loads_launched_beside_and_keys_typed_at_a_pace() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--also-launch",
+            "so.oxy.perf.spin,so.oxy.perf.animation:minimized",
+            "--also-launch-lead",
+            "5000",
+            "--type-paced",
+            "10",
+            "the quick brown fox.",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        assert_eq!(
+            launch.also_launch,
+            [
+                ("so.oxy.perf.spin".to_string(), false),
+                ("so.oxy.perf.animation".to_string(), true)
+            ]
+        );
+        assert_eq!(launch.also_launch_lead, Duration::from_millis(5000));
+        assert_eq!(
+            launch.steps[0].0,
+            Step::TypePaced {
+                text: "the quick brown fox.".into(),
+                hz: 10
+            }
+        );
+        assert_eq!(
+            launch.steps[0].0.json(),
+            "\"type_paced\":[\"the quick brown fox.\",10]"
+        );
+        for bad in [
+            &["--also-launch", "so.oxy.perf.spin:hidden", "--", "app"][..],
+            &["--also-launch-lead", "-1", "--", "app"],
+            &["--type-paced", "0", "abc", "--", "app"],
+            &["--type-paced", "10", "", "--", "app"],
+            &["--type-paced", "10", "ABC", "--", "app"],
+        ] {
+            assert!(Launch::parse(&args(bad)).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_paced_input_waits_from_its_device_time_to_the_frame_after_it() {
+        let ms = Duration::from_millis;
+        // Due at 10, 20 and 30 ms; the second injected 6 ms late (the compositor was not running);
+        // frames shown at 12, 31 and 33 ms.
+        let due = [ms(10), ms(20), ms(30)];
+        let injected = [ms(10), ms(26), ms(30)];
+        let shown = [ms(12), ms(31), ms(33)];
+        assert_eq!(
+            device_latencies(&due, &injected, &shown, false),
+            [2.0, 11.0, 1.0]
+        );
+        // Bounded: the second's frame came after the third input, so it answered that one.
+        assert_eq!(device_latencies(&due, &injected, &shown, true), [2.0, 1.0]);
+        assert_eq!(latencies_json(&[2.0, 11.26]), "[2.0,11.3]");
+    }
+
+    #[test]
     fn outputs_are_their_pixels_at_their_scales() {
         let (_, launch) = Launch::parse(&args(&[
             "--outputs",
