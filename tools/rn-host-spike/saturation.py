@@ -49,6 +49,10 @@ SCENARIOS = HERE / "scenarios"
 # How long a load runs before the input measured under it.
 LEAD_MS = 5000
 
+# S6's machine: the memory the whole tree may use, the hog a tenth more.
+MACHINE_MIB = 3072
+HOG_FACTOR = 1.1
+
 # The loads: (id, what it is).
 LOADS = [
     ("S0", "none"),
@@ -57,13 +61,10 @@ LOADS = [
     ("S3", "a cold `cargo build` of oxyos-search, -j every CPU, started over as it ends (an application's)"),
     ("S4", "five hidden applications animating at the display's rate and one hidden one running JavaScript without rest"),
     ("S5", "a full first backup (restic, the backup service's unit settings) and the search index built, each started over"),
-    ("S6", "an application writing over 110 % of the machine's memory again and again (the machine: MACHINE_MIB)"),
+    ("S6", f"an application writing over 110 % of the machine's memory again and again (a machine of {MACHINE_MIB} MiB)"),
     ("S7", "another user's processes computing on every CPU"),
 ]
 
-# S6's machine: the memory the whole tree may use, the hog a tenth more.
-MACHINE_MIB = 3072
-HOG_FACTOR = 1.1
 
 # S5: the backup's files (random, so nothing is deduplicated or compressed away) and the index's.
 BACKUP_FILES = 6
@@ -734,7 +735,10 @@ def show(results, table):
         return "—" if not stats else f"{stats['p50']} / {stats['p95']} / {stats['p99']} / {stats['max']}"
 
     def loads(entry):
-        return ", ".join(f"{name} {p['work_per_s']}/s on {p['cores']} cores" for name, p in entry["loads"].items()) or "—"
+        def each(name, p):
+            work = f"{p['work_per_s']}/s, " if p.get("work_per_s") else ""
+            return f"{name}: {work}{p['cores']} cores"
+        return ", ".join(each(name, p) for name, p in entry["loads"].items()) or "—"
 
     rows = []
     for load, interactions in results["loads"].items():
