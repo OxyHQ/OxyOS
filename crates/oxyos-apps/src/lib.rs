@@ -1305,6 +1305,23 @@ pub struct Launched {
     pub url: Option<String>,
 }
 
+impl Launched {
+    /// A part of OxyOS the session runs itself (its shell, its screen reader), as its reports
+    /// name it: a system program with no entry, grant or capability of an application's.
+    pub fn part(id: &str, name: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            name: name.to_string(),
+            grants: Grants::default(),
+            origin: Origin::System,
+            capabilities: BTreeMap::new(),
+            opened: None,
+            chooser: false,
+            url: None,
+        }
+    }
+}
+
 /// How large a file chooser's window asks to be, in logical pixels: the compositor fits it to the
 /// window it is a sheet of (docs/adr/0029-chromium-on-oxyos.mdx, decision 8).
 pub const CHOOSER_WINDOW: (u32, u32) = (800, 520);
