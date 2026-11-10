@@ -317,6 +317,38 @@ impl Entries {
         Ok((written, removed))
     }
 
+    /// OxyOS's parameters (`required`, [`crate::layout::kernel_parameters`]) on the command line of
+    /// every entry of its own already written: each kernel's (`<token>-<version>`, counted or not)
+    /// and the recovery's. What a converted machine's entries, written before a parameter was
+    /// OxyOS's, are brought to; Safe Mode's are made from their kernels' afterwards
+    /// ([`Self::sync_safe_mode`]). Each entry changed is written whole; run again, nothing
+    /// changes. The files written.
+    pub fn sync_kernel_parameters(
+        &self,
+        token: &str,
+        required: &[&str],
+    ) -> io::Result<Vec<String>> {
+        let prefix = format!("{token}-");
+        let mut written = Vec::new();
+        for entry in self.list()? {
+            let kernel = !entry.is_safe_mode()
+                && entry
+                    .id
+                    .strip_prefix(&prefix)
+                    .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()));
+            if !kernel && entry.file_name != crate::layout::RECOVERY_ENTRY {
+                continue;
+            }
+            let text = fs::read_to_string(self.directory.join(&entry.file_name))?;
+            let changed = with_parameters_in_entry(&text, required);
+            if changed != text {
+                self.write_whole(&entry.file_name, &changed)?;
+                written.push(entry.file_name);
+            }
+        }
+        Ok(written)
+    }
+
     /// Removes Safe Mode's entry for the kernel `version`: whether it was there.
     pub fn remove_safe_mode_of(&self, version: &str) -> io::Result<bool> {
         match fs::remove_file(
@@ -353,6 +385,64 @@ impl Entries {
         self.flush()?;
         Ok(removed)
     }
+}
+
+/// A Type 1 entry with `required` on its `options` line (each line of them, where an entry has
+/// several), the rest of it as it was.
+pub fn with_parameters_in_entry(entry: &str, required: &[&str]) -> String {
+    let mut out = String::with_capacity(entry.len() + 32);
+    for line in entry.split_inclusive('\n') {
+        let body = line.trim_end_matches('\n');
+        let trimmed = body.trim_start();
+        match trimmed.split_once(char::is_whitespace) {
+            Some(("options", rest)) => {
+                let rest = rest.trim_start();
+                let lead = &body[..body.len() - rest.len()];
+                out.push_str(lead);
+                out.push_str(&crate::layout::with_parameters(rest.trim(), required));
+                if line.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+            _ => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// kernel-install's command line (`/etc/kernel/cmdline`, at `path`) with `required` on it,
+/// written whole (staged, flushed, renamed) when it changes. Where there is none, kernel-install
+/// takes the running kernel's (`proc_cmdline`, without the loader's `BOOT_IMAGE=` and `initrd=`),
+/// which the file is made from. Whether it was written.
+pub fn sync_command_line_file(
+    path: &Path,
+    proc_cmdline: &str,
+    required: &[&str],
+) -> io::Result<bool> {
+    let current = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => proc_cmdline
+            .split_whitespace()
+            .filter(|word| !word.starts_with("BOOT_IMAGE=") && !word.starts_with("initrd="))
+            .collect::<Vec<_>>()
+            .join(" "),
+        Err(e) => return Err(e),
+    };
+    let wanted = format!(
+        "{}\n",
+        crate::layout::with_parameters(current.trim(), required)
+    );
+    if wanted == current {
+        return Ok(false);
+    }
+    let staged = path.with_extension("oxyos-new");
+    fs::write(&staged, &wanted)?;
+    fs::File::open(&staged)?.sync_all()?;
+    fs::rename(&staged, path)?;
+    if let Some(parent) = path.parent() {
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(true)
 }
 
 /// The boot loader's EFI variables (systemd's vendor GUID), as efivarfs shows them: four bytes of
