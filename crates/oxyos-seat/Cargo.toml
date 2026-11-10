@@ -5,12 +5,18 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["logind"]
+# logind's part (the seat, its devices, the lock, brightness): the system bus. Without it, only
+# `notify` and `restarts`, for system services that speak to their unit alone.
+logind = ["dep:zbus", "dep:futures-lite"]
+
 [dependencies]
 # systemd-logind over the system bus, in safe Rust.
-zbus = "5"
+zbus = { version = "5", optional = true }
 # Waiting on the bus with its own block_on, never async-io's (`system_bus`).
-futures-lite = "2"
-rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "process"] }
+futures-lite = { version = "2", optional = true }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "fs", "process", "event"] }
 
 [lints]
 workspace = true

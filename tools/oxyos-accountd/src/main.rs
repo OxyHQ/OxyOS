@@ -63,6 +63,7 @@ use oxyos_account::session::{self, Event, Kind, Registrars, Sessions};
 use oxyos_account::setup::Setup;
 use oxyos_account::store::{Store, PICTURES_DIRECTORY, STATE_DIRECTORY};
 use oxyos_account::users::{passwd_entry, SystemUsers};
+use oxyos_seat::notify::{wait_readable, Notify};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -339,7 +340,7 @@ fn sessions(listener: Listener, sessions: Arc<Sessions<HttpApi, SystemUsers>>) {
     }
 }
 
-fn run() -> Result<(), String> {
+fn run(notify: Option<Notify>) -> Result<(), String> {
     let options = options()?;
     if !rustix::process::geteuid().is_root() {
         return Err("it runs as root: it makes users and sets their verifiers".into());
@@ -452,6 +453,12 @@ fn run() -> Result<(), String> {
     let refusals = Arc::new(AtomicUsize::new(0));
     let api: Arc<str> = options.api.clone().into();
     loop {
+        // The accept loop says it is alive while it waits (the unit's WatchdogSec=): a service
+        // that stops taking connections is ended and started again by systemd, and the session
+        // follows it back.
+        if let Err(error) = wait_readable(&listener, notify.as_ref()) {
+            eprintln!("oxyos-accountd: waiting for a connection: {error}");
+        }
         let connection = match listener.accept() {
             Ok(connection) => connection,
             Err(error) => {
@@ -494,7 +501,9 @@ fn run() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    // Before any thread or child: what the unit's manager listens on, and its watchdog.
+    let notify = Notify::take();
+    match run(notify) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("oxyos-accountd: {error}");

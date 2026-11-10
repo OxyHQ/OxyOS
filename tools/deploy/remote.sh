@@ -41,6 +41,10 @@ for f in $(awk '$2 ~ "^/usr/lib/sysusers.d/" { print $2 }' $T/tools/deploy/syste
 for f in $(awk '$2 ~ "^/usr/lib/tmpfiles.d/" { print $2 }' $T/tools/deploy/system-files); do sudo -n systemd-tmpfiles --create "${f##*/}"; done
 sudo -n sysctl -q --system
 sudo -n systemctl daemon-reload
+# Where the login program is enabled, its unit's install links as it now has them (a boot is good
+# only once the login screen drew: RequiredBy=boot-complete.target, docs/adr/0054, decision 2); it is
+# not started, stopped or restarted by this, and where it is not enabled nothing is.
+if systemctl is-enabled -q oxyos-login 2>/dev/null; then sudo -n systemctl reenable -q oxyos-login; fi
 sudo -n systemctl enable -q oxyos-accountd
 sudo -n systemctl restart oxyos-accountd
 systemctl is-active -q oxyos-accountd || { echo "accounts: oxyos-accountd is not running"; exit 1; }

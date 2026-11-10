@@ -34,6 +34,12 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// The screen reader as its reports name it, a part of OxyOS the session keeps running
+/// (decision 6, amended: docs/adr/0014-screen-reader.mdx).
+pub const READER: &str = "so.oxy.reader";
+/// The screen reader's name in its reports.
+pub const READER_NAME: &str = "Screen reader";
+
 /// Two unexpected quits of one application within this are repeated: the second is the sheet.
 pub const REPEATED: Duration = Duration::from_secs(10 * 60);
 /// How long an application being reset has to quit when asked, before it is ended.
@@ -545,9 +551,10 @@ impl Crashes {
         }
     }
 
-    /// The session's shell quit unexpectedly: its report is written, and the person is told
-    /// nothing, the shell being what tells them (it is started again, decision 6).
-    pub fn note_shell(&mut self, exit: &Exited) {
+    /// A part of OxyOS the session keeps running quit unexpectedly (its shell, its screen
+    /// reader): its report is written, and the person is told nothing, the part being started
+    /// again (decision 6) and the shell being what would tell them.
+    pub fn note_part(&mut self, exit: &Exited) {
         let zone = jiff::tz::TimeZone::system();
         let wall = jiff::Timestamp::now().to_zoned(zone);
         let id = exit.launched.id.as_str();
@@ -565,8 +572,8 @@ impl Crashes {
         });
         if let Some(reports) = &self.reports {
             match reports.write(id, &wall, &text) {
-                Ok(path) => eprintln!("[crashes] the shell's report: {}", path.display()),
-                Err(error) => eprintln!("[crashes] the shell's report is not written: {error}"),
+                Ok(path) => eprintln!("[crashes] {id}'s report: {}", path.display()),
+                Err(error) => eprintln!("[crashes] {id}'s report is not written: {error}"),
             }
         }
     }
@@ -835,36 +842,6 @@ fn refused(reason: &str) -> String {
 fn answer(scene: &mut Scene, asker: Option<(ClientId, u32)>, text: &str) {
     if let Some((client, serial)) = asker {
         scene.system_text(client, serial, text);
-    }
-}
-
-/// When the session's shell is started again after it quit unexpectedly
-/// (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6): at once the first time,
-/// then after a wait that doubles each time it quits again without having run [`SHELL_STEADY`],
-/// from [`SHELL_RESTART`] up to [`SHELL_RESTART_MAX`]: never a loop, and never given up on.
-pub const SHELL_RESTART: Duration = Duration::from_secs(1);
-pub const SHELL_RESTART_MAX: Duration = Duration::from_secs(60);
-pub const SHELL_STEADY: Duration = Duration::from_secs(60);
-
-/// The shell's quits in a row, each before it ran [`SHELL_STEADY`].
-#[derive(Debug, Default)]
-pub struct ShellRestarts {
-    quits: u32,
-}
-
-impl ShellRestarts {
-    /// The shell quit after running for `ran`: how long to wait before starting it again.
-    pub fn quit(&mut self, ran: Duration) -> Duration {
-        if ran >= SHELL_STEADY {
-            self.quits = 0;
-        }
-        self.quits = self.quits.saturating_add(1);
-        match self.quits {
-            1 => Duration::ZERO,
-            n => SHELL_RESTART
-                .saturating_mul(1u32 << (n - 2).min(16))
-                .min(SHELL_RESTART_MAX),
-        }
     }
 }
 
