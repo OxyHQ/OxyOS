@@ -2452,11 +2452,10 @@ export function Settings({
     [shownGroups, pages, opened, initialPage, strings.title, search],
   );
   const menus = strings.menus;
-  return (
-    <PagePropsContext.Provider value={props}>
-      {/* Edit and View, in a Mac's order: in the session's menu bar on OxyOS, in the window
-          elsewhere (ADR 0021). The application's own menu (About, Settings…, Hide, Quit) and the
-          Window menu are the platform's. */}
+  // Drawn again only when its words or where the pages visited can go change, never with each
+  // preference the session tells.
+  const menubar = React.useMemo(
+    () => (
       <Menubar>
         <MenubarMenu value="edit">
           <MenubarTrigger>{menus.edit.title}</MenubarTrigger>
@@ -2498,6 +2497,15 @@ export function Settings({
           </MenubarContent>
         </MenubarMenu>
       </Menubar>
+    ),
+    [menus, history],
+  );
+  return (
+    <PagePropsContext.Provider value={props}>
+      {/* Edit and View, in a Mac's order: in the session's menu bar on OxyOS, in the window
+          elsewhere (ADR 0021). The application's own menu (About, Settings…, Hide, Quit) and the
+          Window menu are the platform's. */}
+      {menubar}
       {layout}
     </PagePropsContext.Provider>
   );

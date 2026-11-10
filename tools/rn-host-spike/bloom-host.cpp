@@ -1634,6 +1634,10 @@ int main(int argc, char** argv) {
     oxyos::KeyboardFocus keyboardFocus(tree);
     // The modifiers held on the keyboard, for its navigation keys.
     bool heldShift = false, heldCtrl = false, heldAlt = false, heldMeta = false;
+    // Whether the person's last input to this window was a key, not a press of the pointer: a field
+    // the application focuses then (a command from the keyboard, Edit › Find…'s Ctrl+F) takes the
+    // keyboard's focus with its ring (editing.onFocus).
+    bool keysDrive = false;
     // The view the keyboard navigates in a surface: the window's (its topmost modal while one is
     // shown) or a shell region's, either narrowed to a view marked modal; a popup's that holds a
     // dialog (Bloom's popover: its controls, as a Mac's popover's key view loop); none in any other
@@ -2108,6 +2112,26 @@ int main(int argc, char** argv) {
       if (accessibility.focused() != tag) fieldFollowedFrom = accessibility.focused();
       fieldFollowed = tag;
       accessibility.focus(tag);
+      // A field the application focused while the keyboard drives the window (Edit › Find…, Ctrl+F)
+      // has the keyboard's focus, its ring shown, as AppKit rings a search field ⌘F made first
+      // responder; the control the keyboard was on is told it blurred. So the application's next
+      // move out of it (the search's ↓ into its results) takes the keyboard with it, as any
+      // application focus move does while the ring shows (docs/adr/0039-keyboard-access.mdx). A
+      // field pressed, or tabbed to, is already where the keyboard is.
+      auto previous = keyboardFocus.focused();
+      if (!shellMode && keysDrive && previous != tag) {
+        if (previous >= 0 && !oxyos::editableInput(tree, previous) && tree.views().count(previous)) {
+          if (auto emitter = std::dynamic_pointer_cast<const facebook::react::BaseViewEventEmitter>(
+                  tree.views().at(previous).view.eventEmitter)) {
+            emitter->onBlur();
+            oxyos::Report::get().deliver("blur", keyboardSurface, tree.views().at(previous).view);
+          }
+        }
+        keyboardFocus.set(tag, true);
+        oxyos::Report::get().input("keyboard.focus", keyboardSurface,
+                                   folly::dynamic::object("ring", true)(
+                                       "target", tree.views().count(tag) ? oxyos::Report::name(tree.views().at(tag).view) : ""));
+      }
       dirty = true;
       popups.changed();
       shellSurfaces.changed();
@@ -2320,6 +2344,8 @@ int main(int argc, char** argv) {
                 diagnostics.closeAsked("the session");
                 oxyos::Report::get().input("close.requested", event.surface);
               }
+              if (event.kind == OXYOS_EVENT_KEY && event.flag) keysDrive = true;
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_PRESS) keysDrive = false;
               if (event.kind == OXYOS_EVENT_KEY) {
                 bool down = event.flag != 0;
                 switch (event.code) {
