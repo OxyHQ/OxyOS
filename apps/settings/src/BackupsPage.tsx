@@ -55,6 +55,7 @@ import {
 import type { Messages } from "./messages";
 import type { SettingsActions, SettingsSnapshot } from "./model";
 import { folderPath, selectedAfterRemoving } from "./spotlight";
+import { ListRow, ListRowDetail, ListRowTitle, useListRowInk } from "./ListRow";
 
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 type Words = Messages["backups"];
@@ -213,30 +214,15 @@ function SwitchRow({
 /** An excluded item, drawn: its icon, its name and, small, its path. Decorative: the list's option
     is the control, named by its label. */
 function ExcludedRow({ path, selected }: { path: string; selected: boolean }) {
-  const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const { ink, detail } = useListRowInk(selected);
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
+    <ListRow selected={selected}>
       <RiFolder3Line size="sm" fill={ink} />
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: ink, fontSize: 14 }}>
-          {pathName(path)}
-        </Text>
-        <Text numberOfLines={1} style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 11 }}>
-          {path}
-        </Text>
+        <ListRowTitle color={ink}>{pathName(path)}</ListRowTitle>
+        <ListRowDetail color={detail}>{path}</ListRowDetail>
       </View>
-    </View>
+    </ListRow>
   );
 }
 

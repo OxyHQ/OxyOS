@@ -173,6 +173,7 @@ import {
   type UpdateProgress,
   type UpdateRow,
 } from "./updates";
+import { ListRow, ListRowDetail, ListRowTitle, useListRowInk } from "./ListRow";
 
 /** A page's model and words, and the session's locale its numbers and dates are formatted in. */
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
@@ -1197,20 +1198,10 @@ function SourceRow({
   current: boolean;
 }) {
   const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const { ink } = useListRowInk(selected);
   const layout = id === LAYOUT_SOURCE;
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-        paddingHorizontal: 10,
-        paddingVertical: 7,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
+    <ListRow selected={selected}>
       <View
         style={{
           width: 28,
@@ -1226,11 +1217,11 @@ function SourceRow({
           {layout ? layoutShortName(state.layout) : INPUT_METHOD_GLYPHS[id]}
         </Text>
       </View>
-      <Text numberOfLines={1} style={{ flex: 1, color: ink, fontSize: 14 }}>
+      <ListRowTitle color={ink} style={{ flex: 1 }}>
         {sourceName(id, state, words)}
-      </Text>
+      </ListRowTitle>
       {current ? <RiCheckLine size="sm" fill={ink} /> : null}
-    </View>
+    </ListRow>
   );
 }
 
@@ -1947,30 +1938,15 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
 /** A folder kept out of the index, drawn: its icon, its name and, small, its path. Decorative: the
     list's option is the control, named by its label. */
 function ExcludedRow({ uri, selected }: { uri: string; selected: boolean }) {
-  const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const { ink, detail } = useListRowInk(selected);
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
+    <ListRow selected={selected}>
       <RiFolder3Line size="sm" fill={ink} />
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: ink, fontSize: 14 }}>
-          {folderName(uri)}
-        </Text>
-        <Text numberOfLines={1} style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 11 }}>
-          {folderPath(uri)}
-        </Text>
+        <ListRowTitle color={ink}>{folderName(uri)}</ListRowTitle>
+        <ListRowDetail color={detail}>{folderPath(uri)}</ListRowDetail>
       </View>
-    </View>
+    </ListRow>
   );
 }
 

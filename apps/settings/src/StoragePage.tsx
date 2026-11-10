@@ -33,6 +33,7 @@ import {
   type StorageMeasured,
 } from "./storage";
 import { formatSize } from "./updates";
+import { ListRow, ListRowDetail, ListRowTitle, useListRowInk } from "./ListRow";
 
 type Props = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 type Words = Messages["storage"];
@@ -655,23 +656,13 @@ function UnusedAppsSheet({
 /** A row of a sheet's list, drawn: its title and, small, what it is. Decorative: the list's option
     is the control, named by its label. */
 function ItemRow({ title, detail, selected }: { title: string; detail: string; selected: boolean }) {
-  const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const ink = useListRowInk(selected);
   return (
-    <View
-      style={{
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
-      <Text numberOfLines={1} style={{ color: ink, fontSize: 14 }}>
-        {title}
-      </Text>
-      <Text numberOfLines={1} style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 11 }}>
-        {detail}
-      </Text>
-    </View>
+    <ListRow selected={selected}>
+      <View style={{ flex: 1 }}>
+        <ListRowTitle color={ink.ink}>{title}</ListRowTitle>
+        <ListRowDetail color={ink.detail}>{detail}</ListRowDetail>
+      </View>
+    </ListRow>
   );
 }
