@@ -80,6 +80,7 @@ fn the_fixture_makes_the_user_managers_layout() {
     let weighed = Properties {
         cpu_weight: Some(CpuWeight::Weight(400)),
         io_weight: Some(50),
+        memory_low: None,
     };
     assert!(!fixture::set(&root, &app, weighed).unwrap());
     place(&Manager::Fixture(root.clone()), &app, "Settings", 100).unwrap();
@@ -98,6 +99,7 @@ fn the_fixture_makes_the_user_managers_layout() {
     let idle = Properties {
         cpu_weight: Some(CpuWeight::Idle),
         io_weight: None,
+        memory_low: None,
     };
     assert!(fixture::set(&root, &app, idle).unwrap());
     assert_eq!(read(scope.join("cpu.idle")), "1");
@@ -114,6 +116,7 @@ fn the_user_manager_places_and_weighs() {
     let weighed = Properties {
         cpu_weight: Some(CpuWeight::Weight(20)),
         io_weight: Some(10),
+        memory_low: None,
     };
     // Not there yet: told so, nothing changed.
     assert!(!user::set(&connection, &app, weighed).unwrap());
@@ -123,6 +126,7 @@ fn the_user_manager_places_and_weighs() {
     let idle = Properties {
         cpu_weight: Some(CpuWeight::Idle),
         io_weight: None,
+        memory_low: None,
     };
     assert!(user::set(&connection, &app, idle).unwrap());
     let search = Unit::background("search", 4243);
@@ -141,6 +145,7 @@ fn the_user_manager_places_and_weighs() {
                 runtime: true,
                 cpu_weight: Some(20),
                 io_weight: Some(10),
+                memory_low: None,
             },
             // `CPUWeight=idle` is the weight 0 on the bus.
             Call::Set {
@@ -148,6 +153,7 @@ fn the_user_manager_places_and_weighs() {
                 runtime: true,
                 cpu_weight: Some(0),
                 io_weight: None,
+                memory_low: None,
             },
             Call::Start {
                 name: "oxyos-search-4243.scope".into(),
@@ -173,6 +179,7 @@ fn scopes_apply_what_is_asked_once_the_scope_is_there() {
         Properties {
             cpu_weight: Some(CpuWeight::Weight(400)),
             io_weight: Some(100),
+            memory_low: None,
         },
     );
     scopes.set(
@@ -180,6 +187,7 @@ fn scopes_apply_what_is_asked_once_the_scope_is_there() {
         Properties {
             cpu_weight: Some(CpuWeight::Weight(20)),
             io_weight: None,
+            memory_low: None,
         },
     );
     std::thread::sleep(Duration::from_millis(120));
@@ -198,4 +206,45 @@ fn scopes_apply_what_is_asked_once_the_scope_is_there() {
         "default 100"
     );
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn the_slice_is_protected_as_much_as_its_claims() {
+    let root = scratch("slice");
+    let app = Unit::application("so.oxy.settings", 300);
+    place(&Manager::Fixture(root.clone()), &app, "Settings", 300).unwrap();
+    let claim = |bytes| Properties {
+        memory_low: Some(bytes),
+        ..Properties::default()
+    };
+    assert!(fixture::set(&root, &app, claim(256 << 20)).unwrap());
+    assert!(fixture::set(&root, &Unit::slice(Slice::App), claim(256 << 20)).unwrap());
+    let read = |path: PathBuf| std::fs::read_to_string(path).unwrap();
+    assert_eq!(
+        read(fixture::scope(&root, &app).join("memory.low")),
+        "268435456"
+    );
+    assert_eq!(
+        fixture::scope(&root, &Unit::slice(Slice::App)),
+        root.join("app.slice")
+    );
+    assert_eq!(read(root.join("app.slice/memory.low")), "268435456");
+    // The user manager's: a slice is always there, as the user manager's own.
+    let directory = scratch("slice-user");
+    let (address, _bus) = private_bus(&directory);
+    let played = Played::serve(&address).unwrap();
+    let connection = connect(&address);
+    assert!(user::set(&connection, &Unit::slice(Slice::App), claim(1 << 30)).unwrap());
+    assert_eq!(
+        played.calls(),
+        vec![Call::Set {
+            name: "app.slice".into(),
+            runtime: true,
+            cpu_weight: None,
+            io_weight: None,
+            memory_low: Some(1 << 30),
+        }]
+    );
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(directory);
 }

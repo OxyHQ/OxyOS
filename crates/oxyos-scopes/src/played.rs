@@ -23,6 +23,7 @@ pub enum Call {
         runtime: bool,
         cpu_weight: Option<u64>,
         io_weight: Option<u64>,
+        memory_low: Option<u64>,
     },
 }
 
@@ -109,7 +110,8 @@ impl Systemd {
         properties: Vec<(String, OwnedValue)>,
     ) -> Result<(), SystemdError> {
         let mut model = self.model.lock().unwrap();
-        if !model.units.contains(&name) {
+        // The user manager's own slices are always there.
+        if !model.units.contains(&name) && !name.ends_with(".slice") {
             return Err(SystemdError::NoSuchUnit(format!("Unit {name} not loaded.")));
         }
         model.calls.push(Call::Set {
@@ -117,6 +119,7 @@ impl Systemd {
             runtime,
             cpu_weight: property::<u64>(&properties, "CPUWeight"),
             io_weight: property::<u64>(&properties, "IOWeight"),
+            memory_low: property::<u64>(&properties, "MemoryLow"),
         });
         Ok(())
     }

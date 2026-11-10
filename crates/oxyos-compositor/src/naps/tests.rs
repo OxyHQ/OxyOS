@@ -225,3 +225,39 @@ fn weights_are_set_only_as_they_change() {
         .is_empty());
     assert_eq!(naps.activities().count(), 2);
 }
+
+#[test]
+fn only_the_focused_application_claims_its_memory_and_the_slice_gets_the_sum() {
+    let at = Instant::now();
+    let activities = BTreeMap::from([
+        (SETTINGS, Activity::Focused),
+        (MUSIC, Activity::Visible),
+        (CHAT, Activity::Hidden(at)),
+        (103, Activity::Napping),
+        (104, Activity::Background),
+        (105, Activity::Busy),
+    ]);
+    let usage = BTreeMap::from([
+        (SETTINGS, 300 << 20),
+        (MUSIC, 900 << 20),
+        (CHAT, 200 << 20),
+        (103, 100 << 20),
+        (104, 50 << 20),
+        (105, 400 << 20),
+    ]);
+    // Its working set now, nobody else's: the hog beside it is protected by nothing.
+    let (claims, sum) = super::claims(&activities, &usage, 8 << 30);
+    assert_eq!(claims, BTreeMap::from([(SETTINGS, 300 << 20)]));
+    assert_eq!(sum, 300 << 20);
+    // Never more than the cap.
+    let (claims, sum) = super::claims(&activities, &usage, 256 << 20);
+    assert_eq!(claims, BTreeMap::from([(SETTINGS, 256 << 20)]));
+    assert_eq!(sum, 256 << 20);
+    // Nothing focused, or not measured: no claim, and the slice protects nothing.
+    let none = BTreeMap::from([(MUSIC, Activity::Visible)]);
+    assert_eq!(super::claims(&none, &usage, 8 << 30), (BTreeMap::new(), 0));
+    assert_eq!(
+        super::claims(&activities, &BTreeMap::new(), 8 << 30),
+        (BTreeMap::new(), 0)
+    );
+}
