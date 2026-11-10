@@ -170,8 +170,15 @@ pub enum Step {
     DragOutput { from: (i32, i32), to: (i32, i32) },
     /// A press at a window-local point held while the application answers it (a window's drag
     /// region asks the compositor to move the window, ADR 0016), then a drag by `by` in eight even
-    /// steps and the release, as a hand grabs a window by its toolbar.
-    Grab { from: (i32, i32), by: (i32, i32) },
+    /// steps and the release, as a hand grabs a window by its toolbar. `held`: no release, the
+    /// drag going on into the next steps (`move_output`, `key_down`, `release_output`), as a
+    /// window dragged to a display's edge shows its tile before the release (ADR 0016,
+    /// decision 12).
+    Grab {
+        from: (i32, i32),
+        by: (i32, i32),
+        held: bool,
+    },
     /// A press on the output held and moved to `to` in `motions` even steps, `hz` of them a
     /// second, the compositor serving the application between them, then the release: a hand
     /// dragging (a window's edge) at a mouse's pace. What the window showed meanwhile is measured
@@ -454,7 +461,10 @@ impl Step {
             ),
             Step::Drag { from, to } => format!("drag from {from:?} to {to:?}"),
             Step::DragOutput { from, to } => format!("drag from {from:?} to {to:?} on the output"),
-            Step::Grab { from, by } => format!("grab at {from:?}, moved by {by:?}"),
+            Step::Grab { from, by, held } => format!(
+                "grab at {from:?}, moved by {by:?}{}",
+                if *held { ", held" } else { "" }
+            ),
             Step::DragPaced {
                 from,
                 to,
@@ -693,9 +703,14 @@ impl Step {
             Step::DragOutput { from, to } => {
                 format!("\"drag_output\":[{},{},{},{}]", from.0, from.1, to.0, to.1)
             }
-            Step::Grab { from, by } => {
-                format!("\"grab\":[{},{},{},{}]", from.0, from.1, by.0, by.1)
-            }
+            Step::Grab { from, by, held } => format!(
+                "\"{}\":[{},{},{},{}]",
+                if *held { "grab_hold" } else { "grab" },
+                from.0,
+                from.1,
+                by.0,
+                by.1
+            ),
             Step::DragPaced {
                 from,
                 to,
@@ -1776,11 +1791,12 @@ impl Launch {
                         to: (n[2], n[3]),
                     }
                 }
-                Some("--grab") => {
+                Some(flag @ ("--grab" | "--grab-hold")) => {
                     let n = numbers(args.next(), 4)?;
                     Step::Grab {
                         from: (n[0], n[1]),
                         by: (n[2], n[3]),
+                        held: flag == "--grab-hold",
                     }
                 }
                 Some(flag @ ("--drag-paced" | "--drag-hold")) => {
@@ -4930,8 +4946,15 @@ fn composed(compositor: &Compositor) -> Vec<u32> {
 /// Injects one step's input into the scene.
 /// A grab (`Step::Grab`): the press, then the compositor serving the application until it is
 /// moving the window or two seconds have passed (it never asked: the drag then moves nothing),
-/// then the drag and the release. On the scene, with or without the virtual devices.
-fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -> Result<()> {
+/// then the drag and the release (none when `held`). On the scene, with or without the virtual
+/// devices.
+fn grab(
+    session: &mut Session,
+    window: Rect,
+    from: (i32, i32),
+    by: (i32, i32),
+    held: bool,
+) -> Result<()> {
     let start = (window.x + from.0, window.y + from.1);
     if !window.contains_point(start.0, start.1) {
         return Err(format!("({}, {}) is outside {window:?}", from.0, from.1).into());
@@ -4946,7 +4969,9 @@ fn grab(session: &mut Session, window: Rect, from: (i32, i32), by: (i32, i32)) -
     for (x, y) in drag_points(start, (start.0 + by.0, start.1 + by.1)) {
         session.compositor.scene.pointer_motion(x, y);
     }
-    session.compositor.scene.pointer_button(BUTTON, false);
+    if !held {
+        session.compositor.scene.pointer_button(BUTTON, false);
+    }
     Ok(())
 }
 
@@ -6838,6 +6863,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     };
     dump(&session.compositor, 1)?;
     let mut answered = Vec::new();
+    // The configures the director's window was sent before the step (`window_configures`).
+    let mut configures_sent = session.compositor.scene.configures_sent(SurfaceKey {
+        client: CLIENT,
+        id: WINDOW,
+    });
 
     session.compositor.log_input = true;
     for (index, (step, settling)) in launch.steps.iter().enumerate() {
@@ -6888,6 +6918,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             continue;
         }
         let before = shown(&session.compositor);
+        // The tile a window being dragged would take (ADR 0016, decision 12), before the step.
+        let preview_before = session.compositor.scene.tile_preview();
         // What a step's transitions are is what the step started.
         transitions_json(&mut session.compositor);
         // What the reader says in a step is what the step made it say.
@@ -7038,8 +7070,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 0
             }
             _ if matches!(step, Step::Grab { .. }) => {
-                if let Step::Grab { from, by } = step {
-                    grab(&mut session, window, *from, *by)?;
+                if let Step::Grab { from, by, held } = step {
+                    grab(&mut session, window, *from, *by, *held)?;
                 }
                 0
             }
@@ -7250,13 +7282,16 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         screen_reader.toggle(&mut session)?;
         screen_reader.keep(&mut session)?;
         let what = format!("an answer to step {} ({})", index + 1, step.describe());
+        // The tile previewed changed as the input arrived (Alt pressed mid-drag): the compositor
+        // draws it at once, no client's frame, so it is the step's answer already.
+        let previewed = session.compositor.scene.tile_preview() != preview_before;
         let answer = settle(
             &mut session,
             &mut children,
             &before,
             // A swipe answers as it is paced, the compositor drawing the windows as the fingers
             // go: what settles is that nothing moves any more.
-            *may_stay || matches!(step, Step::Swipe { .. }),
+            *may_stay || matches!(step, Step::Swipe { .. }) || previewed,
             Wait {
                 deadline: Instant::now()
                     + settling
@@ -7361,6 +7396,32 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         ));
         // Passkeys' sheets with `--passkey-fixture` (passkeys.rs): what its service was answered,
         // added to the step's result as one more field.
+        // Tiling (ADR 0016, decision 12): the tile a drag previews, how many configures the window
+        // was sent in the step, and where the companion's window is.
+        if let Some(step) = answered.last_mut() {
+            let director = SurfaceKey {
+                client: CLIENT,
+                id: WINDOW,
+            };
+            let sent = session.compositor.scene.configures_sent(director);
+            let rect = |r: Option<Rect>| {
+                r.map_or("null".to_string(), |r| {
+                    format!("[{},{},{},{}]", r.x, r.y, r.width, r.height)
+                })
+            };
+            let companion = companion_window(&session)
+                .and_then(|key| session.compositor.scene.global_rect(key));
+            step.insert_str(
+                step.len() - 1,
+                &format!(
+                    ",\"tile_preview\":{},\"window_configures\":{},\"companion_rect\":{}",
+                    rect(session.compositor.scene.tile_preview()),
+                    sent - configures_sent,
+                    rect(companion)
+                ),
+            );
+            configures_sent = sent;
+        }
         if let (Some(told), Some(step)) = (passkeys_json(&session), answered.last_mut()) {
             if step.ends_with('}') {
                 step.insert_str(step.len() - 1, &format!(",\"passkeys\":{told}"));
