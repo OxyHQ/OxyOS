@@ -818,6 +818,7 @@ fn main() -> Result<()> {
     // Applications that quit unexpectedly, and resetting one (docs/adr/0061-crashes-and-resetting-
     // an-application.mdx): the person's reports (none at the login screen, whose user is no one),
     // the notice, the sheet, and the resets Settings and the shell ask for.
+    let mut force_quit = oxyos_compositor::force_quit::ForceQuit::default();
     let mut crashes = oxyos_compositor::crashes::Crashes::new(
         (!greeter)
             .then(oxyos_compositor::crashes::Reports::of_user)
@@ -969,6 +970,8 @@ fn main() -> Result<()> {
         }
         // Those that quit unexpectedly: reported, and the person told (docs/adr/0061).
         crashes.exited(&mut compositor.scene, &exits);
+        // Those force-quit while hung: their reports (docs/adr/0067).
+        force_quit.exited(&mut crashes, &exits);
         // An installed version showing its first window (ADR 0030, decision 10).
         if versions.awaiting() {
             for note in versions.shown(&compositor.pids_showing_windows()) {
@@ -1239,14 +1242,12 @@ fn main() -> Result<()> {
                 .scene
                 .launched(request.client, request.serial, opened);
         }
-        // The person's force quits (docs/adr/0034-the-dock.mdx): the session ends the processes
-        // it started for the application, and none other (the shell, the login and lock screens
-        // are not its launches).
-        for pid in compositor.take_force_quits() {
-            if launcher.force_quit(pid) {
-                eprintln!("[session] force quit {pid}");
-            }
-        }
+        // The person's force quits (docs/adr/0034-the-dock.mdx, docs/adr/0067-hangs-and-force-
+        // quit.mdx): the dock's, Super+Alt+Escape's Force Quit Applications and the Oxy menu's.
+        // The session ends the processes it started for the application, and none other (the
+        // shell, the login and lock screens are not its launches); a hung one is asked for its
+        // report first.
+        force_quit.serve(&mut compositor, &mut launcher, Instant::now());
         // The files applications asked the person to choose (ADR 0029, decision 8): the file
         // manager of the image's policy started for each in its picker mode, the request's sheet;
         // the login screen starts none.
@@ -1561,6 +1562,10 @@ fn main() -> Result<()> {
         // The screen reader started again after its wait.
         if let Some(due) = reader.deadline() {
             wait = wait.min(due.saturating_duration_since(Instant::now()));
+        }
+        // A hung application's time to write its report (docs/adr/0067).
+        if let Some(deadline) = force_quit.deadline() {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
         if let Some(crossing) = settings.next_crossing() {
             let seconds = u64::try_from(crossing.saturating_sub(settings::now())).unwrap_or(0);

@@ -306,6 +306,13 @@ impl Scene {
             self.session_key(super::SessionKey::LogOut { confirm: !alt });
             return;
         }
+        // Force Quit Applications, as a Mac's ⌥⌘⎋ (docs/adr/0067-hangs-and-force-quit.mdx,
+        // decision 2): the program shows it. A menu open closes first.
+        if key == ESCAPE && alt && !ctrl && !shift && !self.capturing() {
+            self.dismiss_grab(DismissReason::OutsidePress);
+            self.force_quit_shortcut();
+            return;
+        }
         if alt {
             return;
         }

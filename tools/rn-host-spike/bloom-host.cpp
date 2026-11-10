@@ -49,6 +49,7 @@
 #include "worklets-host.h"
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -98,6 +99,7 @@
 #include <csignal>
 #include <execinfo.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -295,6 +297,36 @@ void crashed(int signal, siginfo_t* info, void* context) {
   _exit(128 + signal);
 }
 
+// A hang's report (docs/adr/0067-hangs-and-force-quit.mdx, decision 4): the session asks with SIGQUIT
+// before it force-quits a host that stopped answering, as Java's SIGQUIT dumps its threads. What the
+// JavaScript thread (`oxyos-js`, js-thread.h; the main thread before it started) is doing is what
+// hangs: the signal sent to the process, the first thread to take it notes who asked and hands it to
+// that thread (tgkill), whose stack is then written, as the fatal signal's, into the log and the report
+// file, and the host goes on (hung) until the session kills it. Only async-signal-safe calls, into
+// descriptors already open. Hermes' JavaScript stack is not read: walking its frames from a signal is
+// not safe while it runs.
+std::atomic<int> gHangAsker{0};
+
+void hung(int signal, siginfo_t* info, void*) {
+  const pid_t process = getpid();
+  const pid_t javascript = oxyos::jsThreadId();
+  const pid_t target = javascript != 0 ? javascript : process;
+  if (info->si_pid != process) gHangAsker.store(info->si_pid, std::memory_order_relaxed);
+  if (gettid() != target) {
+    syscall(SYS_tgkill, process, target, signal);
+    return;
+  }
+  void* frames[64];
+  int count = backtrace(frames, 64);
+  for (int fd : {2, oxyos::crashReportFd()}) {
+    if (fd < 0) continue;
+    dprintf(fd, "[host] hang: asked by process %d (SIGQUIT); the JavaScript thread's stack:
+",
+            gHangAsker.load(std::memory_order_relaxed));
+    backtrace_symbols_fd(frames, count, fd);
+  }
+}
+
 // The report above, installed for the process, also for a crash that overflowed a thread's stack: the
 // handler runs on a stack of its own, the main thread's set here and JavaScript's by its thread
 // (js-thread.h).
@@ -309,6 +341,16 @@ void reportFatalSignals() {
   action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
   sigemptyset(&action.sa_mask);
   for (int signal : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(signal, &action, nullptr);
+  // A hang's report, asked again for each hang: not reset, on the same stack of its own.
+  struct sigaction quit {};
+  quit.sa_sigaction = hung;
+  quit.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESTART;
+  sigemptyset(&quit.sa_mask);
+  sigaction(SIGQUIT, &quit, nullptr);
+  // backtrace() loads its unwinder the first time it is called, which allocates: once now, so the
+  // handlers never do.
+  void* warm[1];
+  backtrace(warm, 1);
 }
 
 // The runtime this host is (docs/adr/0030-installing-applications.mdx, decisions 2 and 17): the

@@ -33,6 +33,7 @@ pub mod backups;
 pub mod controls;
 pub mod crashes;
 pub mod drag_badge;
+pub mod force_quit;
 mod gpu_buffers;
 pub mod open_files;
 pub mod poof;

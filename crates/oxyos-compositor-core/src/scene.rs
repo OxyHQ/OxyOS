@@ -4229,6 +4229,10 @@ impl Scene {
             return None;
         }
         let key = self.pointer_focus?;
+        // A client that does not answer has no say over the pointer: the wait cursor is shown.
+        if self.busy(key.client) {
+            return None;
+        }
         self.live(key)?.pointer_image.map(|image| (key, image))
     }
 
@@ -4276,6 +4280,11 @@ impl Scene {
         }
         if let Some(edges) = self.resizing.map(|r| r.edges).or(self.resize_hover) {
             return edges.pointer_shape();
+        }
+        // Over a client that has not answered for a while, the compositor's own wait cursor,
+        // whatever the client asked for (docs/adr/0067-hangs-and-force-quit.mdx, decision 1).
+        if self.pointer_focus.is_some_and(|key| self.busy(key.client)) {
+            return PointerShape::Wait;
         }
         self.pointer_focus
             .and_then(|key| self.live(key))
@@ -5232,7 +5241,7 @@ mod launch;
 pub use launch::LaunchRequest;
 mod dock;
 mod drag;
-pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
+pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, BUSY_AFTER, PING_TIMEOUT};
 pub use drag::{
     negotiate_action, OpenFilesRequest, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
     DRAG_VERSION, MAX_OPEN_DROPS, VANISH_VERSION, VOLUMES_VERSION,

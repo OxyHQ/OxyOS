@@ -3078,13 +3078,14 @@ fn window_states_json(compositor: &Compositor) -> String {
         .iter()
         .map(|w| {
             format!(
-                "\"{}\":{{\"app\":{},\"workspace\":{},\"minimized\":{},\"hidden\":{},\"focused\":{}}}",
+                "\"{}\":{{\"app\":{},\"workspace\":{},\"minimized\":{},\"hidden\":{},\"focused\":{},\"responding\":{}}}",
                 w.number,
                 json_string(&w.app_id),
                 w.workspace,
                 w.minimized,
                 w.hidden,
-                w.focused
+                w.focused,
+                w.responding
             )
         })
         .collect();
