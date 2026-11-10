@@ -4,7 +4,16 @@ name: Gate watchdog
 # a job whose runner went away keeps that runner busy in GitHub's eyes, and the queue, the merge
 # queue's among it, waits behind it. On a GitHub-hosted runner, so it works when the gate's machine
 # does not, with this run's token alone: Actions on this repository, nothing else.
+#
+# Run when the merge queue changes, so a superseded group's run never holds a merge runner: a group
+# built (merge_group: a queue rebuilt builds its groups again) and an entry taken out (a pull
+# request's `dequeued`). GitHub's schedule is the backstop for the stuck jobs, not the trigger: it
+# ran this every four to eight hours, not every ten minutes. Not a required check: in the merge
+# queue it reports and holds nothing.
 on:
+  merge_group:
+  pull_request:
+    types: [dequeued]
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
@@ -19,6 +28,10 @@ concurrency:
 
 jobs:
   watchdog:
+    # A fork's pull request gets a read-only token: its `dequeued` cannot cancel, the next event does.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -1081,6 +1081,7 @@ int main(int argc, char** argv) {
                             OXYOS_DRAG_COPY | OXYOS_DRAG_MOVE, std::move(image), std::move(done));
     }});
     dragDrop.editsText(editing);
+    dragDrop.takesPress([&pointer] { pointer.cancelResponder(); });
     editing.useClipboard({
         .copy = [&window](uint64_t serial, const std::string& text) { window->copyText(serial, text); },
         .copySensitive = [&window](uint64_t serial, const std::string& text) {
