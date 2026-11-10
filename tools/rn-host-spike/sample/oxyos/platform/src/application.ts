@@ -21,7 +21,9 @@ import type { Events, Session } from './session.ts';
 /** The host's module (OxyOSApplication), as its spec says it. Its background items and quitting
     are asked only where its constants say the host has them. */
 export type ApplicationModule = Pick<Spec, 'getConstants' | 'open'> &
-  Partial<Pick<Spec, 'backgroundItem' | 'handlesQuit' | 'replyToQuit'>>;
+  Partial<
+    Pick<Spec, 'backgroundItem' | 'handlesQuit' | 'replyToQuit' | 'disableSuddenTermination' | 'enableSuddenTermination'>
+  >;
 
 /** A capability an application asks the person for at first use. */
 export type Capability = 'notifications' | 'files' | 'camera' | 'microphone' | 'location';
@@ -249,6 +251,19 @@ export function createApplication(native: ApplicationModule | null | undefined, 
     /** Asked before the session logs out, restarts or shuts down: `'quit'`, and the application
         ends; `'cancel'`, and nothing ends. Returns what unregisters it. */
     onQuitRequest,
+    /** Sudden Termination held off (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision
+        10), as a Mac's NSProcessInfo: with nothing unsaved, no quit handler and no storage write
+        pending, the session ends the application at once as it logs out, restarts or shuts down,
+        instead of asking it; call this while it has unsaved work (a document edited and not yet
+        written), matched by `enableSuddenTermination()` once it is written. */
+    disableSuddenTermination(): void {
+      native?.disableSuddenTermination?.();
+    },
+    /** Sudden Termination let go again, matching a `disableSuddenTermination()`: the unsaved work
+        is written. */
+    enableSuddenTermination(): void {
+      native?.enableSuddenTermination?.();
+    },
     /** The application itself, opened at login. */
     loginItem: item('loginItem'),
     /** Its process, running on in the background once its window closes. */

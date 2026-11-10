@@ -157,6 +157,10 @@ class Window {
   // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, protocol version 38): its answer to the
   // QUIT_REQUESTED `serial`, quitting or cancelling the whole end. False if it could not be sent.
   bool replyToQuit(uint32_t serial, bool quit);
+  // Whether the application may be ended at once as the session ends, without being asked
+  // (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10): told to a compositor of
+  // OXYOS_SUDDEN_TERMINATION_VERSION or newer; false if it could not be told.
+  bool setSuddenTermination(bool enabled);
   // The application runs on in the background without its window (its background activity,
   // docs/adr/0060-login-items-and-background-activity.mdx): the window goes, as a closed one does,
   // and is never presented again; what reads its last size still can.

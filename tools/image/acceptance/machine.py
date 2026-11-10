@@ -199,10 +199,10 @@ class Machine:
                 connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 connection.connect(path)
                 return connection
-            except OSError:
+            except OSError as error:
                 connection.close()
                 if self.process.poll() is not None:
-                    raise Failure(f"QEMU exited ({self.process.returncode}); see {self.directory / 'qemu.log'}")
+                    raise Failure(f"QEMU exited ({self.process.returncode}); see {self.directory / 'qemu.log'}") from error
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(0.05)

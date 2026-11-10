@@ -38,6 +38,7 @@ use oxyos_install::install::{self, Installer, Machine};
 use oxyos_install::ipc::{self, Outcome};
 use oxyos_install::socket::{Listener, Peer};
 use oxyos_install::state::{Layout, STATE_DIRECTORY};
+use oxyos_seat::notify::{wait_readable, Notify};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -153,7 +154,7 @@ fn client(options: &Options, request: &str) -> Result<(), String> {
     }
 }
 
-fn fetcher(options: &Options) -> Result<(), String> {
+fn fetcher(options: &Options, notify: Option<&Notify>) -> Result<(), String> {
     if rustix::process::geteuid().is_root() {
         return Err("the fetcher runs as a user of its own, never root".into());
     }
@@ -179,6 +180,10 @@ fn fetcher(options: &Options) -> Result<(), String> {
     );
     let open = Arc::new(AtomicUsize::new(0));
     loop {
+        // The accept loop says it is alive while it waits (the unit's WatchdogSec=).
+        if let Err(e) = wait_readable(&listener, notify) {
+            eprintln!("oxyos-installd --fetch: waiting for a connection: {e}");
+        }
         let connection = match listener.accept() {
             Ok(connection) => connection,
             Err(e) => {
@@ -207,7 +212,7 @@ fn fetcher(options: &Options) -> Result<(), String> {
     }
 }
 
-fn service(options: &Options) -> Result<(), String> {
+fn service(options: &Options, notify: Option<&Notify>) -> Result<(), String> {
     let root = rustix::process::geteuid().is_root();
     if root && options.development {
         return Err("--development is a developer's, never root's".into());
@@ -256,6 +261,10 @@ fn service(options: &Options) -> Result<(), String> {
     );
     let open = Arc::new(AtomicUsize::new(0));
     loop {
+        // The accept loop says it is alive while it waits (the unit's WatchdogSec=).
+        if let Err(e) = wait_readable(&listener, notify) {
+            eprintln!("oxyos-installd: waiting for a connection: {e}");
+        }
         let connection = match listener.accept() {
             Ok(connection) => connection,
             Err(e) => {
@@ -286,6 +295,8 @@ fn service(options: &Options) -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    // Before any thread or child: what the unit's manager listens on, and its watchdog.
+    let notify = Notify::take();
     let result = options().and_then(|options| {
         if let Some(request) = &options.client {
             if request.is_empty() {
@@ -293,9 +304,9 @@ fn main() -> ExitCode {
             }
             client(&options, request)
         } else if options.fetcher_mode {
-            fetcher(&options)
+            fetcher(&options, notify.as_ref())
         } else {
-            service(&options)
+            service(&options, notify.as_ref())
         }
     });
     match result {

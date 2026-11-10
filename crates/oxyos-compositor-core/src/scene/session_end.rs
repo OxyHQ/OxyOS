@@ -14,7 +14,7 @@
 
 use super::{ClientId, Role, Scene};
 use oxyos_protocol::{Event, SessionEnd, QUIT_REQUESTS_VERSION};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The kernel's power key (`KEY_POWER`).
 pub const KEY_POWER: u32 = 116;
@@ -41,6 +41,8 @@ pub struct QuitReplied {
 #[derive(Debug, Default)]
 pub(super) struct SessionEnding {
     keys: Vec<SessionKey>,
+    /// The applications that said they may be ended at once (`SuddenTermination`, decision 10).
+    sudden: BTreeSet<ClientId>,
     /// The serial each application was asked to quit with and has not answered.
     asked: BTreeMap<ClientId, u32>,
     replies: Vec<QuitReplied>,
@@ -152,5 +154,22 @@ impl Scene {
     pub(super) fn forget_session_end_client(&mut self, client: ClientId) {
         // Its answer, if it gave one before it went, stays: a cancel still cancels.
         self.session_ending.asked.remove(&client);
+        self.session_ending.sudden.remove(&client);
+    }
+
+    /// An application's `SuddenTermination` (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
+    /// decision 10): whether it may be ended at once as the session ends, without being asked.
+    pub(super) fn set_sudden_termination(&mut self, client: ClientId, enabled: bool) {
+        if enabled {
+            self.session_ending.sudden.insert(client);
+        } else {
+            self.session_ending.sudden.remove(&client);
+        }
+    }
+
+    /// Whether `client` said it may be ended at once, with nothing unsaved: the program ends it
+    /// instead of asking it to quit, as a Mac's Sudden Termination.
+    pub fn may_end_at_once(&self, client: ClientId) -> bool {
+        self.session_ending.sudden.contains(&client)
     }
 }

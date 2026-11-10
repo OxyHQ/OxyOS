@@ -135,12 +135,46 @@ pub fn definitions(image: &Image, encrypt: bool) -> Vec<(String, String)> {
 /// (ADR 0023, decision 2).
 pub const EXT4_OPTIONS: &str = "-O encrypt";
 
+/// The parameters every OxyOS kernel command line carries (the file `kernel-parameters` beside
+/// this crate's manifest, one a line): the boot logo's quiet console (ADR 0017) and full
+/// preemption ([ADR 0066](../../../docs/adr/0066-quality-of-service.mdx), decision 2).
+const KERNEL_PARAMETERS: &str = include_str!("../kernel-parameters");
+
+/// [`KERNEL_PARAMETERS`]' parameters, in their order.
+pub fn kernel_parameters() -> Vec<&'static str> {
+    KERNEL_PARAMETERS
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect()
+}
+
+/// `command_line` with every one of `required`: a flag added at the end where it is missing, a
+/// `key=value` there in place of another value of its key (or added at the end). The rest, its
+/// order and its other parameters, as it was.
+pub fn with_parameters(command_line: &str, required: &[&str]) -> String {
+    let key = |parameter: &str| {
+        parameter
+            .split_once('=')
+            .map_or(parameter, |(key, _)| key)
+            .to_string()
+    };
+    let mut words: Vec<String> = command_line.split_whitespace().map(String::from).collect();
+    for wanted in required {
+        let wanted_key = key(wanted);
+        match words.iter().position(|word| key(word) == wanted_key) {
+            Some(at) if wanted.contains('=') => words[at] = wanted.to_string(),
+            Some(_) => {}
+            None => words.push(wanted.to_string()),
+        }
+    }
+    words.join(" ")
+}
+
 /// The kernel command line of the installed system (`/etc/kernel/cmdline`, which kernel-install
-/// writes into each entry): the root, and the boot logo's (ADR 0017).
+/// writes into each entry): the root, and OxyOS's parameters ([`kernel_parameters`]).
 pub fn kernel_command_line(root_device: &str) -> String {
-    format!(
-        "root={root_device} rw quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles"
-    )
+    format!("root={root_device} rw {}", kernel_parameters().join(" "))
 }
 
 /// systemd-boot's configuration (`loader/loader.conf`):
@@ -225,7 +259,8 @@ pub fn recovery_entry(
         .map(|uuid| format!(" oxyos.recovery.root=PARTUUID={uuid}"))
         .unwrap_or_default();
     format!(
-        "title      OxyOS Recovery\nsort-key   oxyos-recovery\nversion    {version}\nlinux      /{RECOVERY_DIRECTORY}/linux\ninitrd     /{RECOVERY_DIRECTORY}/initrd.img\noptions    boot=live live-media=/dev/disk/by-partuuid/{recovery_partuuid} live-media-path=/live noeject live-config.nocomponents dm-verity-root-hash=filesystem.squashfs:{root_hash}{root} systemd.unit=oxyos-recovery.target systemd.hostname=oxyos-recovery quiet splash loglevel=3 vt.global_cursor_default=0 plymouth.ignore-serial-consoles\n"
+        "title      OxyOS Recovery\nsort-key   oxyos-recovery\nversion    {version}\nlinux      /{RECOVERY_DIRECTORY}/linux\ninitrd     /{RECOVERY_DIRECTORY}/initrd.img\noptions    boot=live live-media=/dev/disk/by-partuuid/{recovery_partuuid} live-media-path=/live noeject live-config.nocomponents dm-verity-root-hash=filesystem.squashfs:{root_hash}{root} systemd.unit=oxyos-recovery.target systemd.hostname=oxyos-recovery {parameters}\n",
+        parameters = kernel_parameters().join(" ")
     )
 }
 

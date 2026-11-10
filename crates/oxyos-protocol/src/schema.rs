@@ -359,6 +359,12 @@ messages! {
         // `applicationShouldTerminate:`. `quit`: it ends its own process; otherwise the whole end
         // is cancelled. An answer to nothing the client was asked is ignored.
         168 => QuitReply { serial: u32, quit: bool },
+        // Sudden Termination (version 40, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
+        // decision 10): whether the application may be ended at once when the session ends,
+        // without being asked, as a Mac's `NSSupportsSuddenTermination`: nothing unsaved, no write
+        // pending, no quit handler that wants to be asked. Told as it changes; none told, it is
+        // asked, as before.
+        169 => SuddenTermination { enabled: bool },
         // GPU buffers (ADR 0031). A DMA-BUF's planes, one descriptor each, then the buffer: its
         // DRM format (premultiplied Argb8888, opaque Xrgb8888), modifier, size and plane count,
         // checked and imported before it is used (BufferFailed when a well-formed one cannot be).

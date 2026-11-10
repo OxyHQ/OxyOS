@@ -81,6 +81,16 @@ clients …, the frame … (uploading …, waiting for the GPU …), events …`
 in which the GPU composed frames, how long they took (`[compositor] the GPU composed N frames in
 the last 10 s: … median, … at the 95th percentile, … at most`).
 
+**The turn's priority** ([ADR 0066](./adr/0066-quality-of-service), decision 2) is said once, as
+the session starts: what rtkit gave its turn thread and its slice
+(`[session] the turn's priority: thread 1425: nice -15 from rtkit, a slice requested; now nice -15, a
+1.00 ms slice, reset on fork`; refused, `rtkit refused: …` and nice 0), and the priority of the GPU's
+queue it composes on (`[session] composing on … (Integrated), its queue at medium priority (high
+refused: ERROR_NOT_PERMITTED_KHR), …`: i915, xe and amdgpu give a queue high priority only to a
+process with `CAP_SYS_NICE`). `ps -L -o tid,cls,ni,comm -p PID` shows the turn at `TS -15` and every
+other thread at 0, and `/proc/PID/task/TID/sched`'s `se.slice` reads 1000000 (a host's UI thread, its
+main one, and its JavaScript thread, `oxyos-js`, too).
+
 **Each Bloom host** (an application, the shell, the login screen) writes, named by the
 application's id (else its module), lines of five kinds (`tools/rn-host-spike/frame-diagnostics.h`):
 
@@ -182,9 +192,11 @@ different questions:
   refresh, input to present, a resize's or a zoom's frame, an application's first frame, a
   response's latency. Every budget on latency or a deadline is by the wall clock, because
   whatever lengthens it, the machine's load among it, is felt.
-- **The loop thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's thread ran:
-  JavaScript, with the Yoga layout and the text measuring it runs on the same thread, and every
-  native part. Time the thread was scheduled out, or asleep waiting for something, is not in it.
+- **Each thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's threads ran:
+  JavaScript's (`oxyos-js`, `js-thread.h`), where the Yoga layout and the text measuring its
+  commits run too, and the loop's, every native part. JavaScript's part of a frame is measured on
+  JavaScript's thread, the loop waiting for it. Time a thread was scheduled out, or asleep waiting
+  for something, is not in it.
   Budgets on how fast JavaScript does its work (`regress.py`'s `js_work.js_ms_max` and
   `resize_work`'s `js_ms_p95_max`, `perf.py`'s shell budgets) are by it, and are held only on a
   `perf.py` run (below).

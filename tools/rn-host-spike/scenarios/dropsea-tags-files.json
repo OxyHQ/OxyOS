@@ -502,6 +502,10 @@
           {
             "text": "Rename Tag, dialog",
             "interrupting": true
+          },
+          {
+            "text": "Tag name, Red, text field",
+            "interrupting": false
           }
         ]
       }

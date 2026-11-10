@@ -80,7 +80,7 @@
    "do": [
     "wait_named",
     [
-     "informe trimestral.txt, Texto sin formato, Documents",
+     "informe trimestral.txt, Texto sin formato, Documentos",
      20000
     ]
    ],
@@ -91,17 +91,20 @@
     "in_shell": {
      "texts": [
       "Mejor resultado",
-      "informe trimestral.txt"
+      "informe trimestral.txt",
+      "Ubicación",
+      "Documentos"
      ],
      "absent": [
-      "informe secreto.txt"
+      "informe secreto.txt",
+      "Documents"
      ]
     },
     "at": {
      "shell": [
       {
        "role": "Button",
-       "name": "informe trimestral.txt, Texto sin formato, Documents",
+       "name": "informe trimestral.txt, Texto sin formato, Documentos",
        "state": [
         "selected"
        ]
@@ -144,7 +147,7 @@
    "do": [
     "wait_named",
     [
-     "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
+     "presupuesto del faro.txt, Texto sin formato, Documentos › Proyectos",
      10000
     ]
    ],
@@ -167,7 +170,7 @@
    "do": [
     "wait_named",
     [
-     "acuarela.txt, Texto sin formato, Documents",
+     "acuarela.txt, Texto sin formato, Documentos",
      10000
     ]
    ],
@@ -192,7 +195,7 @@
      "shell": [
       {
        "role": "Button",
-       "name": "acuarela.txt, Texto sin formato, Documents",
+       "name": "acuarela.txt, Texto sin formato, Documentos",
        "state": [
         "selected",
         "focused"
@@ -200,7 +203,7 @@
       },
       {
        "role": "Button",
-       "name": "presupuesto del faro.txt, Texto sin formato, Documents › Proyectos",
+       "name": "presupuesto del faro.txt, Texto sin formato, Documentos › Proyectos",
        "state": []
       }
      ]
