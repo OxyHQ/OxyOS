@@ -2528,10 +2528,12 @@ int main(int argc, char** argv) {
       // After what the keys before it set off (a focus moved by the key before, its onFocus): the
       // listener answers from what it learned of them, as when each key was answered in its turn.
       toJavaScript.offeringKey();
-      // At the priority the events and device events the loop hands JavaScript have, in the order
-      // they came: what was handed after the key (the modifiers' change) runs after it.
+      // After what JavaScript has scheduled already (React's render of what the key before changed,
+      // at its normal priority): the listener answers from the state that key left, as when each
+      // key was answered by a task queued behind it. What the loop hands after the key waits for
+      // the answer (heldBehindKey).
       toJavaScript.schedule(
-          SchedulerPriority::ImmediatePriority,
+          SchedulerPriority::NormalPriority,
           [listener = services.keyboard.listener, offered = std::move(offered), answer](jsi::Runtime& rt) {
             bool taken = false;
             try {
