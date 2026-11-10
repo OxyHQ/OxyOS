@@ -3245,17 +3245,17 @@ fn version_40_sudden_termination_is_only_version_40s() {
 }
 
 #[test]
-fn version_41_turn_ends_are_only_version_41s() {
+fn version_42_turn_ends_are_only_version_42s() {
     let end = Event::TurnEnd {};
-    assert_eq!(event_since(&end), 41);
-    assert_eq!(TURNS_VERSION, 41);
+    assert_eq!(event_since(&end), 42);
+    assert_eq!(TURNS_VERSION, 42);
     let mut old = Vec::new();
-    assert!(!write_event_for(&mut old, &end, 40).unwrap());
+    assert!(!write_event_for(&mut old, &end, 41).unwrap());
     assert!(old.is_empty());
     let mut new = Vec::new();
-    assert!(write_event_for(&mut new, &end, 41).unwrap());
+    assert!(write_event_for(&mut new, &end, 42).unwrap());
     assert_eq!(new, [1, 0, 0, 0, 83]);
-    assert_eq!(read_event_for(&mut new.as_slice(), 41).unwrap(), end);
+    assert_eq!(read_event_for(&mut new.as_slice(), 42).unwrap(), end);
 }
 
 #[test]

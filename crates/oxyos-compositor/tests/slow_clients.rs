@@ -21,7 +21,7 @@ const PRESSES: usize = 400;
 const SILENCE: Duration = Duration::from_secs(3);
 
 /// Serves while the client reads what it was sent: it reads a turn of the compositor's whole (ADR
-/// 0033, version 41), so the rest of a turn its socket could not hold comes as the socket has room.
+/// 0033, version 42), so the rest of a turn its socket could not hold comes as the socket has room.
 fn drain(compositor: &mut Compositor, listener: &Listener, until_drained: &mpsc::Receiver<()>) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while until_drained.try_recv().is_err() {
@@ -83,7 +83,7 @@ fn a_client_that_reads_its_events_and_sends_nothing_never_holds_the_turn() {
         shown.send(()).unwrap();
         // Busy: nothing read while the compositor sends more than the socket holds. Then, twice,
         // everything it was sent read at once, a turn of the compositor's whole (its rest coming
-        // as the socket has room, ADR 0033 version 41): the first time it answers the Ping the
+        // as the socket has room, ADR 0033 version 42): the first time it answers the Ping the
         // input brought (ADR 0034), the second time it sends nothing.
         for _ in 0..2 {
             until_read.recv().unwrap();

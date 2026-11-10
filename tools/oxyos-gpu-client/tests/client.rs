@@ -176,7 +176,7 @@ fn frames_drawn_on_the_gpu_arrive_as_dmabufs_with_their_points() {
             fullscreen: false,
             maximized: false,
         },
-        // Each turn of the compositor's ends so (ADR 0033, version 41).
+        // Each turn of the compositor's ends so (ADR 0033, version 42).
         Event::TurnEnd {},
     ] {
         server.send_event(&event, None).unwrap();

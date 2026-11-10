@@ -42,7 +42,7 @@ fn first_said(name: &str, environment: &str, version: u16, told: &[Event]) -> St
     for event in told {
         server.send_event(event, None).unwrap();
     }
-    // One turn of the compositor's, ended as a compositor of version 41 ends it.
+    // One turn of the compositor's, ended as a compositor of version 42 ends it.
     server.send_event(&Event::TurnEnd {}, None).unwrap();
     let said = wait_for_line(&record);
     let _ = reader.kill();

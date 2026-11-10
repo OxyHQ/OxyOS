@@ -172,7 +172,7 @@ fn a_turn_of_the_compositors_is_read_whole_however_its_packets_are_spaced() {
 }
 
 #[test]
-fn a_connection_of_version_40_is_read_event_by_event() {
+fn a_connection_of_version_41_is_read_event_by_event() {
     let (client, server) = Connection::pair().unwrap();
     let compositor = std::thread::spawn(move || {
         let mut protocol = ServerConnection::new();
@@ -181,9 +181,9 @@ fn a_connection_of_version_40_is_read_event_by_event() {
         server.send_event(&welcome, None).unwrap();
         server
     });
-    let mut client = Client::handshake_versions(client, MIN_VERSION, 40).unwrap();
+    let mut client = Client::handshake_versions(client, MIN_VERSION, 41).unwrap();
     let server = compositor.join().unwrap();
-    assert_eq!(client.version(), 40);
+    assert_eq!(client.version(), 41);
     let event = Event::Key {
         surface: 1,
         serial: 1,
@@ -192,7 +192,7 @@ fn a_connection_of_version_40_is_read_event_by_event() {
         time_ns: 0,
     };
     // No turn's end ever comes: nothing is waited for after an event.
-    server.send_event_for(&event, None, 40).unwrap();
+    server.send_event_for(&event, None, 41).unwrap();
     assert_eq!(client.poll().unwrap(), Poll::Event(event));
     assert_eq!(client.poll().unwrap(), Poll::Empty);
 }

@@ -93,7 +93,7 @@ pub struct Peer {
     protocol: ServerConnection,
     /// Events not sent yet, each with the descriptor it carries (a ClipboardSend's pipe).
     outbox: VecDeque<(Event, Option<OwnedFd>)>,
-    /// Events were put in its outbox since the last `TurnEnd` (ADR 0033, version 41).
+    /// Events were put in its outbox since the last `TurnEnd` (ADR 0033, version 42).
     turn_open: bool,
     /// Pipes of pastes this client must answer, in the order of their ClipboardSend events.
     pipes: VecDeque<OwnedFd>,
@@ -1719,7 +1719,7 @@ impl Compositor {
         let mut unresponsive = Vec::new();
         for (client, peer) in &mut self.peers {
             // What this turn sent it ends here: the client reads it whole, as one change (ADR 0033,
-            // version 41), however the kernel schedules this process between its packets. A client
+            // version 42), however the kernel schedules this process between its packets. A client
             // of an older version is sent nothing for it (`write_event_for`).
             if std::mem::take(&mut peer.turn_open) {
                 peer.outbox.push_back((Event::TurnEnd {}, None));

@@ -1124,7 +1124,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
         Event::ClipboardEmpty {} => out.kind = OXYOS_EVENT_CLIPBOARD_EMPTY,
         // Answered by the client library, which holds what this client copied.
         Event::ClipboardSend { .. } => return None,
-        // The client library's: it reads a turn of the compositor's whole (ADR 0033, version 41).
+        // The client library's: it reads a turn of the compositor's whole (ADR 0033, version 42).
         Event::TurnEnd {} => return None,
         // Drag and drop (ADR 0035). A DragSend is answered by the client library, which holds
         // what this client drags.

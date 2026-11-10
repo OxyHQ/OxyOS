@@ -99,7 +99,7 @@ pub struct Client {
     /// docs/adr/0063-activity-monitor.mdx), read whole from the file it carried.
     system_data: Option<String>,
     /// An event of a turn of the compositor's was returned and its `TurnEnd` not read yet (ADR
-    /// 0033, version 41): what is still to come of that turn is waited for.
+    /// 0033, version 42): what is still to come of that turn is waited for.
     in_turn: bool,
 }
 
@@ -1384,7 +1384,7 @@ impl Client {
     }
 
     /// Returns a queued event without blocking, but for the rest of a turn whose events it has
-    /// begun returning (ADR 0033, version 41): the compositor sent them as one change, so none is
+    /// begun returning (ADR 0033, version 42): the compositor sent them as one change, so none is
     /// said to be queued until its `TurnEnd` is read. The compositor is sending them, so that
     /// wait is its packets' alone.
     pub fn poll(&mut self) -> io::Result<Poll> {
@@ -1408,7 +1408,7 @@ impl Client {
         }
     }
 
-    /// Follows the compositor's turns (version 41): `TurnEnd` ends one and is the library's
+    /// Follows the compositor's turns (version 42): `TurnEnd` ends one and is the library's
     /// alone; any other event is one of a turn whose end is still to come.
     fn turn(&mut self, event: Event) -> Option<Event> {
         if matches!(event, Event::TurnEnd {}) {

@@ -86,7 +86,7 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
 /// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
-/// version 41, the end of what one turn of the compositor sent a client (`TurnEnd`), which the
+/// version 42, the end of what one turn of the compositor sent a client (`TurnEnd`), which the
 /// client library reads whole.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
@@ -111,7 +111,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
-    (41, 83..=83),
+    (42, 83..=83),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
