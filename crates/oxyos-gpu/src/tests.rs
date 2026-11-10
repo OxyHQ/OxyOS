@@ -2747,3 +2747,5 @@ fn a_rectangle_without_a_hole_is_what_is_left_around_it() {
     assert_eq!(whole.without(&rect(200, 0, 10, 10)), [whole]);
     assert_eq!(whole.without(&rect(0, 0, 100, 35)), [rect(0, 35, 100, 25)]);
 }
+
+mod materials;

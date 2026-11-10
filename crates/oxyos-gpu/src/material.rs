@@ -90,19 +90,31 @@ pub fn source(area: &MaterialArea, width: u32, height: u32) -> Option<Rect> {
     })
 }
 
-/// One box pass of `width` cells along a line of `values` (one channel): centred when `width` is
-/// odd; when even, its extra cell on the left (`left_heavy`, the W3C's first pass, centred half a
-/// cell left) or the right (the second). The line's edge cells continue beyond it.
-fn box_pass(values: &[i32], width: u32, left_heavy: bool) -> Vec<i32> {
+/// The box passes along each line for boxes of `width` cells, in order: each one's width and how
+/// many of its cells are before the cell it gives (the rest after). Of that width, centred, three
+/// times when it is odd; when even, its extra cell on the left (the W3C's first pass, centred half
+/// a cell left), then on the right (the second), then one a cell wider, centred. None for a width
+/// of 1. The compositor's shader makes the same passes (`vulkan`).
+pub(crate) fn passes(width: u32) -> Vec<(u32, u32)> {
+    if width <= 1 {
+        Vec::new()
+    } else if width % 2 == 1 {
+        vec![(width, width / 2); 3]
+    } else {
+        vec![
+            (width, width / 2),
+            (width, width / 2 - 1),
+            (width + 1, (width + 1) / 2),
+        ]
+    }
+}
+
+/// One box pass of `width` cells along a line of `values` (one channel), covering
+/// `[i - before, i + width - 1 - before]` for cell `i`. The line's edge cells continue beyond it.
+fn box_pass(values: &[i32], width: u32, before: u32) -> Vec<i32> {
     let n = values.len() as i64;
     let w = i64::from(width);
-    // The box covers [i - before, i + after]: centred when odd, the extra cell left or right when
-    // even.
-    let before = if w % 2 == 1 || left_heavy {
-        w / 2
-    } else {
-        w / 2 - 1
-    };
+    let before = i64::from(before);
     let after = w - 1 - before;
     let at = |i: i64| values[i.clamp(0, n - 1) as usize];
     let mut sum: i64 = (-before..=after).map(|i| i64::from(at(i))).sum();
@@ -114,20 +126,13 @@ fn box_pass(values: &[i32], width: u32, left_heavy: bool) -> Vec<i32> {
     out
 }
 
-/// The three passes along one line.
+/// The passes along one line.
 fn blur_line(values: &[i32], width: u32) -> Vec<i32> {
-    if width <= 1 {
-        return values.to_vec();
-    }
-    if width % 2 == 1 {
-        let once = box_pass(values, width, true);
-        let twice = box_pass(&once, width, true);
-        box_pass(&twice, width, true)
-    } else {
-        let left = box_pass(values, width, true);
-        let right = box_pass(&left, width, false);
-        box_pass(&right, width + 1, true)
-    }
+    passes(width)
+        .into_iter()
+        .fold(values.to_vec(), |line, (width, before)| {
+            box_pass(&line, width, before)
+        })
 }
 
 /// The blurred, saturated backdrop over `area`, from `backdrop` (the whole output, `width` wide,
