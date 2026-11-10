@@ -86,6 +86,18 @@ impl Drop for Children {
     }
 }
 
+impl Drop for Session {
+    /// A run that ends on an error ends what its launcher started too, as `finish` does at a run's
+    /// end: a load the saturation benchmark launched (`--also-launch`) left running would hold the
+    /// run's output open, and regress.py waits for it to close (a run of S6 that missed a step's
+    /// deadline waited 22 minutes). Nothing is left to end after `finish`.
+    fn drop(&mut self) {
+        if let Some(launcher) = self.launcher.as_mut() {
+            launcher.end(std::time::Duration::from_secs(2));
+        }
+    }
+}
+
 fn open_descriptors() -> Result<usize> {
     Ok(fs::read_dir("/proc/self/fd")?.count())
 }
