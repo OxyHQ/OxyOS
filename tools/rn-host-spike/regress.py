@@ -5052,7 +5052,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # The menu open in each frame the compositor composed in the step (the popups of the grab
         # chain): ONE popup throughout, the same surface, whose place and size go from `from` to
         # `to` ([x, y, width, height] on the output), each coordinate monotonic between the two,
-        # through at least `frames_min` places between them (`frames_max`: at most).
+        # through at least `frames_min` places between them (`frames_max`: at most). A change at
+        # once (`frames_max` 0) may be the step's first frame composed, the application having
+        # answered the input with its whole change before the compositor composed anything else
+        # (docs/adr/0067-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
         wanted = expect["menu_morph"]
         composed_menus = result.get("menu_frames", [])
         surfaces = {(menu[0], menu[1]) for menus in composed_menus for menu in menus}
@@ -5065,7 +5068,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if not rects or rects[-1] != rect:
                     rects.append(rect)
             start_rect, end_rect = wanted["from"], wanted["to"]
-            if not rects or rects[0] != start_rect or rects[-1] != end_rect:
+            at_once = wanted.get("frames_max") == 0 and rects == [end_rect]
+            if not rects or (rects[0] != start_rect and not at_once) or rects[-1] != end_rect:
                 fail(f"the menu went through {rects}, expected from {start_rect} to {end_rect}")
             for axis in range(4):
                 low, high = sorted((start_rect[axis], end_rect[axis]))

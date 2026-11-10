@@ -591,8 +591,9 @@ void FrameDiagnostics::summarize(Clock::time_point now) {
   std::sort(latency_.begin(), latency_.end());
   std::string inputs = latency_.empty()
                            ? std::string("no input")
-                           : format("input to present %.1f ms median, %.1f at the 95th percentile (%zu inputs)",
-                                    percentile(latency_, 50), percentile(latency_, 95), latency_.size());
+                           : format("input to present %.1f ms median, %.1f at the 95th percentile (%zu input%s)",
+                                    percentile(latency_, 50), percentile(latency_, 95), latency_.size(),
+                                    latency_.size() == 1 ? "" : "s");
   log(format("in the last %.1f s: %zu frames, their work %.1f ms median, %.1f at the 95th percentile, %.1f at most; %s; "
              "%d slow, %d dropped (a refresh is %.1f ms); JavaScript on its thread %.1f ms in %zu stretch%s, %d over a "
              "refresh, the longest %.1f ms",
