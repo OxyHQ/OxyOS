@@ -79,8 +79,9 @@ pub fn source(area: &MaterialArea, width: u32, height: u32) -> Option<Rect> {
     let top = ((i64::from(shown.y) - grow).max(0) / cell) * cell;
     let right = (shown.right() + grow).min(i64::from(width));
     let bottom = (shown.bottom() + grow).min(i64::from(height));
-    let right = (right.div_ceil(cell) * cell).min(i64::from(width));
-    let bottom = (bottom.div_ceil(cell) * cell).min(i64::from(height));
+    // Both are positive: rounded up to the grid.
+    let right = ((right + cell - 1) / cell * cell).min(i64::from(width));
+    let bottom = ((bottom + cell - 1) / cell * cell).min(i64::from(height));
     Some(Rect {
         x: left as i32,
         y: top as i32,
