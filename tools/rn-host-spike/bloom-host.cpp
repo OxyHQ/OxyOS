@@ -313,10 +313,17 @@ class Mounter : public SchedulerDelegate {
   void schedulerDidSendAccessibilityEvent(const ShadowView& view, const std::string& type) override {
     queue(Item{.kind = Item::Kind::AccessibilityEvent, .view = view, .name = type});
   }
-  // An announcement JavaScript makes (AccessibilityInfo.announceForAccessibility), behind what it
-  // did before it as its accessibility events are: said after the focus that work moved.
+  // An announcement JavaScript makes (AccessibilityInfo.announceForAccessibility) while what it did in
+  // an earlier batch is held back (holdsEarlierThan): behind that work, said after the focus it moved.
   std::function<void(const std::string&)> onAnnouncement;
   void announce(const std::string& text) { queue(Item{.kind = Item::Kind::Announcement, .name = text}); }
+  // Whether the queue holds what JavaScript did in a batch before `batch` (js-thread.h's): work the
+  // loop has not applied yet, handing JavaScript what came for it first (decision 2 of ADR 0067).
+  bool holdsEarlierThan(uint64_t batch) {
+    std::lock_guard lock(mutex_);
+    return std::any_of(queue_.begin(), queue_.end(),
+                       [batch](const Item& item) { return item.batch != 0 && item.batch < batch; });
+  }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
   // Animated's native driver setting a view's props between commits (native-animated.h), on the UI
   // thread as Android's mounting layer updates a native view: the tree changed, as with a mount.
@@ -332,7 +339,7 @@ class Mounter : public SchedulerDelegate {
   struct Item {
     enum class Kind { Transaction, Command, AccessibilityEvent, Announcement } kind;
     SurfaceId surface = 0;
-    // A transaction pulled on JavaScript's thread: the batch it ran (0 for a commit of the UI thread's).
+    // Pulled or sent on JavaScript's thread: the batch it ran (0 for the UI thread's).
     uint64_t batch = 0;
     std::shared_ptr<const MountingTransaction> transaction;
     ShadowView view;
@@ -363,6 +370,7 @@ class Mounter : public SchedulerDelegate {
     waiting_.clear();
   }
   void queue(Item item) {
+    if (!oxyos::UiThread::isCurrent() && runningBatch) item.batch = runningBatch();
     {
       std::lock_guard lock(mutex_);
       // Behind a commit made before it: one not yet handed over, which it waits for, or one handed
@@ -1543,10 +1551,13 @@ int main(int argc, char** argv) {
     auto announcer = [&shellSurfaces] { return shellSurfaces.lockSurface().value_or(oxyos::Window::kToplevel); };
     // An announcement is what the application says now: it interrupts what is being said, as
     // an announcement event does TalkBack's queue.
-    // From JavaScript's thread it goes behind what JavaScript did before it (Mounter::announce), and
-    // out once the frame showing that work published its accessibility (announceAfterFrame).
-    services.announce = [&window, &mounter, announcer](const std::string& text) {
-      if (!oxyos::UiThread::isCurrent()) {
+    // Said at once, as the one thread said it before the frame showing what JavaScript just did; but
+    // while what JavaScript did in an earlier batch is held back (the input that came for it handed
+    // first), behind that work (Mounter::announce), and out once the frame showing it published its
+    // accessibility (announceAfterFrame): a focus moved by a press is said before what JavaScript
+    // announces as the session answers it.
+    services.announce = [&window, &mounter, &js, announcer](const std::string& text) {
+      if (!oxyos::UiThread::isCurrent() && mounter.holdsEarlierThan(js->running())) {
         mounter.announce(text);
         return;
       }
