@@ -15,6 +15,7 @@ mod displays;
 mod ime;
 mod input_sources;
 mod launch;
+mod load;
 mod lock;
 mod passkeys;
 mod pasteboard;
@@ -1664,6 +1665,15 @@ pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bo
 }
 
 fn main() -> Result<()> {
+    // A load of the saturation benchmark (load.rs, perf.py saturation), run as an application or a
+    // process the benchmark places.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|flag| flag == "--load")
+    {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        return load::main(&args).map_err(|error| error.to_string().into());
+    }
     // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
     // child, its standard input the socket the compositor brokers questions over.
     if std::env::args_os()
