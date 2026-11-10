@@ -101,7 +101,7 @@
       }
     },
     {
-      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…; the menu closed; nothing of it focused",
+      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…, its safe area told as it takes its own size; the menu closed; nothing of it focused",
       "do": [
         "press_named",
         "Acerca de este ordenador"
@@ -124,7 +124,12 @@
             "Más información…"
           ],
           "keyboard_focus": null,
-          "react": {}
+          "react": {
+            "insetsChange@RNCSafeAreaProvider#2": [
+              1,
+              2
+            ]
+          }
         },
         "in_shell": {
           "absent": [
