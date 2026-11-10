@@ -27,7 +27,7 @@ thread_local JsThread::Cause tCause;
 }  // namespace
 
 JsThread::JsThread(std::function<Cause()> cause, std::function<void(const Stretch&)> worked,
-                   std::function<void()> idle, std::function<void()> settled)
+                   std::function<void()> idle, std::function<void(bool)> settled)
     : cause_(std::move(cause)), worked_(std::move(worked)), idleHook_(std::move(idle)), settledHook_(std::move(settled)) {
   pthread_attr_t attributes;
   pthread_attr_init(&attributes);
@@ -70,7 +70,7 @@ void JsThread::runOnQueue(std::function<void()>&& task) {
 void JsThread::handOver() {
   {
     std::lock_guard lock(mutex_);
-    if (staged_.empty()) return;
+    if (staged_.empty() || running_ || !tasks_.empty()) return;
     for (auto& task : staged_) tasks_.push_back(std::move(task));
     staged_.clear();
   }
@@ -86,17 +86,25 @@ void JsThread::runOnQueueSync(std::function<void()>&& task) {
   std::condition_variable doneChanged;
   bool finished = false;
   std::exception_ptr failed;
-  runOnQueue([&] {
-    try {
-      task();
-    } catch (...) {
-      failed = std::current_exception();
-    }
-    std::lock_guard lock(done);
-    finished = true;
-    doneChanged.notify_all();
-  });
-  handOver();
+  {
+    // Run whatever the thread is doing: it is waited for, the loop's work queued before it included.
+    std::lock_guard lock(mutex_);
+    for (auto& staged : staged_) tasks_.push_back(std::move(staged));
+    staged_.clear();
+    tasks_.push_back(Task{[&] {
+                            try {
+                              task();
+                            } catch (...) {
+                              failed = std::current_exception();
+                            }
+                            std::lock_guard lock(done);
+                            finished = true;
+                            doneChanged.notify_all();
+                          },
+                          Cause{}});
+    ++queued_;
+  }
+  wake_.notify_one();
   {
     UiThread::Unlocked unlocked;
     std::unique_lock lock(done);
@@ -113,9 +121,12 @@ bool JsThread::idle() const {
 }
 
 bool JsThread::waitIdle(Clock::time_point deadline) {
-  handOver();
   UiThread::Unlocked unlocked;
   std::unique_lock lock(mutex_);
+  // What the loop queued runs too.
+  for (auto& staged : staged_) tasks_.push_back(std::move(staged));
+  staged_.clear();
+  wake_.notify_one();
   return settled_.wait_until(lock, deadline, [this] { return quit_ || (!running_ && tasks_.empty()); });
 }
 
@@ -192,8 +203,9 @@ void JsThread::serve() {
     settled_.notify_all();
     if (quit_) return;
     if (settledHook_ && tasks_.empty()) {
+      bool waiting = !staged_.empty();
       lock.unlock();
-      settledHook_();
+      settledHook_(waiting);
       lock.lock();
     }
   }

@@ -53,20 +53,23 @@ class JsThread : public facebook::react::MessageQueueThread {
   // Starts the thread. `cause` names what queues a task from another thread (the loop's turn);
   // `worked` is called on the thread after each stretch; `idle` on the thread as it is about to
   // sleep, which may queue more (Fabric's beat for what its commits dispatched); `settled` on the
-  // thread once it is idle (the loop, waiting for JavaScript to settle, is woken).
+  // thread once it is idle, with whether the loop's work waits for it (the loop is woken to hand it
+  // over, or as it waits for JavaScript to settle).
   JsThread(std::function<Cause()> cause, std::function<void(const Stretch&)> worked, std::function<void()> idle,
-           std::function<void()> settled);
+           std::function<void(bool waiting)> settled);
   // Ends it (quitSynchronous).
   ~JsThread() override;
   JsThread(const JsThread&) = delete;
   JsThread& operator=(const JsThread&) = delete;
 
-  // React Native's queue: tasks run on the thread in the order they came. What the loop queues during
-  // its turn (the UI thread: its events through Fabric's beat, device events, a frame's callbacks)
-  // is handed over together as the turn ends (handOver), as one turn's work reached JavaScript
-  // together when the two took turns: React then batches what a turn's events change into one render.
+  // React Native's queue: tasks run on the thread in the order they came. What the loop queues (the
+  // UI thread: its events through Fabric's beat, device events, a frame's callbacks, a module's
+  // answer, each through ToJavaScript) is handed over at the end of a turn of the loop's, and only
+  // while the thread is idle (handOver): what came while JavaScript worked reaches it together, as a
+  // turn's work did when the two took turns, and React batches what it changes into one render.
   void runOnQueue(std::function<void()>&& task) override;
-  // The loop's turn ends: what it queued runs.
+  // The loop's turn ends: what it queued runs, if the thread is idle (else once it is: the thread
+  // then calls `settled` with work waiting, and the loop hands it over at its next turn's end).
   void handOver();
   // Runs `task` on the thread after what is queued, and returns once it ran: at once when called on
   // the thread itself. The UI thread's state is let go meanwhile (ui-thread.h), since the task, or
@@ -132,7 +135,8 @@ class JsThread : public facebook::react::MessageQueueThread {
 
   std::function<Cause()> cause_;
   std::function<void(const Stretch&)> worked_;
-  std::function<void()> idleHook_, settledHook_;
+  std::function<void()> idleHook_;
+  std::function<void(bool)> settledHook_;
   mutable std::mutex mutex_;
   std::condition_variable wake_, settled_;
   std::deque<Task> tasks_, staged_;
