@@ -80,10 +80,9 @@ class JsThread : public facebook::react::MessageQueueThread {
   // while the thread is idle (handOver): what came while JavaScript worked reaches it together, as a
   // turn's work did when the two took turns, and React batches what it changes into one render.
   void runOnQueue(std::function<void()>&& task) override;
-  // From the UI thread: `task` runs as soon as the thread is free, behind what the loop queued
-  // before it (handed over with it), whatever JavaScript is doing: a key offered, whose answer the
-  // loop's input waits for.
-  void runOnQueueNow(std::function<void()>&& task);
+  // From the UI thread: `task` runs as soon as the thread is free, before anything queued, whatever
+  // JavaScript is doing: a key offered, whose answer the loop's input waits for.
+  void runOnQueueFirst(std::function<void()>&& task);
   // The loop's turn ends: what it queued runs, if the thread is idle (else once it is: the thread
   // then calls `settled` with work waiting, and the loop hands it over at its next turn's end).
   // Whether it was handed over.

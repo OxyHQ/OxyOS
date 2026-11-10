@@ -417,6 +417,34 @@ class Mounter : public SchedulerDelegate {
 // what came while JavaScript worked is handed over together once it is idle, and React batches what
 // it changes into one render, as when the loop and JavaScript took turns. From any other thread (a
 // worklet's runOnJS on JavaScript's own, a decoder's) it goes to React Native at once.
+// Keys typed together answered back to back (docs/adr/0067-the-ui-thread.mdx, decision 6): an offer's
+// task, once its key is answered, waits for the loop to offer the next key of the same burst (the
+// events held behind it) or to find none, so that JavaScript renders what the keys changed once,
+// after the last, as when the loop asked JavaScript for each key's answer in its turn. Bounded: a
+// loop that does not decide in time leaves JavaScript to go on.
+class KeyBurst {
+ public:
+  // On JavaScript's thread, once key `key` is answered.
+  void awaitDecision(uint64_t key) {
+    std::unique_lock lock(mutex_);
+    changed_.wait_for(lock, kAtMost, [&] { return decided_ >= key; });
+  }
+  // On the UI thread: what follows key `key` is decided (the next key offered, or none).
+  void decided(uint64_t key) {
+    {
+      std::lock_guard lock(mutex_);
+      decided_ = std::max(decided_, key);
+    }
+    changed_.notify_all();
+  }
+
+ private:
+  static constexpr auto kAtMost = std::chrono::milliseconds(50);
+  std::mutex mutex_;
+  std::condition_variable changed_;
+  uint64_t decided_ = 0;
+};
+
 class ToJavaScript {
  public:
   ToJavaScript(ReactInstance& instance, oxyos::JsThread& thread) : instance_(instance), thread_(thread) {}
@@ -473,17 +501,12 @@ class ToJavaScript {
   // queues the beat's callback there), handed over with the rest. Whether any was asked for.
   bool beat();
   // A key offered (Bloom's PlatformKeyboard listener, its answer awaited by the loop's input behind
-  // it): handed over at once with what the loop queued before it, whatever JavaScript is doing, a
-  // beat first for the events the loop dispatched before it, and run at the priority of the events
-  // JavaScript is handed, before the renders it has scheduled: keys typed together are answered one
-  // after another, then rendered together, as when the loop asked JavaScript for each answer in its
-  // turn.
-  void offerKey(std::function<void(jsi::Runtime&)> listen) {
+  // it): run as soon as JavaScript's thread is free, before anything queued there (React's render
+  // of what the key before changed among it), as the loop asked JavaScript for each key's answer in
+  // its turn (docs/adr/0067-the-ui-thread.mdx, decision 6).
+  void offerKey(std::function<void()> task) {
     handed_ = true;
-    thread_.runOnQueueNow([] { Beat::tickAll(); });
-    thread_.runOnQueueNow([scheduler = instance_.getRuntimeScheduler(), listen = std::move(listen)]() mutable {
-      scheduler->scheduleTask(SchedulerPriority::ImmediatePriority, std::move(listen));
-    });
+    thread_.runOnQueueFirst(std::move(task));
   }
   // The loop's turn ends (or the offscreen settle's): what it handed over runs, once JavaScript is
   // idle.
@@ -2459,7 +2482,11 @@ int main(int argc, char** argv) {
       uint64_t seq;
       std::shared_ptr<std::atomic<int>> answer;
       folly::dynamic offered;
+      uint64_t number;  // in the order offered (KeyBurst)
     };
+    // Shared with the offers' tasks, which may outlive the loop by their wait.
+    auto keyBurst = std::make_shared<KeyBurst>();
+    uint64_t keysOffered = 0;
     std::optional<OfferedKey> offeredKey;
     // An event held behind it keeps what the connection says of it beyond the event itself, which
     // the library keeps only until it reads the next event: a text input's transaction and
@@ -2531,19 +2558,23 @@ int main(int argc, char** argv) {
     uint64_t handlingSeq = 0;
     auto offerKey = [&](const OxyOSEvent& event, folly::dynamic offered) {
       auto answer = std::make_shared<std::atomic<int>>(-1);
-      offeredKey = OfferedKey{event, handlingSeq, answer, offered};
-      toJavaScript.offerKey(
-          [listener = services.keyboard.listener, offered = std::move(offered), answer](jsi::Runtime& rt) {
-            bool taken = false;
-            try {
-              auto value = listener->call(rt, jsi::valueFromDynamic(rt, offered));
-              taken = value.isBool() && value.getBool();
-            } catch (const jsi::JSError& error) {
-              std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
-            }
-            answer->store(taken ? 1 : 0);
-            oxyos::UiThread::wake();
-          });
+      uint64_t number = ++keysOffered;
+      offeredKey = OfferedKey{event, handlingSeq, answer, offered, number};
+      toJavaScript.offerKey([listener = services.keyboard.listener, offered = std::move(offered), answer, number,
+                             keyBurst, &hermesRuntime] {
+        bool taken = false;
+        if (auto* rt = hermesRuntime.load()) {
+          try {
+            auto value = listener->call(*rt, jsi::valueFromDynamic(*rt, offered));
+            taken = value.isBool() && value.getBool();
+          } catch (const jsi::JSError& error) {
+            std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
+          }
+        }
+        answer->store(taken ? 1 : 0);
+        oxyos::UiThread::wake();
+        keyBurst->awaitDecision(number);
+      });
     };
     uint32_t toldRefresh = 0;  // the window's display's refresh, as last told (display-refresh.h)
     // A window that changes size answers its configure with a frame JavaScript laid out at that
@@ -2930,6 +2961,8 @@ int main(int argc, char** argv) {
             dispatched(held.event);
             replaying = nullptr;
           }
+          // The next key of the burst is offered, or there is none: JavaScript goes on.
+          keyBurst->decided(key.number);
         }
         // The inputs below that hand JavaScript something (an event dispatched to a view, a device
         // event) are answered once it ran this turn's batch, and all it set off.
