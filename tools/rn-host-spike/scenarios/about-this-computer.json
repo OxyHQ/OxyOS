@@ -101,7 +101,7 @@
       }
     },
     {
-      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…; the bar names it, the menu closed; nothing of it focused",
+      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…; the menu closed; nothing of it focused",
       "do": [
         "press_named",
         "Acerca de este ordenador"
@@ -127,9 +127,6 @@
           "react": {}
         },
         "in_shell": {
-          "texts": [
-            "Acerca de este ordenador"
-          ],
           "absent": [
             "Reposo"
           ]

@@ -42,9 +42,6 @@ export function AboutThisComputer({
   });
   return (
     <WindowDragRegion testID="about-this-computer" style={{ flex: 1, alignItems: "center", paddingTop: 44 }}>
-      <View style={{ position: "absolute", top: 0, left: 0, right: 0 }} pointerEvents="box-none">
-        <WindowControls />
-      </View>
       <View accessible={false} importantForAccessibility="no-hide-descendants">
         <Svg width={SIGN} height={SIGN} viewBox={mark.viewBox}>
           <Path d={mark.path} fill={theme.colors.text} />
@@ -91,6 +88,11 @@ export function AboutThisComputer({
       >
         {about.moreInfo}
       </Button>
+      {/* The window's controls in their corner, after its content as Bloom's Screen puts them, so
+          Tab reaches More Info… first. */}
+      <View style={{ position: "absolute", top: 0, left: 0, right: 0 }} pointerEvents="box-none">
+        <WindowControls />
+      </View>
     </WindowDragRegion>
   );
 }

@@ -43,8 +43,7 @@
           ],
           "absent": [
             "Applications",
-            "Show Desktops",
-            "System Settings"
+            "Show Desktops"
           ]
         },
         "power": {
@@ -363,8 +362,7 @@
           "absent": [
             "Restart…",
             "Shut Down…",
-            "Log Out Ada Lovelace…",
-            "Shift+Super+Q"
+            "Log Out Ada Lovelace…"
           ]
         }
       }
