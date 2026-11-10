@@ -382,7 +382,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "slow_line", a slow line written in the step having each key given ("subject", a pattern it
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
   unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
-  presented within a refresh; "logged", patterns (regular expressions) each
+  presented within a refresh (a speed budget: with --speed-budgets); "logged", patterns (regular expressions) each
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
@@ -4522,7 +4522,11 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
         fast_frames = [line for line in report if line["kind"] == "timing" and line["presented"] and not line["slow"]
                        and start <= line["t"] <= end]
-        if len(fast_frames) < wanted.get("fast_frames_min", 0):
+        # How many frames fit in a refresh is the machine's speed, which a loaded one does not
+        # hold (66 of 90 beside seven other scenarios at load 35): held with --speed-budgets, as
+        # perf.py runs it on the machine alone. That each frame is said slow exactly when its work
+        # passes a refresh is held always (`slow_frames`, `slow`).
+        if SPEED_BUDGETS and len(fast_frames) < wanted.get("fast_frames_min", 0):
             fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
             if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
