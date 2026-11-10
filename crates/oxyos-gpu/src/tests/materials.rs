@@ -274,7 +274,8 @@ fn the_references_cases_compose_alike_on_the_device() {
         radius: 12,
         ..area(24, 16, 48, 32)
     };
-    let cases: Vec<(&str, Vec<Layer<'_>>, Vec<(usize, MaterialArea)>)> = vec![
+    type Case<'a> = (&'a str, Vec<Layer<'a>>, Vec<(usize, MaterialArea)>);
+    let cases: Vec<Case<'_>> = vec![
         (
             "grey",
             vec![fill(0, 0, width, height, 0x0080_8080), surface],

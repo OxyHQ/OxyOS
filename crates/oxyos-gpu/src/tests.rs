@@ -2211,6 +2211,46 @@ fn a_dma_buf_sampled_in_place_composes_as_its_pixels_do() {
             assert_eq!(vulkan, cpu, "{width}x{height}");
         }
     }
+    // A material area over them (docs/adr/0069-the-platforms-material.mdx) blurs the buffers
+    // sampled in place as their pixels: under the fill, and under the premultiplied popup.
+    let materials = [
+        (
+            2,
+            material::MaterialArea {
+                rect: Rect {
+                    x: 20,
+                    y: 15,
+                    width: 70,
+                    height: 50,
+                },
+                radius: 12,
+                sigma: 25,
+                opacity: 255,
+            },
+        ),
+        (
+            1,
+            material::MaterialArea {
+                rect: Rect {
+                    x: 60,
+                    y: 30,
+                    width: 40,
+                    height: 50,
+                },
+                radius: 0,
+                sigma: 40,
+                opacity: 128,
+            },
+        ),
+    ];
+    for layers in [&imported, &drawn] {
+        assert_eq!(
+            gpu.compose_with_material(120, 90, 0x0011_2233, layers, &materials)
+                .unwrap(),
+            compose_cpu_with_material(120, 90, 0x0011_2233, layers, &materials),
+            "a material over buffers sampled in place"
+        );
+    }
     // The GPU samples the buffer itself: with no pixels read, it composes what they would.
     let unread: Vec<Layer<'_>> = imported
         .iter()

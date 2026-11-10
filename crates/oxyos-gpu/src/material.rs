@@ -104,7 +104,7 @@ pub(crate) fn passes(width: u32) -> Vec<(u32, u32)> {
         vec![
             (width, width / 2),
             (width, width / 2 - 1),
-            (width + 1, (width + 1) / 2),
+            (width + 1, width.div_ceil(2)),
         ]
     }
 }

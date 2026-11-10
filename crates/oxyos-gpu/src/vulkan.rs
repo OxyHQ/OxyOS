@@ -2440,7 +2440,8 @@ impl VulkanCompositor {
             if let Some(old) = self.buffers[slot].replace(buffer) {
                 self.free(old);
             }
-            rebind |= slot < 2 || slot >= 4;
+            // The set names the source, the output, the table and the scratch buffer.
+            rebind |= !(2..4).contains(&slot);
             if slot == 1 {
                 // A new output buffer holds no frame.
                 self.output_holds = None;
