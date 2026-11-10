@@ -117,8 +117,13 @@ class Fixture:
                 "through tools/rn-host-spike/perf-saturation.sh (a development machine) or "
                 "tools/rn-host-spike/perf-device.sh (a device beside a person's session)")
         harness = self.make(self.root / "harness")
-        # Every thread of this process, and none left at the root, which then holds only groups.
-        (harness / "cgroup.procs").write_text(str(os.getpid()))
+        # Every process of the run's group (this one, and what started it: perf-device.sh's strace),
+        # so the root holds only groups and may give its controllers to them.
+        for pid in [os.getpid(), *(self.root / "cgroup.procs").read_text().split()]:
+            try:
+                (harness / "cgroup.procs").write_text(str(pid))
+            except ProcessLookupError:
+                pass
         self.controllers = [c for c in self.CONTROLLERS
                             if c in (self.root / "cgroup.controllers").read_text().split()]
         self.enable(self.root)
