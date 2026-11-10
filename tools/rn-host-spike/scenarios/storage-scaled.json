@@ -115,11 +115,11 @@
   {
    "name": "Empty Trash Automatically's switch: asked first, nothing erased yet",
    "do": [
-    "press_output",
-    [
-     1021,
-     508
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Empty Trash Automatically"
+    }
    ],
    "expect": {
     "texts": [

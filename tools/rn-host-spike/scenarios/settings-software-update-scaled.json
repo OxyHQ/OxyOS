@@ -65,11 +65,11 @@
     {
       "name": "Check for Updates",
       "do": [
-        "press",
-        [
-          792,
-          275
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Check for Updates"
+        }
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -95,11 +95,11 @@
     {
       "name": "Update All",
       "do": [
-        "press",
-        [
-          820,
-          340
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Update All"
+        }
       ],
       "allow_unchanged": true,
       "expect": {}

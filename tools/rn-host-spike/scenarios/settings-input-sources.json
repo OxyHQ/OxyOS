@@ -48,7 +48,7 @@
    }
   },
   {
-   "name": "Tab: the keyboard on the sidebar's selected row, Appearance",
+   "name": "Tab: the sidebar's search field first, as a Mac's System Settings has it at the sidebar's top, said once",
    "do": [
     "key",
     [
@@ -58,6 +58,35 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
+     "focus@settings-search": 1,
+     "selectionChange@settings-search": 1
+    },
+    "keyboard_focus": {
+     "target": "settings-search",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Buscar en Ajustes, campo de búsqueda",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Tab again: the keyboard on the sidebar's selected row, Appearance",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {
+     "blur@settings-search": 1,
+     "endEditing@settings-search": 1,
      "focus@settings-nav-appearance": 1
     },
     "keyboard_focus": {

@@ -712,9 +712,9 @@ fn opening_size(application: &Application, runtime: &Runtime, chooser: bool) -> 
     }
 }
 
-/// The sides a window an entry declares may have, in layout pixels: no smaller than a window's
-/// controls and a line of content, no larger than any display a session drives.
-const WINDOW_SIDES: std::ops::RangeInclusive<u32> = 200..=8192;
+// The sides a window an entry declares may have: a package's (`oxyos_package::WINDOW_SIDES`),
+// which the install service writes into its entry.
+use oxyos_package::WINDOW_SIDES;
 
 /// `X-OxyOS-Window-Size`'s value: `WIDTHxHEIGHT`, two whole numbers in [`WINDOW_SIDES`].
 fn window_size(value: &str) -> Option<(u32, u32)> {

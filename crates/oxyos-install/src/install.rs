@@ -2188,6 +2188,13 @@ pub fn entry_text(manifest: &Manifest, version_dir: &Path, runtime_abi: u32) -> 
         version_dir.join("index.hbc").display(),
         manifest.version_code
     ));
+    // The size its window opens at (its manifest's `window`), as `oxyos_apps` reads it.
+    if let Some(window) = manifest.window {
+        text.push_str(&format!(
+            "X-OxyOS-Window-Size={}x{}\n",
+            window.width, window.height
+        ));
+    }
     // What it opens (its manifest's `opens`): the kinds of file, and the URL schemes as
     // freedesktop.org's entries declare them (`x-scheme-handler/…`, docs/adr/0034-the-dock.mdx).
     let opens: Vec<String> = manifest

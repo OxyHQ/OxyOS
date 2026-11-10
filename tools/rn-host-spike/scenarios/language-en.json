@@ -193,7 +193,7 @@
     },
     "in_shell": {
      "texts": [
-      "Ver"
+      "Visualización"
      ],
      "absent": [
       "View"
@@ -218,7 +218,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "OxyOS, contraído, botón",
+      "text": "Ajustes, contraído, botón",
       "interrupting": true,
       "voice": "es"
      }
@@ -282,7 +282,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Ver, contraído, botón",
+      "text": "Edición, contraído, botón",
       "interrupting": true,
       "voice": "es"
      }

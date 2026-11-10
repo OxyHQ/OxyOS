@@ -392,6 +392,9 @@ const en = {
     },
     view: { title: "View", back: "Back", forward: "Forward" },
   },
+  /** The sidebar's search field's name (its placeholder is Bloom's "Search"), apart from a page's own
+      search (Passwords'). */
+  searchSettings: "Search Settings",
   /** The Oxy account at the top of the sidebar (docs/adr/0020-oxy-account-login.mdx), as a Mac's
       Apple Account: its group's heading, and its page. */
   account: {
@@ -1484,6 +1487,7 @@ const es: Messages = {
     },
     view: { title: "Visualización", back: "Atrás", forward: "Adelante" },
   },
+  searchSettings: "Buscar en Ajustes",
   account: {
     group: "Cuenta de Oxy",
     handle: (handle: string) => `@${handle}`,

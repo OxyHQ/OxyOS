@@ -111,10 +111,9 @@ entry() { # id name name-es module [pinned]
     echo "Icon=/usr/lib/oxyos/apps/$1/icon.png"; echo "X-OxyOS-Bloom-Module=$4"
     echo "X-OxyOS-Bloom-Bundle=/usr/lib/oxyos/apps/$1/index.hbc"; echo "X-OxyOS-Runtime=1"
     [ -n "${5:-}" ] && echo "X-OxyOS-Pinned=$5"
-    # The size its window opens at, as the development registry's entry declares it.
-    grep "^X-OxyOS-Window-Size=" tools/rn-host-spike/applications/oxyos/applications/$1.desktop 2>/dev/null || true
-    # What the package declares it opens (its URL schemes, ADR 0034's OpenUrl), as its own entry says.
-    grep "^MimeType=" $M/packages/applications/$1.desktop 2>/dev/null || true; } > $D/entries/$1.desktop
+    # What the package declares it opens (its URL schemes, ADR 0034's OpenUrl) and the size its
+    # window opens at, as its own entry says.
+    grep "^MimeType=\|^X-OxyOS-Window-Size=" $M/packages/applications/$1.desktop 2>/dev/null || true; } > $D/entries/$1.desktop
 }
 entry so.oxy.settings Settings Ajustes OxyOSSettings
 # Settings' grants as ADR 0030 gives them: `settings`, `updates` (Software Update, decision 16) and

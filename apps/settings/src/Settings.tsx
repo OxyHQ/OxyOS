@@ -2254,7 +2254,7 @@ export function Settings({
   const strings = messagesFor(language);
   // Its window keeps its sidebar beside the page: never narrower than a desktop's System Settings
   // lays out side by side (Bloom's settings go to the phone's list and page below it). Its size when
-  // it opens is its entry's (`X-OxyOS-Window-Size`), as a Mac's System Settings opens at its own.
+  // it opens is its package's (`window`), as a Mac's System Settings opens at its own.
   useWindowSizeLimits({ minWidth: SETTINGS_MIN_WIDTH });
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
   // What every page is given changes with everything the session tells (a preference, a volume, a
@@ -2427,7 +2427,10 @@ export function Settings({
     () => searchedGroups(groups, query, DECLARED_PAGES as readonly DeclaredPage[], language),
     [groups, query, language],
   );
-  const search = React.useMemo(() => ({ value: query, onChangeText: setQuery, testID: "settings-search" }), [query]);
+  const search = React.useMemo(
+    () => ({ value: query, onChangeText: setQuery, accessibilityLabel: strings.searchSettings, testID: "settings-search" }),
+    [query, strings.searchSettings],
+  );
   // The window's Edit › Find… and View › Back and Forward act through the layout, as its own
   // field and toolbar do.
   const layoutRef = React.useRef<SettingsLayoutHandle>(null);

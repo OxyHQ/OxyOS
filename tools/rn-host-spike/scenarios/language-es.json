@@ -48,7 +48,7 @@
     },
     "in_shell": {
      "texts": [
-      "Ver"
+      "Visualización"
      ],
      "texts_matching": [
       "^(lun|mar|mié|jue|vie|sáb|dom), \\d{1,2} (ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic) \\d{2}:\\d{2}$"
@@ -194,7 +194,7 @@
       "View"
      ],
      "absent": [
-      "Ver"
+      "Visualización"
      ],
      "texts_matching": [
       "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) \\d{2}:\\d{2}$"
@@ -216,7 +216,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "OxyOS, collapsed, button",
+      "text": "Settings, collapsed, button",
       "interrupting": true,
       "voice": "en"
      }
@@ -283,7 +283,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "View, collapsed, button",
+      "text": "Edit, collapsed, button",
       "interrupting": true,
       "voice": "en"
      }
