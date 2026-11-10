@@ -60,6 +60,7 @@ pub mod safe_mode;
 pub mod search;
 pub mod session_end;
 pub mod settings;
+pub mod shell_watch;
 pub mod sign_out;
 pub mod sound_devices;
 pub mod sounds;
