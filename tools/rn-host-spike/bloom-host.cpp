@@ -53,6 +53,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <limits>
 #include <hermes/hermes.h>
 #include <jsi/jsi.h>
@@ -106,6 +107,7 @@
 #include <csignal>
 #include <execinfo.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 #include <ucontext.h>
 #include <unistd.h>
 
@@ -626,6 +628,35 @@ void crashed(int signal, siginfo_t* info, void* context) {
   _exit(128 + signal);
 }
 
+// A hang's report (docs/adr/0067-hangs-and-force-quit.mdx, decision 4): the session asks with SIGQUIT
+// before it force-quits a host that stopped answering, as Java's SIGQUIT dumps its threads. What the
+// JavaScript thread (`oxyos-js`, js-thread.h; the main thread before it started) is doing is what
+// hangs: the signal sent to the process, the first thread to take it notes who asked and hands it to
+// that thread (tgkill), whose stack is then written, as the fatal signal's, into the log and the report
+// file, and the host goes on (hung) until the session kills it. Only async-signal-safe calls, into
+// descriptors already open. Hermes' JavaScript stack is not read: walking its frames from a signal is
+// not safe while it runs.
+std::atomic<int> gHangAsker{0};
+
+void hung(int signal, siginfo_t* info, void*) {
+  const pid_t process = getpid();
+  const pid_t javascript = oxyos::jsThreadId();
+  const pid_t target = javascript != 0 ? javascript : process;
+  if (info->si_pid != process) gHangAsker.store(info->si_pid, std::memory_order_relaxed);
+  if (gettid() != target) {
+    syscall(SYS_tgkill, process, target, signal);
+    return;
+  }
+  void* frames[64];
+  int count = backtrace(frames, 64);
+  for (int fd : {2, oxyos::crashReportFd()}) {
+    if (fd < 0) continue;
+    dprintf(fd, "[host] hang: asked by process %d (SIGQUIT); the JavaScript thread's stack:\n",
+            gHangAsker.load(std::memory_order_relaxed));
+    backtrace_symbols_fd(frames, count, fd);
+  }
+}
+
 // The report above, installed for the process, also for a crash that overflowed a thread's stack: the
 // handler runs on a stack of its own, the main thread's set here and JavaScript's by its thread
 // (js-thread.h).
@@ -640,6 +671,16 @@ void reportFatalSignals() {
   action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
   sigemptyset(&action.sa_mask);
   for (int signal : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaction(signal, &action, nullptr);
+  // A hang's report, asked again for each hang: not reset, on the same stack of its own.
+  struct sigaction quit {};
+  quit.sa_sigaction = hung;
+  quit.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESTART;
+  sigemptyset(&quit.sa_mask);
+  sigaction(SIGQUIT, &quit, nullptr);
+  // backtrace() loads its unwinder the first time it is called, which allocates: once now, so the
+  // handlers never do.
+  void* warm[1];
+  backtrace(warm, 1);
 }
 
 // The runtime this host is (docs/adr/0030-installing-applications.mdx, decisions 2 and 17): the
@@ -1185,6 +1226,8 @@ int main(int argc, char** argv) {
         oxyos::UiThread::Unlocked waiting;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
+      // The compositor's pings are answered once JavaScript took what came before them (below).
+      window->answerPingsItself();
       // The painter is started now, beside the runtime and the application loading.
       window->choosePainter();
       oxyos::Memory::get().setBufferTrim([&window] { return window->trimBuffers(); });
@@ -2699,6 +2742,19 @@ int main(int argc, char** argv) {
     std::optional<Clock::time_point> lastResized;
     uint64_t settleAfter = 0;  // what JavaScript was handed for the new size: settled once it ran
     bool firstShown = false;  // the window's first frame may be drawn (below)
+    // The compositor's pings waiting for their answer (Window::answerPingsItself): the application is
+    // responding once JavaScript took what came before a ping, as a Mac's window server reads an
+    // application's main thread taking its events, so JavaScript stuck in its work is a hang
+    // (docs/adr/0067-hangs-and-force-quit.mdx) while the UI thread goes on reading and drawing. A
+    // ping read in a turn that queued JavaScript something is answered once JavaScript ran that batch
+    // (JsThread::done); one read in a turn that queued nothing, once JavaScript is idle after what it
+    // was running; never while a key offered to JavaScript waits for its answer.
+    struct PingWaiting {
+      uint64_t serial;
+      uint64_t batch;
+      bool idle;
+    };
+    std::vector<PingWaiting> pingsWaiting;
     int settleTurns = 0;
     try {
       // Where the turn's time goes, for the session's log (frame-diagnostics.h).
@@ -4020,12 +4076,25 @@ int main(int argc, char** argv) {
         // drag it ended is told after it.
         toJavaScript.beat();
         dragDrop.ranJavaScript();
+        // The pings this turn read wait for what it queued, or for what JavaScript runs now.
+        for (uint64_t serial : window->takePings()) {
+          bool staging = js->staging();
+          pingsWaiting.push_back({serial, staging ? js->batch() : js->running(), !staging});
+        }
         // What the turn queued for JavaScript runs, together, once JavaScript is idle.
         toJavaScript.handOver();
-        // While the window waits for JavaScript to settle (a resize), or an input for its answer,
-        // JavaScript's thread wakes the loop as it goes idle.
+        if (!offeredKey) {
+          std::erase_if(pingsWaiting, [&](const PingWaiting& ping) {
+            if (js->done() < ping.batch || (ping.idle && !js->idle())) return false;
+            window->pong(ping.serial);
+            return true;
+          });
+        }
+        // While the window waits for JavaScript to settle (a resize), an input for its answer or a
+        // ping for JavaScript to take what came before it, JavaScript's thread wakes the loop as it
+        // goes idle.
         wakeUiWhenIdle = settleBy.has_value() || !firstShown || diagnostics.awaitingJavaScript() || mounter.pending() ||
-                         offeredKey.has_value();
+                         offeredKey.has_value() || !pingsWaiting.empty();
         oxyos::Report::get().endTurn();
         // With nothing to do, the loop sleeps until something can give it work, as Android's Looper
         // waits on its descriptors: the compositor (events, a frame's feedback), the network, the

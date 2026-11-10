@@ -20,6 +20,8 @@ Status: **accepted; implemented** (the session's side, the Bloom host's report, 
 
 Not in this note: the shell's watchdog (a shell that hangs) and the login program's own screen when its login screen cannot start at all, which follow.
 
+**10 November 2026 ([ADR 0067](./0067-hangs-and-force-quit)):** an application the person force-quits while it does not answer is asked for its report first (`SIGQUIT`: the Bloom host writes its JavaScript thread's stack into its report file), and its report is written as decision 4 says, saying the hang (*X stopped responding and was force quit.*, *hang: no response for N seconds*), with nothing more said: the person asked.
+
 ## Problem
 
 An application that crashed on OxyOS vanished: its window went, the session wrote `exited` to its log, and nobody told the person anything. A JavaScript error nothing caught did not even end it: the Bloom host logged `[js exception]` and kept a window whose React tree the error had unmounted, drawn by nothing. An application that crashed at every launch (its preferences corrupted, the most common cause of a crash loop on a Mac) could only be fixed by finding and deleting `~/.local/share/oxyos/apps/<id>` in a terminal, and the session's own shell crashing ended the whole session, every application with it.

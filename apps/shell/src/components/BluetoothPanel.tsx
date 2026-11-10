@@ -16,7 +16,8 @@ import {
   type BluetoothDevice,
   type BluetoothState,
 } from "../bluetooth";
-import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
+import { FACE, INK, QUIET, card } from "./control-style";
+import { useTheme } from "@oxy.so/bloom/theme";
 import { BluetoothGlyph, DeviceBattery } from "./BluetoothGlyph";
 import { WIFI_LIST_MAX_HEIGHT, WIFI_ROW_HEIGHT } from "./WifiPanel";
 import { useShellMessages } from "../useShellMessages";
@@ -35,6 +36,7 @@ function DeviceRow({
 }) {
   const messages = useShellMessages();
   const [hovered, setHovered] = useState(false);
+  const accent = useTheme().colors.primary;
   const busy = device.busy !== null;
   const battery = deviceBattery(device, messages);
   return (
@@ -62,7 +64,7 @@ function DeviceRow({
       <SubtleHover native active={hovered} style={{ borderRadius: 8 }} />
       <Box
         className="items-center justify-center rounded-full"
-        style={{ width: 26, height: 26, backgroundColor: device.connected ? ACCENT : FACE }}
+        style={{ width: 26, height: 26, backgroundColor: device.connected ? accent : FACE }}
       >
         <BluetoothGlyph kind={device.kind} size={15} color={device.connected ? "#ffffff" : INK} />
       </Box>

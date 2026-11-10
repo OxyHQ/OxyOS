@@ -7,7 +7,8 @@ import { AppIcon } from "../apps";
 import type { ShellApplication, ShellNotification } from "../model";
 import { ago, applicationOf, spoken } from "../notifications";
 import { useShellMessages } from "../useShellMessages";
-import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { BloomColorScope, useReducedTransparency } from "@oxy.so/bloom/theme";
+import { useAccent } from "./accent";
 import { glass } from "./glass";
 
 export const BANNER_WIDTH = 360;
@@ -45,6 +46,7 @@ export const NotificationCard = memo(function NotificationCard({
   testID: string;
 }) {
   const reduced = useReducedTransparency();
+  const accentPreset = useAccent();
   const messages = useShellMessages();
   const words = messages.notifications;
   const { name, app } = applicationOf(notification, applications);
@@ -62,7 +64,9 @@ export const NotificationCard = memo(function NotificationCard({
     if (replying === null) return;
     activate(replying, text);
   };
+  // Its actions in the person's accent, as a Mac's notification buttons.
   return (
+    <BloomColorScope colorPreset={accentPreset} asChild>
     <Box
       testID={testID}
       onPointerEnter={() => setHovered(true)}
@@ -151,5 +155,6 @@ export const NotificationCard = memo(function NotificationCard({
         </Box>
       ) : null}
     </Box>
+    </BloomColorScope>
   );
 });

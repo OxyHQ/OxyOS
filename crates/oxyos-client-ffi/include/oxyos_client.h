@@ -185,6 +185,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_LIST_CHOSEN 2
 /* To the shell: how many items the user's Trashes hold (code), when it connects and as it changes. */
 #define OXYOS_EVENT_TRASH_ITEMS 232
+/* The compositor's Ping (serial), given only to a client that answers pings itself
+ * (oxyos_client_answer_pings_itself), which answers with oxyos_client_pong. */
+#define OXYOS_EVENT_PING 230
 /* Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: DRAG_ENTER (surface; serial: the
  * entering, which oxyos_client_accept_drag cites; code: the offer; x, y: surface-local, as a
  * POINTER's; detail: the source's actions, OXYOS_DRAG_* bits; width: how many DRAG_OFFER_TYPE
@@ -995,6 +998,15 @@ int oxyos_client_reply_to_quit(OxyOSClient* client, uint32_t serial, uint8_t qui
  * of a version before OXYOS_SUDDEN_TERMINATION_VERSION, which asks every application. */
 #define OXYOS_SUDDEN_TERMINATION_VERSION 40
 int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);
+/* The platform's material (docs/adr/0069-the-platforms-material.mdx): a surface's material regions
+ * for its next Submit, `count` rounded rectangles in its buffer pixels, five values each in
+ * `regions` (x, y, width, height, radius), under which the compositor blurs what it has composed
+ * beneath the surface; `count` 0: none. Kept until another list replaces it. An error, sending
+ * nothing, past OXYOS_MAX_MATERIAL_REGIONS or to a compositor of a version before
+ * OXYOS_MATERIAL_VERSION. */
+#define OXYOS_MATERIAL_VERSION 45
+#define OXYOS_MAX_MATERIAL_REGIONS 16
+int oxyos_client_set_material_regions(OxyOSClient* client, uint32_t surface, const int32_t* regions, size_t count);
 /* The session's shell's Control Center (docs/adr/0025-hardware-keys-and-control-center.mdx): a
  * level (OXYOS_CONTROL_*, 0 to 65536), a volume's mute, Wi-Fi on or off, the appearance light or
  * dark (a change of the `appearance` preference, answered by a PREFERENCE_RESULT with `serial`),
@@ -1265,6 +1277,13 @@ int64_t oxyos_client_submit_buffer_synced(OxyOSClient* client, uint32_t surface,
 
 /* Takes one queued event without blocking. */
 int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
+/* From now on the client answers the compositor's pings itself: oxyos_client_poll gives each as
+ * OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client answers
+ * with oxyos_client_pong once it handled what came before it (a runtime whose events are handled on
+ * another thread than the one reading them, docs/adr/0067-the-ui-thread.mdx). 0, or OXYOS_ERROR. */
+int oxyos_client_answer_pings_itself(OxyOSClient* client);
+/* Answers the compositor's Ping `serial` (an OXYOS_EVENT_PING's). 0, or OXYOS_ERROR. */
+int oxyos_client_pong(OxyOSClient* client, uint64_t serial);
 
 /* The clipboard (docs/adr/0007-clipboard.mdx). Copies `length` bytes of UTF-8 text as the
  * clipboard (text/plain;charset=utf-8) with the serial of the user input that asked for it; the

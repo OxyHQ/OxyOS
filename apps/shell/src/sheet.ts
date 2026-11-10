@@ -97,6 +97,13 @@ export type SheetText =
   | { kind: "end-session-cancelled"; action: SessionEndAction; application: string }
   /** The last session ended within a minute of reopening these (docs/adr/0065, decision 4). */
   | { kind: "reopen-again"; applications: string[] }
+  /** Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session's launched
+      applications, those that do not answer marked, the frontmost chosen. */
+  | {
+      kind: "force-quit";
+      applications: { id: string; name: string; responding: boolean }[];
+      chosen?: number;
+    }
   | { kind: "end-session-timed-out"; action: SessionEndAction; application: string }
   | {
       kind: "end-session-failed";
@@ -179,7 +186,9 @@ export type SheetView = {
   codeField?: { label: string; kind: BluetoothCodeKind };
   /** A passkey's chooser (docs/adr/0050-keychain-autofill-and-passkeys.mdx): the accounts the
       person may use, the first chosen until they choose another. Its rows' label is the list's. */
-  choices?: { label: string; rows: { title: string; detail: string }[] };
+  /** A list to choose one of (↑ ↓), each a title and its detail; `alert`, said in red (an app
+      not responding). */
+  choices?: { label: string; rows: { title: string; detail: string; alert?: boolean }[] };
   /** Which password the field takes: a Wi-Fi network's (8 to 63 bytes, or 64 hexadecimal digits),
       or the Oxy account's (anything not empty). */
   passwordKind?: "wifi" | "account";
@@ -540,6 +549,28 @@ export function sheetView(sheet: SheetText, messages: ShellMessages, names: Reco
         focusAnswer: true,
         defaultAnswer: true,
       };
+    case "force-quit": {
+      const applications = Array.isArray(sheet.applications) ? sheet.applications : [];
+      return {
+        title: w.forceQuitTitle,
+        body: applications.length ? w.forceQuitBody : w.forceQuitNone,
+        lines: [],
+        choices: applications.length
+          ? {
+              label: w.forceQuitList,
+              rows: applications.map((application) => ({
+                title: String(application.name),
+                detail: application.responding === false ? w.notResponding : "",
+                alert: application.responding === false,
+              })),
+            }
+          : undefined,
+        accept: applications.length ? w.forceQuitButton : "",
+        refuse: w.cancel,
+        destructive: false,
+        defaultAnswer: applications.length > 0,
+      };
+    }
     case "end-session-cancelled":
       return {
         title: messages.power.cancelled[sheet.action](sheet.application),
@@ -604,6 +635,7 @@ export function startsOnAnswer(sheet: SheetText): boolean {
     case "end-session":
     case "power-key":
     case "reopen-again":
+    case "force-quit":
     case "end-session-cancelled":
     case "end-session-timed-out":
     case "end-session-failed":
