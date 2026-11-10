@@ -34,7 +34,9 @@ namespace oxyos {
 
 namespace {
 
-// The host's single thread is both the JS and the UI thread.
+// The UI thread is the host's loop. While JavaScript's thread takes turns with it (js-thread.h), never
+// running at once, what runs on either is the UI thread's as far as worklets ask: Reanimated's layout
+// animations take a mount pulled on JavaScript's thread as the UI thread's, as on the one thread.
 class LoopUIScheduler : public worklets::UIScheduler {
  public:
   // Whether UI jobs are queued for the next triggerUI.
@@ -56,12 +58,13 @@ class UnsupportedNetworking : public worklets::NetworkingBackend {
 
 }  // namespace
 
-WorkletsHost::WorkletsHost(const DisplayRefresh& refresh, std::string compiled)
+WorkletsHost::WorkletsHost(const DisplayRefresh& refresh, std::string compiled, std::function<bool()> onJsThread)
     : refresh_(refresh),
       ui_(std::make_shared<LoopUIScheduler>()),
       frames_(std::make_shared<std::vector<std::function<void(double)>>>()),
       wanted_(std::make_shared<bool>(true)),
-      compiled_(std::move(compiled)) {}
+      compiled_(std::move(compiled)),
+      onJsThread_(std::move(onJsThread)) {}
 
 WorkletsHost::~WorkletsHost() {
   if (initializer_) initializer_->invalidate();
@@ -86,7 +89,8 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
             },
         .networkingBackend = std::make_shared<UnsupportedNetworking>()});
     initializer_ = std::make_shared<worklets::WorkletsModuleProxyInitializer>(
-        std::make_shared<worklets::JSScheduler>(runtime, invoker, [] { return true; }), ui_, bindings,
+        std::make_shared<worklets::JSScheduler>(runtime, invoker, [onJsThread = onJsThread_] { return onJsThread(); }),
+        ui_, bindings,
         std::make_shared<worklets::RNRuntimeStatus>());
     initializer_->prepareProxy();
   }

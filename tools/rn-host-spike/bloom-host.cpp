@@ -1,4 +1,5 @@
-// OxyOS React Native host: Hermes + bridgeless ReactInstance + Fabric on Linux, single-threaded.
+// OxyOS React Native host: Hermes + bridgeless ReactInstance + Fabric on Linux. JavaScript runs on a
+// thread of its own (js-thread.h), the host's loop on the main thread.
 // Loads a Metro bundle built for the `oxyos` platform, starts a surface and records Fabric's
 // mounting transactions into a retained view tree that the renderer draws into a buffer.
 #include "accessibility.h"
@@ -19,6 +20,7 @@
 #include "keyboard-focus.h"
 #include "images.h"
 #include "input.h"
+#include "js-thread.h"
 #include "android-view-props.h"
 #include "overscroll.h"
 #include "intl.h"
@@ -115,86 +117,6 @@ class Flags : public ReactNativeFeatureFlagsDefaults {
   // Animated's native driver is React Native's C++ implementation (native-animated.h), as Android
   // runs it with this flag: JavaScript then talks to `NativeAnimatedModule` with batches.
   bool cxxNativeAnimatedEnabled() override { return true; }
-};
-
-// The JS thread is this process's only thread: tasks run when the loop drains the queue.
-class Loop : public MessageQueueThread {
- public:
-  void runOnQueue(std::function<void()>&& task) override { tasks_.push(std::move(task)); }
-  void runOnQueueSync(std::function<void()>&& task) override { task(); }
-  void quitSynchronous() override {}
-
-  bool drain() {
-    bool ran = false;
-    while (!tasks_.empty()) {
-      auto task = std::move(tasks_.front());
-      tasks_.pop();
-      task();
-      ran = true;
-    }
-    return ran;
-  }
-
- private:
-  std::queue<std::function<void()>> tasks_;
-};
-
-class Timers : public PlatformTimerRegistry {
- public:
-  void createTimer(uint32_t id, double delay) override { add(id, delay, false); }
-  void createRecurringTimer(uint32_t id, double delay) override { add(id, delay, true); }
-  void deleteTimer(uint32_t id) override { timers_.erase(id); }
-
-  // Fires due timers; returns whether any fired.
-  bool fire(TimerManager& manager) {
-    auto now = Clock::now();
-    std::vector<uint32_t> due;
-    for (auto& [id, timer] : timers_) {
-      if (timer.at <= now) due.push_back(id);
-    }
-    for (auto id : due) {
-      auto it = timers_.find(id);
-      if (it == timers_.end()) continue;
-      if (it->second.repeat) {
-        it->second.at = now + it->second.every;
-      } else {
-        timers_.erase(it);
-      }
-      manager.callTimer(static_cast<TimerHandle>(id));
-    }
-    return !due.empty();
-  }
-
-  // When the next timer falls due, if one is set.
-  std::optional<Clock::time_point> next() const {
-    std::optional<Clock::time_point> next;
-    for (const auto& [id, timer] : timers_) {
-      if (!next || timer.at < *next) next = timer.at;
-    }
-    return next;
-  }
-
-  // Whether a one-shot timer falls due before `deadline`: the app is not settled until it fires.
-  // Recurring timers never settle, so they do not hold the loop.
-  bool oneShotDueBefore(Clock::time_point deadline) const {
-    for (const auto& [id, timer] : timers_) {
-      if (!timer.repeat && timer.at < deadline) return true;
-    }
-    return false;
-  }
-
- private:
-  struct Timer {
-    Clock::time_point at;
-    Clock::duration every;
-    bool repeat;
-  };
-  void add(uint32_t id, double delay, bool repeat) {
-    auto every = std::chrono::duration_cast<Clock::duration>(
-        std::chrono::duration<double, std::milli>(delay));
-    timers_[id] = Timer{Clock::now() + every, every, repeat};
-  }
-  std::map<uint32_t, Timer> timers_;
 };
 
 // Fabric's event beat: the host loop ticks every live beat, as Android's Choreographer does, so
@@ -333,7 +255,8 @@ class Mounter : public SchedulerDelegate {
 
 // A fatal signal's report in the session's log, and in the report file the session gave
 // (crash-report.h): the signal and, for a bad access, the address it touched; the thread it hit (by
-// name: the JavaScript thread is the main one, Hermes' collector is `hades`); the registers at the
+// name: the host's loop is the main one, named after the executable, JavaScript's `oxyos-js`, Hermes'
+// collector `hades`); the registers at the
 // fault, which tell a bad pointer from a bad index; and the stack, its frames' offsets to symbolise
 // against the build's unstripped objects. Only async-signal-safe calls, into descriptors already
 // open.
@@ -372,8 +295,9 @@ void crashed(int signal, siginfo_t* info, void* context) {
   _exit(128 + signal);
 }
 
-// The report above, installed on the JavaScript thread, also for a crash that overflowed its stack:
-// the handler runs on a stack of its own.
+// The report above, installed for the process, also for a crash that overflowed a thread's stack: the
+// handler runs on a stack of its own, the main thread's set here and JavaScript's by its thread
+// (js-thread.h).
 void reportFatalSignals() {
   static std::vector<char> stack(std::max<size_t>(SIGSTKSZ, 64 * 1024));
   stack_t alternate{};
@@ -546,8 +470,15 @@ int main(int argc, char** argv) {
     if (std::ifstream(path).good()) oxyos::TextEngine::shared().addFallback(path);
   }
   ReactNativeFeatureFlags::override(std::make_unique<Flags>());
-  auto loop = std::make_shared<Loop>();
-  auto timerRegistry = std::make_unique<Timers>();
+  // JavaScript's thread (js-thread.h): React Native's queue, and the timers the loop fires.
+  std::shared_ptr<oxyos::JsThread> js;
+  try {
+    js = std::make_shared<oxyos::JsThread>();
+  } catch (const std::exception& error) {
+    std::cerr << "[host] " << error.what() << "\n";
+    return 1;
+  }
+  auto timerRegistry = std::make_unique<oxyos::JsThread::Timers>();
   auto* timers = timerRegistry.get();
   // The instance holds the only reference to its timer manager, as Android's JReactInstance gives
   // it (its timer executor keeps a weak one): the timers JavaScript leaves pending hold the
@@ -598,11 +529,14 @@ int main(int argc, char** argv) {
                 ::hermes::vm::GCSanitizeConfig::Builder().withSanitizeRate(std::min(std::atof(rate), 1.0)).build())
             .build());
   }
-  auto runtime =
-      std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(runtimeConfig.build()));
+  // Made on the thread it runs on: Hermes' sampling profiler samples, and its stack's guard bounds,
+  // the thread that makes the runtime.
+  std::unique_ptr<JSIRuntimeHolder> runtime;
+  js->runOnQueueSync(
+      [&] { runtime = std::make_unique<JSIRuntimeHolder>(facebook::hermes::makeHermesRuntime(runtimeConfig.build())); });
   int jsErrors = 0;
   auto instance = std::make_unique<ReactInstance>(
-      std::move(runtime), loop, std::move(ownedTimerManager),
+      std::move(runtime), js, std::move(ownedTimerManager),
       [&](jsi::Runtime&, const JsErrorHandler::ProcessedError& error) noexcept {
         ++jsErrors;
         std::ostringstream said;
@@ -623,7 +557,7 @@ int main(int argc, char** argv) {
   // requestAnimationFrame, once a frame (animation-frames.h); made after the instance, so its
   // callbacks go before the runtime does.
   oxyos::AnimationFrames animationFrames(instance->getBufferedRuntimeExecutor(), refresh);
-  loop->drain();
+  js->drain();
 
   oxyos::Display display{width, height, 1.0f};
   auto invoker = instance->createJSCallInvoker();
@@ -679,7 +613,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   services.runtime = {runtimeOf.abi, runtimeOf.api, runtimeOf.frameworkURL};
-  oxyos::WorkletsHost worklets(refresh, runtimeOf.worklets);
+  oxyos::WorkletsHost worklets(refresh, runtimeOf.worklets, [thread = js.get()] { return thread->isCurrent(); });
   std::unique_ptr<Scheduler> scheduler;
   // Reduce motion as the session last told it (its first events, before the window's configure),
   // read when JavaScript installs Reanimated, as Android's NativeProxy reads its animator scale.
@@ -2184,7 +2118,15 @@ int main(int argc, char** argv) {
           Scope beat(Part::JavaScript);
           Beat::tickAll();
         }
-        bool ranJs = javascript(Part::JavaScript, [&] { return loop->drain(); });
+        // JavaScript's tasks, run on its thread while the loop waits: timed there (js-thread.h).
+        bool ranJs = false;
+        {
+          Scope scope(Part::JavaScript);
+          auto work = js->drain();
+          diagnostics.ranElsewhere(work.span);
+          if (oxyos::Report::get().enabled()) oxyos::Report::get().javascript(work.span);
+          ranJs = work.ran;
+        }
         // A drop delivered last turn had its onDrop run now: the window's drag it ended is told.
         dragDrop.ranJavaScript();
         bool pulled = mounter.pull();
@@ -2394,14 +2336,17 @@ int main(int argc, char** argv) {
                 if (keyChords.swallow(event)) {
                   keyTaken = true;
                 } else if (auto offered = keyChords.press(event)) {
-                  jsi::Runtime& rt = *services.keyboard.runtime;
-                  try {
-                    auto answer = services.keyboard.listener->call(rt, jsi::valueFromDynamic(rt, *offered));
-                    rt.drainMicrotasks();
-                    keyTaken = answer.isBool() && answer.getBool();
-                  } catch (const jsi::JSError& error) {
-                    std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
-                  }
+                  // Called on JavaScript's thread, the loop waiting for its answer.
+                  js->runOnQueueSync([&] {
+                    jsi::Runtime& rt = *services.keyboard.runtime;
+                    try {
+                      auto answer = services.keyboard.listener->call(rt, jsi::valueFromDynamic(rt, *offered));
+                      rt.drainMicrotasks();
+                      keyTaken = answer.isBool() && answer.getBool();
+                    } catch (const jsi::JSError& error) {
+                      std::cerr << "[host] the key listener: " << error.getMessage() << "\n";
+                    }
+                  });
                   if (keyTaken) {
                     keyChords.taken(event.code);
                     oxyos::Report::get().deliver("shortcut", event.surface, shellMode ? "shell" : "menu-bar",
@@ -3404,7 +3349,7 @@ int main(int argc, char** argv) {
     // the accessibility bridge, the popups and the drag hold it: none may find it destroyed.
     surface.stop();
     scheduler->unregisterSurface(surface);
-    loop->drain();
+    js->drain();
     scheduler.reset();
     window.reset();
     oxyos::FrameDiagnostics::get().ended();
@@ -3417,7 +3362,7 @@ int main(int argc, char** argv) {
   auto quietSince = Clock::now();
   while (Clock::now() < deadline) {
     Beat::tickAll();
-    bool busy = loop->drain();
+    bool busy = js->drain().ran;
     busy |= mounter.pull();
     busy |= timers->fire(timerManager);
     worklets.tick();
@@ -3450,7 +3395,7 @@ int main(int argc, char** argv) {
 
   surface.stop();
   scheduler->unregisterSurface(surface);
-  loop->drain();
+  js->drain();
   scheduler.reset();
   return jsErrors == 0 && mounter.transactions > 0 && stats.written ? 0 : 1;
 }
