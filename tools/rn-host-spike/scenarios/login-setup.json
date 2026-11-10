@@ -158,7 +158,7 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's Oxy Password",
+            "Enter Ada Lovelace’s Oxy Password",
             "This computer signs you in with your Oxy password, even offline. Enter it once more.",
             "Step 3 of 6"
           ],
@@ -259,8 +259,8 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Enter Ada Lovelace's Oxy Password",
-            "That isn't the password of this Oxy account. Try again."
+            "Enter Ada Lovelace’s Oxy Password",
+            "Incorrect password. Try again."
           ],
           "focus_input": "login-setup-password"
         }
@@ -309,7 +309,7 @@
         ],
         "in_shell": {
           "texts": [
-            "That code isn't right. Wait for a new one, then try again."
+            "That code isn’t right. Wait for a new one, then try again."
           ],
           "focus_input": "login-setup-code"
         }

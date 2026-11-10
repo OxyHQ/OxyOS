@@ -236,7 +236,7 @@ test("interface sounds and each application's notification sound are named as a 
   assert.equal(preferenceText<"notificationSoundsOff">(["so.oxy.allo", "so.oxy.inbox"]), "so.oxy.allo,so.oxy.inbox");
   assert.equal(messagesFor("en").notifications.playSound, "Play sound for notifications");
   assert.equal(messagesFor("es").notifications.playSound, "Reproducir sonido para las notificaciones");
-  assert.equal(messagesFor("en").notifications.playSoundFor("Allo"), "Play sound for Allo's notifications");
+  assert.equal(messagesFor("en").notifications.playSoundFor("Allo"), "Play sound for Allo’s notifications");
 });
 
 test("natural scrolling is a Mac's switch on its Mouse and Trackpad pages, each its own preference", () => {

@@ -136,7 +136,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
             "Step 3 of 5"
           ],
           "absent": [
