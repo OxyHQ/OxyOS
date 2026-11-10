@@ -3413,8 +3413,10 @@ def check_glide(wanted, report, start, end, fail):
             return False
         met_end_by = fling["ms"] * android_fling_time(abs(offsets[-1] - offsets[0]) / abs(distance))
         return (after[2]["t"] - fling["t"]) / 1e6 >= met_end_by
-    if len(steps) < wanted.get("frames_min", 0) and not late_first():
-        fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
+    # How many frames fit in the glide is the machine's rate (frames_least: all of them with
+    # --speed-budgets, else two).
+    if len(steps) < frames_least(wanted.get("frames_min", 0)) and not late_first():
+        fail(f"{view} glided in {len(steps)} frames, expected at least {frames_least(wanted['frames_min'])}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get(axis)
     reached_end = wanted.get("to_end", False)
     meets = stopped_by or kept_by
