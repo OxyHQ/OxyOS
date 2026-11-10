@@ -247,8 +247,11 @@ fn only_the_focused_application_claims_its_memory_and_the_slice_gets_the_sum() {
     ]);
     // Its working set now, nobody else's: the hog beside it is protected by nothing.
     let (claims, sum) = super::claims(&activities, &usage, 8 << 30);
-    assert_eq!(claims, BTreeMap::from([(SETTINGS, 300 << 20)]));
-    assert_eq!(sum, 300 << 20);
+    assert_eq!(claims, BTreeMap::from([(SETTINGS, 304 << 20)]));
+    assert_eq!(sum, 304 << 20);
+    // Rounded up to a step: a little more or less changes nothing.
+    let grown = BTreeMap::from([(SETTINGS, (300 << 20) + 4096)]);
+    assert_eq!(super::claims(&activities, &grown, 8 << 30).1, 304 << 20);
     // Never more than the cap.
     let (claims, sum) = super::claims(&activities, &usage, 256 << 20);
     assert_eq!(claims, BTreeMap::from([(SETTINGS, 256 << 20)]));

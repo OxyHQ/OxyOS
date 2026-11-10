@@ -37,6 +37,9 @@ pub const CLAIM_CAP_PERCENT: u64 = 25;
 /// How often the focused application's claim is measured again while it stays focused: on a turn
 /// that happens anyway, so nothing wakes the session for it.
 pub const CLAIM_EVERY: Duration = Duration::from_secs(10);
+/// What a claim is rounded up to: a working set that grows or shrinks by a little changes no
+/// claim, so neither the user manager nor the accounts' service is told every ten seconds.
+pub const CLAIM_STEP: u64 = 16 << 20;
 
 /// What each application claims of protected memory (`MemoryLow`) by its state, and their sum,
 /// which is exactly what `app.slice` is given (decision 4): with the kernel's recursive
@@ -53,7 +56,10 @@ pub fn claims(
     let claims: BTreeMap<u32, u64> = activities
         .iter()
         .filter(|(_, activity)| **activity == Activity::Focused)
-        .filter_map(|(pid, _)| Some((*pid, usage.get(pid)?.min(&cap).to_owned())))
+        .filter_map(|(pid, _)| {
+            let bytes = usage.get(pid)?.div_ceil(CLAIM_STEP) * CLAIM_STEP;
+            Some((*pid, bytes.min(cap)))
+        })
         .filter(|(_, bytes)| *bytes > 0)
         .collect();
     let sum = claims.values().sum::<u64>().min(cap);
@@ -175,6 +181,8 @@ pub struct Naps {
     claimed_at: Option<(Instant, Vec<u32>)>,
     /// The most one claim may be (`CLAIM_CAP_PERCENT` of the machine's memory).
     cap: u64,
+    /// Told `app.slice`'s claim each time it changes ([`Naps::with_claim_listener`]).
+    claim_listener: Option<Box<dyn FnMut(u64)>>,
 }
 
 impl Naps {
@@ -189,7 +197,18 @@ impl Naps {
             slice_claim: None,
             claimed_at: None,
             cap: memory_total().unwrap_or(0) * CLAIM_CAP_PERCENT / 100,
+            claim_listener: None,
         }
+    }
+
+    /// `listener` is told `app.slice`'s claim (the sum of the applications' claims, in bytes) each
+    /// time it changes: at most once a focus change or `CLAIM_EVERY`, and only by `CLAIM_STEP` or
+    /// more. Its ancestors, system units only root sets, must protect at least as much for the
+    /// claim to reach the focused application (decision 7): the session tells the accounts'
+    /// service.
+    pub fn with_claim_listener(mut self, listener: Box<dyn FnMut(u64)>) -> Self {
+        self.claim_listener = Some(listener);
+        self
     }
 
     /// Each turn: sets the weights of the applications `running` (each process the session
@@ -281,6 +300,9 @@ impl Naps {
                 },
             );
             self.slice_claim = Some(sum);
+            if let Some(listener) = self.claim_listener.as_mut() {
+                listener(sum);
+            }
         }
         self.claimed = claims;
         self.claimed_at = Some((now, focused));
