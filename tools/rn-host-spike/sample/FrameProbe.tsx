@@ -4,7 +4,8 @@
  * JavaScript for SLOW_MS, as a slow render would; one on "animate" changes what is drawn for
  * ANIMATED_FRAMES frames of requestAnimationFrame; one on "loop", LOOP_AFTER_MS later, changes it
  * on a timer every LOOP_EVERY_MS until the next press on it, so the window always has a frame to
- * draw, as a clock or data arriving gives it one (scenarios/held-frames.json: a frame the
+ * draw, as a clock or data arriving gives it one; each press on it says the loop is on or off, the
+ * frame showing JavaScript's answer to it (an input is timed to that frame, frame-diagnostics.h) (scenarios/held-frames.json: a frame the
  * compositor holds while the displays are off; requestAnimationFrame would wait for the
  * compositor's answer instead). It starts later than the press so that the press's step settles
  * first: a step waits for its window to stop changing.
@@ -33,6 +34,7 @@ export default function FrameProbe() {
   const [count, setCount] = React.useState(0);
   const [frame, setFrame] = React.useState(0);
   const looping = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [loopOn, setLoopOn] = React.useState(false);
   const slow = () => {
     const until = performance.now() + SLOW_MS;
     while (performance.now() < until) {
@@ -52,8 +54,10 @@ export default function FrameProbe() {
     if (looping.current !== null) {
       clearTimeout(looping.current);
       looping.current = null;
+      setLoopOn(false);
       return;
     }
+    setLoopOn(true);
     const tick = () => {
       setFrame((f) => f + 1);
       looping.current = setTimeout(tick, LOOP_EVERY_MS);
@@ -68,6 +72,7 @@ export default function FrameProbe() {
       <Text style={{ fontSize: 13 }}>{`Count ${count}, frame ${frame}`}</Text>
       <View style={{ width: 20 + (frame % 200), height: 6, backgroundColor: '#3b6fd8' }} />
       <Button id="loop" label="Loop" onPress={loop} />
+      <Text style={{ fontSize: 13 }}>{`Loop ${loopOn ? 'on' : 'off'}`}</Text>
     </View>
   );
 }

@@ -157,6 +157,12 @@ const MENU = { menu: 1, item: 2, submenu: 3, separator: 4 };
 const DISABLED = 1;
 const CHECKABLE = 2;
 const CHECKED = 4;
+// The application's own standard commands (Bloom's `MenubarItem action`): its About and its
+// Settings…, which the shell shows in the application's own menu (docs/adr/0021-menu-bar.mdx).
+const ROLE = new Map([
+  ['about', 1],
+  ['settings', 2],
+]);
 const MAX_ENTRIES = 256;
 const MAX_DEPTH = 4;
 // How many commits' ids are kept: a choice made just before Bloom described the menus again still
@@ -167,6 +173,8 @@ const COMMITS_KEPT = 8;
 function flatten(menus) {
   const entries = [];
   const ids = [];
+  // Each role once in a commit, on a command without a check: the first declared has it.
+  const roles = new Set();
   const add = (entry, id) => {
     if (entries.length >= MAX_ENTRIES) return -1;
     entries.push(entry);
@@ -189,7 +197,12 @@ function flatten(menus) {
         continue;
       }
       const check = typeof item.checked === 'boolean' ? CHECKABLE | (item.checked ? CHECKED : 0) : 0;
-      add({ parent, kind: MENU.item, flags: disabled | check, label: item.label, shortcut: item.shortcut ?? '' }, item.id);
+      const role = check === 0 && !roles.has(item.action) ? (ROLE.get(item.action) ?? 0) : 0;
+      if (role) roles.add(item.action);
+      add(
+        { parent, kind: MENU.item, flags: disabled | check, role, label: item.label, shortcut: item.shortcut ?? '' },
+        item.id,
+      );
     }
   };
   for (const menu of menus) {

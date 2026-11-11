@@ -280,6 +280,15 @@ impl Scene {
                     self.quit_application(key);
                 }
             }
+            // Hide Others and Show All (ADR 0021): every application but a window's, or every
+            // one for window 0; a window that has gone since is ignored, as for Hide.
+            Request::HideOtherApplications { window: 0 } => self.hide_other_applications(None),
+            Request::HideOtherApplications { window: number } => {
+                if let Some(key) = window(self, number) {
+                    self.hide_other_applications(Some(key));
+                }
+            }
+            Request::ShowAllApplications {} => self.show_all_applications(),
             Request::ForceQuitApplication { window: number } => {
                 if let Some(key) = window(self, number) {
                     self.force_quit_application(key)?;

@@ -165,11 +165,11 @@
       }
     },
     {
-      "name": "the top bar's Ver menu opens as a popup of its panel, under the item, above the window",
+      "name": "the top bar's application menu (EditingProbe's window is active, and declares no menus) opens as a popup of its panel, under its title, above the window",
       "do": [
         "press_output",
         [
-          124,
+          70,
           16
         ]
       ],
@@ -195,22 +195,22 @@
               56
             ],
             [
-              96,
+              40,
               32,
-              129,
-              56
+              266,
+              213
             ]
           ],
           "top": [
-            96,
+            40,
             32,
-            129,
-            56
+            266,
+            213
           ]
         },
         "output_pixels": {
-          "215,60": "#ffffff",
-          "215,82": "#ffffff"
+          "300,60": "#ffffff",
+          "300,100": "#ffffff"
         },
         "react": {}
       }

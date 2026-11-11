@@ -319,6 +319,11 @@ wire_enum! {
     MenuKind: u8 { Menu = 1, Item = 2, Submenu = 3, Separator = 4 }
 }
 wire_enum! {
+    /// Which of the application's standard commands a command of its menus is (ADR 0021): its
+    /// About *App* and its Settings…, which the shell shows in the application's own menu.
+    MenuRole: u8 { About = 1, Settings = 2 }
+}
+wire_enum! {
     /// Which text of a menu entry a chunk belongs to: its label, or a command's shortcut as a key
     /// chord (`Mod+N`, `Mod+Shift+Z`; `Mod` is Ctrl on OxyOS), which the bar shows and never runs.
     MenuField: u8 { Label = 1, Shortcut = 2 }

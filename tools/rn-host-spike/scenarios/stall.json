@@ -1,0 +1,124 @@
+{
+ "about": "JavaScript held for 500 ms while something moves (docs/adr/0067-the-ui-thread.mdx; sample/StallProbe.tsx): what moves on the UI thread goes on being drawn, as on React Native's Android and iOS and on a Mac's render server. A 3 s linear Animated.timing on the native driver, a 3 s Reanimated withTiming (a worklet on the UI runtime), each with JavaScript held 500 ms 1 s in, and a touchpad's glide with JavaScript held 30 ms into its momentum: the window's frames go on through the block, and each motion's own (the native driver's props, Reanimated's commits, the glide's offset); the held glide goes as far as the free one. Every run holds half the block's refreshes drawn and no gap of 6 refreshes (a JavaScript holding the frames up leaves a gap of the whole block); perf-stall.json, the same in the gate's timing phase, holds a frame each refresh (--speed-budgets: the gaps' 95th percentile within 1.5 refreshes, none over 2).",
+ "module": "StallProbe",
+ "window": [
+  480,
+  420
+ ],
+ "app": {
+  "id": "so.oxy.stallprobe",
+  "title": "Stall"
+ },
+ "steps": [
+  {
+   "name": "the window starts",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Ready",
+     "No glide yet"
+    ]
+   }
+  },
+  {
+   "name": "Animated's native driver: a 3 s linear timing, JavaScript held 500 ms a second in; the box moves on through the block, a frame each refresh",
+   "do": [
+    "press",
+    [
+     80,
+     40
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Native ended"
+    ],
+    "animated": {
+     "native": {
+      "transform.translateX": [
+       0,
+       200
+      ]
+     }
+    },
+    "stall": {
+     "block_ms_min": 450,
+     "motion": "animated:native"
+    }
+   }
+  },
+  {
+   "name": "Reanimated: a 3 s linear withTiming, JavaScript held 500 ms a second in; the worklet runs on through the block on the UI runtime, its commits mounted each refresh",
+   "do": [
+    "press",
+    [
+     220,
+     40
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Worklet ended"
+    ],
+    "stall": {
+     "block_ms_min": 450,
+     "motion": "committed:worklet"
+    }
+   }
+  },
+  {
+   "name": "a touchpad's flick, JavaScript free: the list glides its distance",
+   "do": [
+    "flick",
+    [
+     240,
+     280,
+     120,
+     6,
+     60
+    ]
+   ],
+   "expect": {
+    "glide": {
+     "view": "list",
+     "velocity": [
+      600,
+      2000
+     ],
+     "frames_min": 8
+    }
+   }
+  },
+  {
+   "name": "the same flick, JavaScript held 500 ms 30 ms into the glide: the list glides on through the block, a frame each refresh, as far as the free glide",
+   "do": [
+    "flick",
+    [
+     240,
+     280,
+     120,
+     6,
+     60
+    ]
+   ],
+   "expect": {
+    "glide": {
+     "view": "list",
+     "velocity": [
+      600,
+      2000
+     ],
+     "frames_min": 8
+    },
+    "stall": {
+     "block_ms_min": 450,
+     "motion": "frames"
+    }
+   }
+  }
+ ]
+}
