@@ -23,7 +23,8 @@ const KEY_ESCAPE: u32 = 1;
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(60);
 /// Each step's answer must settle inside this budget.
 const STEP_DEADLINE: Duration = Duration::from_secs(30);
-const CLIENT: ClientId = 1;
+/// The application's client: the first to connect.
+pub(crate) const CLIENT: ClientId = 1;
 /// The assistive technology the director plays: a client of the scene only, granted
 /// `accessibility`, reading what the compositor holds and sending actions (ADR 0003).
 const READER: ClientId = ClientId::MAX;
@@ -2559,6 +2560,12 @@ fn start_shell(session: &mut Session, command: &[std::ffi::OsString]) -> Result<
         started: 0,
     };
     let outputs: Vec<OutputId> = session.compositor.screens.iter().map(|s| s.id).collect();
+    // A spinner of the shell's leaves a step settled too (progress.rs), when it is the one shell.
+    if outputs.len() == 1 {
+        session
+            .progress
+            .follow_shell((ClientId::MAX / 2, crate::pasteboard::PASTEBOARD));
+    }
     for output in outputs {
         let shell = shells.spawn(session, output)?;
         shells.running.insert(output, shell);
@@ -3289,8 +3296,12 @@ fn settle(
     window_before: Option<Rect>,
 ) -> Result<Settled> {
     // The shell's surfaces count too: a press on a panel changes the shell, not the application.
+    // A frame that only turns a spinner is no change (progress.rs).
     let mut last = (before.to_vec(), Instant::now());
+    let application = |id| SurfaceKey { client: CLIENT, id };
+    session.progress.start(before, application);
     let mut shell_last = shell_surfaces(&session.compositor);
+    session.progress.start(&shell_last, |key| key);
     let shell_before: Vec<SurfaceKey> = shell_last.iter().map(|(key, _, _)| *key).collect();
     // The launched applications' windows count as the shell's do: a zoom of one changes neither
     // the director's application nor the shell, and would otherwise settle only on something
@@ -3351,8 +3362,12 @@ fn settle(
             pasteboard.serve(&mut session.compositor);
         }
         session.reader.absorb(&mut session.compositor);
-        let now = shown(&session.compositor);
-        let shell_now = shell_surfaces(&session.compositor);
+        let now = session
+            .progress
+            .steady(shown(&session.compositor), application);
+        let shell_now = session
+            .progress
+            .steady(shell_surfaces(&session.compositor), |key| key);
         let launched_now = launched_windows(session);
         let launched_changed = launched_now != launched_last;
         launched_last = launched_now;

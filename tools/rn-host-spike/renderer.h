@@ -210,6 +210,9 @@ struct RenderStats {
   // placeholder when empty), unless clipped out entirely.
   std::vector<std::string> textContent;
   bool written = false;  // whether render() saved the PNG
+  // Whether a ProgressBar spins in what was drawn (progress-bar.h): one drawn there, indeterminate.
+  // Its surface's frames go on while one does.
+  bool spinning = false;
   // The windows shown live in what was drawn (docs/adr/0022-window-views.mdx), in drawing order:
   // each OxyOSWindowView's window number, its frame and the part of it its ancestors leave
   // visible (in the canvas's logical pixels), its corners' radius and its opacity. Views under a
