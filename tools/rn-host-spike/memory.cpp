@@ -76,8 +76,22 @@ Memory& Memory::get() {
   return memory;
 }
 
-void Memory::addRuntime(const char* name, std::function<facebook::jsi::Runtime*()> runtime) {
-  runtimes_.emplace_back(name, std::move(runtime));
+void Memory::addRuntime(const char* name, std::function<facebook::jsi::Runtime*()> runtime,
+                        std::function<void(std::function<void()>)> onItsThread) {
+  runtimes_.push_back(Runtime{name, std::move(runtime), std::move(onItsThread)});
+}
+
+void Memory::heapOf(const Runtime& runtime, folly::dynamic& out) {
+  facebook::jsi::Runtime* rt = runtime.runtime();
+  if (!rt) return;
+  auto heap = rt->instrumentation().getHeapInfo(false);
+  auto value = [&](const char* key) { return static_cast<double>(heap.count(key) ? heap.at(key) : 0); };
+  std::string prefix = std::string(runtime.name) + "_";
+  // Its segments, what is allocated in them (live objects and garbage not yet collected), and
+  // the memory its objects hold outside them (strings', arrays' and native objects' storage).
+  out[prefix + "heap"] = mib(value("hermes_heapSize"));
+  out[prefix + "allocated"] = mib(value("hermes_allocatedBytes"));
+  out[prefix + "external"] = mib(value("hermes_externalBytes") + value("hermes_mallocSizeEstimate"));
 }
 
 void Memory::worked(Clock::time_point now) {
@@ -101,7 +115,21 @@ bool Memory::tick(Clock::time_point now) {
     storePipelineCache(context);
   }
   malloc_trim(0);
-  if (Report::get().enabled()) Report::get().memory(account());
+  if (Report::get().enabled()) {
+    // The runtimes run elsewhere add what they hold on their thread, which then writes the line.
+    auto account = std::make_shared<folly::dynamic>(this->account());
+    std::function<void()> write = [account] { Report::get().memory(std::move(*account)); };
+    for (const auto& runtime : runtimes_) {
+      if (!runtime.onItsThread) continue;
+      write = [runtime, account, write = std::move(write)] {
+        runtime.onItsThread([runtime, account, write] {
+          heapOf(runtime, *account);
+          write();
+        });
+      };
+    }
+    write();
+  }
   return true;
 }
 
@@ -112,17 +140,8 @@ folly::dynamic Memory::account() const {
   struct mallinfo2 info = mallinfo2();
   out["malloc_in_use"] = mib(static_cast<double>(info.uordblks + info.hblkhd));
   out["malloc_free"] = mib(static_cast<double>(info.fordblks));
-  for (const auto& [name, runtime] : runtimes_) {
-    facebook::jsi::Runtime* rt = runtime();
-    if (!rt) continue;
-    auto heap = rt->instrumentation().getHeapInfo(false);
-    auto value = [&](const char* key) { return static_cast<double>(heap.count(key) ? heap.at(key) : 0); };
-    std::string prefix = std::string(name) + "_";
-    // Its segments, what is allocated in them (live objects and garbage not yet collected), and
-    // the memory its objects hold outside them (strings', arrays' and native objects' storage).
-    out[prefix + "heap"] = mib(value("hermes_heapSize"));
-    out[prefix + "allocated"] = mib(value("hermes_allocatedBytes"));
-    out[prefix + "external"] = mib(value("hermes_externalBytes") + value("hermes_mallocSizeEstimate"));
+  for (const auto& runtime : runtimes_) {
+    if (!runtime.onItsThread) heapOf(runtime, out);
   }
   if (GrDirectContext* context = skiaContext(gpuPaint())) {
     int resources = 0;

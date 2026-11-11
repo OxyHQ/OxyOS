@@ -16,6 +16,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace oxyos {
@@ -42,6 +43,14 @@ class Window {
   // input and popup dismissals go to `input`. Returns false once the compositor closed the
   // connection; throws on a protocol error.
   bool dispatch(const std::function<void(const OxyOSEvent&)>& input);
+  // The compositor's pings are answered by the host (`pong`), not as dispatch reads them: its
+  // events are handled on JavaScript's thread too (docs/adr/0067-the-ui-thread.mdx), and an
+  // application is responding once that thread took what came before the ping (bloom-host.cpp), so
+  // JavaScript stuck in its work is a hang (docs/adr/0067-hangs-and-force-quit.mdx). The pings
+  // dispatch read since the last call, by serial.
+  void answerPingsItself();
+  std::vector<uint64_t> takePings() { return std::exchange(pings_, {}); }
+  void pong(uint64_t serial);
 
   struct Surface {
     uint64_t configure = 0;  // serial of the latest configure; 0 until the first
@@ -470,6 +479,7 @@ class Window {
   uint64_t presented_ = 0;
   // The window went, the application running on in the background (closeToplevel).
   bool toplevelClosed_ = false;
+  std::vector<uint64_t> pings_;  // read and not yet taken (answerPingsItself)
   std::chrono::steady_clock::time_point resizedAt_{};
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;

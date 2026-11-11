@@ -338,6 +338,9 @@ pub const OXYOS_LIST_CHOSEN: u8 = 2;
 /// To the session's shell (docs/adr/0034-the-dock.mdx): how many items the user's Trashes hold
 /// (code), when it connects and whenever it changes.
 pub const OXYOS_EVENT_TRASH_ITEMS: u32 = 232;
+/// The compositor's Ping (serial), given only to a client that answers pings itself
+/// (`oxyos_client_answer_pings_itself`), which answers with `oxyos_client_pong`.
+pub const OXYOS_EVENT_PING: u32 = 230;
 /// Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: the drag entered one of its
 /// surfaces (surface; serial: the entering, which oxyos_client_accept_drag cites; code: the offer;
 /// x, y: surface-local, as a POINTER's; detail: the source's actions, OXYOS_DRAG_*; width: how many
@@ -1428,7 +1431,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
-        // The library answers it itself (oxyos-client).
+        // The library answers it itself (oxyos-client), unless the client does (oxyos_client_poll).
         Event::Ping { .. } => return None,
         Event::TrashItems { items } => {
             out = OxyOSEvent {
@@ -5037,6 +5040,14 @@ pub unsafe extern "C" fn oxyos_client_poll(
     };
     loop {
         match client.poll() {
+            Ok(Poll::Event(Event::Ping { serial })) if client.answers_pings_itself() => {
+                *out = OxyOSEvent {
+                    kind: OXYOS_EVENT_PING,
+                    serial: serial.into(),
+                    ..OxyOSEvent::default()
+                };
+                return OXYOS_POLL_EVENT;
+            }
             Ok(Poll::Event(event)) => {
                 if let Some(event) = convert(&event).or_else(|| gpu_change(client)) {
                     *out = event;
@@ -5048,6 +5059,38 @@ pub unsafe extern "C" fn oxyos_client_poll(
             Err(error) => return fail(error),
         }
     }
+}
+
+/// From now on the client answers the compositor's pings itself: `oxyos_client_poll` gives each
+/// as OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client
+/// answers with `oxyos_client_pong` once it handled what came before it (a runtime whose events
+/// are handled on another thread than the one reading them, docs/adr/0067-the-ui-thread.mdx).
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_answer_pings_itself(client: *mut OxyOSClient) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    client.answer_pings_itself();
+    0
+}
+
+/// Answers the compositor's Ping `serial` (an OXYOS_EVENT_PING's).
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_pong(client: *mut OxyOSClient, serial: u64) -> c_int {
+    let Ok(serial) = u32::try_from(serial) else {
+        return fail("not a ping's serial");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::Pong { serial }) }
 }
 
 /// Tells the compositor about the text field focused in `surface` (ADR 0008), or that none is

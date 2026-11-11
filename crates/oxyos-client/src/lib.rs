@@ -98,6 +98,8 @@ pub struct Client {
     /// The text of the SystemData event last returned (version 37,
     /// docs/adr/0063-activity-monitor.mdx), read whole from the file it carried.
     system_data: Option<String>,
+    /// Pings are the caller's to answer (`answer_pings_itself`), not answered as they are read.
+    pings_are_callers: bool,
 }
 
 /// What one offer to the clipboard holds: each media type with its content.
@@ -170,7 +172,27 @@ impl Client {
             text_inputs: text_input::TextInputs::default(),
             candidate_lists: candidates::CandidateLists::default(),
             gpu: gpu::Gpu::default(),
+            pings_are_callers: false,
         })
+    }
+
+    /// The caller answers the compositor's pings itself (`pong`), and [`Client::poll`] returns
+    /// them: a client whose events are read on one thread and handled on another (the Bloom
+    /// host's JavaScript, docs/adr/0067-the-ui-thread.mdx) answers once it handled what came before
+    /// the ping, so a stuck handler is a hang (docs/adr/0067-hangs-and-force-quit.mdx) however
+    /// promptly its events are read.
+    pub fn answer_pings_itself(&mut self) {
+        self.pings_are_callers = true;
+    }
+
+    /// Whether the caller answers pings itself.
+    pub fn answers_pings_itself(&self) -> bool {
+        self.pings_are_callers
+    }
+
+    /// Answers the compositor's Ping `serial` (`answer_pings_itself`).
+    pub fn pong(&self, serial: u32) -> io::Result<()> {
+        self.send(&Request::Pong { serial })
     }
 
     /// Sends a request that carries no descriptor. Buffers go through [`Client::present`].
@@ -1528,9 +1550,12 @@ impl Client {
                 Ok(event)
             }
             // Still responding (docs/adr/0034-the-dock.mdx): answered as the client reads its
-            // events, so a process stuck in its own work does not answer.
+            // events, so a process stuck in its own work does not answer; or by the caller, once
+            // it handled what came before (`answer_pings_itself`).
             Event::Ping { serial } => {
-                self.send(&Request::Pong { serial })?;
+                if !self.pings_are_callers {
+                    self.send(&Request::Pong { serial })?;
+                }
                 Ok(event)
             }
             Event::ProtocolError { code } => Err(io::Error::other(format!("{code:?}"))),

@@ -1,5 +1,5 @@
 {
-  "about": "A frame the compositor holds is not a slow frame (frame-diagnostics.h; issue #477). FrameProbe's Loop button, two seconds after its press (so that the press's step settles), changes what it draws every 50 ms on a timer until it is pressed again, as a clock or data arriving would, so its window always has a frame to draw. With the displays off for want of input (ADR 0057, decision 6; the battery's timers as battery-idle's, the display off after two minutes), the compositor answers none of its frames, and the frame waiting for the answer waits as long as the displays stay off, here two and a half seconds of real time. The press that brings them back stops the loop and is answered by a frame. The host's diagnostics say the hold once, in a line of its own with the work it did meanwhile. They charge its wait to no frame: no frame in that step waited for the compositor more than half a second, rather than seconds, and none is said to be slow for it. And they time the press, which is newer than the hold, from its device time to the frame that answers it.",
+  "about": "A frame the compositor holds is not a slow frame (frame-diagnostics.h; issue #477). FrameProbe's Loop button, two seconds after its press (so that the press's step settles), changes what it draws every 50 ms on a timer until it is pressed again, as a clock or data arriving would, so its window always has a frame to draw. With the displays off for want of input (ADR 0057, decision 6; the battery's timers as battery-idle's, the display off after two minutes), the compositor answers none of its frames, and the frame waiting for the answer waits as long as the displays stay off, here two and a half seconds of real time. The press that brings them back stops the loop, and says so: the frame showing JavaScript's answer. The host's diagnostics say the hold once, in a line of its own with the work it did meanwhile. They charge its wait to no frame: no frame in that step waited for the compositor more than half a second, rather than seconds, and none is said to be slow for it. And they time the press, which is newer than the hold, from its device time to the frame that shows JavaScript's answer (\"Loop off\").",
   "module": "FrameProbe",
   "window": [
     480,
@@ -46,7 +46,10 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "displays_off": false
+        "displays_off": false,
+        "texts": [
+          "Loop on"
+        ]
       }
     },
     {
@@ -101,12 +104,15 @@
             1
           ],
           "logged": [
-            "^\\[host so\\.oxy\\.frameprobe\\] held [0-9]+\\.[0-9] s by the compositor \\(its answer withheld: the window not shown, or the displays off\\): meanwhile [0-9]+ turns? worked [0-9.]+ ms \\(JavaScript [0-9.]+, animation [0-9.]+, drawing [0-9.]+; on the CPU [0-9.]+\\); 0 inputs not timed$"
+            "^\\[host so\\.oxy\\.frameprobe\\] held [0-9]+\\.[0-9] s by the compositor \\(its answer withheld: the window not shown, or the displays off\\): meanwhile [0-9]+ turns? worked [0-9.]+ ms \\(laying out [0-9.]+, animation [0-9.]+, drawing [0-9.]+; on the CPU [0-9.]+\\); 0 inputs not timed$"
           ],
           "wait_max_ms": 500,
           "latency_max_ms": 1000,
           "timed_inputs_min": 1
-        }
+        },
+        "texts": [
+          "Loop off"
+        ]
       }
     }
   ]
