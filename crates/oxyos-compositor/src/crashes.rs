@@ -124,6 +124,10 @@ impl SessionEnded {
     }
 }
 
+/// The shell as its reports name it, a part of OxyOS the session keeps running (decision 6).
+pub const SHELL: &str = "so.oxy.shell";
+/// The shell's name in its reports.
+pub const SHELL_NAME: &str = "OxyOS";
 /// The screen reader as its reports name it, a part of OxyOS the session keeps running
 /// (decision 6, amended: docs/adr/0014-screen-reader.mdx).
 pub const READER: &str = "so.oxy.reader";
@@ -185,9 +189,18 @@ pub struct Report<'a> {
     pub system: Option<&'a str>,
     /// What it said of its end (its report file), if anything.
     pub said: Option<&'a str>,
-    /// It did not answer for this long, and the person force-quit it
-    /// (docs/adr/0067-hangs-and-force-quit.mdx, decision 4): a hang's report, not a crash's.
-    pub hang: Option<Duration>,
+    /// It did not answer, and was ended for it (docs/adr/0067-hangs-and-force-quit.mdx,
+    /// decision 4): a hang's report, not a crash's.
+    pub hang: Option<Hang>,
+}
+
+/// A hang ended: how long it had not answered, and who ended it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hang {
+    pub unanswered: Duration,
+    /// The person force-quit it (an application); else the session ended it and started it
+    /// again (a part of OxyOS: its shell, decision 6).
+    pub by_the_person: bool,
 }
 
 /// A signal's name, as the kernel numbers them on x86-64 and AArch64.
@@ -258,10 +271,23 @@ pub fn report_text(report: &Report) -> String {
         Origin::Development => "a development entry".to_string(),
     };
     let (headline, reason) = match report.hang {
-        Some(unanswered) => (
+        Some(Hang {
+            unanswered,
+            by_the_person: true,
+        }) => (
             format!("{} stopped responding and was force quit.", report.name),
             format!(
                 "hang: no response for {}; force quit by the person",
+                lasted(unanswered)
+            ),
+        ),
+        Some(Hang {
+            unanswered,
+            by_the_person: false,
+        }) => (
+            format!("{} stopped responding and was started again.", report.name),
+            format!(
+                "hang: no response for {}; ended by the session",
                 lasted(unanswered)
             ),
         ),
@@ -827,7 +853,10 @@ impl Crashes {
             times: 1,
             system: self.system.as_deref(),
             said: exit.report.as_deref(),
-            hang: Some(unanswered),
+            hang: Some(Hang {
+                unanswered,
+                by_the_person: true,
+            }),
         });
         if let Some(reports) = &self.reports {
             match reports.write(id, &wall, &text) {
@@ -838,9 +867,10 @@ impl Crashes {
     }
 
     /// A part of OxyOS the session keeps running quit unexpectedly (its shell, its screen
-    /// reader): its report is written, and the person is told nothing, the part being started
-    /// again (decision 6) and the shell being what would tell them.
-    pub fn note_part(&mut self, exit: &Exited) {
+    /// reader), or was ended after not answering for `hung` (the shell's watch): its report is
+    /// written, and the person is told nothing, the part being started again (decision 6) and the
+    /// shell being what would tell them.
+    pub fn note_part(&mut self, exit: &Exited, hung: Option<Duration>) {
         let zone = jiff::tz::TimeZone::system();
         let wall = jiff::Timestamp::now().to_zoned(zone);
         let id = exit.launched.id.as_str();
@@ -855,7 +885,10 @@ impl Crashes {
             times,
             system: self.system.as_deref(),
             said: exit.report.as_deref(),
-            hang: None,
+            hang: hung.map(|unanswered| Hang {
+                unanswered,
+                by_the_person: false,
+            }),
         });
         if let Some(reports) = &self.reports {
             match reports.write(id, &wall, &text) {

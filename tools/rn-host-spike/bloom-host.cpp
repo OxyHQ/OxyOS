@@ -2204,6 +2204,8 @@ int main(int argc, char** argv) {
         // A drop delivered last turn had its onDrop run now: the window's drag it ended is told.
         dragDrop.ranJavaScript();
         bool pulled = mounter.pull();
+        // The drags it asked for start now, from the tree its commits left (drag.h).
+        pulled |= dragDrop.startAsked();
         bool busy = ranJs || pulled;
         if (busy) diagnostics.trigger("JavaScript", 0);
         // A timer's callback, a requestAnimationFrame's, runs on the next drain.

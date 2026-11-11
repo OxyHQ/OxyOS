@@ -153,6 +153,14 @@ impl Scene {
         Some(serial)
     }
 
+    /// Pings `client` whatever it was sent, unless a Ping to it is unanswered: the program keeps
+    /// its shell answering (the shell's watch, docs/adr/0061, decision 6).
+    pub fn ping_client(&mut self, client: ClientId) {
+        if self.clients.contains_key(&client) {
+            self.ping(client);
+        }
+    }
+
     /// An event about to be sent: what asks a client to answer (input, a close request, its
     /// activation) pings it.
     pub(super) fn pings_for(&mut self, client: ClientId, event: &Event) {
