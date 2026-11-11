@@ -4,6 +4,8 @@
 
 # Where bootstrap fetches and builds (default ~/.cache/oxyos; never /tmp: several GB).
 #OXYOS_CACHE=$HOME/.cache/oxyos
+# How long a pinned commit's checkout (checkouts/NAME/COMMIT) is kept after a bootstrap last named it.
+#OXYOS_CHECKOUT_KEEP_DAYS=3
 
 # Your own checkouts instead of the pinned ones bootstrap clones (their packages installed with
 # `bun install`): to test a Bloom, Dropsea or Atlas change with OxyOS before it is pinned.

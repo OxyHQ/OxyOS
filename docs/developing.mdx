@@ -32,9 +32,33 @@ built. The first run takes about half an hour (Skia and Hermes). Everything goes
 | --- | --- | --- |
 | `node/`, `bun/` | Node and bun | `tools/dev/pins`: version and SHA-256 |
 | `~/.cargo`, `~/.rustup` | rustup, when the machine has none; it installs the Rust `rust-toolchain.toml` names | `tools/dev/pins`: version and SHA-256 |
-| `src/Bloom`, `src/Dropsea`, `src/Atlas` | the applications, with their packages installed (`bun install --frozen-lockfile`) | `tools/dev/pins`: commit; their lockfiles |
-| `toolchain/` | the Bloom host's toolchain (`tools/rn-host-spike/toolchain.sh`): Clang 19 and LLD from Debian's archive, cmake and ninja, FreeType's, HarfBuzz's and ICU's headers, Skia, and per React Native version its Hermes, third-party sources, codegen and text input; `cmake-vars.txt` names them for the host's CMake | Skia's commit (`SKIA_REVISION`), the Hermes tag React Native names, `toolchain-requirements.txt` and `third-party.sha256` (SHA-256), apt's signatures |
+| `checkouts/` | the applications, a checkout for each pinned commit (below), with its packages installed (`bun install --frozen-lockfile`) | `tools/dev/pins`: commit; their lockfiles |
+| `toolchain/` | the Bloom host's toolchain (`tools/rn-host-spike/toolchain.sh`): Clang 19 and LLD from Debian's archive, cmake and ninja, FreeType's, HarfBuzz's and ICU's headers, Skia, and per React Native version its Hermes, third-party sources, codegen and text input; `cmake-vars/` names them for the host's CMake, a file for each Bloom checkout (`OXYOS_CMAKE_VARS`) | Skia's commit (`SKIA_REVISION`), the Hermes tag React Native names, `toolchain-requirements.txt` and `third-party.sha256` (SHA-256), apt's signatures |
 | `input-methods/` | the input methods' engine (`tools/input-methods/build.sh`, [ADR 0041](./adr/0041-input-methods)) | Debian's source tarballs by SHA-256 |
+
+### A checkout for each pinned commit
+
+Several builds run at once on one machine: the gate's runners, a deploy, and trees on branches whose
+`tools/dev/pins` name other commits. Each pinned commit of Bloom, Dropsea and Atlas therefore has a
+checkout of its own, and nothing changes it once it is made:
+
+- `checkouts/NAME.git`: one clone of the application, fetched a commit at a time (`--depth 1`);
+- `checkouts/NAME/COMMIT`: a worktree of it at that commit, its packages installed once;
+  `COMMIT.ready` says it is complete, `COMMIT.used` when a bootstrap last named it;
+- `toolchain/cmake-vars/`: what the host's CMake is told for each Bloom checkout (its React Native's
+  paths), so two Bloom pins never share that file either.
+
+Before, all builds shared one checkout (`src/Bloom`), and a bootstrap for a tree with another pin
+switched it under a running build: on 11 November 2026 a gate's packages failed to bundle because
+another tree's bootstrap had moved the checkout from Bloom e79ca5be to 69df4a88 mid-build.
+
+The bootstrap removes a checkout that no bootstrap named for `OXYOS_CHECKOUT_KEEP_DAYS` days (3 by
+default), with its `cmake-vars` file and the clone's objects only it used. A build lasts hours, so
+nothing still uses it, and a tree that pins it again has it made again. bun installs each
+checkout's packages as hard links into its own cache (`~/.bun/install/cache`), so a second checkout
+of a nearby commit costs little disk. A cache from before this change still has `src/Bloom`,
+`src/Dropsea` and `src/Atlas`: trees on branches made before it go on using them, and they can be
+removed once no such tree builds here.
 
 To use the same tools in a shell (Node, bun, cargo on `PATH`; `BLOOM_DIR` and the rest set):
 
