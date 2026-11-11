@@ -1,9 +1,16 @@
-//! Following NetworkManager wakes for its signals that change what is shown and the order to stop,
-//! never a clock: watching a played daemon (`oxyos-fake-networkmanager`, on a bus of the test's
-//! own) that says nothing a session shows (another access point's strength, the joined one seen
-//! again), the process's threads together wake at most once a second and use at most 0.1 % of a
-//! core (the idle budget, docs/performance.mdx); a change is still told, and the order to stop
-//! ends it at once.
+//! Following NetworkManager wakes only for the signals the bus daemon delivers and the order to
+//! stop, never a clock: watching a played daemon (`oxyos-fake-networkmanager`, on a bus of the
+//! test's own) that says nothing a session shows, another access point's strength is never
+//! delivered and wakes nothing; the joined one seen again by a scan (its `LastSeen` alone) is
+//! delivered, since a match cannot tell which properties a `PropertiesChanged` names (they are a
+//! dictionary, and a match reads only strings), and is read and dropped with no call. That is
+//! exactly one wake of the watch's thread and one of async-io's, whose reactor sees the socket
+//! readable and wakes it; no other thread wakes, and the process uses at most 0.1 % of a core
+//! (the idle budget, docs/performance.mdx). A change is still told, and the order to stop ends the
+//! watch at once.
+//!
+//! A wake is a voluntary context switch, a wait something ended. A thread taken off its core while
+//! it runs (an involuntary one) is the machine's load, not a wake; what it costs is the CPU share.
 //!
 //! One test in a binary of its own: it counts every thread of the process.
 
@@ -12,9 +19,9 @@ use std::os::fd::AsFd;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Every thread's context switches but the calling one's, by thread, and the process's CPU time
-/// in ns.
-fn sample() -> (std::collections::BTreeMap<String, u64>, u64) {
+/// Every thread's waits ended (its voluntary context switches) but the calling one's, by thread
+/// (its name and id), and the process's CPU time in ns.
+fn sample() -> (std::collections::BTreeMap<(String, String), u64>, u64) {
     let me = std::fs::read_link("/proc/thread-self")
         .ok()
         .and_then(|link| {
@@ -37,11 +44,14 @@ fn sample() -> (std::collections::BTreeMap<String, u64>, u64) {
             .trim();
         let count: u64 = status
             .lines()
-            .filter(|line| line.contains("ctxt_switches"))
-            .filter_map(|line| line.split_whitespace().nth(1)?.parse::<u64>().ok())
-            .sum();
+            .find_map(|line| line.strip_prefix("voluntary_ctxt_switches:"))
+            .and_then(|count| count.trim().parse().ok())
+            .unwrap();
         switches.insert(
-            format!("{name} {}", task.file_name().to_string_lossy()),
+            (
+                name.to_string(),
+                task.file_name().to_string_lossy().into_owned(),
+            ),
             count,
         );
     }
@@ -68,7 +78,7 @@ impl Drop for Children {
 }
 
 #[test]
-fn a_quiet_daemon_followed_wakes_nothing() {
+fn a_quiet_daemon_followed_wakes_only_for_what_is_delivered() {
     let directory =
         std::env::temp_dir().join(format!("oxyos-networks-idle-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
@@ -117,25 +127,28 @@ fn a_quiet_daemon_followed_wakes_nothing() {
     let (told, heard) = std::sync::mpsc::channel();
     let watching = {
         let address = address.clone();
-        std::thread::spawn(move || {
-            oxyos_networks::watch(
-                Some(&address),
-                Duration::from_millis(30),
-                stop.as_fd(),
-                |_| {
-                    // The access point joined, as a read says it: its strength is followed.
-                    let point = oxyos_networks::NetworkManager::connect(Some(&address))
-                        .and_then(|manager| manager.state())
-                        .ok()
-                        .and_then(|state| state.wifi.point);
-                    if told.send(point.is_some()).is_ok() {
-                        oxyos_networks::Follow::Point(point)
-                    } else {
-                        oxyos_networks::Follow::Stop
-                    }
-                },
-            )
-        })
+        std::thread::Builder::new()
+            .name("networks-watch".into())
+            .spawn(move || {
+                oxyos_networks::watch(
+                    Some(&address),
+                    Duration::from_millis(30),
+                    stop.as_fd(),
+                    |_| {
+                        // The access point joined, as a read says it: its strength is followed.
+                        let point = oxyos_networks::NetworkManager::connect(Some(&address))
+                            .and_then(|manager| manager.state())
+                            .ok()
+                            .and_then(|state| state.wifi.point);
+                        if told.send(point.is_some()).is_ok() {
+                            oxyos_networks::Follow::Point(point)
+                        } else {
+                            oxyos_networks::Follow::Stop
+                        }
+                    },
+                )
+            })
+            .unwrap()
     };
     assert!(
         heard
@@ -164,29 +177,31 @@ fn a_quiet_daemon_followed_wakes_nothing() {
     };
     let (switches, cpu) = sample();
     let measured = Duration::from_secs(3);
-    // What a session never shows is never delivered: another access point's strength, and the
-    // joined one seen again by a scan.
+    // Another access point's strength: never delivered. The joined one seen again by a scan:
+    // delivered, and no call.
     act(r#"{"strength": {"ssid": "Café Libre", "strength": 90}}"#);
     act(r#"{"seen": "Home"}"#);
     std::thread::sleep(measured);
     let (switches_after, cpu_after) = sample();
-    // Each thread's, a thread that ended counted as none.
-    let woke: Vec<(String, u64)> = switches_after
-        .iter()
-        .map(|(thread, after)| {
-            (
-                thread.clone(),
-                after - switches.get(thread).copied().unwrap_or(*after),
-            )
-        })
-        .filter(|(_, woke)| *woke > 0)
-        .collect();
-    let wakeups = woke.iter().map(|(_, woke)| woke).sum::<u64>() as f64 / measured.as_secs_f64();
-    let share = (cpu_after - cpu) as f64 / measured.as_nanos() as f64 * 100.0;
-    assert!(
-        wakeups <= 1.0,
-        "{wakeups} wakeups a second following a quiet daemon: {woke:?}"
+    // Each thread's that woke, by name, a thread that ended counted as none.
+    let mut woke = std::collections::BTreeMap::new();
+    for (thread, after) in &switches_after {
+        let count = after - switches.get(thread).copied().unwrap_or(*after);
+        if count > 0 {
+            *woke.entry(thread.0.as_str()).or_insert(0) += count;
+        }
+    }
+    assert_eq!(
+        woke,
+        std::collections::BTreeMap::from([("async-io", 1), ("networks-watch", 1)]),
+        "following a quiet daemon, the joined access point seen again wakes the watch and \
+         async-io once each, and nothing else wakes"
     );
+    assert!(
+        heard.try_recv().is_err(),
+        "the joined access point seen again is no call"
+    );
+    let share = (cpu_after - cpu) as f64 / measured.as_nanos() as f64 * 100.0;
     assert!(share <= 0.1, "{share} % of a core following a quiet daemon");
 
     act(r#"{"ethernet": "plugged"}"#);
