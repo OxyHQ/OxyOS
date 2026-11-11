@@ -3133,8 +3133,9 @@ thread_local! {
 
 /// The applications the person opens at login (docs/adr/0034-the-dock.mdx), as `oxyos-session`
 /// opens them after its shells; none in Safe Mode. Their windows come back where they were
-/// (docs/adr/0070).
-fn open_login_items(session: &mut Session, launch: &Launch) {
+/// (docs/adr/0070). Those started.
+fn open_login_items(session: &mut Session, launch: &Launch) -> Vec<String> {
+    let mut opened = Vec::new();
     if !launch.safe_mode {
         let open_at_login = session.settings.preferences().open_at_login.clone();
         if let Some(launcher) = session.launcher.as_mut() {
@@ -3144,12 +3145,14 @@ fn open_login_items(session: &mut Session, launch: &Launch) {
                         if let Some(places) = session.places.as_mut() {
                             places.opened_at_login(id);
                         }
+                        opened.push(id.clone());
                     }
                     Err(error) => eprintln!("[launch] {id} not opened at login: {error}"),
                 }
             }
         }
     }
+    opened
 }
 
 /// What Resume reopens or asks to (docs/adr/0065, decision 3), and how the last session ended;
@@ -7114,8 +7117,52 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     let mut window = first.window;
     // The login items once the application's window is shown, as it stands for what was there
     // before the person logged in: theirs come back in their order around it, the front one
-    // with the keyboard (docs/adr/0070, decision 3), whichever host is ready first.
-    open_login_items(&mut session, launch);
+    // with the keyboard (docs/adr/0070, decision 3), whichever host is ready first. Their
+    // arrival is the launch's, as at a login: the first step begins once each has its window
+    // (or ended) and what that set off (the keyboard, the dock) has settled.
+    let opened = open_login_items(&mut session, launch);
+    if !opened.is_empty() {
+        let until = Instant::now() + LAUNCH_DEADLINE;
+        loop {
+            let shown: std::collections::BTreeSet<String> = session
+                .compositor
+                .scene
+                .launched_windows()
+                .into_iter()
+                .map(|window| window.application)
+                .collect();
+            let runs = |id: &str| {
+                session
+                    .launcher
+                    .as_ref()
+                    .is_some_and(|launcher| launcher.runs(id))
+            };
+            if opened.iter().all(|id| shown.contains(id) || !runs(id)) {
+                break;
+            }
+            if Instant::now() > until {
+                return Err("deadline exceeded waiting for the login items' windows".into());
+            }
+            serve_session(&mut session)?;
+        }
+        window = settle(
+            &mut session,
+            &mut children,
+            &[],
+            login,
+            Wait {
+                deadline: Instant::now() + LAUNCH_DEADLINE,
+                waiting_for: "the login items' windows to settle",
+                still: launch.launch_settle,
+                sheet: false,
+                named: None,
+                pixels: None,
+                ended: false,
+            },
+            login.then_some(primary),
+        )?
+        .window;
+    }
     if let Some(command) = &launch.companion {
         start_companion(
             &mut session,
