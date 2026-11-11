@@ -2026,7 +2026,8 @@ size_t oxyos_gestures_touches(OxyOSGestures* gestures, uint8_t all, OxyOSGesture
  * takes when the picture is its own shape, a rounded square transparent around it, measured once by
  * crates/oxyos-image's shape; null for any other), "pinned" (its place in the dock from 1, or null),
  * "opens" (the media types its entry declares it opens, MimeType: what files dropped on its dock icon
- * it takes, docs/adr/0034-the-dock.mdx)}],
+ * it takes, docs/adr/0034-the-dock.mdx), "shown" (false for an entry with NoDisplay: an application
+ * started, by its id or what it opens, and never listed: About This Computer)}],
  * sorted by name, in the session's language.
  * Written into `out` (`capacity` bytes, NUL-terminated when it fits); returns its length (larger than
  * `capacity`: call again with more room). */

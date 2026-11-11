@@ -43,8 +43,15 @@
           "shell": [
             {"role": "Button", "name": "Menú de Oxy", "state": ["expanded"]},
             {"role": "Menu", "name": "Oxy"},
-            {"role": "MenuItem", "name": "Ajustes del Sistema", "state": ["focused"]},
+            {"role": "MenuItem", "name": "Acerca de este ordenador", "state": ["focused"]},
+            {"role": "MenuItem", "name": "Ajustes del Sistema…"},
             {"role": "MenuItem", "name": "Bloquear pantalla"}
+          ]
+        },
+        "at_absent": {
+          "shell": [
+            {"role": "MenuItem", "name": "Aplicaciones"},
+            {"role": "MenuItem", "name": "Ver escritorios"}
           ]
         }
       }

@@ -1145,7 +1145,8 @@ std::shared_ptr<TurboModule> createHostModule(
         json.resize(static_cast<size_t>(length));
         try {
           for (const auto& app : folly::parseJson(json)) {
-            if (app.isObject() && app.count("id") && app.count("name")) {
+            // An application never listed (NoDisplay) is in none of Settings' lists either.
+            if (app.isObject() && app.count("id") && app.count("name") && app.getDefault("shown", true) != false) {
               applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"]));
             }
           }

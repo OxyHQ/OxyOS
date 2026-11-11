@@ -73,7 +73,9 @@ void ShellState::readApplications() {
         // on its dock icon it takes.
         "opens", app.getDefault("opens", folly::dynamic::array()))(
         // Its version and build, which the standard About panel shows (docs/adr/0021-menu-bar.mdx).
-        "version", app.getDefault("version", nullptr))("build", app.getDefault("build", nullptr)));
+        "version", app.getDefault("version", nullptr))("build", app.getDefault("build", nullptr))(
+        // An entry never listed (NoDisplay, About This Computer): started, never shown in a list.
+        "shown", app.getDefault("shown", true)));
   }
   applications_ = std::move(applications);
 }

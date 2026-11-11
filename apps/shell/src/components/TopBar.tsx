@@ -760,8 +760,6 @@ const Clock = memo(function Clock({
  */
 const BarMenus = memo(function BarMenus({
   menus,
-  overview,
-  launcher,
   canLock,
   onCommand,
   keyboardRequest,
@@ -770,16 +768,17 @@ const BarMenus = memo(function BarMenus({
   returnKeyboard,
   powerActions,
   userName,
+  store,
   keyboard,
 }: {
   menus: readonly ShellMenu[];
-  overview: () => void;
-  launcher: () => void;
   canLock: boolean;
   /** Sleep, restart, shut down and log out, where the session does them (docs/adr/0064). */
   powerActions?: ShellPowerActions;
   /** The session's user, as Log Out names them. */
   userName?: string;
+  /** The App Store's name, where it is installed: the Oxy menu's row for it. */
+  store?: string;
   /** The keys the open menu receives: Alt held shows the alternates. */
   keyboard?: ShellKeyboard;
   onCommand: (id: string) => void;
@@ -869,13 +868,9 @@ const BarMenus = memo(function BarMenus({
       keys();
     };
   }, [oxyOpen, keyboard, holdOption]);
-  const systemRows = systemMenuRows(messages, { canLock, power: !!powerActions, name: userName, option });
+  const systemRows = systemMenuRows(messages, { canLock, power: !!powerActions, name: userName, store, option });
   const systemCommand = (id: SystemMenuCommand, confirm: boolean) => {
     switch (id) {
-      case "view.launcher":
-        return choose(launcher)();
-      case "view.overview":
-        return choose(overview)();
       case "system.forceQuit":
         return choose(() => powerActions?.forceQuit?.())();
       case "power.sleep":
@@ -980,11 +975,11 @@ export const TopBar = memo(function TopBar({
   safeMode = false,
   menus,
   now,
-  overview,
   launcher,
   canLock = false,
   powerActions,
   userName,
+  store,
   menuKeyboard,
   onCommand,
   power,
@@ -1013,7 +1008,6 @@ export const TopBar = memo(function TopBar({
   safeMode?: boolean;
   menus: readonly ShellMenu[];
   now: Date;
-  overview: () => void;
   launcher: () => void;
   /** Whether the session can be locked from here (the platform has a lock). */
   canLock?: boolean;
@@ -1023,6 +1017,9 @@ export const TopBar = memo(function TopBar({
   /** The session's user, as the Oxy menu's Log Out names them: their full name, else their user
       name. */
   userName?: string;
+  /** The App Store's name as the registry gives it, where it is installed (Atlas): the Oxy menu's
+      row for it, as a Mac's App Store…. */
+  store?: string;
   /** The keys a menu of the bar receives while open (Alt held shows the Oxy menu's alternates). */
   menuKeyboard?: ShellKeyboard;
   onCommand: (id: string) => void;
@@ -1127,11 +1124,10 @@ export const TopBar = memo(function TopBar({
     >
       <BarMenus
         menus={menus}
-        overview={overview}
-        launcher={launcher}
         canLock={canLock}
         powerActions={powerActions}
         userName={userName}
+        store={store}
         keyboard={menuKeyboard}
         onCommand={onCommand}
         keyboardRequest={keyboardRequest}
