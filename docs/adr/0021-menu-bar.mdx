@@ -142,6 +142,18 @@ Bloom already has a menu bar (`@oxy.so/bloom/menubar`, shadcn's): an application
    - `app-menu.json`: Allo (no menus) and Inbox: Allo's own menu with every row and chord; Settings… pressed does nothing; Acerca de Allo opens the standard panel (Versión 0.1.0 (1)) with the keyboard, Escape closes it and the window has the keyboard again; Alt+Super+H hides Inbox, the menu's Mostrar todo shows it, Ocultar otros hides it again; Ocultar Allo leaves nothing active and the bar Escritorio and Ver, whose Mostrar todo shows both, the bar left giving the keyboard to the window used last that is shown (Allo's), as before; every window's state, focus and deliveries at each step.
    - `shell.json` (the desktop's menu in the window probe), `system-shortcuts.json` (the bar shows Allo's menu while Allo is active) and `language-*` (Settings' own menu, named in the session's language where the bar showed the shell's View, and renamed at once when the language changes: the host now tells the shell the applications it reads again for the new language, which it had read and kept to itself until the next change) follow.
 
+## Open question: the compositor animating the morph
+
+The bar's morph (step 3's one popup changing into the next menu) is timed by Bloom in the shell's JavaScript and placed by the compositor one `Reposition` at a time. The popup shows a new frame only after each round trip: the host asks for the new place and size, the compositor configures, then the host draws. On a loaded machine that round trip, not Bloom's clock, limits how many frames the 150 ms crossfade gets.
+
+Measured on seldon on 11 November 2026, at load 90–113 with `menu-bar-morph` and `-scaled`:
+
+- each `Reposition` round trip took 25–50 ms, so a 150 ms crossfade got 2–3 presented frames at best;
+- in one run the shell's animation frames came every 25 ms from the clock's start, but the popup presented only at +93 ms (both menus) and +141 ms (the old menu already faded), one frame drawing both;
+- `menu_crossfade` wants at least two frames drawing both menus. It failed 2 of 40 runs on main. With Bloom's eased clock starting at its first frame ([OxyHQ/Bloom#790](https://github.com/OxyHQ/Bloom/pull/790)) it also failed 2 of 40 (1 crossfade, 1 `menu_frames` with no place between the menus).
+
+A Mac's window server animates a menu's frame itself, so its frames do not wait on the application. The equivalent here is the compositor animating the popup's rectangle (and the two menus' crossfade) from one request, with the host drawing each menu once. That changes the protocol and Bloom's `menubar/viewport.tsx`, so it is a design decision still to be made, not part of this ADR's decisions.
+
 ## Not in this decision
 
 - Menus' icons, and items whose content is not text.
