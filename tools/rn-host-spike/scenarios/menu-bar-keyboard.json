@@ -917,7 +917,7 @@
             },
             {
               "role": "MenuItem",
-              "name": "Ocultar Allo",
+              "name": "Acerca de Allo",
               "state": [
                 "focused"
               ]

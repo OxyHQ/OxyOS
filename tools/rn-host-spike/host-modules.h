@@ -228,7 +228,8 @@ struct NotificationsService {
 // says what the person chose in the shell's bar. Unset without an application window.
 struct MenuEntry {
   uint32_t parent = OXYOS_NO_MENU_PARENT;
-  uint8_t kind = 0, flags = 0;
+  // role: OXYOS_MENU_ROLE_* (the application's About or Settings…, Bloom's `action`).
+  uint8_t kind = 0, flags = 0, role = OXYOS_MENU_ROLE_NONE;
   std::string label, shortcut;
 };
 struct MenuBarService {

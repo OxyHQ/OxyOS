@@ -42,7 +42,8 @@ class ShellState {
   //   snapshot alone, docs/adr/0020-oxy-account-login.mdx as amended on 2026-11-09),
 //   wallpaper: { key, uri: "file://..." or null, fit, color: "#rrggbb", slow } or null (none told:
 //   the shell's own; `slow`, the clock brought it: a variant of the sun's or a shuffle's next),
-  //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null }],
+  //   applications: [{ id, name, icon: { uri } or { svg }, iconBody: share or null, pinned: place or null,
+  //   opens, shown: false for an entry never listed (NoDisplay) }],
   //   output, outputs: [{ id, x, y, width, height, scale, primary }],
   //   oxyApi: Oxy's API, where adding an account at the login screen signs in (OXYOS_OXY_API),
   //   controls: { output, input, display, keyboard: { level (0 to 1), muted, available } or null,
@@ -119,7 +120,7 @@ class ShellState {
   // The active window's menus as last committed, and those being received.
   struct MenuItem {
     int64_t parent = -1;
-    uint32_t kind = 0;
+    uint32_t kind = 0, role = OXYOS_MENU_ROLE_NONE;
     uint8_t flags = 0;
     std::string label, shortcut;
   };

@@ -1,5 +1,5 @@
 {
- "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on System Settings and Return opens Settings; Tab goes down its sidebar, each row said once with its ring; Space opens Accessibility; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1.25 (1600 × 1000).",
+ "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on About This Computer, Down moves to System Settings… and Return opens Settings; Tab goes down its sidebar, each row said once with its ring; Space opens Accessibility; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1.25 (1600 × 1000).",
  "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -82,7 +82,7 @@
      "shell": [
       {
        "role": "MenuItem",
-       "name": "Ajustes del Sistema",
+       "name": "Acerca de este ordenador",
        "state": [
         "focused"
        ]
@@ -95,8 +95,39 @@
       "interrupting": true
      },
      {
-      "text": "Ajustes del Sistema, elemento de menú",
+      "text": "Acerca de este ordenador, elemento de menú",
       "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Down: System Settings…, past the separator, said once",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "MenuItem",
+       "name": "Ajustes del Sistema…",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Ajustes del Sistema…, elemento de menú",
+      "interrupting": true
      }
     ],
     "announcements": []

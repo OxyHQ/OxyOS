@@ -5,7 +5,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 (OXYOS_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
 
 - texts / absent: text the application shows (or must not) once the step settled, across its
-  window and popups (each surface's latest presented frame); texts_matching, regular expressions
+  window and popups (each surface's latest presented frame), "{machine:FACT}" in a text this
+  machine's name, processor, memory or os (machine_fact: what About This Computer shows of it);
+  texts_matching, regular expressions
   each some shown text matches (re.search): what follows the wall clock (the top bar's clock, in
   the locale's format);
 - focus_input: the text input holding focus (null for none), from the latest frame;
@@ -959,10 +961,51 @@ def spoken_matches(said, wanted, any_order=False):
     return True
 
 
+def machine_fact(name):
+    """One of the facts Settings › About and About This Computer show of this machine, read here from
+    where the host reads them (host-modules.cpp, systemFacts), so a scenario run on any machine
+    expects exactly its own: "name" (/etc/hostname's first line), "processor" (/proc/cpuinfo's first
+    model name), "memory" (MemTotal as Settings writes it: whole GB, else MB) and "os" (os-release's
+    PRETTY_NAME, unquoted)."""
+    def first_line(path):
+        try:
+            return pathlib.Path(path).read_text().split("\n", 1)[0]
+        except OSError:
+            return ""
+    if name == "name":
+        return first_line("/etc/hostname")
+    if name == "processor":
+        for line in pathlib.Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].lstrip(" ")
+        return ""
+    if name == "memory":
+        kib = int(pathlib.Path("/proc/meminfo").read_text().split()[1])
+        gib = kib * 1024 / 1024 ** 3
+        # JavaScript's Math.round, never Python's round to even.
+        return f"{math.floor(gib + 0.5)} GB" if gib >= 1 else f"{math.floor(kib / 1024 + 0.5)} MB"
+    if name == "os":
+        for line in pathlib.Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                value = line[len("PRETTY_NAME="):]
+                return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
+        return ""
+    raise SystemExit(f"no machine fact {name!r}")
+
+
+def machine_text(wanted):
+    """`wanted` with each "{machine:FACT}" in it this machine's fact (machine_fact)."""
+    if not isinstance(wanted, str) or "{machine:" not in wanted:
+        return wanted
+    return re.sub(r"\{machine:([a-z]+)\}", lambda match: machine_fact(match.group(1)), wanted)
+
+
 def same_text(got, wanted, t_ns):
     """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
-    `t_ns`, or in the minute before it (the clock said as its minute turned), and "{size:ID}" the
-    size of the package ID as built (package_size), which every change to its bundle moves."""
+    `t_ns`, or in the minute before it (the clock said as its minute turned), "{size:ID}" the
+    size of the package ID as built (package_size), which every change to its bundle moves, and
+    "{machine:FACT}" this machine's (machine_fact)."""
+    wanted = machine_text(wanted)
     if isinstance(wanted, str) and "{size:" in wanted:
         wanted = re.sub(r"\{size:([^}]+)\}", lambda match: package_size(match.group(1)), wanted)
     if not isinstance(wanted, str) or "{clock}" not in wanted:
@@ -4524,7 +4567,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     def fail(message):
         failures.append(f"{name}: {message}")
 
-    for text in expect.get("texts", []):
+    for text in map(machine_text, expect.get("texts", [])):
         if not any(text in shown_text for shown_text in shown):
             fail(f"expected text {text!r} is not shown")
     for text in expect.get("absent", []):
@@ -5994,7 +6037,8 @@ class Machine:
         """The development registry (`applications/`) in `into`: each packaged application's entry the
         one oxyos-installd writes for it where its package is now (`oxyos-pack entry`, beside the
         offscreen compositor; the packages may have been built elsewhere and copied), with the
-        development registry's place in the dock; any other entry as it is, its icon where its is."""
+        development registry's place in the dock and whether it is listed (`NoDisplay`, About This
+        Computer's); any other entry as it is, its icon where its is."""
         source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
         target = into / "oxyos" / "applications"
         target.mkdir(parents=True, exist_ok=True)
@@ -6006,7 +6050,7 @@ class Machine:
                     raise SystemExit(f"{pack} is not built: the registry's entries for the packages are its")
                 lines = subprocess.run([str(pack), "entry", str(self.by_id[entry.stem]["dir"])], check=True,
                                        capture_output=True, text=True).stdout.splitlines()
-                lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
+                lines += [line for line in text if line.startswith(("X-OxyOS-Pinned=", "NoDisplay="))]
             else:
                 lines = [("Icon=" + str((source / line[5:]).resolve()))
                          if line.startswith("Icon=") and not line[5:].startswith("/") else line

@@ -86,7 +86,11 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
 /// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
-/// versions 41 to 44 are other changes' in flight (OxyOS #536, #548, #521, #500);
+/// versions 41, 42 and 44 are other changes' in flight (OxyOS #536, #548, #500);
+/// version 43, the application's own menu (ADR 0021): which commands of a window's menus are its
+/// About and its Settings… (`MenuItemRole`, `MenuBarItemRole`), both ways, the shell told them
+/// with the menus, and the shell hiding the other applications and showing every one
+/// (`HideOtherApplications`, `ShowAllApplications`);
 /// version 45, a surface's material regions (`MaterialRegion`, docs/adr/0069-the-platforms-material.mdx).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
@@ -111,6 +115,7 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
+    (43, 75..=75),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -136,6 +141,8 @@ const REQUESTS_ADDED: Added = &[
     (38, 168..=168),
     (39, 70..=70),
     (40, 169..=169),
+    (43, 85..=85),
+    (43, 113..=114),
     (45, 71..=71),
 ];
 

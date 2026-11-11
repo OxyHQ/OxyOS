@@ -374,6 +374,16 @@ pub struct Application {
     pub origin: Origin,
     /// The media types it opens (`MimeType`, docs/adr/0028-file-access.mdx, decision 6).
     pub opens: Vec<String>,
+    /// Its version as people read it (`X-OxyOS-Version`, its package's `version`: "1.2.0") and
+    /// its build (`X-OxyOS-Package-Version`, the package's version code), which the standard About
+    /// panel shows (docs/adr/0021-menu-bar.mdx); none where its entry does not say.
+    pub version: Option<String>,
+    pub build: Option<u64>,
+    /// Whether the places that list applications for the person show it (Launchpad, Spotlight,
+    /// the dock, the switcher, Settings' lists): false for an entry with `NoDisplay`, which, as
+    /// the Desktop Entry Specification has it, exists and is started (by its id, by a type or a
+    /// scheme it opens) but is never listed. About This Computer is one: the Oxy menu opens it.
+    pub shown: bool,
 }
 
 /// Where an application's entry comes from (docs/adr/0030-installing-applications.mdx,
@@ -588,7 +598,8 @@ fn exec(value: &str) -> Result<Vec<String>, Error> {
 /// The application an entry describes: `id`, the entry's `text`, in `directory`, named in
 /// `languages` (the most wanted first, as `es_ES`, `es`). An entry grants nothing: an
 /// `X-OxyOS-Grants` in it is not read (system grants are the policy's, [`Policy`]). None for an
-/// entry not to list (`NoDisplay`, `Hidden`, not an application).
+/// entry that is no application (`Hidden`, which the specification makes a deleted one, or not an
+/// application); one with `NoDisplay` is an application never listed ([`Application::shown`]).
 pub fn parse(
     id: &str,
     text: &str,
@@ -613,7 +624,7 @@ pub fn parse(
     if keys.get("Type").map(String::as_str) != Some("Application") {
         return Ok(None);
     }
-    if flag("NoDisplay") || flag("Hidden") {
+    if flag("Hidden") {
         return Ok(None);
     }
     let name = languages
@@ -672,6 +683,15 @@ pub fn parse(
         launch,
         pinned,
         origin: Origin::Development,
+        version: keys
+            .get("X-OxyOS-Version")
+            .map(|version| version.trim())
+            .filter(|version| !version.is_empty())
+            .map(str::to_owned),
+        build: keys
+            .get("X-OxyOS-Package-Version")
+            .and_then(|code| code.parse::<u64>().ok())
+            .filter(|&code| code > 0),
         opens: keys
             .get("MimeType")
             .map(|types| {
@@ -683,6 +703,7 @@ pub fn parse(
                     .collect()
             })
             .unwrap_or_default(),
+        shown: !flag("NoDisplay"),
     }))
 }
 

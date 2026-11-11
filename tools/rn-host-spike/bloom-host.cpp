@@ -1704,6 +1704,7 @@ int main(int argc, char** argv) {
               items.push_back(OxyOSMenuItem{.parent = entry.parent,
                                             .kind = entry.kind,
                                             .flags = entry.flags,
+                                            .role = entry.role,
                                             .label = entry.label.empty() ? nullptr : entry.label.c_str(),
                                             .shortcut = entry.shortcut.empty() ? nullptr : entry.shortcut.c_str()});
             }
@@ -3314,8 +3315,13 @@ int main(int argc, char** argv) {
         // expo-localization's module tells its listeners, as Android's configuration change does.
         if (window && window->locale() != toldLocale) {
           toldLocale = window->locale();
-          // The shell's applications by their names in the new language, and Settings'.
-          if (shellMode) shellState.relocalize();
+          // The shell's applications by their names in the new language, and Settings': the
+          // shell is told them now, so the bar's application menu and the dock say the new names
+          // at once (docs/adr/0021-menu-bar.mdx).
+          if (shellMode) {
+            shellState.relocalize();
+            shellChanged = true;
+          }
           if (settingsApplications) {
             toJavaScript.tellState("OxyOSApplicationsChanged", nullptr);
           }

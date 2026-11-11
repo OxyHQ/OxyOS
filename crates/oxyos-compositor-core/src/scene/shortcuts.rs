@@ -7,9 +7,12 @@
 //! The compositor acts on windows itself, so those work whatever the shell is doing:
 //! Super+W closes the active window (its close request), Super+Q quits its application (a close
 //! request to each of its windows), Super+M minimizes it, Super+H hides its application,
+//! Alt+Super+H hides every other application (a Mac's ⌥⌘H; every one with no window active),
 //! Super+` (Shift: backwards) moves to its application's next window, Super+Ctrl+F toggles
 //! full screen and Super+Alt with F, C, R or an arrow (Shift: arrangements) tiles it (ADR 0016,
-//! decision 12, `tiling.rs`). What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
+//! decision 12, `tiling.rs`); with Alt, as a Mac's ⌥⌘W and ⌥⌘M, Super+Alt+W asks every window of
+//! the active application to close and Super+Alt+M minimizes every one shown on this workspace.
+//! What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
 //! choice), Super pressed and released alone opens the launcher's search (ADR 0041), Super+Space
@@ -140,8 +143,12 @@ pub(super) struct Applications {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowAction {
     Close,
+    /// Every window of the active application asked to close, as each by Super+W.
+    CloseAll,
     Quit,
     Minimize,
+    /// Every window of the active application shown on this workspace minimized.
+    MinimizeAll,
     Hide,
     NextWindow,
     PreviousWindow,
@@ -331,6 +338,13 @@ impl Scene {
             self.session_key(super::SessionKey::LogOut { confirm: !alt });
             return;
         }
+        // Hide Others, as a Mac's ⌥⌘H: every application but the active window's (every one
+        // with none active). A menu open closes first.
+        if key == H && alt && !ctrl && !shift && !self.capturing() {
+            self.hide_other_applications(self.active.filter(|active| self.live(*active).is_some()));
+            self.dismiss_grab(DismissReason::OutsidePress);
+            return;
+        }
         // Force Quit Applications, as a Mac's ⌥⌘⎋ (docs/adr/0067-hangs-and-force-quit.mdx,
         // decision 2): the program shows it. A menu open closes first.
         if key == ESCAPE && alt && !ctrl && !shift && !self.capturing() {
@@ -347,10 +361,20 @@ impl Scene {
                     self.dismiss_grab(DismissReason::OutsidePress);
                     self.lay_out_window(active, layout);
                 }
+                return;
             }
-            return;
         }
         if alt {
+            // Close All and Minimize All, as a Mac's ⌥⌘W and ⌥⌘M: Super+W and Super+M for every
+            // window of the active application. Never while the screenshot interface is open.
+            let action = match (key, ctrl, shift) {
+                (W, false, false) => WindowAction::CloseAll,
+                (M, false, false) => WindowAction::MinimizeAll,
+                _ => return,
+            };
+            if !self.capturing() {
+                self.window_action(action);
+            }
             return;
         }
         // Screenshots (decision 10). While the interface is open, only these act.
@@ -444,6 +468,11 @@ impl Scene {
             (F, true, false) => WindowAction::FullScreen,
             _ => return,
         };
+        self.window_action(action);
+    }
+
+    /// One of the compositor's own window actions, on the active window or its application.
+    fn window_action(&mut self, action: WindowAction) {
         // With no active window, nothing to act on.
         let Some(active) = self.active.filter(|active| self.live(*active).is_some()) else {
             return;
@@ -451,17 +480,25 @@ impl Scene {
         // A menu open closes first, as a press elsewhere closes it; one of the window's own closes
         // with the window when it goes from the screen (its parent hidden), so the window is never
         // given the keyboard back for the instant between.
-        if !matches!(action, WindowAction::Minimize | WindowAction::Hide) {
+        if !matches!(
+            action,
+            WindowAction::Minimize | WindowAction::MinimizeAll | WindowAction::Hide
+        ) {
             self.dismiss_grab(DismissReason::OutsidePress);
         }
         match action {
             WindowAction::Close => {
                 self.emit(active.client, Event::CloseRequested { surface: active.id })
             }
+            WindowAction::CloseAll => self.close_application_windows(active),
             WindowAction::Quit => self.quit_application(active),
             WindowAction::Minimize => {
                 self.minimize(active);
                 // Any other menu (the top bar's, opened from the keyboard).
+                self.dismiss_grab(DismissReason::OutsidePress);
+            }
+            WindowAction::MinimizeAll => {
+                self.minimize_application(active);
                 self.dismiss_grab(DismissReason::OutsidePress);
             }
             WindowAction::Hide => {
@@ -614,6 +651,35 @@ impl Scene {
             .collect()
     }
 
+    /// Super+Alt+W, a Mac's ⌥⌘W (Close All): each window of `key`'s application, on any
+    /// workspace, shown or minimized, is asked to close as Super+W asks one, and each may ask
+    /// first or refuse. The application is not quitting: what it runs in the background goes on.
+    fn close_application_windows(&mut self, key: SurfaceKey) {
+        for window in self.application_windows(key) {
+            self.emit(window.client, Event::CloseRequested { surface: window.id });
+        }
+    }
+
+    /// Super+Alt+M, a Mac's ⌥⌘M (Minimize All): the windows of `key`'s application shown on this
+    /// workspace go into the dock together, as the dock's press on the frontmost application
+    /// minimizes them (docs/adr/0034-the-dock.mdx, decision 9), the active one last, so the
+    /// keyboard moves once, to the window used last of another application. A window minimized
+    /// already, hidden or on another workspace stays as it is.
+    fn minimize_application(&mut self, key: SurfaceKey) {
+        let application = self.application_windows(key);
+        // Back to front, the active one last.
+        let mut shown: Vec<SurfaceKey> = self
+            .roots
+            .iter()
+            .copied()
+            .filter(|root| application.contains(root) && self.visible(*root))
+            .collect();
+        shown.sort_by_key(|window| *window == key);
+        for window in shown {
+            self.minimize(window);
+        }
+    }
+
     /// Asks each window of `key`'s application to close; it may refuse.
     pub(super) fn quit_application(&mut self, key: SurfaceKey) {
         for window in self.application_windows(key) {
@@ -636,6 +702,51 @@ impl Scene {
                 self.conceal(window, appearances::Change::Gone);
             }
         }
+    }
+
+    /// Hides every application but `keep`'s (all of them when `keep` is none), as a Mac's Hide
+    /// Others (⌥⌘H): each one's shown windows leave the screen, as Hide does to one. The active
+    /// window, if it is `keep`'s, stays the active one.
+    pub(super) fn hide_other_applications(&mut self, keep: Option<SurfaceKey>) {
+        if self.locked {
+            return;
+        }
+        let kept = keep.map(|key| self.application_identity(key));
+        let mut hidden = Vec::new();
+        let windows: Vec<SurfaceKey> = self
+            .nodes
+            .iter()
+            .filter(|(window, node)| {
+                node.role == Role::Toplevel
+                    && !node.dismissed
+                    && node.mapped
+                    && !node.hidden
+                    && self.window_number(**window).is_some()
+            })
+            .map(|(window, _)| *window)
+            .collect();
+        for window in windows {
+            let identity = self.application_identity(window);
+            if Some(&identity) == kept.as_ref() || hidden.contains(&identity) {
+                continue;
+            }
+            hidden.push(identity);
+            self.hide_application(window);
+        }
+    }
+
+    /// Shows every application hidden, as a Mac's Show All: each one's windows come back where
+    /// they were in the stack, and the active window stays the active one (none becomes active
+    /// when none was).
+    pub(super) fn show_all_applications(&mut self) {
+        if self.locked {
+            return;
+        }
+        let hidden: Vec<SurfaceKey> = self.applications.hidden.iter().copied().collect();
+        for window in hidden {
+            self.reveal_application(window);
+        }
+        self.refresh_pointer_focus();
     }
 
     /// Whether `key` is hidden with its application.
