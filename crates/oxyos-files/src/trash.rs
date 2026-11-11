@@ -21,7 +21,10 @@
 //!   folder once it is in the Trash. Other desktops' file managers read and write the same cache.
 //! - **Erasing what has been in it too long** (*Empty Trash Automatically*, docs/adr/0062-storage.mdx):
 //!   the items deleted more than [`KEPT_FOR_MS`] ago, by their info's deletion date, go for good;
-//!   one whose info gives no date is kept, since nothing says how long it has been there.
+//!   one whose info gives no date is kept, since nothing says how long it has been there. The time
+//!   an item has been there is the time elapsed since it was put in, whatever the clocks did
+//!   meanwhile: a change of daylight saving time makes it neither shorter nor longer. The date is
+//!   a wall time without an offset, as the specification writes it ([`deletion_instant`]).
 
 use crate::entries::{self, Entry};
 use crate::scope::Access;
@@ -32,7 +35,7 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 /// How long an item stays in the Trash before *Empty Trash Automatically* erases it: 30 days, as
-/// a Mac keeps it.
+/// a Mac keeps it, elapsed (720 hours, across a change of daylight saving time too).
 pub const KEPT_FOR_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
 /// A Trash directory: `files/` and `info/` inside it.
@@ -224,13 +227,14 @@ impl Trashed {
 
 /// Everything in every Trash (an item whose info is missing has no original place).
 pub fn list(scope: &Scope) -> Vec<Trashed> {
+    let zone = jiff::tz::TimeZone::system();
     let mut all = Vec::new();
     for trash in trashes(scope) {
         let Ok(items) = entries::list(&trash.files()) else {
             continue;
         };
         for entry in items {
-            let (original, deleted_ms) = read_info(&trash, &entry.name);
+            let (original, deleted_ms) = read_info(&trash, &entry.name, &zone);
             all.push(Trashed {
                 id: entry.path.clone(),
                 name: original
@@ -268,9 +272,19 @@ pub struct Swept {
 }
 
 /// Erases, from every Trash, the items put in it before `before` (milliseconds since 1970, their
-/// info's deletion date), and says when the earliest of the rest was put in. An item whose info
-/// gives no date is kept. An item that cannot be erased is said and kept, and the others go.
+/// info's deletion date read in the system's time zone), and says when the earliest of the rest was
+/// put in. An item whose info gives no date is kept. An item that cannot be erased is said and
+/// kept, and the others go.
 pub fn erase_older(scope: &Scope, before: i64) -> Result<Swept, Error> {
+    erase_older_in(scope, before, &jiff::tz::TimeZone::system())
+}
+
+/// [`erase_older`], the deletion dates read in `zone`.
+pub fn erase_older_in(
+    scope: &Scope,
+    before: i64,
+    zone: &jiff::tz::TimeZone,
+) -> Result<Swept, Error> {
     let mut swept = Swept::default();
     for trash in trashes(scope) {
         let Ok(items) = std::fs::read_dir(trash.files()) else {
@@ -280,7 +294,7 @@ pub fn erase_older(scope: &Scope, before: i64) -> Result<Swept, Error> {
             let Some(name) = item.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            let (_, deleted) = read_info(&trash, &name);
+            let (_, deleted) = read_info(&trash, &name, zone);
             match deleted {
                 Some(deleted) if deleted < before => match remove_item(&trash, &name) {
                     Ok(()) => swept.erased += 1,
@@ -371,8 +385,25 @@ fn write_directory_sizes(dir: &Path, sizes: &BTreeMap<String, (u64, i64)>) -> st
     std::fs::rename(&staged, dir.join(DIRECTORY_SIZES))
 }
 
-/// What the info of `name` in `trash` says: where it was, and when it was deleted.
-fn read_info(trash: &TrashDir, name: &str) -> (Option<PathBuf>, Option<i64>) {
+/// When an item was put in the Trash (milliseconds since 1970), from its info's `DeletionDate`: a
+/// wall time in the local time zone without an offset, as the specification writes it, read with
+/// the zone's rules for that date (`zone`, the system's but in tests). The hour a change of daylight
+/// saving time repeats names two instants an hour apart: it is read as the later, so an item is
+/// never taken for older than it is, and never erased before its time. A wall time the change
+/// skipped is read after the change, as the zone's clocks went on. None for no date.
+pub fn deletion_instant(date: &str, zone: &jiff::tz::TimeZone) -> Option<i64> {
+    let civil = date.parse::<jiff::civil::DateTime>().ok()?;
+    let zoned = zone.to_ambiguous_zoned(civil).later().ok()?;
+    Some(zoned.timestamp().as_millisecond())
+}
+
+/// What the info of `name` in `trash` says: where it was, and when it was deleted (its date read in
+/// `zone`).
+fn read_info(
+    trash: &TrashDir,
+    name: &str,
+    zone: &jiff::tz::TimeZone,
+) -> (Option<PathBuf>, Option<i64>) {
     let Ok(text) = std::fs::read_to_string(trash.info_of(name)) else {
         return (None, None);
     };
@@ -395,11 +426,7 @@ fn read_info(trash: &TrashDir, name: &str) -> (Option<PathBuf>, Option<i64>) {
                 _ => None,
             };
         } else if let Some(date) = line.strip_prefix("DeletionDate=") {
-            deleted = date
-                .parse::<jiff::civil::DateTime>()
-                .ok()
-                .and_then(|date| date.to_zoned(jiff::tz::TimeZone::system()).ok())
-                .map(|zoned| zoned.timestamp().as_millisecond());
+            deleted = deletion_instant(date, zone);
         }
     }
     (original, deleted)
@@ -427,7 +454,7 @@ fn find(scope: &Scope, id: &str) -> Result<(TrashDir, String), Error> {
 /// does this one (`Exists`); one whose info is gone cannot go back (`NotFound`).
 pub fn restore(scope: &Scope, id: &str) -> Result<PathBuf, Error> {
     let (trash, name) = find(scope, id)?;
-    let (Some(original), _) = read_info(&trash, &name) else {
+    let (Some(original), _) = read_info(&trash, &name, &jiff::tz::TimeZone::system()) else {
         return Err(Error::NotFound);
     };
     // Back only into the home or the volume, never anywhere its info could name.

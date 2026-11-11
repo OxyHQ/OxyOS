@@ -6,10 +6,11 @@ use crate::wire::{
     ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind, BackgroundStatus,
     BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock, Control,
     DismissReason, DragActions, DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase,
-    MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut,
-    SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    MenuField, MenuFlags, MenuKind, MenuRole, NotificationField, NotificationOutcome, Outcome,
+    PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
+    ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size,
+    SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind,
+    WifiState, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -231,6 +232,10 @@ messages! {
         // by the window's number, the commit's serial and the command's index in it, as it was
         // told them (MenuBar). Anything else is answered with nothing.
         84 => ActivateMenuItem { window: u32, serial: u32, index: u32 },
+        // Version 43: which of the application's standard commands an entry of the menus being
+        // received is (its About, its Settings…), after the entry and before MenusCommit; only a
+        // command without a check, each role at most once in a commit, an entry at most one.
+        85 => MenuItemRole { surface: u32, index: u32, role: MenuRole },
         // The session's shell (its `shell` grant, ADR 0022): the windows one of its shell surfaces
         // shows live, each by the number the compositor gave it, which the compositor draws over
         // the surface's own pixels: within `rect` (surface-local logical pixels), fitted to it
@@ -280,6 +285,11 @@ messages! {
         // as one: the same application id, launched or claimed alike.
         110 => HideApplication { window: u32 },
         111 => QuitApplication { window: u32 },
+        // Version 43 (ADR 0021): hides every application but the one of `window` (0: every
+        // application), as a Mac's Hide Others; and shows every hidden application again, as its
+        // Show All, without changing the active window.
+        113 => HideOtherApplications { window: u32 },
+        114 => ShowAllApplications {},
         // The session's shell gives the keyboard focus to one of its own panels or overlays (the
         // launcher's search), citing the serial of an input it received: a press, a key or a
         // SystemShortcut. One it did not receive lately is ignored.
@@ -433,7 +443,8 @@ messages! {
         // the session did not start (the shell, the login screen, the lock screen, a client
         // claiming an id) is never ended.
         230 => ForceQuitApplication { window: u32 },
-        // Any client answers Ping `serial`, as its library does while it reads events: an
+        // Any client answers Ping `serial`, as its library does while it reads events (or the
+        // client, once it handled what came before, docs/adr/0067-the-ui-thread.mdx): an
         // application that does not answer in time is not responding (WindowState).
         231 => Pong { serial: u32 },
         // The session's shell (its `shell` grant) replaces one of the person's lists of
@@ -475,9 +486,10 @@ messages! {
         // most faithful first; at most MAX_DRAG_TYPES. A type for another number begins another.
         241 => DragType { drag: u32, mime: TextChunk },
         // Starts the drag `drag` from `surface`, citing `serial`, the latest pointer press of this
-        // client on that window, its button still held, with the drag icon `icon` (0: none) and
-        // the actions it allows. The compositor owns the pointer until the drag ends; refused, the
-        // source is told DragCancelled (Refused).
+        // client on that window, its button still held (or released since, nothing pressed after
+        // it: the drag is then dropped where it was released), with the drag icon `icon` (0:
+        // none) and the actions it allows. The compositor owns the pointer until the drag ends;
+        // refused, the source is told DragCancelled (Refused).
         242 => StartDrag { drag: u32, surface: u32, icon: u32, serial: u64, actions: DragActions },
         // The source ends its drag (going on, or dropped and not yet finished).
         243 => CancelDrag { drag: u32 },
@@ -704,6 +716,10 @@ messages! {
         // To an application: the person chose one of its commands in the shell's bar, the entry
         // `index` of its commit `menus`. `serial` is the choice, a user input as a key press's is.
         74 => MenuItemActivated { surface: u32, serial: u64, menus: u32, index: u32 },
+        // Version 43, to the session's shell: an entry of the menus being told is one of the
+        // application's standard commands (MenuItemRole), after its MenuBarItem and before
+        // MenuBarCommitted. A shell of version 39 is never told it.
+        75 => MenuBarItemRole { window: u32, index: u32, role: MenuRole },
         // To the session's shell (ADR 0022): a window's size in logical pixels, when it is first
         // told and whenever it changes, so the shell shows it in its proportions.
         80 => WindowSize { window: u32, size: Size },

@@ -114,6 +114,21 @@ def scroll_names(report):
     return failures
 
 
+class MachineFacts(unittest.TestCase):
+    """About This Computer's facts as a scenario expects them: this machine's, as the host reads them."""
+
+    def test_a_text_names_the_machines_facts(self):
+        self.assertEqual(regress.machine_text("{machine:memory}"), regress.machine_fact("memory"))
+        self.assertRegex(regress.machine_fact("memory"), r"^\d+ (GB|MB)$")
+        self.assertEqual(regress.machine_text("Name: {machine:name}."), f"Name: {regress.machine_fact('name')}.")
+        self.assertEqual(regress.machine_text("plain"), "plain")
+        self.assertTrue(regress.same_text(regress.machine_fact("os"), "{machine:os}", 0))
+
+    def test_an_unknown_fact_stops_the_run(self):
+        with self.assertRaises(SystemExit):
+            regress.machine_text("{machine:serial}")
+
+
 class ViewsAreNamedNotTagged(unittest.TestCase):
     # settings-input-sources.json's step 8: the Add sheet's scroll view has no testID, nor has the
     # modal it is in; the page that declares the modal has.
@@ -158,9 +173,9 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
 
 
 class AStallsMotionsAreOneTurns(unittest.TestCase):
-    """`react`'s {"turns": count} (desktop-drag.json): a press's motions the host read at once after
-    a stall come in one turn and reach JavaScript together; the drag it starts on the first takes
-    the press, so no turn after delivers another."""
+    """`react`'s {"turns": count} (desktop-drag.json): a press's motions the loop read while
+    JavaScript was busy (behind a stall) reach it together, in one turn of its; the drag it starts on
+    the first takes the press, so no turn after delivers another."""
 
     def check(self, turns, wanted):
         report = [dict(deliver(10, "touchStart", "View#406", "desktop"), turn=1)]
@@ -454,6 +469,26 @@ class LaunchToContent(unittest.TestCase):
 
 
 
+class SpinnerFrames(unittest.TestCase):
+    """`progress_frames`: the frames the application presented in the step that turned only spinning
+    rings (its report's `present` lines with `progress_only`), from the step before's end on."""
+
+    def check(self, presents, wanted):
+        report = [{"t": t, "kind": "present", "surface": 1, "sequence": n, **({"progress_only": True} if only else {})}
+                  for n, (t, only) in enumerate(presents)]
+        failures = []
+        step = {"name": "wait", "do": ["wait", 1000], "expect": {"progress_frames": wanted}}
+        regress.check_step(0, step, {"t_settled": 100}, report, 10, failures)
+        return failures
+
+    def test_the_rings_turning_in_the_step(self):
+        self.assertEqual(self.check([(5, True), (20, False), (30, True), (40, True), (120, True)], [2, 2]), [])
+
+    def test_too_few_fail(self):
+        failures = self.check([(20, False), (30, True)], [2, 100])
+        self.assertEqual(failures, ["step 1 (wait): 1 frames turned only a spinner in the step, expected 2 to 100"])
+
+
 class GlidesOnlySlow(unittest.TestCase):
     """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
 
@@ -476,6 +511,51 @@ class GlidesOnlySlow(unittest.TestCase):
     def test_upwards_too(self):
         self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
                          [(2, -1875, -3125)])
+
+
+class AGlidesClockIsItsOwn(unittest.TestCase):
+    """`glide`'s frames_min (touchpad-scroll-scaled.json, step 2): a glide to the end is drawn in
+    frames, unless its first frame came after its spline had already reached the end."""
+
+    def check(self, first_ms):
+        # Flung at 1200 px/s from 280, 45.6 px short of the end, its spline 634.9 ms long.
+        fling = {"kind": "fling", "t": 0, "target": "inbox", "friction": 0.015, "vy": 1200.0, "vx": 0.0,
+                 "dy": regress.android_fling_distance(1200.0, 0.015), "dx": 0.0, "ms": 634.9}
+        line = lambda ms, event, y: {"kind": "deliver", "t": int(ms * 1e6), "event": event, "target": "inbox",
+                                     "surface": 1, "y": y, "x": 0}
+        report = [line(0, "scrollEndDrag", 280.0), line(0.1, "momentumScrollBegin", 280.0), fling,
+                  line(first_ms, "scroll", 325.6), line(first_ms + 0.1, "momentumScrollEnd", 325.6)]
+        failures = []
+        regress.check_glide({"view": "inbox", "velocity": [900, 1800], "to_end": True, "frames_min": 2},
+                            report, 0, int(10e9), failures.append)
+        return failures
+
+    def test_a_first_frame_after_the_spline_met_the_end_shows_it_there(self):
+        self.assertAlmostEqual(regress.android_fling_time(45.6 / 266.7) * 634.9, 38.6, places=1)
+        self.assertEqual(self.check(101), [])
+
+    def test_a_jump_to_the_end_the_clock_did_not_make_fails(self):
+        self.assertEqual(self.check(16), ["inbox glided in 1 frames, expected at least 2"])
+
+
+class ScrollsStampedAtDispatch(unittest.TestCase):
+    """`scroll_times: "dispatch"` (touchpad-hold-scaled.json): between the host receiving the input
+    behind it and its line, however long the host was preempted between the two."""
+
+    def check(self, stamp_ms):
+        report = [{"kind": "received", "t": int(100e6), "seq": 7, "event": "scroll"},
+                  dict(deliver(int(102.6e6), "scroll", "ScrollView#3", "list"), input_seq=7, timestamp=stamp_ms)]
+        step = {"name": "flick", "do": ["wait", 0], "expect": {"scroll_times": "dispatch"}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(200e6)}, report, 0, failures)
+        return [f for f in failures if "timestamp" in f]
+
+    def test_stamped_when_dispatched_however_late_its_line(self):
+        self.assertEqual(self.check(100.1), [])
+
+    def test_the_devices_time_or_a_later_one_fails(self):
+        self.assertEqual(len(self.check(98.0)), 1)
+        self.assertEqual(len(self.check(103.0)), 1)
 
 
 class GlidesMeetInput(unittest.TestCase):
@@ -590,6 +670,122 @@ class GlidesMeetInput(unittest.TestCase):
         self.assertTrue(self.check({}, lines + [line(ended + 20, "scroll", offset + 5)]))
 
 
+class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
+    """A step's `stall` (docs/adr/0067-the-ui-thread.mdx): what moves is drawn through a block of
+    JavaScript's, every run half the block's refreshes, with --speed-budgets each refresh."""
+
+    @staticmethod
+    def report(frames_ms, block=(1000.0, 1500.0), motion="animated", target="native"):
+        lines = [{"kind": "frame", "surface": 1, "presented": True, "t": int(t * 1e6)} for t in frames_ms]
+        lines += [{"kind": motion, "target": target, "t": int(t * 1e6)} for t in frames_ms]
+        since, until = block
+        lines.append({"kind": "js_timing", "t": int(until * 1e6), "work_ms": until - since, "trigger": "a timer"})
+        return sorted(lines, key=lambda line: line["t"])
+
+    def check(self, report, motion="animated:native", strict=False):
+        failures = []
+        held = regress.SPEED_BUDGETS
+        regress.SPEED_BUDGETS = strict
+        try:
+            regress.check_stall({"block_ms_min": 450, "motion": motion}, report, 0, int(10e9), failures.append, 60.0)
+        finally:
+            regress.SPEED_BUDGETS = held
+        return failures
+
+    def test_a_frame_each_refresh_through_the_block_holds(self):
+        frames = [900 + i * 1000 / 60 for i in range(48)]
+        self.assertEqual(self.check(self.report(frames)), [])
+        self.assertEqual(self.check(self.report(frames), strict=True), [])
+
+    def test_frames_held_up_with_javascript_fail(self):
+        frames = [900 + i * 1000 / 60 for i in range(7)] + [1505 + i * 1000 / 60 for i in range(10)]
+        self.assertTrue(self.check(self.report(frames)))
+
+    def test_a_gap_of_three_refreshes_fails_only_the_budget(self):
+        frames = [t for t in (900 + i * 1000 / 60 for i in range(48)) if not 1200 < t < 1250]
+        self.assertEqual(self.check(self.report(frames)), [])
+        self.assertTrue(self.check(self.report(frames), strict=True))
+
+    def test_frames_without_the_motion_fail(self):
+        frames = [900 + i * 1000 / 60 for i in range(48)]
+        self.assertTrue(self.check(self.report(frames, target="other")))
+        self.assertEqual(self.check(self.report(frames), motion="frames"), [])
+
+    def test_no_block_fails(self):
+        frames = [900 + i * 1000 / 60 for i in range(48)]
+        self.assertTrue(self.check(self.report(frames, block=(1000.0, 1200.0))))
+
+
+class TypedTextEchoedAsTheFieldTookIt(unittest.TestCase):
+    """`spoken`'s "typed": text typed at once is echoed whole or in pieces, as the field took each key
+    (a field takes a key once JavaScript answered it, docs/adr/0067-the-ui-thread.mdx)."""
+
+    wanted = [{"typed": "ada", "interrupting": True}, {"text": "Ese nombre ya está en uso", "interrupting": True}]
+
+    @staticmethod
+    def said(*texts, interrupting=True):
+        return [{"text": text, "interrupting": interrupting, "t": 0} for text in texts]
+
+    def test_whole_or_in_pieces(self):
+        for pieces in (["ada"], ["a", "d", "a"], ["ad", "a"], ["a", "da"]):
+            self.assertTrue(regress.spoken_as_wanted(self.said(*pieces, "Ese nombre ya está en uso"), self.wanted))
+
+    def test_pieces_that_do_not_join_to_it(self):
+        for pieces in (["a", "d"], ["a", "d", "a", "a"], ["ad", "d"]):
+            self.assertFalse(regress.spoken_as_wanted(self.said(*pieces, "Ese nombre ya está en uso"), self.wanted))
+
+    def test_each_piece_matches_the_other_keys(self):
+        said = self.said("a") + self.said("d", interrupting=False) + self.said("a", "Ese nombre ya está en uso")
+        self.assertFalse(regress.spoken_as_wanted(said, self.wanted))
+
+
+class EachThreadsDiagnostics(unittest.TestCase):
+    """check_diagnostics with JavaScript on its own thread: each frame counts its stretches."""
+
+    @staticmethod
+    def stretch(t, work, cpu=None):
+        cpu = work if cpu is None else cpu
+        return {"kind": "js_timing", "t": t, "work_ms": work, "cpu_ms": cpu, "blocked_ms": work - cpu,
+                "preempted_ms": 0.0, "slow": work > 16.7, "refresh_ms": 16.7, "frames": 0, "dropped": 0,
+                "trigger": "a timer", "tasks": 1}
+
+    @staticmethod
+    def frame(t, js_work, stretches):
+        part = {"other": 1.0}
+        return {"kind": "timing", "t": t, "presented": True, "work_ms": 1.0, "cpu_ms": 1.0, "blocked_ms": 0.0,
+                "preempted_ms": 0.0, "wait_ms": 0.0, "late_ms": 1.0, "refresh_ms": 16.7, "slow": False,
+                "dropped": 0, "latency_ms": None, "parts": part, "cpu": part, "blocked": {"other": 0.0},
+                "preempted": {"other": 0.0},
+                "js": {"work_ms": js_work, "cpu_ms": js_work, "blocked_ms": 0.0, "preempted_ms": 0.0,
+                       "stretches": stretches}}
+
+    def check(self, report):
+        failures = []
+        regress.check_diagnostics(report, "", failures)
+        return failures
+
+    def test_a_frame_counts_the_stretches_since_the_frame_before(self):
+        report = [self.stretch(1, 2.0), self.stretch(2, 3.0), self.frame(3, 5.0, 2), self.frame(4, 0.0, 0)]
+        self.assertEqual(self.check(report), [])
+
+    def test_a_stretch_counted_twice_or_not_at_all_fails(self):
+        self.assertTrue(self.check([self.stretch(1, 2.0), self.frame(2, 2.0, 1), self.frame(3, 2.0, 1)]))
+        self.assertTrue(self.check([self.stretch(1, 2.0), self.frame(2, 0.0, 0)]))
+
+    def test_a_stretch_said_slow_exactly_past_a_refresh(self):
+        line = self.stretch(1, 20.0)
+        self.assertEqual(self.check([line]), [])
+        self.assertTrue(self.check([{**line, "slow": False}]))
+
+    def test_the_summary_counts_the_stretches_since_the_one_before(self):
+        report = [self.stretch(1, 2.0), self.stretch(2, 30.0), self.frame(3, 32.0, 2)]
+        summary = {"kind": "timing_summary", "t": 4, "frames": 1, "work_p50": 1.0, "work_p95": 1.0, "work_max": 1.0,
+                   "latency_p50": None, "latency_p95": None, "inputs": 0, "slow": 0, "dropped": 0,
+                   "js_stretches": 2, "js_slow": 1, "js_ms": 32.0, "js_longest_ms": 30.0}
+        self.assertEqual(self.check(report + [summary]), [])
+        self.assertTrue(self.check(report + [{**summary, "js_stretches": 1}]))
+
+
 class SignalSteps(unittest.TestCase):
     def test_a_part_is_sent_a_signal_that_ends_it(self):
         self.assertEqual(regress.director_args({"do": ["signal", ["SEGV", "reader"]]}, None),
@@ -597,9 +793,14 @@ class SignalSteps(unittest.TestCase):
         self.assertIn("signal", regress.STEP_KEYS)
 
     def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
-        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+        for value in (["STOP", "reader"], ["SEGV", "dock"], ["HUP", "reader"], ["HUP", "shell"]):
             with self.assertRaises(ValueError):
                 regress.director_args({"do": ["signal", value]}, None)
+
+    def test_the_shell_is_ended_or_hung(self):
+        for signal in ("SEGV", "KILL", "STOP"):
+            self.assertEqual(regress.director_args({"do": ["signal", [signal, "shell"]]}, None),
+                             ["--signal", signal, "shell"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,531 @@
+{
+  "about": "The Oxy menu as a Mac's Apple menu and About This Computer as its About This Mac (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx and docs/adr/0021-menu-bar.mdx, as amended on 10 November 2026), in Spanish at 1 (1280 × 720), Allo (EditingProbe) with the session's shell. The menu's rows and chords exactly: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen with Ctrl+Super+Q and Log Out with Shift+Super+Q, never Launchpad's or Mission Control's; Alt held shows the alternates with Alt+Shift+Super+Q. About This Computer opens its window (an application never listed, so.oxy.aboutthiscomputer), which says this machine's name, processor, memory and OxyOS's version, exactly as the host reads them, and More Info…; Tab reaches More Info…, and Space opens Settings at About (oxyos-settings://about); chosen again from the Oxy menu, the window comes forward and nothing new starts. With two Settings windows, Super+Alt+M (a Mac's ⌥⌘M) sends both into the dock together through the genie and the keyboard moves once, to About This Computer; Settings' icon brings back the one used last; Super+Alt+W (⌥⌘W) asks both to close, the one still minimized too, each once. Every step checks the windows' states as the shell is told them, the deliveries and that no React tree hears anything of a chord. Its own menu in the bar is named as the registry names it, and its About is the standard About panel with its icon from the registry, though no list shows it (docs/adr/0021-menu-bar.mdx).",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "account": {
+    "registered": []
+  },
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "power": {
+    "on_ac": true
+  },
+  "locale": "es_ES.UTF-8",
+  "steps": [
+    {
+      "name": "the Oxy menu: About This Computer, System Settings…, Force Quit… (Alt+Super+Esc), Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out (Shift+Super+Q), never Launchpad's or Mission Control's",
+      "do": [
+        "press_named",
+        "Menú de Oxy"
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Acerca de este ordenador",
+            "Ajustes del Sistema…",
+            "Forzar salida…",
+            "Alt+Super+Esc",
+            "Reposo",
+            "Reiniciar…",
+            "Apagar equipo…",
+            "Bloquear pantalla",
+            "Ctrl+Super+Q",
+            "Cerrar sesión de Ada Lovelace…",
+            "Mayús+Super+Q"
+          ],
+          "absent": [
+            "Aplicaciones",
+            "Ver escritorios"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Alt held: Restart, Shut Down and Log Out lose their ellipsis, and Log Out shows Alt+Shift+Super+Q",
+      "do": [
+        "key_down",
+        [
+          56
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Acerca de este ordenador",
+            "Ajustes del Sistema…",
+            "Reiniciar",
+            "Apagar equipo",
+            "Cerrar sesión de Ada Lovelace",
+            "Alt+Mayús+Super+Q"
+          ],
+          "absent": [
+            "Reiniciar…",
+            "Apagar equipo…",
+            "Cerrar sesión de Ada Lovelace…"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Alt let go: the ellipses and Shift+Super+Q again",
+      "do": [
+        "key_up",
+        [
+          56
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Acerca de este ordenador",
+            "Ajustes del Sistema…",
+            "Forzar salida…",
+            "Alt+Super+Esc",
+            "Reposo",
+            "Reiniciar…",
+            "Apagar equipo…",
+            "Bloquear pantalla",
+            "Ctrl+Super+Q",
+            "Cerrar sesión de Ada Lovelace…",
+            "Mayús+Super+Q"
+          ],
+          "absent": [
+            "Alt+Mayús+Super+Q"
+          ]
+        }
+      }
+    },
+    {
+      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…, its safe area told as it takes its own size; the menu closed; nothing of it focused",
+      "do": [
+        "press_named",
+        "Acerca de este ordenador"
+      ],
+      "until_named": [
+        "Más información…",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "in_launched": {
+          "texts": [
+            "{machine:name}",
+            "Procesador",
+            "{machine:processor}",
+            "Memoria",
+            "{machine:memory}",
+            "OxyOS",
+            "{machine:os}",
+            "Más información…"
+          ],
+          "keyboard_focus": null,
+          "react": {
+            "insetsChange@RNCSafeAreaProvider#2": [
+              1,
+              2
+            ]
+          }
+        },
+        "in_shell": {
+          "absent": [
+            "Reposo"
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Tab: More Info…, its ring around it",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_launched": {
+          "keyboard_focus": {
+            "target": "about-this-computer-more-info",
+            "ring": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Space: Settings opens at its About page, as a Mac's More Info… opens General › About",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "until_named": [
+        "Procesador",
+        15000
+      ],
+      "expect": {
+        "react": {},
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://about",
+            "application": "so.oxy.settings"
+          }
+        ],
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "3": {
+            "app": "so.oxy.settings",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "name": "About This Computer chosen again: its window comes forward with the keyboard; nothing new starts",
+      "do": [
+        "press_named",
+        "Menú de Oxy"
+      ],
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "About This Computer",
+      "do": [
+        "press_named",
+        "Acerca de este ordenador"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "urls_opened": [],
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "3": {
+            "app": "so.oxy.settings",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          }
+        }
+      }
+    },
+    {
+      "name": "Space: More Info… again, a second Settings window",
+      "do": [
+        "key",
+        [
+          57
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "urls_opened": [
+          {
+            "url": "oxyos-settings://about",
+            "application": "so.oxy.settings"
+          }
+        ],
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "3": {
+            "app": "so.oxy.settings",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "4": {
+            "app": "so.oxy.settings",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "name": "Super+Alt+M: both Settings windows go into the dock together through the genie; the keyboard moves once, to About This Computer, the window used last of another application",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          50
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          },
+          "3": {
+            "app": "so.oxy.settings",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "4": {
+            "app": "so.oxy.settings",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          }
+        },
+        "transitions": {
+          "count": 2,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "minimized",
+              "ended": true
+            },
+            {
+              "kind": "window",
+              "change": "minimized",
+              "ended": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Settings' icon in the dock: the window it used last comes back with the keyboard, the other stays in the dock",
+      "do": [
+        "press_named",
+        "Ajustes"
+      ],
+      "expect": {
+        "react": {},
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "3": {
+            "app": "so.oxy.settings",
+            "minimized": true,
+            "hidden": false,
+            "focused": false
+          },
+          "4": {
+            "app": "so.oxy.settings",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "window",
+              "change": "restored",
+              "ended": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+Alt+W: both Settings windows are asked to close, the minimized one too, each once; they go, and About This Computer has the keyboard",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          17
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "name": "About This Computer's own menu in the bar, named as the registry names it though no list shows it",
+      "do": [
+        "press_named",
+        "Acerca de este ordenador"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de Acerca de este ordenador",
+            "Ocultar Acerca de este ordenador",
+            "Salir de Acerca de este ordenador"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "its About: the standard About panel with its icon, name and version from the registry, which no list shows it in",
+      "do": [
+        "press_named",
+        "Acerca de Acerca de este ordenador"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de este ordenador",
+            "Versión 0.1.0 (1)"
+          ],
+          "absent": [
+            "Ocultar Acerca de este ordenador"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "name": "Acerca de Acerca de este ordenador"
+            },
+            {
+              "role": "Button",
+              "name": "Cerrar"
+            }
+          ]
+        },
+        "output_pixels": {
+          "616,202": "#000000",
+          "612,226": "#000000"
+        },
+        "react": {},
+        "pixel_tolerance": 16
+      }
+    },
+    {
+      "name": "Escape closes it, and About This Computer has the keyboard again",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Acerca de Acerca de este ordenador"
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "react": {}
+      }
+    }
+  ],
+  "applications_launched": [
+    {
+      "id": "so.oxy.aboutthiscomputer",
+      "origin": "development",
+      "settings": false
+    }
+  ]
+}

@@ -36,6 +36,7 @@ test("preferences are named as the session's file names them", () => {
     "display_off_adapter",
     "display_off_battery",
     "do_not_disturb",
+    "dock_autohide",
     "empty_trash_automatically",
     "hour_cycle",
     "input_source",

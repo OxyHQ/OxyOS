@@ -23,7 +23,8 @@ const KEY_ESCAPE: u32 = 1;
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(60);
 /// Each step's answer must settle inside this budget.
 const STEP_DEADLINE: Duration = Duration::from_secs(30);
-const CLIENT: ClientId = 1;
+/// The application's client: the first to connect.
+pub(crate) const CLIENT: ClientId = 1;
 /// The assistive technology the director plays: a client of the scene only, granted
 /// `accessibility`, reading what the compositor holds and sending actions (ADR 0003).
 const READER: ClientId = ClientId::MAX;
@@ -994,6 +995,15 @@ pub struct Settling {
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
     pub ended: bool,
+    /// `--until-taken`: a paced drag (`DragPaced`) whose hand lets the application take each
+    /// motion: after each, it waits until the application holding the press, or the drag's target
+    /// once a drag has begun, has taken everything it was sent (two Pings answered in turn: the
+    /// Bloom host answers one once JavaScript ran what came before it, and starts the drags
+    /// JavaScript asked, and reads the action its answer to a motion was told, before it reads
+    /// the next), then goes on. What the drag passes over (a drop target's edge, the window it
+    /// leaves) and what each is told is then where the hand was, whatever the machine's load; a
+    /// drag that begins late is the `drag_output` steps' (ADR 0035, decision 2).
+    pub taken: bool,
 }
 
 pub struct Launch {
@@ -1188,8 +1198,8 @@ pub struct Launch {
     pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1364,6 +1374,10 @@ impl Launch {
                 }
                 Some("--until-ended") => {
                     settling.ended = true;
+                    continue;
+                }
+                Some("--until-taken") => {
+                    settling.taken = true;
                     continue;
                 }
                 Some("--until-named") => {
@@ -2086,12 +2100,15 @@ impl Launch {
                 Some("--signal") => {
                     let signal = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     let part = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
-                    Step::Signal {
-                        signal: signal_named(signal)
-                            .ok_or_else(|| format!("--signal: no signal {signal}"))?,
-                        part: Part::named(part)
-                            .ok_or_else(|| format!("--signal: no part {part}"))?,
+                    let signal = signal_named(signal)
+                        .ok_or_else(|| format!("--signal: no signal {signal}"))?;
+                    let part =
+                        Part::named(part).ok_or_else(|| format!("--signal: no part {part}"))?;
+                    // Stopped, the reader would be waited for in vain: a hang is the shell's.
+                    if signal == rustix::process::Signal::STOP && part != Part::Shell {
+                        return Err("--signal STOP: only the shell".into());
                     }
+                    Step::Signal { signal, part }
                 }
                 Some("--wait") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
@@ -2340,29 +2357,45 @@ fn companion_frames(session: &Session) -> Vec<(SurfaceKey, u64, Rect)> {
         .collect()
 }
 
-/// Starts the shell on a socket of its own, granting `shell`, one on each output as a session
-/// starts them (docs/adr/0018-several-displays.mdx), and serves the session until their panels have
-/// set every output's work area (as `oxyos-session` waits for them) and their surfaces are then
-/// unchanged for SETTLE. A shell's background is made before its JavaScript runs, so surfaces
-/// unchanged alone may be that background, still without panels, on a loaded machine: the
-/// application started then would be placed in the whole output.
-fn start_shell(
-    session: &mut Session,
-    command: &[std::ffi::OsString],
-) -> Result<Vec<std::process::Child>> {
-    let socket = session.socket.with_file_name("shell");
-    let listener = oxyos_ipc::Listener::bind(&socket)?;
-    listener.set_nonblocking(true)?;
-    session.compositor.shell_listener = Some(listener);
-    let outputs: Vec<OutputId> = session.compositor.screens.iter().map(|s| s.id).collect();
-    let mut children = Vec::new();
-    for output in outputs {
+/// The session's shells as the development compositor keeps them, as `oxyos-session` keeps its
+/// own (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6): one on each output, on
+/// a socket of their own, granted `shell`; watched (`oxyos_compositor::shell_watch`), so one that
+/// stops answering is asked for its report and ended; and one that ends started again with the
+/// shell's wait, at once and then ever later, its report written as the session writes it.
+pub struct Shells {
+    command: Vec<std::ffi::OsString>,
+    socket: PathBuf,
+    /// Where each shell's report file is made (`OXYOS_CRASH_REPORT`).
+    reports: PathBuf,
+    running: std::collections::BTreeMap<OutputId, RunningShell>,
+    restarts: oxyos_seat::restarts::Restarts,
+    /// When the shells missing are started again.
+    due: Option<Instant>,
+    watch: oxyos_compositor::shell_watch::ShellWatch,
+    started: u64,
+}
+
+struct RunningShell {
+    child: std::process::Child,
+    since: Instant,
+    report: Option<oxyos_apps::ReportFile>,
+}
+
+impl Shells {
+    /// The processes of the shells running, one an output.
+    fn pids(&self) -> impl Iterator<Item = i32> + '_ {
+        self.running.values().map(|shell| shell.child.id() as i32)
+    }
+
+    /// The shell of `output`, started.
+    fn spawn(&mut self, session: &Session, output: OutputId) -> Result<RunningShell> {
+        let command = &self.command;
         let mut shell = Command::new(command.first().ok_or(USAGE)?);
         shell
             .args(&command[1..])
             .arg("--shell")
             .arg(output.to_string())
-            .env("OXYOS_COMPOSITOR_SOCKET", &socket)
+            .env("OXYOS_COMPOSITOR_SOCKET", &self.socket)
             .env_remove("DISPLAY")
             .env_remove("WAYLAND_DISPLAY");
         // The shell lists the fixture's installed applications too (ADR 0030, decision 7).
@@ -2388,19 +2421,184 @@ fn start_shell(
             }
             shell.env("OXYOS_HOST_REPORT", report);
         }
-        children.push(shell.spawn()?);
+        // What it says of its end, as the session gives its shell (docs/adr/0061, decision 2).
+        self.started += 1;
+        let report =
+            match oxyos_apps::ReportFile::create(&self.reports, &format!("shell-{}", self.started))
+            {
+                Ok(report) => {
+                    shell.env("OXYOS_CRASH_REPORT", report.path());
+                    Some(report)
+                }
+                Err(error) => {
+                    eprintln!("[shell] no report file: {error}");
+                    None
+                }
+            };
+        Ok(RunningShell {
+            child: shell.spawn()?,
+            since: Instant::now(),
+            report,
+        })
+    }
+
+    /// The session's turn: the shells watched, one that ended noticed and its report written,
+    /// and those missing started again once their wait is over.
+    pub fn serve(&mut self, session: &mut Session) -> Result<()> {
+        let now = Instant::now();
+        let pids: Vec<u32> = self
+            .running
+            .values()
+            .map(|shell| shell.child.id())
+            .collect();
+        for (pid, signal) in self.watch.serve(&mut session.compositor, &pids, now) {
+            signal_shell(pid, signal);
+        }
+        let mut ended = Vec::new();
+        for (output, shell) in self.running.iter_mut() {
+            if let Some(status) = shell.child.try_wait()? {
+                ended.push((*output, status));
+            }
+        }
+        for (output, status) in ended {
+            let shell = self.running.remove(&output).expect("it ended");
+            let pid = shell.child.id();
+            let ran = now.saturating_duration_since(shell.since);
+            let hung = self.watch.ended(pid);
+            let wait = self.restarts.ended(ran);
+            self.due = Some(now + wait);
+            eprintln!(
+                "[shell] the shell of output {output} exited ({status}): started again in {} ms",
+                wait.as_millis()
+            );
+            if !status.success() {
+                session.crashes.note_part(
+                    &oxyos_apps::Exited {
+                        pid,
+                        launched: oxyos_apps::Launched::part(
+                            oxyos_compositor::crashes::SHELL,
+                            oxyos_compositor::crashes::SHELL_NAME,
+                        ),
+                        status: Some(status),
+                        ran,
+                        asked: false,
+                        report: shell.report.as_ref().and_then(oxyos_apps::ReportFile::read),
+                    },
+                    hung,
+                );
+            }
+        }
+        if self.due.is_some_and(|due| now >= due) {
+            self.due = None;
+            let outputs: Vec<OutputId> = session.compositor.screens.iter().map(|s| s.id).collect();
+            for output in outputs {
+                if !self.running.contains_key(&output) {
+                    eprintln!("[shell] starting the shell of output {output} again");
+                    let shell = self.spawn(session, output)?;
+                    self.running.insert(output, shell);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The `signal` step: the primary output's shell is sent `signal` as a crash, a hang
+    /// (`STOP`) or the person's `kill` would; what follows is the session's turn's.
+    fn signal(&mut self, signal: rustix::process::Signal) -> Result<()> {
+        let shell = self
+            .running
+            .get(&OUTPUT_ID)
+            .ok_or("--signal SIGNAL shell: no shell runs")?;
+        let pid =
+            rustix::process::Pid::from_raw(shell.child.id() as i32).ok_or("the shell's pid")?;
+        rustix::process::kill_process(pid, signal)?;
+        eprintln!("[shell] sent {signal:?}");
+        Ok(())
+    }
+
+    /// Its processes, for the session's end to wait for.
+    fn children(mut self) -> Vec<std::process::Child> {
+        std::mem::take(&mut self.running)
+            .into_values()
+            .map(|shell| shell.child)
+            .collect()
+    }
+}
+
+impl Drop for Shells {
+    /// A run that fails leaves no shell behind.
+    fn drop(&mut self) {
+        for shell in self.running.values_mut() {
+            if !matches!(shell.child.try_wait(), Ok(Some(_))) {
+                let _ = shell.child.kill();
+            }
+            let _ = shell.child.wait();
+        }
+    }
+}
+
+/// Sends a shell the watch's signal: its report (`SIGQUIT`, and `SIGCONT` for one stopped), or
+/// its end (`SIGKILL`).
+fn signal_shell(pid: u32, signal: oxyos_compositor::shell_watch::ShellSignal) {
+    use oxyos_compositor::shell_watch::ShellSignal;
+    use rustix::process::{kill_process, Pid, Signal};
+    let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
+        return;
+    };
+    let result = match signal {
+        ShellSignal::Report => {
+            kill_process(pid, Signal::QUIT).and_then(|()| kill_process(pid, Signal::CONT))
+        }
+        ShellSignal::End => kill_process(pid, Signal::KILL),
+    };
+    if let Err(error) = result {
+        eprintln!("[shell] {pid:?} is not sent {signal:?}: {error}");
+    }
+}
+
+/// Starts the shell on a socket of its own, granting `shell`, one on each output as a session
+/// starts them (docs/adr/0018-several-displays.mdx), and serves the session until their panels have
+/// set every output's work area (as `oxyos-session` waits for them) and their surfaces are then
+/// unchanged for SETTLE. A shell's background is made before its JavaScript runs, so surfaces
+/// unchanged alone may be that background, still without panels, on a loaded machine: the
+/// application started then would be placed in the whole output.
+fn start_shell(session: &mut Session, command: &[std::ffi::OsString]) -> Result<Shells> {
+    let socket = session.socket.with_file_name("shell");
+    let listener = oxyos_ipc::Listener::bind(&socket)?;
+    listener.set_nonblocking(true)?;
+    session.compositor.shell_listener = Some(listener);
+    let mut shells = Shells {
+        command: command.to_vec(),
+        socket,
+        reports: session.directory().join("reports"),
+        running: std::collections::BTreeMap::new(),
+        restarts: Default::default(),
+        due: None,
+        watch: Default::default(),
+        started: 0,
+    };
+    let outputs: Vec<OutputId> = session.compositor.screens.iter().map(|s| s.id).collect();
+    // A spinner of the shell's leaves a step settled too (progress.rs), when it is the one shell.
+    if outputs.len() == 1 {
+        session
+            .progress
+            .follow_shell((ClientId::MAX / 2, crate::pasteboard::PASTEBOARD));
+    }
+    for output in outputs {
+        let shell = shells.spawn(session, output)?;
+        shells.running.insert(output, shell);
     }
     let deadline = Instant::now() + LAUNCH_DEADLINE;
     let mut last = (Vec::new(), Instant::now());
     loop {
         if Instant::now() > deadline {
-            for child in &mut children {
-                let _ = child.kill();
+            for shell in shells.running.values_mut() {
+                let _ = shell.child.kill();
             }
             return Err("deadline exceeded waiting for the shell".into());
         }
-        for child in &mut children {
-            if let Some(status) = child.try_wait()? {
+        for shell in shells.running.values_mut() {
+            if let Some(status) = shell.child.try_wait()? {
                 return Err(format!("the shell exited ({status}) before it was shown").into());
             }
         }
@@ -2423,7 +2621,7 @@ fn start_shell(
             last = (now, Instant::now());
         } else if reserved && last.1.elapsed() >= SETTLE {
             eprintln!("[shell] {} surfaces shown", last.0.len());
-            return Ok(children);
+            return Ok(shells);
         }
     }
 }
@@ -2554,12 +2752,15 @@ fn start_reader(
 pub enum Part {
     /// The screen reader (`--reader`).
     Reader,
+    /// The primary output's shell (`--shell`).
+    Shell,
 }
 
 impl Part {
     fn named(name: &str) -> Option<Self> {
         match name {
             "reader" => Some(Self::Reader),
+            "shell" => Some(Self::Shell),
             _ => None,
         }
     }
@@ -2567,16 +2768,19 @@ impl Part {
     fn name(self) -> &'static str {
         match self {
             Self::Reader => "reader",
+            Self::Shell => "shell",
         }
     }
 }
 
-/// The signals a scenario may send, by their names without `SIG`: each ends the part.
-const SIGNALS: [(&str, rustix::process::Signal); 4] = [
+/// The signals a scenario may send, by their names without `SIG`: each ends the part, but
+/// `STOP`, which hangs the shell (it answers nothing, as a shell stuck in a loop).
+const SIGNALS: [(&str, rustix::process::Signal); 5] = [
     ("SEGV", rustix::process::Signal::SEGV),
     ("ABRT", rustix::process::Signal::ABORT),
     ("KILL", rustix::process::Signal::KILL),
     ("TERM", rustix::process::Signal::TERM),
+    ("STOP", rustix::process::Signal::STOP),
 ];
 
 fn signal_named(name: &str) -> Option<rustix::process::Signal> {
@@ -2682,17 +2886,20 @@ impl ScreenReader<'_> {
         let wait = self.kept.ended(now);
         eprintln!("[reader] started again in {} ms", wait.as_millis());
         if !status.success() {
-            session.crashes.note_part(&oxyos_apps::Exited {
-                pid,
-                launched: oxyos_apps::Launched::part(
-                    oxyos_compositor::crashes::READER,
-                    oxyos_compositor::crashes::READER_NAME,
-                ),
-                status: Some(status),
-                ran,
-                asked: false,
-                report: None,
-            });
+            session.crashes.note_part(
+                &oxyos_apps::Exited {
+                    pid,
+                    launched: oxyos_apps::Launched::part(
+                        oxyos_compositor::crashes::READER,
+                        oxyos_compositor::crashes::READER_NAME,
+                    ),
+                    status: Some(status),
+                    ran,
+                    asked: false,
+                    report: None,
+                },
+                None,
+            );
         }
     }
 
@@ -3089,6 +3296,48 @@ struct Wait<'a> {
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
 /// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
 /// that do not change for it also count as settled (a step whose expected answer is nothing).
+/// `ppoll`'s number, the one call a Bloom host's loop sleeps in when it has nothing to do
+/// (bloom-host.cpp: "an application doing nothing never turns").
+#[cfg(target_arch = "x86_64")]
+const PPOLL: &str = "271";
+#[cfg(target_arch = "aarch64")]
+const PPOLL: &str = "73";
+
+/// Whether a Bloom host is in the middle of a turn of its loop: its main thread anywhere but
+/// asleep in `ppoll` waiting for work (running, preempted, waiting on its JavaScript thread).
+/// What it is doing then is a step's answer still to come, however long since its last frame: on
+/// a loaded machine one turn ran 350 to 830 ms (a caret's blink, a page Back opened, a row −
+/// removed), longer than the settling's stillness, and the step settled in the middle of it.
+/// A process that is not a Bloom host (a native client, Astro) is never asked: its loop sleeps in
+/// calls of its own.
+fn host_turning(pid: i32) -> bool {
+    let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+        return false;
+    };
+    if comm.trim_end() != "oxyos-bloom-hos" {
+        return false;
+    }
+    // The call its main thread is blocked in ("running" when it is not blocked); gone, it is no
+    // answer to wait for.
+    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/syscall"))
+        .is_ok_and(|call| call.split_whitespace().next() != Some(PPOLL))
+}
+
+/// Whether the application's host, the companion's or a shell's is in the middle of a turn
+/// (`host_turning`): the step is not answered until each has gone back to waiting for work. A
+/// shell's turn can be the step's answer too: a file dropped on the dock's Trash is put there only
+/// once the shell's JavaScript has run the drop and asked (`TrashFiles`), and on a loaded machine
+/// that turn outlasted the settling's stillness (`dropsea-drag-scaled`, step 3: the drop counted,
+/// the file not yet in the Trash).
+fn hosts_turning(session: &Session) -> bool {
+    [Some(CLIENT), session.companion_client()]
+        .into_iter()
+        .flatten()
+        .filter_map(|client| session.compositor.peers.get(&client).map(|peer| peer.pid))
+        .chain(session.shells.iter().flat_map(Shells::pids))
+        .any(host_turning)
+}
+
 fn settle(
     session: &mut Session,
     children: &mut Children,
@@ -3107,8 +3356,12 @@ fn settle(
     window_before: Option<Rect>,
 ) -> Result<Settled> {
     // The shell's surfaces count too: a press on a panel changes the shell, not the application.
+    // A frame that only turns a spinner is no change (progress.rs).
     let mut last = (before.to_vec(), Instant::now());
+    let application = |id| SurfaceKey { client: CLIENT, id };
+    session.progress.start(before, application);
     let mut shell_last = shell_surfaces(&session.compositor);
+    session.progress.start(&shell_last, |key| key);
     let shell_before: Vec<SurfaceKey> = shell_last.iter().map(|(key, _, _)| *key).collect();
     // The launched applications' windows count as the shell's do: a zoom of one changes neither
     // the director's application nor the shell, and would otherwise settle only on something
@@ -3149,7 +3402,10 @@ fn settle(
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
         }
         // Asked to quit as the session ends (ADR 0064), its exit is its answer.
-        if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
+        if let Some(status) = children
+            .application_exited()?
+            .filter(|_| !session.quit_asked)
+        {
             return Err(
                 format!("the application exited ({status}) waiting for {waiting_for}").into(),
             );
@@ -3166,8 +3422,12 @@ fn settle(
             pasteboard.serve(&mut session.compositor);
         }
         session.reader.absorb(&mut session.compositor);
-        let now = shown(&session.compositor);
-        let shell_now = shell_surfaces(&session.compositor);
+        let now = session
+            .progress
+            .steady(shown(&session.compositor), application);
+        let shell_now = session
+            .progress
+            .steady(shell_surfaces(&session.compositor), |key| key);
         let launched_now = launched_windows(session);
         let launched_changed = launched_now != launched_last;
         launched_last = launched_now;
@@ -3183,6 +3443,11 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
+        // A host in the middle of a turn: its stillness starts once it is back to waiting.
+        let turning = hosts_turning(session);
+        if turning {
+            last.1 = Instant::now();
+        }
         let shell_changed = shell_now != shell_last
             || launched_changed
             || companion_changed
@@ -3286,6 +3551,7 @@ fn settle(
         if !changed
             && !shell_changed
             && !writing_now
+            && !turning
             && answered
             && sheet_shown
             && named_shown
@@ -4260,6 +4526,8 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceOut { forward: true } => "workspace_out_forward",
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
                 AppearanceChange::Zoomed => "zoomed",
+                AppearanceChange::EdgeShown => "edge_shown",
+                AppearanceChange::EdgeHidden => "edge_hidden",
                 AppearanceChange::Returned { .. } => "returned",
                 AppearanceChange::Vanished { .. } => "vanished",
             };
@@ -4811,7 +5079,10 @@ fn switch_terminal(
             if Instant::now() > deadline {
                 return Err(format!("deadline exceeded waiting for {what}").into());
             }
-            if let Some(status) = children.0[0].try_wait()?.filter(|_| !session.quit_asked) {
+            if let Some(status) = children
+                .application_exited()?
+                .filter(|_| !session.quit_asked)
+            {
                 return Err(format!("the application exited ({status}) waiting for {what}").into());
             }
             session.compositor.serve(&session.listener)?;
@@ -4883,6 +5154,38 @@ fn grab(
     Ok(())
 }
 
+/// How a paced drag's hand goes: its button `held` at the end (the drag goes on into the steps
+/// after it), and whether it lets the application take each motion (`Settling::taken`).
+#[derive(Clone, Copy, Debug)]
+struct Hand {
+    held: bool,
+    taken: bool,
+}
+
+/// The application the hand's motion went to has taken everything it was sent (`Settling::taken`):
+/// the one holding the press, or the drag's target once a drag has begun; two Pings answered in
+/// turn, each within a Ping's time. The Bloom host answers a Ping once JavaScript ran the events
+/// before it; the drags JavaScript asked start at the top of its next turn, and the action the
+/// compositor told for its answer to the motion arrives after the first Ping, so both are in
+/// before the second Pong (a text field's drag starts as its motion is read). An application that
+/// answers no Ping is not waited for, nor is anyone with no press held and no drag's target.
+fn taken(session: &mut Session) -> Result<()> {
+    for _ in 0..2 {
+        let scene = &mut session.compositor.scene;
+        let Some(client) = scene.drag_target().or_else(|| scene.holding_press()) else {
+            return Ok(());
+        };
+        let Some(ping) = scene.ping_after(client) else {
+            return Ok(());
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !session.compositor.scene.answered(client, ping) && Instant::now() < deadline {
+            session.compositor.serve(&session.listener)?;
+        }
+    }
+    Ok(())
+}
+
 /// A paced drag (`Step::DragPaced`) on the scene: the press, each motion when its time comes with
 /// the compositor serving the application until then, the release, and the compositor serving it
 /// until its window shows a frame for the latest configure (or five seconds pass). Returns what
@@ -4907,7 +5210,10 @@ fn drag_paced(
     (motions, hz): (u32, u32),
     escape_after: Option<u32>,
     rest_ms: u32,
-    held: bool,
+    Hand {
+        held,
+        taken: hand_taken,
+    }: Hand,
 ) -> Result<String> {
     inside_output(&session.compositor, from)?;
     inside_output(&session.compositor, to)?;
@@ -4997,8 +5303,11 @@ fn drag_paced(
     // Each motion when its time comes: the turns before it wait at most until then, and the turn
     // the motion wakes composes its frame at once, as a device's event wakes a session's turn.
     let idle_wait = session.compositor.idle_wait;
+    // What the hand waited for the application to take its motions (`Settling::taken`): the
+    // motions after go on at its pace from there.
+    let mut waited = Duration::ZERO;
     for i in 1..=steps {
-        let due = interval * i as u32;
+        let due = interval * i as u32 + waited;
         while start.elapsed() < due {
             session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
             session.compositor.serve(&session.listener)?;
@@ -5018,6 +5327,13 @@ fn drag_paced(
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
+        if hand_taken {
+            let waiting = Instant::now();
+            session.compositor.idle_wait = idle_wait;
+            taken(session)?;
+            waited += waiting.elapsed();
+            observe(&session.compositor, &mut sent, &mut frames);
+        }
         // Resting at the end first, with Escape after the rest.
         if escape_after == Some(i as u32) && !(i == steps && rest_ms > 0) {
             session.compositor.scene.key(KEY_ESCAPE, true);
@@ -5028,7 +5344,7 @@ fn drag_paced(
     session.compositor.idle_wait = idle_wait;
     // The hand resting at `to` (a file held over the dock's Trash), then the Escape after its last
     // motion.
-    let rested = interval * motions + Duration::from_millis(u64::from(rest_ms));
+    let rested = interval * motions + waited + Duration::from_millis(u64::from(rest_ms));
     while start.elapsed() < rested {
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
@@ -6626,7 +6942,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     session.compositor.offer_gpu_buffers();
     // The session's shell first, as a session starts it: the application's window is then placed
     // in the work area its panels leave.
-    let shell = match &launch.shell {
+    session.shells = match &launch.shell {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
@@ -6682,7 +6998,8 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     if reader_named.is_some() && !launch.reader_off {
         screen_reader.start(&mut session)?;
     }
-    // A login screen has no application: its shell is the first child, which must not exit.
+    // A login screen has no application: what it shows is its shell's, kept as the session's
+    // shells are (`Shells`).
     let mut children = Children(Vec::new());
     if let Some(program) = launch.command.first() {
         let mut application = Command::new(program);
@@ -6708,7 +7025,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     ) {
         session.app = Some((children.0[0].id(), id));
     }
-    children.0.extend(shell.into_iter().flatten());
     let deadline = Instant::now() + LAUNCH_DEADLINE;
 
     let launched_ns = monotonic_ns();
@@ -7002,7 +7318,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         (*motions, *hz),
                         *escape_after,
                         *rest_ms,
-                        *held,
+                        Hand {
+                            held: *held,
+                            taken: settling.taken,
+                        },
                     )?);
                 }
                 0
@@ -7179,6 +7498,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let Step::Signal { signal, part } = step {
             match part {
                 Part::Reader => screen_reader.signal(&mut session, *signal)?,
+                Part::Shell => session
+                    .shells
+                    .as_mut()
+                    .ok_or("--signal SIGNAL shell: no shell (--shell)")?
+                    .signal(*signal)?,
             }
         }
         // Super+F5 typed: the reader started or stopped before the step settles, as the session
@@ -7491,6 +7815,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         .join(",");
     // The reader, if on, ends with the session as the other clients do.
     children.0.extend(screen_reader.child.take());
+    // The shells, as the session ends them: their connections closed, they exit.
+    if let Some(shells) = session.shells.take() {
+        children.0.extend(shells.children());
+    }
     // What was routed until the session ends; finishing it ends the clients, whose last input
     // has been read by then.
     let deliveries = deliveries_json(&session.compositor);
@@ -7588,6 +7916,7 @@ mod tests {
             "--expect-popup",
             "--allow-unchanged",
             "--until-sheet",
+            "--until-taken",
             "--press-popup",
             "5,6",
             "--",
@@ -7606,6 +7935,11 @@ mod tests {
         let sheets = launch.steps.iter().filter(|(_, s)| s.sheet).count();
         assert_eq!(
             (sheets, launch.steps.last().map(|(_, s)| s.sheet)),
+            (1, Some(true))
+        );
+        let taken = launch.steps.iter().filter(|(_, s)| s.taken).count();
+        assert_eq!(
+            (taken, launch.steps.last().map(|(_, s)| s.taken)),
             (1, Some(true))
         );
         assert_eq!(

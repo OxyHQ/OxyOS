@@ -102,7 +102,7 @@ class TextEditing {
   // a popup of it): what a command chosen in the input's context menu cites to copy and paste.
   void useInputSerial(std::function<uint64_t()> serial) { inputSerial_ = std::move(serial); }
 
-  // The platform's drag (drag.h): a drag of `text` from the press held, allowing copy and move,
+  // The platform's drag (drag.h): a drag of `text` from the latest press, allowing copy and move,
   // with `image` under the pointer; `done` receives the action the drop took, or nothing when it
   // was cancelled. False if it did not start (`done` is then called at once).
   struct DragAccess {

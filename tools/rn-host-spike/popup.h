@@ -87,6 +87,10 @@ class PopupHost {
   void sync(uint64_t serial);
   // The tree changed: every popup draws again once its previous frame is answered.
   void changed();
+  // Whether a popup's last frame had a ring spinning (progress-bar.h); turn(): each such popup draws
+  // again, its frame said to turn only that if nothing else changes first (true if one is ready to).
+  bool spinning() const;
+  bool turn();
   // Draws and presents each configured popup that has changed since its last frame.
   // Draws the popups that changed, and publishes their accessibility.
   void present(const TextInputEdit& edit, const std::string& focus);
@@ -130,6 +134,8 @@ class PopupHost {
     bool dismissed = false;  // closed by the compositor; the view is still mounted
     uint32_t parent = 0;     // the surface it hangs from
     bool tooltip = false;    // shown without a grab (popup.h's `tooltip`)
+    // A ring spun in its last frame; its next one turns only that (turn(), not changed()).
+    bool spins = false, onlyTurning = false;
   };
   // Counts the configures that came since it last looked, against the repositions sent.
   void observe(Popup& popup) const;

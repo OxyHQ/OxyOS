@@ -451,8 +451,7 @@ void DragDrop::drop(const OxyOSEvent& event) {
       break;
     }
   }
-  // The drag leaves the target as it is dropped on, as the web's does.
-  dispatch(view, "dragLeave", folly::dynamic::object());
+  // The drag leaves the target as the drop is delivered (deliver).
   offer_.reset();
   receiving_.push_back(std::move(receiving));
 }
@@ -529,6 +528,12 @@ bool DragDrop::deliver() {
     event["received"] = received;
     auto view = tree_.views().find(it->view);
     if (view != tree_.views().end() && view->second.view.eventEmitter) {
+      // The drag leaves the target as it is dropped on, as the web's does, with the drop: the two
+      // reach JavaScript in one batch, so what the target does as the drag leaves it (a gap closing
+      // on a spring) is undone by what it does with the drop (the dropped one in the gap at once)
+      // before a frame shows it, however busy JavaScript is (docs/adr/0067-the-ui-thread.mdx).
+      view->second.view.eventEmitter->dispatchEvent("dragLeave", folly::dynamic::object());
+      Report::get().deliver("drag.dragLeave", it->surface, view->second.view, folly::dynamic::object());
       view->second.view.eventEmitter->dispatchEvent("drop", folly::dynamic(event));
       Report::get().deliver("drag.drop", it->surface, view->second.view, event);
     }
@@ -569,7 +574,8 @@ void DragDrop::observe(const OxyOSEvent& event) {
         auto content = surfaces_(event.surface);
         Point origin = content ? content->origin : Point{};
         pressPoint_ = Point{origin.x + event.x / 256.0f, origin.y + event.y / 256.0f};
-      } else if (event.detail == OXYOS_POINTER_RELEASE || event.detail == OXYOS_POINTER_CANCEL) {
+      } else if (event.detail == OXYOS_POINTER_CANCEL) {
+        // Released, it is still the press a drag asked late starts from; cancelled, none.
         pressSerial_ = 0;
       }
       return;
@@ -682,6 +688,25 @@ void DragDrop::observe(const OxyOSEvent& event) {
 bool DragDrop::start(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview, int count,
                      bool vanish, std::function<void(std::optional<std::string>)> done,
                      std::function<void(const std::string&)> cancelled) {
+  // As a Mac's mouse-down selects and draws before a drag begins: what the press changed (an item
+  // selected, React rendering it once the events it was dispatched with have run) is mounted
+  // first, so the image is the item as it looks now.
+  asked_.push_back([this, data, actions, preview, count, vanish, done = std::move(done),
+                    cancelled = std::move(cancelled)]() mutable {
+    startFrom(data, actions, preview, count, vanish, std::move(done), std::move(cancelled));
+  });
+  return true;
+}
+
+bool DragDrop::startAsked() {
+  if (asked_.empty()) return false;
+  for (auto& start : std::exchange(asked_, {})) start();
+  return true;
+}
+
+bool DragDrop::startFrom(const folly::dynamic& data, const std::vector<std::string>& actions, Tag preview, int count,
+                         bool vanish, std::function<void(std::optional<std::string>)> done,
+                         std::function<void(const std::string&)> cancelled) {
   uint8_t allowed = 0;
   for (const auto& action : actions) allowed |= actionBit(action);
   std::optional<DragImage> image;

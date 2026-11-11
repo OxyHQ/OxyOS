@@ -92,96 +92,119 @@ other thread at 0, and `/proc/PID/task/TID/sched`'s `se.slice` reads 1000000 (a 
 main one, and its JavaScript thread, `oxyos-js`, too).
 
 **Each Bloom host** (an application, the shell, the login screen) writes, named by the
-application's id (else its module), lines of five kinds (`tools/rn-host-spike/frame-diagnostics.h`):
+application's id (else its module), lines of six kinds (`tools/rn-host-spike/frame-diagnostics.h`),
+each of its two threads measured on its own ([ADR 0067](./adr/0067-the-ui-thread)): the UI thread's
+frames, and JavaScript's work on its thread:
 
 ```text
-[host so.oxy.frameprobe] a frame after pointer.press took 127.4 ms, 7 dropped (a refresh is 16.7 ms): events 0.6,
-  JavaScript 126.2 (commits 0.2, of which Yoga layout 0.2 and text 0.0), animation 0.1, mount 0.0, drawing 0.2,
-  presenting 0.2 from the CPU, other 0.1; of it on the CPU 127.0 (JavaScript 125.9), blocked 0.2 (JavaScript 0.1),
-  preempted 0.2; waiting for the compositor 0.0; 2 turns; input to present 127.8 ms
-[host so.oxy.frameprobe] in the last 10.0 s: 91 frames, their work 3.5 ms median, 8.5 at the 95th percentile,
-  123.3 at most; input to present 129.6 ms median, 129.6 at the 95th percentile (2 inputs); 1 slow, 7 dropped
-  (a refresh is 16.7 ms)
-[host so.oxy.dropsea] a resize to 1102x680: its frame presented 104.5 ms after the configure (laying it out 0.8,
-  settling 65.8, cut short at a refresh; the frame's work 104.6, waiting for the compositor 0.0)
-[host so.oxy.dropsea] a live resize: 6 frames for 6 configures over 712 ms; configure to frame 104.5 ms median,
-  187.6 at most; laying out 0.8 ms median, 1.8 at most; 6 settles cut short at a refresh
-[host so.oxy.dropsea] zoom (to fill the work area): its configure 47.9 ms after it was asked, its frame presented 472.9 ms after
+[host so.oxy.dropsea] JavaScript worked 149.6 ms after pointer.press, on its own thread: on the CPU 59.6,
+  blocked 1.1, preempted 88.9; 4 tasks; the window presented 0 frames meanwhile, 0 dropped (a refresh is 16.7 ms)
+[host so.oxy.dropsea] a frame after a resize took 17.3 ms, 1 dropped (a refresh is 16.7 ms): events 0.0, laying
+  out 1.4, animation 0.1, mount 0.1 (commits 0.9, of which Yoga layout 0.5 and text 0.0), drawing 6.0, presenting
+  5.4 from the CPU, other 4.3; of it on the CPU 9.7, blocked 0.0, preempted 7.6; waiting for the compositor 0.0;
+  2 turns; JavaScript on its thread meanwhile 4.0 (on the CPU 4.0, blocked 0.0)
+[host so.oxy.frameprobe] in the last 10.0 s: 7 frames, their work 0.6 ms median, 3.9 at the 95th percentile, 3.9
+  at most; input to present 125.8 ms median, 136.5 at the 95th percentile (6 inputs); 0 slow, 0 dropped (a
+  refresh is 16.7 ms); JavaScript on its thread 535.3 ms in 14 stretches, 5 over a refresh, the longest 130.9 ms
+[host so.oxy.dropsea] a resize to 1102x680: its frame presented 20.2 ms after the configure (laying it out 1.3,
+  settling 3.9; the frame's work 14.8, waiting for the compositor 0.0)
+[host so.oxy.dropsea] a live resize: 19 frames for 19 configures over 422 ms; configure to frame 18.0 ms median,
+  35.8 at most; laying out 1.5 ms median, 2.0 at most; 1 settles cut short at a refresh
+[host so.oxy.dropsea] zoom (to fill the work area): its configure 6.8 ms after it was asked, its frame presented
+  69.1 ms after
 ```
 
 (each is one line in the log; these from `frame-diagnostics.json` and `dropsea-window.json` on the
-development compositor, which draws from the CPU). How to read them:
+development compositor, which draws from the CPU, on seldon under the gate's load, 10 November 2026:
+the preempted time is the machine's other work). How to read them:
 
-- **A frame's work** is everything the host's loop did since the frame before, its sleeping left
-  out: each moment is charged to one part. *events*: handling the compositor's events (a key's
-  menu shortcut runs JavaScript there). *JavaScript*: React's handlers, render and commits, and the
-  callbacks of timers and requestAnimationFrame; of it, *commits* is Fabric's commits as their
-  telemetry has them, *Yoga layout* their layout and *text* the text measured in it.
-  *animation*: Animated's native driver, worklets and Reanimated, a fling, gesture handlers.
-  *mount*: applying a commit to the host's tree. *drawing*: the damage and the painter recording
-  (on the GPU) or rasterizing (on the CPU) the frame. *presenting*: handing it to the compositor,
-  on the GPU with `sync`, the wait for its buffer, or from the CPU (copying it into shared memory).
-  *other*: the rest (images, accessibility, popups' placement). *Of it*: the same work by the
-  loop thread's own clocks (below, *Wall time and CPU time*): *on the CPU*, and of that
-  *JavaScript*'s; *blocked*, the thread asleep in the middle of its work, waiting for another
-  thread, a lock, a file (and of that *JavaScript*'s); *preempted*, the thread ready to run while
-  another had its CPU. *waiting for the compositor*: the time the frame was ready but the one
-  before it was not yet answered, which is not work; *turns*, the loop's turns it took.
-- **A frame is slow** when its work (by the wall clock: what the person waited), plus any wait
-  for the compositor beyond one refresh (a frame in flight is answered within one), is longer
-  than a refresh of its window's display:
-  16.7 ms at 60 Hz, 8.3 at 120. Its *dropped* are the refreshes it missed. The line names what
-  started the work: an input (`pointer.press`, `key`, `scroll`, `touch`, `text input`, …), *a
-  resize*, *an animation frame*, *a timer*, *data arriving*, *an image arriving*, *the first
-  frame*, or *JavaScript* (its own work: a promise, an event emitted the turn before). Work that
-  ends without a frame (an input whose answer changed nothing visible) is said as *handling … (no
-  frame)*. At most one slow line a second; the next says how many went unsaid.
-- **Input to present** is from the earliest input since the frame before, by its device's time
-  (libinput's), to the frame handed to the compositor: what the person waited, the compositor's
-  composition and the display's flip not included. (During an animation, an input that arrives as
-  a frame is drawn counts toward that frame, though its answer is in the next.)
+- **A frame's work** is everything the UI thread, the host's loop, did since the frame before, its
+  sleeping left out: each moment is charged to one part. *events*: handling the compositor's
+  events. *laying out*: the window laid out at a new size (Fabric's commit and Yoga, on the UI
+  thread). *animation*: Animated's native driver, worklets and Reanimated, a fling, gesture
+  handlers, requestAnimationFrame's frame begun. *mount*: applying what JavaScript committed to
+  the host's tree; *commits* is those commits as Fabric's telemetry has them (made on JavaScript's
+  thread, or on the UI thread for a resize, Reanimated or a scroll), *Yoga layout* their layout and
+  *text* the text measured in it. *drawing*: the damage and the painter recording (on the GPU) or
+  rasterizing (on the CPU) the frame. *presenting*: handing it to the compositor, on the GPU with
+  `sync`, the wait for its buffer, or from the CPU (copying it into shared memory). *other*: the
+  rest (images, accessibility, popups' placement). *Of it*: the same work by the UI thread's own
+  clocks (below, *Wall time and CPU time*): *on the CPU*; *blocked*, the thread asleep in the
+  middle of its work, waiting for another thread, a lock, a file; *preempted*, the thread ready to
+  run while another had its CPU. *waiting for the compositor*: the time the frame was ready but
+  the one before it was not yet answered, which is not work; *turns*, the loop's turns it took.
+  *JavaScript on its thread meanwhile*: what JavaScript's thread worked since the frame line
+  before, which never held the frame up.
+- **JavaScript's work** comes in stretches on its own thread, from taking work up idle to being
+  idle again: React's handlers, renders and commits, the callbacks of timers and
+  requestAnimationFrame. A stretch longer than a refresh is said (at most one line a second, the
+  next saying how many went unsaid), with what started it (the input the loop handed it, *a
+  timer*, *an animation frame*, *data arriving*, *its commit* for what mounting its commit set off,
+  *a call from another thread*), its time on the CPU, blocked and preempted, and
+  the frames the window presented meanwhile, and how many of those dropped refreshes: a long
+  stretch with frames presented and none dropped is a slow answer that held nothing a person
+  watches.
+- **A frame is slow** when the UI thread's work (by the wall clock), plus any wait for the
+  compositor beyond one refresh (a frame in flight is answered within one), is longer than a
+  refresh of its window's display: 16.7 ms at 60 Hz, 8.3 at 120. Its *dropped* are the refreshes
+  it missed: what a person saw stutter. The line names what started the work: an input
+  (`pointer.press`, `key`, `scroll`, `touch`, `text input`, …), *a resize*, *an animation frame*,
+  *data arriving*, *an image arriving*, *the first frame*, or *JavaScript* (a commit it handed
+  over). Work that ends without a frame (an input whose answer changed nothing visible) is said as
+  *handling … (no frame)*. At most one slow line a second; the next says how many went unsaid.
+- **Input to present** is from an input, by its device's time (libinput's), to the frame that shows
+  JavaScript's answer to it: the first frame handed to the compositor once JavaScript has run what
+  the input's turn handed it (its events, through Fabric's beat) and the loop applied what that
+  committed; an input that handed JavaScript nothing (a scroll the loop moved itself) is answered
+  by the next frame. What the person waited, the compositor's composition and the display's flip
+  not included.
 - **The summary** comes every 10 s while the window draws: its frames, their work's median, 95th
-  percentile and most, the latency from input, how many were slow and the refreshes dropped.
-  Nothing is written while the window is idle; a host that ends writes the frames since the last.
+  percentile and most, the latency from input, how many were slow and the refreshes dropped, and
+  JavaScript's work on its thread: in all, in how many stretches, how many over a refresh, the
+  longest. Nothing is written while the window is idle; a host that ends writes the frames since
+  the last.
 - **A resize** is from the configure that changed the window's size (as received) to the frame
   presented for it: *laying it out* (Fabric's commit with the new size), *settling* (the wait
-  for JavaScript's own layout at that size, up to a refresh: *cut short at a refresh* when the
-  application was still laying out). The first of a live resize is written as it is presented,
+  for JavaScript's own layout at that size, its thread idle and its commits applied, up to a
+  refresh: *cut short at a refresh* when the application was still laying out). The first of a live resize is written as it is presented,
   then one line when the edges stop (no frame for half a second).
 - **The window's operations**: a zoom from the request to the configure that zoomed it and to the
   frame presented at the new size; a minimize to the window losing its activation; a close (the
   application's own, or the session's: the dock, the switcher) to the loop leaving and the
   process's teardown. One not answered within 3 s is said too.
 
-What to look for: a slow frame whose *JavaScript* dominates is the application's own work (its
-JavaScript profile, above, says which functions), unless most of it was *preempted* (the machine
-busy with something else) or *blocked* (JavaScript waiting for another thread or a file);
+What to look for: a long stretch of JavaScript's is the application's own work (its JavaScript
+profile, above, says which functions), unless most of it was *preempted* (the machine busy with
+something else) or *blocked* (JavaScript waiting for another thread, a lock or a file); with frames
+dropped meanwhile, the UI thread was slow too, and its own lines say why. A slow frame's
 *drawing* or *presenting* is the host's painter (on the GPU, a large *sync* is the GPU being slow
-or busy); a large *waiting for the compositor*
-with little work is the compositor not answering in time (its own slow turns, above, say why);
-*input to present* far above the frame's work is the host busy with something else when the
-input came. A resize whose *settling* is cut short at every size is an application laying itself
+or busy); its *mount* is a large commit applied; a large *waiting for the compositor* with little
+work is the compositor not answering in time (its own slow turns, above, say why); *input to
+present* far above the frame's work is JavaScript's answer coming late (its stretch says why). A resize whose *settling* is cut short at every size is an application laying itself
 out several times per size.
 
 **Recording every application at once.** `OXYOS_HOST_REPORT` (the host's report, `report.h`) may
 name a directory (a path ending in `/`, or one that exists): every host then writes its own,
 `<application id>-<pid>.jsonl`, the shell's and every application's side by side, each with its
-frames' `timing` lines (the parts above, as numbers), its log lines (`log`) and its summaries
+frames' `timing` lines (the parts above, as numbers, with `js`, JavaScript's work since the frame
+line before), JavaScript's stretches (`js_timing`), its log lines (`log`) and its summaries
 (`timing_summary`). In the session's environment (`OXYOS_HOST_REPORT=$HOME/oxyos-validation/reports/`
 before `probar.sh` starts it), a profiling run records every application without any other
 change. A file path is one host's report, as before (`regress.py`'s).
 
 **Checked.** `scenarios/frame-diagnostics.json` (`sample/FrameProbe.tsx`) makes frames fast and
 slow: presses answered at once write no slow line, and 90 frames of requestAnimationFrame stay
-within a refresh; a press whose JavaScript holds the thread 120 ms writes one, its JavaScript at
-least 100 ms and its refreshes dropped; three within a second write one, and the next says the
-two unsaid; the idle window writes one summary, then nothing. Every run of every scenario also
-checks that each line a host's diagnostics wrote is in the log, whole; that a frame is said to be
-slow exactly when its work (and its wait beyond a refresh) passes a refresh, so a fast frame never
-is, however loaded the machine; that a slow line names the work its frame's `timing` line has;
-that each part's wall time is exactly its time on the CPU, blocked and preempted; and that each
-summary's numbers are those of the frames since the summary before (`regress.py`,
-`check_diagnostics`).
+within a refresh; a press whose JavaScript holds its thread 120 ms writes one line of
+JavaScript's, at least 100 ms, and no slow frame, the frame showing its answer timed from the press
+(at least 100 ms); three within a second write one, and the next says the two unsaid; the idle
+window writes one summary, then nothing. Every run of every scenario also checks that each line a
+host's diagnostics wrote is in the log, whole; that a frame is said to be slow exactly when its
+work (and its wait beyond a refresh) passes a refresh, so a fast frame never is, however loaded the
+machine; that a slow line names the work its frame's `timing` line has, and a stretch's line its
+`js_timing` line; that each part's wall time is exactly its time on the CPU, blocked and preempted,
+the UI thread's and JavaScript's alike; that each frame counts exactly JavaScript's stretches since
+the frame line before; and that each summary's numbers are those of the frames, and of
+JavaScript's stretches, since the summary before (`regress.py`, `check_diagnostics`).
 
 ### Wall time and CPU time
 
@@ -194,9 +217,9 @@ different questions:
   whatever lengthens it, the machine's load among it, is felt.
 - **Each thread's CPU clock** (`CLOCK_THREAD_CPUTIME_ID`) is the time the host's threads ran:
   JavaScript's (`oxyos-js`, `js-thread.h`), where the Yoga layout and the text measuring its
-  commits run too, and the loop's, every native part. JavaScript's part of a frame is measured on
-  JavaScript's thread, the loop waiting for it. Time a thread was scheduled out, or asleep waiting
-  for something, is not in it.
+  commits run too, and the loop's, the UI thread's, every native part. Each stretch of JavaScript's
+  work is measured on its own thread, each frame on the loop's. Time a thread was scheduled out, or
+  asleep waiting for something, is not in it.
   Budgets on how fast JavaScript does its work (`regress.py`'s `js_work.js_ms_max` and
   `resize_work`'s `js_ms_p95_max`, `perf.py`'s shell budgets) are by it, and are held only on a
   `perf.py` run (below).
@@ -256,9 +279,14 @@ resized renders the overview when it is open and nothing while it is closed); th
 the dock's first icon renders the icon and its button (`DockIcon`, `ButtonComponent`) and the
 tooltip (`PopupSurface`, its text `CssInterop.DisplayFaceText`), 37 components; moving over it,
 none; leaving it, the icon and its button again, 16. Each step also has a backstop on its
-JavaScript by the wall clock, two refreshes at 60 Hz (`js_work.js_wall_ms_max`: 33 ms), for a gross
-regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window change's,
-twice the most the heaviest load measured made of it (16.9 ms).
+JavaScript's time on its thread's CPU, two refreshes at 60 Hz (`js_work.js_ms_backstop`: 33 ms), for
+a gross regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window
+change's, twice the most the heaviest load measured made of it (16.9 ms). It was by the wall clock
+until 11 November 2026, when JavaScript ran on a thread of its own (docs/adr/0067-the-ui-thread.mdx)
+and a merge queue's runner at load 30–40 timed 57.6 ms of it for 4.8 ms on its CPU, once 2.8 s for
+4 ms: the rest was the thread preempted and blocked, the machine's time, not JavaScript's. Blocked
+and preempted time are said with a backstop's failure, and `js_blocked_ms_max` holds blocked time
+on the ThinkPad (`perf.py`).
 
 Counting is done only where it is checked: a host walks React's commits when its environment has
 `OXYOS_HOST_REPORT_RENDERS=1` beside `OXYOS_HOST_REPORT`, which `regress.py` sets for a scenario
@@ -298,11 +326,11 @@ pooled:
 For every frame the compositor composes, the director records when it started and how long
 composing it took (`composed` in each step's record: gathering the scene, reading the clients'
 buffers, composing, handing it over), and the part of it reading the clients' buffers. For every
-frame a host presents, its report records the loop's work since its previous frame (`busy_ms`,
-never its waiting) and the part of it running JavaScript (`js_ms`: React Native's runtime and
-the worklets' UI runtime, so React's render, Fabric's commit and Yoga's layout), both by the wall
-clock, and that JavaScript's time on the loop thread's CPU (`js_cpu_ms`) and blocked
-(`js_blocked_ms`); the rest is native (mounting, drawing, presenting, the compositor's events). Paced steps (`drag_paced`,
+frame a host presents, its report records the host's work since its previous frame (`busy_ms`,
+never its waiting: the loop's, and JavaScript's on its thread) and the part of it running
+JavaScript (`js_ms`: React Native's runtime on its thread and the worklets' UI runtime on the
+loop's, so React's render, Fabric's commit and Yoga's layout), both by the wall clock, and that
+JavaScript's time on its thread's CPU (`js_cpu_ms`) and blocked (`js_blocked_ms`); the rest is native (mounting, drawing, presenting, the compositor's events). Paced steps (`drag_paced`,
 `scroll_paced`) send each event when its time comes and compose the frame it wakes at once, as a
 device's event wakes a session's turn.
 
@@ -344,8 +372,8 @@ on the ThinkPad's display (1600 × 1000 at 1.25): another window pressed, zoomed
 bubble and restored (each changes what the shell knows of that window and nothing it shows), and
 the pointer entering the dock's first icon, moving over it and leaving. What each re-renders is
 held by every run of the scenario (above, *What a step re-renders*); `perf.py` measures, for each,
-the most JavaScript any one piece of the shell's work ran on the shell's CPU (its report's `timing`
-lines: a frame's work, and work that drew none but ran JavaScript), and `--check` holds its median
+the most JavaScript any one piece of the shell's work ran on the shell's CPU (its report's
+`js_timing` lines: each stretch of JavaScript's work on its thread), and `--check` holds its median
 to the scenario's `js_work` budget on speed, 2 ms for another window's change and 4 for the dock's
 hover, and its time blocked to 1 ms.
 
@@ -1135,7 +1163,7 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   backlights' sysfs notifications and PipeWire's default devices and volumes
   (`oxyos_controls::follow`), and the top bar's network is told from what the networks' part read;
   an access point's strength signalled is applied to the state with no call (`Changes::Strengths`,
-  `State::with_strengths`), and a scan's "last seen" alone wakes nothing. Every connection kept
+  `State::with_strengths`), and a scan's "last seen" alone is no call. Every connection kept
   waits on futures-lite's `block_on` (`oxyos_seat::system_bus`): a thread waiting long in
   async-io's (as zbus's internal executor and blocking iterators do) keeps async-io's reactor
   thread waking about ten times after every message. `blocking` stays at 1.6.2: 1.7.0's idle
@@ -1161,9 +1189,13 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   change (`arcs`, `State::shows_as`, as `signalBars` draws them), the strength kept until the next
   change. The controls read only what changed (`ReadBattery`, `ReadNetwork`, `ReadBluetooth`). On
   the ThinkPad the session's parts on its own bus woke 0.95 times a second over 20 s with one of
-  NetworkManager's background scans in it; `watch_idle.rs` holds another access point's strength
-  and the joined one seen again by a scan to nothing delivered (it fails at 27 a second when every
-  signal is).
+  NetworkManager's background scans in it. `watch_idle.rs` holds another access point's strength
+  to nothing delivered and no thread woken, and the joined one seen again by a scan (its "last
+  seen" alone, delivered: a match cannot tell which properties a `PropertiesChanged` names, they
+  are a dictionary) to exactly one wake of the watch's thread and one of async-io's, and no call
+  (it fails at 27 a second when every signal is). It counts wakes as voluntary context switches: a
+  thread taken off its core as it runs is the machine's load, and two such on a busy runner failed
+  the merge queue when it counted every switch against one a second.
 - **Bluetooth follows BlueZ the same way** (7 November 2026, [ADR 0055](./adr/0055-bluetooth)):
   one connection, its executor run by the session's `bluetooth` thread as it waits, delivered only
   BlueZ's objects added and removed, its adapters', devices' and batteries' properties and its
