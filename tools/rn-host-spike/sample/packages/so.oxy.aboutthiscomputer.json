@@ -1,0 +1,18 @@
+{
+  "id": "so.oxy.aboutthiscomputer",
+  "application": "00000000-0000-0000-0000-000000000000",
+  "version": "0.1.0",
+  "versionCode": 1,
+  "name": "About This Computer",
+  "names": {
+    "es": "Acerca de este ordenador"
+  },
+  "icon": "icon.png",
+  "entry": {
+    "bundle": "bundle/index.js",
+    "module": "OxyOSAboutThisComputer"
+  },
+  "architectures": [
+    "any"
+  ]
+}

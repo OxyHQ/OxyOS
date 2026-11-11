@@ -544,3 +544,43 @@ export function formatMemory(bytes: number): string {
   if (gib >= 1) return `${Math.round(gib)} GB`;
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
+
+// About This Computer (the Oxy menu's first row, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx
+// as amended on 10 November 2026; a Mac's About This Mac): what its window says of the machine, from
+// the facts Settings › About shows (`SystemFacts`: the host reads them from /etc/hostname,
+// os-release and /proc, docs/adr/0019-settings.mdx), never another source and never a guess.
+
+/** The URL its More Info… opens: Settings at its About page, as a Mac's opens General › About. */
+export const MORE_INFO_URL = "oxyos-settings://about";
+
+/** The words it says (the catalogue's `about` and `aboutThisComputer`). */
+type AboutMessages = {
+  about: { processor: string; memory: string; version: string };
+  aboutThisComputer: { moreInfo: string };
+};
+
+export type AboutThisComputer = {
+  /** The computer's name, the window's heading; empty when the system names it nothing. */
+  name: string;
+  /** Its facts in a Mac's order (its chip, memory, then the system's version), each a label and
+      its value, a fact the system does not tell left out. */
+  rows: { key: "processor" | "memory" | "version"; label: string; value: string }[];
+  moreInfo: string;
+};
+
+export function aboutThisComputer(system: SystemFacts, words: AboutMessages): AboutThisComputer {
+  const rows: AboutThisComputer["rows"] = [
+    { key: "processor", label: words.about.processor, value: system.processor.trim() },
+    {
+      key: "memory",
+      label: words.about.memory,
+      value: system.memoryBytes > 0 ? formatMemory(system.memoryBytes) : "",
+    },
+    { key: "version", label: words.about.version, value: system.version.trim() },
+  ];
+  return {
+    name: system.computerName.trim(),
+    rows: rows.filter((row) => row.value !== ""),
+    moreInfo: words.aboutThisComputer.moreInfo,
+  };
+}

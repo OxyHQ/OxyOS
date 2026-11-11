@@ -114,6 +114,21 @@ def scroll_names(report):
     return failures
 
 
+class MachineFacts(unittest.TestCase):
+    """About This Computer's facts as a scenario expects them: this machine's, as the host reads them."""
+
+    def test_a_text_names_the_machines_facts(self):
+        self.assertEqual(regress.machine_text("{machine:memory}"), regress.machine_fact("memory"))
+        self.assertRegex(regress.machine_fact("memory"), r"^\d+ (GB|MB)$")
+        self.assertEqual(regress.machine_text("Name: {machine:name}."), f"Name: {regress.machine_fact('name')}.")
+        self.assertEqual(regress.machine_text("plain"), "plain")
+        self.assertTrue(regress.same_text(regress.machine_fact("os"), "{machine:os}", 0))
+
+    def test_an_unknown_fact_stops_the_run(self):
+        with self.assertRaises(SystemExit):
+            regress.machine_text("{machine:serial}")
+
+
 class ViewsAreNamedNotTagged(unittest.TestCase):
     # settings-input-sources.json's step 8: the Add sheet's scroll view has no testID, nor has the
     # modal it is in; the page that declares the modal has.
@@ -155,6 +170,35 @@ class ViewsAreNamedNotTagged(unittest.TestCase):
         report = [deliver(10, "scroll", "list", "list"), deliver(20, "scroll", "ScrollView#3")]
         del report[1]["within"]
         self.assertEqual(regress.react_events(report, 0, 100), {"scroll@list": 1, "scroll@ScrollView#3": 1})
+
+
+class AStallsMotionsAreOneTurns(unittest.TestCase):
+    """`react`'s {"turns": count} (desktop-drag.json): a press's motions the host read at once after
+    a stall come in one turn and reach JavaScript together; the drag it starts on the first takes
+    the press, so no turn after delivers another."""
+
+    def check(self, turns, wanted):
+        report = [dict(deliver(10, "touchStart", "View#406", "desktop"), turn=1)]
+        report += [dict(deliver(20 + i, "touchMove", "View#406", "desktop"), turn=turn) for i, turn in enumerate(turns)]
+        report.append(dict(deliver(90, "touchCancel", "View#406", "desktop"), turn=9))
+        step = {"name": "drag", "do": ["wait", 0], "expect": {"react": {
+            "touchStart@desktop": 1, "touchMove@desktop": wanted, "touchCancel@desktop": 1}}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": 100}, report, 0, failures)
+        return failures
+
+    def test_four_motions_read_at_once_are_one_turn(self):
+        self.assertEqual(self.check([3, 3, 3, 3], {"turns": [1, 2]}), [])
+        self.assertEqual(regress.react_events([dict(deliver(20, "touchMove", "V", "desktop"), turn=3)] * 4, 0, 100,
+                                              turns=True), {"touchMove@desktop": 1})
+
+    def test_a_motion_in_a_turn_after_the_drag_began_fails(self):
+        failures = self.check([3, 3, 5, 7], {"turns": [1, 2]})
+        self.assertEqual(len(failures), 1)
+        self.assertIn("'touchMove@desktop': {'turns': 3, 'events': 4}", failures[0])
+
+    def test_a_plain_count_still_counts_every_delivery(self):
+        self.assertEqual(len(self.check([3, 3, 3], [1, 2])), 1)
 
 
 class ActivityIsCountedPerStep(unittest.TestCase):
@@ -211,6 +255,15 @@ class DeliveredCounts(unittest.TestCase):
         self.assertFalse(regress.counts_match(got, {"1": {"pinch.begin": 1, "pinch.update": [10, 30]}}))
         self.assertFalse(regress.counts_match({**got, "2": {"focus.in": 1}}, {"1": got["1"]}))
         self.assertTrue(regress.counts_match({}, {}))
+
+    def test_an_event_given_none_at_least_may_not_have_come(self):
+        # desktop-drag.json's Dropsea dragging out: its drag began over its window, or (late, on a
+        # loaded machine) once the pointer had left it, never entering it.
+        wanted = {"1": {"press": 1, "drag.enter": [0, 1], "drag.leave": [0, 1]}}
+        self.assertTrue(regress.counts_match({"1": {"press": 1}}, wanted))
+        self.assertTrue(regress.counts_match({"1": {"press": 1, "drag.enter": 1, "drag.leave": 1}}, wanted))
+        self.assertFalse(regress.counts_match({"1": {"press": 1, "drag.enter": 2}}, wanted))
+        self.assertFalse(regress.counts_match({"1": {"drag.enter": 1}}, wanted))
 
 
 class SpokenExactly(unittest.TestCase):
@@ -559,9 +612,14 @@ class SignalSteps(unittest.TestCase):
         self.assertIn("signal", regress.STEP_KEYS)
 
     def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
-        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+        for value in (["STOP", "reader"], ["SEGV", "dock"], ["HUP", "reader"], ["HUP", "shell"]):
             with self.assertRaises(ValueError):
                 regress.director_args({"do": ["signal", value]}, None)
+
+    def test_the_shell_is_ended_or_hung(self):
+        for signal in ("SEGV", "KILL", "STOP"):
+            self.assertEqual(regress.director_args({"do": ["signal", [signal, "shell"]]}, None),
+                             ["--signal", signal, "shell"])
 
 
 if __name__ == "__main__":

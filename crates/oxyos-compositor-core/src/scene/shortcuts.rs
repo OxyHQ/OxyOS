@@ -7,9 +7,13 @@
 //! The compositor acts on windows itself, so those work whatever the shell is doing:
 //! Super+W closes the active window (its close request), Super+Q quits its application (a close
 //! request to each of its windows), Super+M minimizes it, Super+H hides its application,
-//! Super+` (Shift: backwards) moves to its application's next window and Super+Ctrl+F toggles
-//! full screen. Super+Alt+D turns the dock's automatic hiding on and off (docs/adr/0034-the-dock.mdx),
-//! which the program keeps as the person's preference. What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
+//! Super+` (Shift: backwards) moves to its application's next window, Super+Ctrl+F toggles
+//! full screen and Super+Alt with F, C, R or an arrow (Shift: arrangements) tiles it (ADR 0016,
+//! decision 12, `tiling.rs`); with Alt, as a Mac's ⌥⌘W and ⌥⌘M, Super+Alt+W asks every window of
+//! the active application to close and Super+Alt+M minimizes every one shown on this workspace.
+//! Super+Alt+D turns the dock's automatic hiding on and off (docs/adr/0034-the-dock.mdx), which
+//! the program keeps as the person's preference.
+//! What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
 //! choice), Super pressed and released alone opens the launcher's search (ADR 0041), Super+Space
@@ -32,6 +36,7 @@
 //! a window hidden with its application stays off the screen, out of the dock, until its
 //! application is activated again.
 
+use super::tiling::{Arrangement, Layout, Tile};
 use super::{appearances, ClientId, OutputId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{
     CaptureMode, DismissReason, ErrorCode, Event, ShellKind, ShortcutIntent, SystemShortcut,
@@ -56,7 +61,10 @@ const Q: u32 = 16;
 const W: u32 = 17;
 /// D: the dock hiding automatically on and off, as a Mac's ⌥⌘D (docs/adr/0034-the-dock.mdx).
 const D: u32 = 32;
+/// R and C, with F: tiling's Return to Previous Size, Center and Fill (ADR 0016, decision 12).
+const R: u32 = 19;
 const F: u32 = 33;
+const C: u32 = 46;
 const H: u32 = 35;
 /// The key above Tab, left of 1: ` on the US layout, º on the Spanish one.
 const GRAVE: u32 = 41;
@@ -138,12 +146,36 @@ pub(super) struct Applications {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WindowAction {
     Close,
+    /// Every window of the active application asked to close, as each by Super+W.
+    CloseAll,
     Quit,
     Minimize,
+    /// Every window of the active application shown on this workspace minimized.
+    MinimizeAll,
     Hide,
     NextWindow,
     PreviousWindow,
     FullScreen,
+}
+
+/// The layout Super+Alt with `key` (and Shift) asks for (ADR 0016, decision 12).
+fn tiling_layout(key: u32, shift: bool) -> Option<Layout> {
+    let tile = |tile| Some(Layout::Tile(tile));
+    let arrange = |arrangement| Some(Layout::Arrange(arrangement));
+    match (key, shift) {
+        (F, false) => tile(Tile::Fill),
+        (C, false) => Some(Layout::Center),
+        (R, false) => Some(Layout::ReturnToPreviousSize),
+        (LEFT, false) => tile(Tile::Left),
+        (RIGHT, false) => tile(Tile::Right),
+        (UP, false) => tile(Tile::Top),
+        (DOWN, false) => tile(Tile::Bottom),
+        (LEFT, true) => arrange(Arrangement::LeftAndRight),
+        (RIGHT, true) => arrange(Arrangement::RightAndLeft),
+        (UP, true) => arrange(Arrangement::TopAndBottom),
+        (DOWN, true) => arrange(Arrangement::BottomAndTop),
+        _ => None,
+    }
 }
 
 impl Scene {
@@ -315,7 +347,36 @@ impl Scene {
             self.toggle_dock_hiding();
             return;
         }
+        // Force Quit Applications, as a Mac's ⌥⌘⎋ (docs/adr/0067-hangs-and-force-quit.mdx,
+        // decision 2): the program shows it. A menu open closes first.
+        if key == ESCAPE && alt && !ctrl && !shift && !self.capturing() {
+            self.dismiss_grab(DismissReason::OutsidePress);
+            self.force_quit_shortcut();
+            return;
+        }
+        // Tiling, as a Mac's Fn-Control with the same keys (ADR 0016, decision 12): Super+Alt with
+        // F fills, C centres, R returns to the previous size, an arrow tiles to that half, and with
+        // Shift an arrow arranges the active window and the one behind it.
+        if alt && !ctrl && !self.capturing() {
+            if let Some(layout) = tiling_layout(key, shift) {
+                if let Some(active) = self.active.filter(|active| self.live(*active).is_some()) {
+                    self.dismiss_grab(DismissReason::OutsidePress);
+                    self.lay_out_window(active, layout);
+                }
+                return;
+            }
+        }
         if alt {
+            // Close All and Minimize All, as a Mac's ⌥⌘W and ⌥⌘M: Super+W and Super+M for every
+            // window of the active application. Never while the screenshot interface is open.
+            let action = match (key, ctrl, shift) {
+                (W, false, false) => WindowAction::CloseAll,
+                (M, false, false) => WindowAction::MinimizeAll,
+                _ => return,
+            };
+            if !self.capturing() {
+                self.window_action(action);
+            }
             return;
         }
         // Screenshots (decision 10). While the interface is open, only these act.
@@ -409,6 +470,11 @@ impl Scene {
             (F, true, false) => WindowAction::FullScreen,
             _ => return,
         };
+        self.window_action(action);
+    }
+
+    /// One of the compositor's own window actions, on the active window or its application.
+    fn window_action(&mut self, action: WindowAction) {
         // With no active window, nothing to act on.
         let Some(active) = self.active.filter(|active| self.live(*active).is_some()) else {
             return;
@@ -416,17 +482,25 @@ impl Scene {
         // A menu open closes first, as a press elsewhere closes it; one of the window's own closes
         // with the window when it goes from the screen (its parent hidden), so the window is never
         // given the keyboard back for the instant between.
-        if !matches!(action, WindowAction::Minimize | WindowAction::Hide) {
+        if !matches!(
+            action,
+            WindowAction::Minimize | WindowAction::MinimizeAll | WindowAction::Hide
+        ) {
             self.dismiss_grab(DismissReason::OutsidePress);
         }
         match action {
             WindowAction::Close => {
                 self.emit(active.client, Event::CloseRequested { surface: active.id })
             }
+            WindowAction::CloseAll => self.close_application_windows(active),
             WindowAction::Quit => self.quit_application(active),
             WindowAction::Minimize => {
                 self.minimize(active);
                 // Any other menu (the top bar's, opened from the keyboard).
+                self.dismiss_grab(DismissReason::OutsidePress);
+            }
+            WindowAction::MinimizeAll => {
+                self.minimize_application(active);
                 self.dismiss_grab(DismissReason::OutsidePress);
             }
             WindowAction::Hide => {
@@ -577,6 +651,35 @@ impl Scene {
             })
             .map(|(window, _)| *window)
             .collect()
+    }
+
+    /// Super+Alt+W, a Mac's ⌥⌘W (Close All): each window of `key`'s application, on any
+    /// workspace, shown or minimized, is asked to close as Super+W asks one, and each may ask
+    /// first or refuse. The application is not quitting: what it runs in the background goes on.
+    fn close_application_windows(&mut self, key: SurfaceKey) {
+        for window in self.application_windows(key) {
+            self.emit(window.client, Event::CloseRequested { surface: window.id });
+        }
+    }
+
+    /// Super+Alt+M, a Mac's ⌥⌘M (Minimize All): the windows of `key`'s application shown on this
+    /// workspace go into the dock together, as the dock's press on the frontmost application
+    /// minimizes them (docs/adr/0034-the-dock.mdx, decision 9), the active one last, so the
+    /// keyboard moves once, to the window used last of another application. A window minimized
+    /// already, hidden or on another workspace stays as it is.
+    fn minimize_application(&mut self, key: SurfaceKey) {
+        let application = self.application_windows(key);
+        // Back to front, the active one last.
+        let mut shown: Vec<SurfaceKey> = self
+            .roots
+            .iter()
+            .copied()
+            .filter(|root| application.contains(root) && self.visible(*root))
+            .collect();
+        shown.sort_by_key(|window| *window == key);
+        for window in shown {
+            self.minimize(window);
+        }
     }
 
     /// Asks each window of `key`'s application to close; it may refuse.

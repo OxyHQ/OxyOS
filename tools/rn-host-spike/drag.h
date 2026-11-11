@@ -125,17 +125,29 @@ class DragDrop {
   // JavaScript ran the events queued before it (the loop's beat and drain): a drop it was given is
   // delivered, and the window's drag that ended with it can be told.
   void ranJavaScript();
+  // The turn's JavaScript ran and what it committed is mounted: the drags it asked start
+  // (`start` from JavaScript), each from the tree as it is now. Whether any was asked.
+  bool startAsked();
   // Who is given the files dropped on a target of the application's (`file://` URIs): the person
   // gave them to it (docs/adr/0030-installing-applications.mdx, decision 8), before its onDrop.
   void givesFiles(std::function<void(const std::string& uri)> give) { giveFiles_ = std::move(give); }
   // Who is told the window's drag: {"type": "enter"} and {"type": "exit", "dropped": bool}.
   void watchWindow(std::function<void(const folly::dynamic&)> tell) { tellWindow_ = std::move(tell); }
+  // Who is told a drag started from the press: the press is the drag's from then on, so React
+  // Native's touch is cancelled at once and given nothing more of it (PointerInput::cancelResponder),
+  // as a Mac's drag session takes the mouse's events from the moment the view begins it. The
+  // compositor's cancel of the press, a round trip later, then finds the touch already cancelled:
+  // the motions it sent meanwhile reach the drag, not the view that let go of them.
+  void takesPress(std::function<void()> take) { takePress_ = std::move(take); }
 
   // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`:
   // `count` items, the view `preview` (-1: none) being the one pressed, its image (dragStack: as
   // it looks, stacked and badged for several) under the pointer where it was pressed. `done`
   // receives the action the drop took, or nothing when it was cancelled or refused (no press held,
   // nothing to offer). False if it was not started; `done` is then called at once.
+  // Asked from JavaScript, it starts once the turn's JavaScript has run and its commits are mounted
+  // (`startAsked`): its image is the view as the press left it (selected), never the tree from
+  // before the press, which a press and a motion read in one turn (on a loaded machine) gave it.
   // `vanish`: dropped on nothing, its image vanishes in a poof where it is (version 26). A drag of
   // files says their types (dragFileTypes).
   // `cancelled`, if given, is told why a drag ended without a drop before `done` is ("escape",
@@ -258,6 +270,13 @@ class DragDrop {
   Presence presence_ = Presence::Outside;
   std::function<void(const folly::dynamic&)> tellWindow_;
   std::function<void(const std::string& uri)> giveFiles_;
+  // A drag of JavaScript's, started from the tree as it is (`start`'s work).
+  bool startFrom(const folly::dynamic& data, const std::vector<std::string>& actions, facebook::react::Tag preview,
+                 int count, bool vanish, std::function<void(std::optional<std::string>)> done,
+                 std::function<void(const std::string&)> cancelled);
+  // Drags JavaScript asked for this turn, started once its commits are mounted.
+  std::vector<std::function<void()>> asked_;
+  std::function<void()> takePress_;
 };
 
 }  // namespace oxyos

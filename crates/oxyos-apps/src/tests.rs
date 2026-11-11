@@ -96,8 +96,25 @@ fn exec_is_split_as_the_specification_quotes_and_field_codes_are_refused() {
 #[test]
 fn entries_not_to_list_and_invalid_ids_are_not_applications() {
     let dir = Path::new("/");
-    let hidden = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nNoDisplay=true\n";
+    // `Hidden` is a deleted entry: no application.
+    let hidden = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nHidden=true\n";
     assert_eq!(parse("so.oxy.x", hidden, dir, &[]), Ok(None));
+    // `NoDisplay` is an application never listed: it is there to be started, not shown.
+    let unlisted = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nNoDisplay=true\n";
+    let application = parse("so.oxy.x", unlisted, dir, &[]).unwrap().unwrap();
+    assert!(!application.shown);
+    assert_eq!(application.launch, Launch::Exec(vec!["x".into()]));
+    assert!(
+        parse(
+            "so.oxy.x",
+            "[Desktop Entry]\nType=Application\nName=X\nExec=x\n",
+            dir,
+            &[]
+        )
+        .unwrap()
+        .unwrap()
+        .shown
+    );
     let link = "[Desktop Entry]\nType=Link\nName=X\nURL=https://oxy.so\n";
     assert_eq!(parse("so.oxy.x", link, dir, &[]), Ok(None));
     assert!(parse("../etc/passwd", ALLO, dir, &[]).is_err());
@@ -142,6 +159,10 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
                 "so.oxy.broken.desktop",
                 "[Desktop Entry]\nType=Application\nName=Broken\n",
             ),
+            (
+                "so.oxy.about.desktop",
+                "[Desktop Entry]\nType=Application\nName=About\nExec=/bin/about\nNoDisplay=true\n",
+            ),
             ("README", "not an entry"),
         ],
     );
@@ -156,11 +177,18 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
         .iter()
         .map(|a| (a.id.as_str(), a.name.as_str()))
         .collect();
-    // The user's Allo replaces the system's; the user hid Gone; Broken is said and left out.
+    // The user's Allo replaces the system's; the user hid Gone; Broken is said and left out;
+    // About is an application never listed: there, and not shown.
     assert_eq!(
         names,
-        [("so.oxy.astro", "Astro"), ("so.oxy.allo", "Mi Allo")]
+        [
+            ("so.oxy.about", "About"),
+            ("so.oxy.astro", "Astro"),
+            ("so.oxy.allo", "Mi Allo")
+        ]
     );
+    let shown: Vec<bool> = apps.iter().map(|a| a.shown).collect();
+    assert_eq!(shown, [false, true, true]);
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     assert!(skipped[0].contains("so.oxy.broken"));
     assert_eq!(
@@ -174,6 +202,19 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
         )
         .map(|a| a.name),
         Some("Allo".into())
+    );
+    // Started by its id, as the Oxy menu starts About This Computer.
+    assert_eq!(
+        find(
+            &[system.0.clone()],
+            &[],
+            &Policy::none(),
+            None,
+            &|_| false,
+            "so.oxy.about"
+        )
+        .map(|a| (a.name, a.shown)),
+        Some(("About".into(), false))
     );
     assert_eq!(
         find(
@@ -442,6 +483,23 @@ fn a_url_opens_in_the_application_declaring_its_scheme_and_a_force_quit_ends_onl
         let exited = launcher.reap();
         if let Some(ended) = exited.iter().find(|exited| exited.pid == sleeping) {
             // Killed by the person's force quit: it did not quit unexpectedly.
+            assert!(ended.asked && !ended.abnormal());
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "it was not ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // A hung one is asked for its report (SIGQUIT), which a program without a handler ends on:
+    // asked, so never an unexpected quit (docs/adr/0067-hangs-and-force-quit.mdx).
+    let hung = launcher.launch("so.oxy.sleeper").unwrap();
+    assert!(!launcher.end_hung(std::process::id()));
+    assert!(launcher.end_hung(hung));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let exited = launcher.reap();
+        if let Some(ended) = exited.iter().find(|exited| exited.pid == hung) {
+            use std::os::unix::process::ExitStatusExt;
+            assert_eq!(ended.status.and_then(|status| status.signal()), Some(3));
             assert!(ended.asked && !ended.abnormal());
             break;
         }
@@ -1029,6 +1087,7 @@ fn a_system_launch_runs_what_the_policy_names() {
         pinned: None,
         origin: Origin::System,
         opens: Vec::new(),
+        shown: true,
     };
     let host = entries.join("host");
     let bundle = entries.join("bundle.js");
@@ -1360,6 +1419,7 @@ fn an_application_runs_on_its_runtimes_host() {
         pinned: None,
         origin: Origin::Development,
         opens: Vec::new(),
+        shown: true,
     };
     let session = Runtime {
         socket: PathBuf::from("/run/oxyos-test"),
@@ -1478,6 +1538,7 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
         pinned: None,
         origin: Origin::System,
         opens: Vec::new(),
+        shown: true,
     };
     let system = |host: &Path| SystemApplication {
         entry: root.join("so.oxy.settings.desktop"),
@@ -1905,6 +1966,7 @@ fn a_package_is_the_directory_of_its_compiled_bundle_and_manifest() {
         pinned: None,
         origin: Origin::Development,
         opens: Vec::new(),
+        shown: true,
     };
     let packaged = bloom(package.0.join("index.hbc"));
     assert_eq!(package_directory(&packaged), Some(package.0.as_path()));

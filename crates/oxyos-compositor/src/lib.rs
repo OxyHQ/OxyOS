@@ -10,6 +10,7 @@
 //! its own from the scene's frame list, clipped to it and scaled to its pixels, with its own
 //! damage, display, flips and pointer.
 
+use oxyos_compositor_core::scene::tiling;
 use oxyos_compositor_core::{
     physical, ClientId, Grants, Output, OutputId, Refusal, RenderItem, Scene, SurfaceKey,
     WindowLook,
@@ -33,6 +34,7 @@ pub mod backups;
 pub mod controls;
 pub mod crashes;
 pub mod drag_badge;
+pub mod force_quit;
 mod gpu_buffers;
 pub mod open_files;
 pub mod poof;
@@ -53,10 +55,12 @@ pub mod motion;
 pub mod networks;
 pub mod passkeys;
 pub mod power;
+pub mod resume;
 pub mod safe_mode;
 pub mod search;
 pub mod session_end;
 pub mod settings;
+pub mod shell_watch;
 pub mod sign_out;
 pub mod sound_devices;
 pub mod sounds;
@@ -536,6 +540,82 @@ pub fn refresh_period(refresh_mhz: u32) -> std::time::Duration {
 }
 
 /// A logical length at a scale (in 120ths), in pixels, rounded to the nearest.
+/// A material region of `layer` (in its buffer's pixels) where the layer is drawn: its rectangle
+/// and radius scaled from the buffer's extent to the layer's rectangle and kept within its clip,
+/// its blur's σ of 20 logical pixels at the screen's scale (`scale_120`), at the layer's opacity
+/// (docs/adr/0069-the-platforms-material.mdx, decision 2). None for one off the layer.
+fn material_area(
+    layer: &oxyos_gpu::Layer<'_>,
+    region: &oxyos_compositor_core::MaterialRegion,
+    scale_120: u32,
+) -> Option<oxyos_gpu::material::MaterialArea> {
+    let (extent_width, extent_height) = layer.extent;
+    if extent_width == 0 || extent_height == 0 {
+        return None;
+    }
+    let across = |value: i64, length: u32, extent: u32| -> i64 {
+        value * i64::from(length) / i64::from(extent)
+    };
+    let x0 = i64::from(layer.x) + across(i64::from(region.rect.x), layer.width, extent_width);
+    let y0 = i64::from(layer.y) + across(i64::from(region.rect.y), layer.height, extent_height);
+    let x1 = i64::from(layer.x)
+        + across(
+            i64::from(region.rect.x) + i64::from(region.rect.width),
+            layer.width,
+            extent_width,
+        );
+    let y1 = i64::from(layer.y)
+        + across(
+            i64::from(region.rect.y) + i64::from(region.rect.height),
+            layer.height,
+            extent_height,
+        );
+    let rect = oxyos_gpu::Rect {
+        x: x0.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        y: y0.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        width: (x1 - x0).clamp(0, i64::from(u32::MAX)) as u32,
+        height: (y1 - y0).clamp(0, i64::from(u32::MAX)) as u32,
+    };
+    let layer_rect = oxyos_gpu::Rect {
+        x: layer.x,
+        y: layer.y,
+        width: layer.width,
+        height: layer.height,
+    };
+    // Within the layer and its clip: a region never blurs beyond what its surface draws.
+    let within = layer
+        .clip
+        .map_or(Some(layer_rect), |clip| clip.intersect(&layer_rect))?;
+    if rect.intersect(&within) != Some(rect) {
+        // A region cut by the layer's edge or clip loses its corners there: drawn square where
+        // it is cut, as the surface's own pixels are.
+        let cut = rect.intersect(&within)?;
+        return Some(oxyos_gpu::material::MaterialArea {
+            rect: cut,
+            radius: 0,
+            sigma: (20 * scale_120 + 60) / 120,
+            opacity: layer.opacity,
+        });
+    }
+    Some(oxyos_gpu::material::MaterialArea {
+        rect,
+        radius: across(i64::from(region.radius), layer.width, extent_width) as u32,
+        sigma: (20 * scale_120 + 60) / 120,
+        opacity: layer.opacity,
+    })
+}
+
+/// `rect` grown by `by` pixels on every side.
+fn grow(rect: oxyos_gpu::Rect, by: u32) -> oxyos_gpu::Rect {
+    let by = by.min(1 << 20) as i32;
+    oxyos_gpu::Rect {
+        x: rect.x.saturating_sub(by),
+        y: rect.y.saturating_sub(by),
+        width: rect.width.saturating_add(2 * by as u32),
+        height: rect.height.saturating_add(2 * by as u32),
+    }
+}
+
 pub fn scaled(length: u32, scale_120: u32) -> u32 {
     ((u64::from(length) * u64::from(scale_120) * 2 + 120) / 240) as u32
 }
@@ -807,6 +887,8 @@ struct ScreenFrame<'a> {
     looks: &'a Looks,
     displayed: &'a HashMap<SurfaceKey, oxyos_compositor_core::Frame>,
     layers: &'a [oxyos_gpu::Layer<'a>],
+    /// The layers' material regions, by layer, in their buffers' pixels.
+    materials: &'a [(usize, Vec<oxyos_compositor_core::MaterialRegion>)],
     transition_drawn: &'a [oxyos_gpu::Rect],
     started: usize,
     locked: bool,
@@ -823,6 +905,8 @@ struct Content {
     extent: Size,
     format: Option<oxyos_protocol::Format>,
     pixels: Rc<Pixels>,
+    /// Without a format, the one colour it is (0x00RRGGBB): a cover's black, a tile's preview.
+    fill: u32,
     source: Option<oxyos_gpu::Source>,
     changed: Option<(u64, Vec<oxyos_gpu::Rect>)>,
     opacity: u8,
@@ -854,6 +938,7 @@ impl Content {
             extent: Size::new(1, 1),
             format: None,
             pixels: Rc::default(),
+            fill: 0,
             source: None,
             changed: None,
             opacity: 255,
@@ -888,6 +973,7 @@ impl Content {
             extent: Size::new(profile.entries(), 1),
             format: None,
             pixels: Rc::default(),
+            fill: 0,
             source: Some(*source),
             changed: None,
             opacity,
@@ -2067,7 +2153,8 @@ impl Compositor {
                 RenderItem::Surface { key, .. } => Some((key, self.scene.window_look(key)?)),
                 RenderItem::Cover { .. }
                 | RenderItem::View { .. }
-                | RenderItem::DragBadge { .. } => None,
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => None,
             })
             .collect();
         // Surfaces arriving start their transitions in this frame; those going are drawn from
@@ -2322,7 +2409,8 @@ impl Compositor {
                 RenderItem::Surface { key, frame, .. } => Some((key, frame)),
                 RenderItem::Cover { .. }
                 | RenderItem::View { .. }
-                | RenderItem::DragBadge { .. } => None,
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => None,
             })
             .collect();
         // Each surface's pixels, read from its shared buffer, and the covers.
@@ -2389,7 +2477,7 @@ impl Compositor {
             let above = match item {
                 RenderItem::Surface { key, .. } => self.scene.above_windows(key),
                 RenderItem::Cover { .. } | RenderItem::DragBadge { .. } => true,
-                RenderItem::View { .. } => false,
+                RenderItem::View { .. } | RenderItem::TilePreview { .. } => false,
             };
             if above && under_panels.is_none() {
                 under_panels = Some(contents.len());
@@ -2539,6 +2627,7 @@ impl Compositor {
                             extent,
                             format: Some(format),
                             pixels,
+                            fill: 0,
                             source,
                             changed,
                             opacity: arriving.opacity,
@@ -2555,6 +2644,14 @@ impl Compositor {
                     None => unreadable.push((key, frame.buffer)),
                 },
                 RenderItem::Cover { rect, .. } => contents.push(Content::cover(rect)),
+                // Where a window dragged would be tiled (ADR 0016, decision 12): a translucent
+                // pane with a window's corners, beneath the window.
+                RenderItem::TilePreview { rect } => contents.push(Content {
+                    fill: tiling::PREVIEW_COLOR,
+                    opacity: tiling::PREVIEW_OPACITY,
+                    radius: window::WINDOW_RADIUS,
+                    ..Content::cover(rect)
+                }),
                 // The drag's pointer badge (ADR 0035), over everything, at the scale of the output
                 // it is on: crisp at a fractional one.
                 RenderItem::DragBadge { rect, action } => {
@@ -2582,6 +2679,7 @@ impl Compositor {
                             extent,
                             format: Some(oxyos_protocol::Format::Argb8888),
                             pixels,
+                            fill: 0,
                             source: None,
                             changed: None,
                             opacity: 255,
@@ -2699,6 +2797,7 @@ impl Compositor {
                         extent,
                         format: Some(format),
                         pixels,
+                        fill: 0,
                         source,
                         changed: None,
                         opacity: drawn_opacity,
@@ -2723,7 +2822,9 @@ impl Compositor {
                 RenderItem::Surface { key: drawn, .. } | RenderItem::View { window: drawn, .. } => {
                     drawn == *key
                 }
-                RenderItem::Cover { .. } | RenderItem::DragBadge { .. } => false,
+                RenderItem::Cover { .. }
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => false,
             })
         });
         // The splash over everything while the session starts, on every screen.
@@ -2738,6 +2839,7 @@ impl Compositor {
                 extent: splash.extent,
                 format: Some(splash.format),
                 pixels: splash.pixels.clone(),
+                fill: 0,
                 source: None,
                 changed: None,
                 opacity: 255,
@@ -2804,6 +2906,7 @@ impl Compositor {
                 extent: snapshot.extent,
                 format: Some(snapshot.format),
                 pixels: snapshot.pixels.clone(),
+                fill: 0,
                 source: if docking { snapshot.source } else { None },
                 changed: None,
                 opacity: at.opacity,
@@ -2838,6 +2941,7 @@ impl Compositor {
                         extent,
                         format: Some(oxyos_protocol::Format::Argb8888),
                         pixels: Rc::new(Pixels::from(bytes)),
+                        fill: 0,
                         source: None,
                         changed: None,
                         opacity: 255,
@@ -2883,6 +2987,7 @@ impl Compositor {
                     extent: view.extent,
                     format: Some(view.format),
                     pixels: view.pixels.clone(),
+                    fill: 0,
                     source: None,
                     changed: None,
                     opacity,
@@ -2962,7 +3067,7 @@ impl Compositor {
                     (None, Some(oxyos_protocol::Format::Argb8888)) => {
                         oxyos_gpu::Paint::Premultiplied(pixels)
                     }
-                    (None, None) => oxyos_gpu::Paint::Fill(0),
+                    (None, None) => oxyos_gpu::Paint::Fill(content.fill),
                 },
                 source: content.source,
                 changed: content
@@ -2976,6 +3081,17 @@ impl Compositor {
                 filter: oxyos_gpu::Filter::Box,
                 clip: content.clip,
                 warp: content.warp.as_deref().map(|rows| oxyos_gpu::Warp { rows }),
+            })
+            .collect();
+        // Each surface's material regions (docs/adr/0069-the-platforms-material.mdx), by its
+        // layer: only its own pixels' layer, never a shadow, a cover or a copy shown live.
+        let materials: Vec<(usize, Vec<oxyos_compositor_core::MaterialRegion>)> = contents
+            .iter()
+            .enumerate()
+            .filter(|(_, content)| content.shadow.is_none() && content.shares.is_none())
+            .filter_map(|(index, content)| {
+                let regions = self.scene.material_regions(content.key?);
+                (!regions.is_empty()).then(|| (index, regions.to_vec()))
             })
             .collect();
         // Frames older than those composed are never shown again.
@@ -3013,6 +3129,7 @@ impl Compositor {
                     looks: &looks,
                     displayed: &displayed,
                     layers: &layers,
+                    materials: &materials,
                     transition_drawn: &transition_drawn,
                     started,
                     locked,
@@ -3440,12 +3557,44 @@ impl Compositor {
             }
             return;
         }
-        // The layers on the screen, in its pixels.
-        let layers: Vec<oxyos_gpu::Layer<'_>> = frame
-            .layers
+        // The layers on the screen, in its pixels, and where each of the frame's is among them.
+        let mut on_screen = vec![None; frame.layers.len()];
+        let mut layers: Vec<oxyos_gpu::Layer<'_>> = Vec::with_capacity(frame.layers.len());
+        for (index, layer) in frame.layers.iter().enumerate() {
+            if let Some(placed) = screen.layer(layer) {
+                on_screen[index] = Some(layers.len());
+                layers.push(placed);
+            }
+        }
+        // The material areas on the screen (docs/adr/0069-the-platforms-material.mdx): each
+        // region from its layer's buffer pixels to where the layer is drawn, within its clip.
+        let materials: Vec<(usize, oxyos_gpu::material::MaterialArea)> = frame
+            .materials
             .iter()
-            .filter_map(|layer| screen.layer(layer))
+            .filter_map(|(index, regions)| Some((on_screen[*index]?, regions)))
+            .flat_map(|(at, regions)| {
+                let layer = &layers[at];
+                regions
+                    .iter()
+                    .filter_map(move |region| material_area(layer, region, screen.scale_120))
+                    .map(move |area| (at, area))
+            })
             .collect();
+        // A region's pixels depend on what is beneath it within its reach: anything changed
+        // there redraws the whole region.
+        let damage = damage.map(|mut rects| {
+            let grown: Vec<oxyos_gpu::Rect> = materials
+                .iter()
+                .filter(|(_, area)| {
+                    let reach = oxyos_gpu::material::reach(area.sigma);
+                    let around = grow(area.rect, reach);
+                    rects.iter().any(|rect| rect.intersect(&around).is_some())
+                })
+                .map(|(_, area)| area.rect)
+                .collect();
+            rects.extend(grown);
+            rects
+        });
         if self.records {
             let area = |rects: &[oxyos_gpu::Rect]| {
                 let within: Vec<oxyos_gpu::Rect> = rects
@@ -3466,16 +3615,21 @@ impl Compositor {
             let framebuffer = &mut self.screens[index].framebuffer;
             match &damage {
                 Some(damage) if framebuffer.len() == width as usize * height as usize => {
-                    oxyos_gpu::compose_cpu_damaged(
+                    oxyos_gpu::compose_cpu_damaged_with_material(
                         framebuffer,
                         width,
                         height,
                         DESKTOP,
                         &layers,
+                        &materials,
                         damage,
                     )
                 }
-                _ => *framebuffer = oxyos_gpu::compose_cpu(width, height, DESKTOP, &layers),
+                _ => {
+                    *framebuffer = oxyos_gpu::compose_cpu_with_material(
+                        width, height, DESKTOP, &layers, &materials,
+                    )
+                }
             }
         }
         if self.keep_frame && index == 0 {
@@ -3495,6 +3649,9 @@ impl Compositor {
             self.gpu_holds = Some(id);
             match composed {
                 Ok(pixels) if pixels == self.screens[index].framebuffer => {}
+                // The shader does not draw the material yet (docs/adr/0069-the-platforms-material.mdx,
+                // the third step): a frame with any is the reference's alone, not a mismatch.
+                Ok(_) if !materials.is_empty() => {}
                 Ok(_) => gpu.mismatches += 1,
                 Err(error) => {
                     eprintln!("[gpu] {error}");
@@ -4918,7 +5075,8 @@ pub fn output_damage(
                 }
                 RenderItem::Cover { .. }
                 | RenderItem::View { .. }
-                | RenderItem::DragBadge { .. } => None,
+                | RenderItem::DragBadge { .. }
+                | RenderItem::TilePreview { .. } => None,
             })
             .collect()
     };
@@ -4986,7 +5144,9 @@ pub fn output_damage(
             .filter(|item| {
                 matches!(
                     item,
-                    RenderItem::Cover { .. } | RenderItem::DragBadge { .. }
+                    RenderItem::Cover { .. }
+                        | RenderItem::DragBadge { .. }
+                        | RenderItem::TilePreview { .. }
                 )
             })
             .copied()
@@ -4996,7 +5156,8 @@ pub fn output_damage(
     for (these, others) in [(&old_covers, &new_covers), (&new_covers, &old_covers)] {
         for cover in these.iter().filter(|cover| !others.contains(cover)) {
             if let RenderItem::Cover { rect: cover, .. }
-            | RenderItem::DragBadge { rect: cover, .. } = cover
+            | RenderItem::DragBadge { rect: cover, .. }
+            | RenderItem::TilePreview { rect: cover } = cover
             {
                 damage.push(rect(*cover));
             }

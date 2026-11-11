@@ -32,6 +32,10 @@ use std::time::Duration;
 /// How long a client has to answer a Ping before it is not responding, as Mutter's and close to a
 /// Mac's: a frame that takes this long is not one the person waits for.
 pub const PING_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a client has to answer a Ping before the pointer over it shows the wait cursor, drawn
+/// by the compositor whatever the client asked for (docs/adr/0067-hangs-and-force-quit.mdx,
+/// decision 1): about a Mac's spinning wait cursor's delay, which Apple does not document.
+pub const BUSY_AFTER: Duration = Duration::from_secs(2);
 /// The first version whose clients answer a Ping.
 const PING_VERSION: u16 = 8;
 /// Requests asked for and not yet taken, of each kind.
@@ -135,12 +139,39 @@ impl Scene {
         self.events.push((client, Event::Ping { serial }));
     }
 
+    /// Sends `client` a Ping of its own, whatever else is unanswered, if its version answers
+    /// one: its Pong says it has read and handled every event sent before it (the client library
+    /// answers it as it reads it). The serial it sent, or none.
+    pub(super) fn ping_after_events(&mut self, client: ClientId) -> Option<u32> {
+        let dock = &mut self.dock;
+        if dock.versions.get(&client).is_none_or(|v| *v < PING_VERSION) {
+            return None;
+        }
+        dock.next_ping = dock.next_ping.wrapping_add(1).max(1);
+        let serial = dock.next_ping;
+        self.events.push((client, Event::Ping { serial }));
+        Some(serial)
+    }
+
+    /// Pings `client` whatever it was sent, unless a Ping to it is unanswered: the program keeps
+    /// its shell answering (the shell's watch, docs/adr/0061, decision 6).
+    pub fn ping_client(&mut self, client: ClientId) {
+        if self.clients.contains_key(&client) {
+            self.ping(client);
+        }
+    }
+
     /// An event about to be sent: what asks a client to answer (input, a close request, its
     /// activation) pings it.
     pub(super) fn pings_for(&mut self, client: ClientId, event: &Event) {
         use oxyos_protocol::{PointerKind, TouchKind};
+        // The pointer coming onto a client's surface and moving over it asks too (one Ping
+        // outstanding at a time), so hovering a hung window shows the wait cursor without a press.
         let asks = match event {
-            Event::Pointer { kind, .. } => *kind == PointerKind::Press,
+            Event::Pointer { kind, .. } => matches!(
+                *kind,
+                PointerKind::Press | PointerKind::Enter | PointerKind::Motion
+            ),
             Event::Key { pressed, .. } | Event::KeyText { pressed, .. } => *pressed,
             Event::Touch { kind, .. } => *kind == TouchKind::Down,
             Event::CloseRequested { .. } => true,
@@ -162,6 +193,7 @@ impl Scene {
             self.dock.pings.remove(&client);
             self.dock.not_responding.remove(&client);
         }
+        self.drop_answered(client, serial);
     }
 
     /// Marks the clients that did not answer a Ping within [`PING_TIMEOUT`] of the clock (the
@@ -176,16 +208,47 @@ impl Scene {
             .map(|(client, _)| *client)
             .collect();
         self.dock.not_responding.extend(late);
+        self.drop_unanswered();
     }
 
     /// When the next unanswered Ping is late, after the clock: the program's turn waits no longer.
+    /// Its first lateness is [`BUSY_AFTER`] (the wait cursor), its second [`PING_TIMEOUT`].
     pub fn next_ping_deadline(&self) -> Option<Duration> {
         self.dock
             .pings
             .iter()
             .filter(|(client, _)| !self.dock.not_responding.contains(client))
-            .map(|(_, (_, sent))| (*sent + PING_TIMEOUT).saturating_sub(self.clock))
+            .map(|(_, (_, sent))| {
+                let late = self.clock.saturating_sub(*sent);
+                let next = if late < BUSY_AFTER {
+                    BUSY_AFTER
+                } else {
+                    PING_TIMEOUT
+                };
+                next.saturating_sub(late)
+            })
+            .chain(self.drop_deadline())
             .min()
+    }
+
+    /// Whether `client` has left a Ping unanswered for [`BUSY_AFTER`] or more: the pointer over
+    /// any of its surfaces shows the wait cursor, drawn by the compositor, until it answers.
+    pub fn busy(&self, client: ClientId) -> bool {
+        self.dock.not_responding.contains(&client)
+            || self
+                .dock
+                .pings
+                .get(&client)
+                .is_some_and(|(_, sent)| self.clock.saturating_sub(*sent) >= BUSY_AFTER)
+    }
+
+    /// How long `client` has left its Ping unanswered, if it has one outstanding: a hang's report
+    /// says it.
+    pub fn unanswered_for(&self, client: ClientId) -> Option<Duration> {
+        self.dock
+            .pings
+            .get(&client)
+            .map(|(_, sent)| self.clock.saturating_sub(*sent))
     }
 
     /// Whether `client` answers (a client never pinged does).
