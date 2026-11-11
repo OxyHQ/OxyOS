@@ -1372,10 +1372,13 @@ def director_args(step, out):
         return args + ["--idle", str(value)]
     if kind == "signal":
         # A part of the session ended as a crash or a `kill` would, [SIGNAL, PART] ("SEGV",
-        # "reader"): the session then does what it does when that part ends on its own.
+        # "reader"; "shell", the primary output's): the session then does what it does when that
+        # part ends on its own. "STOP" hangs the shell (it answers nothing), for its watch.
         signal, part = value
-        if signal not in ("SEGV", "ABRT", "KILL", "TERM") or part not in ("reader",):
-            raise ValueError(f"signal: {value}: a signal of SEGV, ABRT, KILL or TERM to the reader")
+        if (part not in ("reader", "shell") or signal not in ("SEGV", "ABRT", "KILL", "TERM", "STOP")
+                or signal == "STOP" and part != "shell"):
+            raise ValueError(f"signal: {value}: SEGV, ABRT, KILL or TERM to the reader or the shell, "
+                             "or STOP to the shell")
         return args + ["--signal", signal, part]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
@@ -7225,7 +7228,15 @@ def main():
     # at any time, even as the run ended and whatever the steps said, fails the run, its backtrace
     # said: a crash is never a pass, and the run that saw it is the one that can say where.
     logged = run.stderr.splitlines()
-    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")]
+    # A signal the scenario sent the shell itself (a `signal` step: the host says the signal was
+    # "sent by process", never a fault of its own) is the step's, not a crash.
+    numbers = {"SEGV": 11, "ABRT": 6}
+    sent = {numbers[step["do"][1][0]] for step in scenario.get("steps", [])
+            if step.get("do", [None])[0] == "signal" and step["do"][1][1] == "shell"
+            and step["do"][1][0] in numbers}
+    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")
+               and not (" sent by process " in line
+                        and any(line.startswith(f"[host] fatal signal {number} ") for number in sent))]
     for at in crashes:
         print(f"FAIL: a host crashed; see {out / 'director.log'}")
         print("\n".join(logged[at:at + 24]))

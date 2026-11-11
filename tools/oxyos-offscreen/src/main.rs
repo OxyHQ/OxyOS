@@ -76,6 +76,17 @@ impl Drop for TempDir {
 
 struct Children(Vec<Child>);
 
+impl Children {
+    /// The application's exit, if it ended: the first child, when there is one (a login screen
+    /// has none).
+    fn application_exited(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self.0.first_mut() {
+            Some(application) => application.try_wait(),
+            None => Ok(None),
+        }
+    }
+}
+
 impl Drop for Children {
     fn drop(&mut self) {
         for child in &mut self.0 {
@@ -169,6 +180,9 @@ struct Session {
     /// With `--launch --shell`: the applications' login items and background activity, as the
     /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
     pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// With `--shell`: the session's shells, watched and started again as the session keeps its
+    /// own (docs/adr/0061, decision 6).
+    pub shells: Option<launch::Shells>,
     /// The processes the session ended for their background activity since a step last took them
     /// (each its application's id).
     pub background_ended: Vec<String>,
@@ -377,6 +391,7 @@ impl Session {
             grants: Vec::new(),
             installs: None,
             background: None,
+            shells: None,
             background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
@@ -1123,9 +1138,20 @@ impl Session {
             .map(|(client, _)| *client)
     }
 
+    /// The shells' turn: watched, one that ended noticed and started again after its wait.
+    fn serve_shells(&mut self) {
+        if let Some(mut shells) = self.shells.take() {
+            if let Err(error) = shells.serve(self) {
+                eprintln!("[shell] {error}");
+            }
+            self.shells = Some(shells);
+        }
+    }
+
     /// Starts the applications the shell asked for that the registry lists, and answers it;
     /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {
+        self.serve_shells();
         self.serve_choosers();
         let (launcher, app) = (&self.launcher, &self.app);
         let companion = self.companion.zip(self.companion_app.clone());

@@ -733,9 +733,14 @@ class SignalSteps(unittest.TestCase):
         self.assertIn("signal", regress.STEP_KEYS)
 
     def test_only_signals_that_end_a_part_and_only_parts_the_session_keeps(self):
-        for value in (["STOP", "reader"], ["SEGV", "shell"], ["HUP", "reader"]):
+        for value in (["STOP", "reader"], ["SEGV", "dock"], ["HUP", "reader"], ["HUP", "shell"]):
             with self.assertRaises(ValueError):
                 regress.director_args({"do": ["signal", value]}, None)
+
+    def test_the_shell_is_ended_or_hung(self):
+        for signal in ("SEGV", "KILL", "STOP"):
+            self.assertEqual(regress.director_args({"do": ["signal", [signal, "shell"]]}, None),
+                             ["--signal", signal, "shell"])
 
 
 if __name__ == "__main__":
