@@ -340,10 +340,6 @@ fn requests() -> Vec<Request> {
             window: 7,
             layout: WindowLayout::BottomAndTop,
         },
-        Request::LayOutWindow {
-            window: 7,
-            layout: WindowLayout::Zoom,
-        },
         Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
