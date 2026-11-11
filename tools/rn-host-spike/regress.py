@@ -441,6 +441,14 @@ it settles once the session has a sheet waiting and the shell shows a surface it
 the step, however long after the step's first answer that is (an update is staged, downloaded and
 verified, before its consent is asked), never after a set time.
 
+A `drag_paced` (or `drag_paced_named`) step with `until_taken` drags as a hand that lets the
+application take each motion: after each, it waits until the application pressed, or the drag's
+target once a drag has begun, has taken everything it was sent (two Pings answered in turn), then goes
+on. What the drag passes over (a drop target's edge, the window it leaves, the touches React is given
+before it begins) and what each is told (the action its answer was told) is then where the hand was,
+whatever the machine's load; a drag that begins late, its press already released, is a `drag_output`
+step's, whose events all reach the application before it reads any (ADR 0035, decision 2).
+
 A step with `until_named` ([name, ms]) is answered on the application's own clock (an install the
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
@@ -1245,6 +1253,11 @@ def director_args(step, out):
         # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         # logged out, or logind asked, once every application quit on its own clock.
         args.append("--until-ended")
+    if step.get("until_taken"):
+        # A paced drag whose hand lets the application take each motion: after each, it waits for
+        # the application pressed (the drag's target once a drag began) to take what it was sent, so
+        # what the drag passes over and what each is told is where the hand was, whatever the load.
+        args.append("--until-taken")
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]

@@ -995,6 +995,15 @@ pub struct Settling {
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
     pub ended: bool,
+    /// `--until-taken`: a paced drag (`DragPaced`) whose hand lets the application take each
+    /// motion: after each, it waits until the application holding the press, or the drag's target
+    /// once a drag has begun, has taken everything it was sent (two Pings answered in turn: the
+    /// Bloom host answers one once JavaScript ran what came before it, and starts the drags
+    /// JavaScript asked, and reads the action its answer to a motion was told, before it reads
+    /// the next), then goes on. What the drag passes over (a drop target's edge, the window it
+    /// leaves) and what each is told is then where the hand was, whatever the machine's load; a
+    /// drag that begins late is the `drag_output` steps' (ADR 0035, decision 2).
+    pub taken: bool,
 }
 
 pub struct Launch {
@@ -1189,7 +1198,7 @@ pub struct Launch {
     pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1365,6 +1374,10 @@ impl Launch {
                 }
                 Some("--until-ended") => {
                     settling.ended = true;
+                    continue;
+                }
+                Some("--until-taken") => {
+                    settling.taken = true;
                     continue;
                 }
                 Some("--until-named") => {
@@ -5088,6 +5101,38 @@ fn grab(
     Ok(())
 }
 
+/// How a paced drag's hand goes: its button `held` at the end (the drag goes on into the steps
+/// after it), and whether it lets the application take each motion (`Settling::taken`).
+#[derive(Clone, Copy, Debug)]
+struct Hand {
+    held: bool,
+    taken: bool,
+}
+
+/// The application the hand's motion went to has taken everything it was sent (`Settling::taken`):
+/// the one holding the press, or the drag's target once a drag has begun; two Pings answered in
+/// turn, each within a Ping's time. The Bloom host answers a Ping once JavaScript ran the events
+/// before it; the drags JavaScript asked start at the top of its next turn, and the action the
+/// compositor told for its answer to the motion arrives after the first Ping, so both are in
+/// before the second Pong (a text field's drag starts as its motion is read). An application that
+/// answers no Ping is not waited for, nor is anyone with no press held and no drag's target.
+fn taken(session: &mut Session) -> Result<()> {
+    for _ in 0..2 {
+        let scene = &mut session.compositor.scene;
+        let Some(client) = scene.drag_target().or_else(|| scene.holding_press()) else {
+            return Ok(());
+        };
+        let Some(ping) = scene.ping_after(client) else {
+            return Ok(());
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !session.compositor.scene.answered(client, ping) && Instant::now() < deadline {
+            session.compositor.serve(&session.listener)?;
+        }
+    }
+    Ok(())
+}
+
 /// A paced drag (`Step::DragPaced`) on the scene: the press, each motion when its time comes with
 /// the compositor serving the application until then, the release, and the compositor serving it
 /// until its window shows a frame for the latest configure (or five seconds pass). Returns what
@@ -5112,7 +5157,10 @@ fn drag_paced(
     (motions, hz): (u32, u32),
     escape_after: Option<u32>,
     rest_ms: u32,
-    held: bool,
+    Hand {
+        held,
+        taken: hand_taken,
+    }: Hand,
 ) -> Result<String> {
     inside_output(&session.compositor, from)?;
     inside_output(&session.compositor, to)?;
@@ -5202,8 +5250,11 @@ fn drag_paced(
     // Each motion when its time comes: the turns before it wait at most until then, and the turn
     // the motion wakes composes its frame at once, as a device's event wakes a session's turn.
     let idle_wait = session.compositor.idle_wait;
+    // What the hand waited for the application to take its motions (`Settling::taken`): the
+    // motions after go on at its pace from there.
+    let mut waited = Duration::ZERO;
     for i in 1..=steps {
-        let due = interval * i as u32;
+        let due = interval * i as u32 + waited;
         while start.elapsed() < due {
             session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
             session.compositor.serve(&session.listener)?;
@@ -5223,6 +5274,13 @@ fn drag_paced(
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
+        if hand_taken {
+            let waiting = Instant::now();
+            session.compositor.idle_wait = idle_wait;
+            taken(session)?;
+            waited += waiting.elapsed();
+            observe(&session.compositor, &mut sent, &mut frames);
+        }
         // Resting at the end first, with Escape after the rest.
         if escape_after == Some(i as u32) && !(i == steps && rest_ms > 0) {
             session.compositor.scene.key(KEY_ESCAPE, true);
@@ -5233,7 +5291,7 @@ fn drag_paced(
     session.compositor.idle_wait = idle_wait;
     // The hand resting at `to` (a file held over the dock's Trash), then the Escape after its last
     // motion.
-    let rested = interval * motions + Duration::from_millis(u64::from(rest_ms));
+    let rested = interval * motions + waited + Duration::from_millis(u64::from(rest_ms));
     while start.elapsed() < rested {
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
@@ -7207,7 +7265,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         (*motions, *hz),
                         *escape_after,
                         *rest_ms,
-                        *held,
+                        Hand {
+                            held: *held,
+                            taken: settling.taken,
+                        },
                     )?);
                 }
                 0
@@ -7802,6 +7863,7 @@ mod tests {
             "--expect-popup",
             "--allow-unchanged",
             "--until-sheet",
+            "--until-taken",
             "--press-popup",
             "5,6",
             "--",
@@ -7820,6 +7882,11 @@ mod tests {
         let sheets = launch.steps.iter().filter(|(_, s)| s.sheet).count();
         assert_eq!(
             (sheets, launch.steps.last().map(|(_, s)| s.sheet)),
+            (1, Some(true))
+        );
+        let taken = launch.steps.iter().filter(|(_, s)| s.taken).count();
+        assert_eq!(
+            (taken, launch.steps.last().map(|(_, s)| s.taken)),
             (1, Some(true))
         );
         assert_eq!(
