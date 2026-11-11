@@ -249,6 +249,21 @@ function withWindowMenu(menus: ShellMenu[], rows: ShellMenuItem[], messages: She
   return menus.map((menu, index) => (index === at ? { label, items: merged } : menu));
 }
 
+/** What the standard About panel shows for a window's application: its name as the bar says it
+    (else the catalogue's word for an application nothing names) and, for one the session started,
+    its registry entry, looked up among every application the registry has, those no list shows
+    (`unlisted`, About This Computer) as well as the listed ones. */
+export function aboutApplication(
+  window: Pick<ShellWindow, "appId" | "title" | "launched"> | undefined,
+  applications: readonly ShellApplication[],
+  unlisted: readonly ShellApplication[] | undefined,
+  messages: ShellMessages,
+): { name: string; application?: ShellApplication } {
+  const every = unlisted?.length ? [...applications, ...unlisted] : applications;
+  const application = window?.launched ? every.find((app) => app.id === window.appId) : undefined;
+  return { name: applicationName(window, every) || messages.menus.unnamedApp, application };
+}
+
 /** The rows of the declared entries in `parent`, without those hoisted into the application's
     own menu, and without the separators their going left at an end or doubled. */
 function declaredRows(bar: ToldMenuBar, parent: number, messages: ShellMessages): ShellMenuItem[] {
