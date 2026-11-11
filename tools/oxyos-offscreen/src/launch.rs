@@ -369,6 +369,34 @@ fn drag_points(from: (i32, i32), to: (i32, i32)) -> impl Iterator<Item = (i32, i
 }
 
 impl Step {
+    /// Whether the step gives the applications a person's input (a press, a key, text, a scroll,
+    /// an assistive technology's action, a menu chosen) that settling waits for them to take; a
+    /// wait, the machine's or the session's own change (a network, a display's scale, a window
+    /// moved by the compositor) and a part of the session signalled give none.
+    fn gives_input(&self) -> bool {
+        !matches!(
+            self,
+            Step::MoveWindow { .. }
+                | Step::ResizeWindow { .. }
+                | Step::MinimizeWindow
+                | Step::Scale(_)
+                | Step::ExpectPopup
+                | Step::SwitchTerminal(_)
+                | Step::Idle(_)
+                | Step::Signal { .. }
+                | Step::Wait(_)
+                | Step::TransitionClock(_)
+                | Step::WaitNamed { .. }
+                | Step::WaitSheetKeyboard(_)
+                | Step::Clipboard(_)
+                | Step::Network(_)
+                | Step::Sound(_)
+                | Step::Bluetooth(_)
+                | Step::Power(_)
+                | Step::Backup(_)
+        )
+    }
+
     fn describe(&self) -> String {
         match self {
             Step::Press { x, y } => format!("press at ({x}, {y})"),
@@ -3263,6 +3291,7 @@ fn clear_of_minute(
             named: None,
             pixels: None,
             ended: false,
+            input: false,
         },
         Some(window),
     )?;
@@ -3291,6 +3320,9 @@ struct Wait<'a> {
     pixels: Option<&'a [OutputPixel]>,
     /// The session's end is the answer (`Settling::ended`).
     ended: bool,
+    /// The step gave the applications input (`Step::gives_input`): it is answered only once each
+    /// has taken it.
+    input: bool,
 }
 
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
@@ -3369,6 +3401,7 @@ fn settle(
         named,
         pixels,
         ended,
+        input,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
@@ -3415,15 +3448,25 @@ fn settle(
             .is_some_and(|writer| writer.writing())
     };
     let mut was_writing = writing(session);
-    // The step's input taken: each client that takes input (`input_takers`) is pinged after
-    // everything it was sent, once the compositor has read the step's input (the loop's first
-    // serve), and the step is answered only once each has answered, as Espresso waits for the
-    // main looper to be idle before it checks. The Bloom host answers once JavaScript took what
-    // came before (Window::answerPingsItself). A step whose answer may be nothing (`may_stay`)
+    // A step that gave input is answered only once each client that takes input
+    // (`input_takers`) has taken it, as Espresso waits for the main looper to be idle before it
+    // checks: each is pinged after everything it was sent, the device input not yet read taken in
+    // first, so the Ping goes in the same write as the step's last events, and the step waits
+    // for each answer. The Bloom host answers a Ping read with input once JavaScript ran what that
+    // turn queued (Window::answerPingsItself). A step whose answer may be nothing (`may_stay`)
     // otherwise settled on stillness alone: on a loaded machine its press reached React in the
     // step after (transform, step 1). Its stillness starts once the input is taken; a client that
-    // has not answered in five seconds (stopped, hung) is not waited for any longer.
-    let mut untaken: Option<Vec<(ClientId, u32)>> = None;
+    // has not answered in five seconds (stopped, hung) is not waited for any longer. A step that
+    // gave no input (a wait) pings no one: what the applications do on their own clocks goes on.
+    let mut untaken: Vec<(ClientId, u32)> = Vec::new();
+    if input {
+        session.compositor.read_input();
+        for client in input_takers(session) {
+            if let Some(serial) = session.compositor.scene.ping_after(client) {
+                untaken.push((client, serial));
+            }
+        }
+    }
     let taken_by = Instant::now() + Duration::from_secs(5);
     loop {
         if Instant::now() > deadline {
@@ -3450,21 +3493,12 @@ fn settle(
             pasteboard.serve(&mut session.compositor);
         }
         session.reader.absorb(&mut session.compositor);
-        let pings = untaken.get_or_insert_with(|| {
-            input_takers(session)
-                .into_iter()
-                .filter_map(|client| {
-                    let serial = session.compositor.scene.ping_after(client)?;
-                    Some((client, serial))
-                })
-                .collect()
-        });
-        let waited = !pings.is_empty();
-        pings.retain(|(client, serial)| !session.compositor.scene.answered(*client, *serial));
+        let waited = !untaken.is_empty();
+        untaken.retain(|(client, serial)| !session.compositor.scene.answered(*client, *serial));
         if Instant::now() > taken_by {
-            pings.clear();
+            untaken.clear();
         }
-        let taken = pings.is_empty();
+        let taken = untaken.is_empty();
         if waited && taken {
             last.1 = Instant::now();
         }
@@ -7092,6 +7126,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             named: None,
             pixels: None,
             ended: false,
+            input: false,
         },
         login.then_some(primary),
     ) {
@@ -7586,6 +7621,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     .as_ref()
                     .map(|(_, pixels)| pixels.as_slice()),
                 ended: settling.ended,
+                input: step.gives_input(),
             },
             Some(window),
         )?;
