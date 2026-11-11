@@ -50,19 +50,9 @@ import { useShellLocale, useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
 import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
-/** Whether two lists of entries are the same rows (labels, states, chords, ids): a menu whose rows
-    did not change renders nothing again when the bar's menus are made anew, as they are whenever
-    anything the bar shows changes (docs/adr/0021-menu-bar.mdx; the Window menu's rows are many). */
-function sameEntries(
-  before: { items: readonly ShellMenuItem[]; onCommand: (id: string) => void },
-  after: { items: readonly ShellMenuItem[]; onCommand: (id: string) => void },
-): boolean {
-  return before.onCommand === after.onCommand && JSON.stringify(before.items) === JSON.stringify(after.items);
-}
-
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
     and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
-const MenuEntries = memo(function MenuEntries({
+function MenuEntries({
   items,
   onCommand,
 }: {
@@ -122,7 +112,7 @@ const MenuEntries = memo(function MenuEntries({
       })}
     </>
   );
-}, sameEntries);
+}
 
 function ControlsIcon({
   width = 15,
@@ -268,6 +258,8 @@ const barStyle = {
 /** The Oxy menu's value in the bar; the window's menus are theirs by place and name. */
 const OXY = "oxy";
 const menuValue = (index: number, menu: ShellMenu) => `${index}:${menu.label}`;
+/** How long a menu just left keeps its rows: past Bloom's menu motion and a closing menu's fade. */
+const LEAVING_MS = 400;
 /** A menu hangs just under the bar, its rows' text under its title's (Bloom's own `alignOffset`). */
 const MENU_SIDE_OFFSET = 4;
 
@@ -803,6 +795,20 @@ const BarMenus = memo(function BarMenus({
   // the open menu's (its rows, its submenus).
   const values = useMemo(() => [OXY, ...menus.map((menu, index) => menuValue(index, menu))], [menus]);
   const [open, setOpen] = useState<string | undefined>(undefined);
+  // A closed menu's rows are not mounted: only the open menu's, and the one just left while it
+  // morphs or fades out (`LEAVING_MS`, longer than Bloom's 150 ms menu motion). As a Mac's bar, a
+  // closed menu costs nothing; the shell's rows run no chords (each is the application's, or the
+  // compositor's), so nothing needs them declared while closed (docs/adr/0021-menu-bar.mdx).
+  const [leaving, setLeaving] = useState<string | undefined>(undefined);
+  const shownBefore = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const before = shownBefore.current;
+    shownBefore.current = open;
+    if (before === undefined || before === open) return undefined;
+    setLeaving(before);
+    const timer = setTimeout(() => setLeaving((now) => (now === before ? undefined : now)), LEAVING_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   // Whether the bar holds the keyboard: leaving is said to the platform once, however many ways
   // it is left at once (a row chosen leaves before its command runs, and Bloom leaves again).
@@ -845,14 +851,7 @@ const BarMenus = memo(function BarMenus({
     if (holding.current) leave(true);
     run();
   };
-  // The same function in every render, so a menu whose rows did not change renders nothing again
-  // (MenuEntries): it reads the latest handlers when chosen.
-  const latestCommand = useRef({ choose, onCommand });
-  latestCommand.current = { choose, onCommand };
-  const command = useCallback((id: string) => {
-    const { choose: chosen, onCommand: run } = latestCommand.current;
-    chosen(() => run(id))();
-  }, []);
+  const command = (id: string) => choose(() => onCommand(id))();
   const messages = useShellMessages();
   // Option (Alt) held while the Oxy menu is open: Restart, Shut Down and Log Out lose their
   // question, as a Mac's alternates (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
@@ -974,7 +973,7 @@ const BarMenus = memo(function BarMenus({
               </Button>
             </MenubarTrigger>
             <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
-              <MenuEntries items={menu.items} onCommand={command} />
+              {open === value || leaving === value ? <MenuEntries items={menu.items} onCommand={command} /> : null}
             </MenubarContent>
           </MenubarMenu>
         );
