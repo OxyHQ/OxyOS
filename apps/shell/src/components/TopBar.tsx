@@ -258,8 +258,6 @@ const barStyle = {
 /** The Oxy menu's value in the bar; the window's menus are theirs by place and name. */
 const OXY = "oxy";
 const menuValue = (index: number, menu: ShellMenu) => `${index}:${menu.label}`;
-/** How long a menu just left keeps its rows: past Bloom's menu motion and a closing menu's fade. */
-const LEAVING_MS = 400;
 /** A menu hangs just under the bar, its rows' text under its title's (Bloom's own `alignOffset`). */
 const MENU_SIDE_OFFSET = 4;
 
@@ -795,20 +793,6 @@ const BarMenus = memo(function BarMenus({
   // the open menu's (its rows, its submenus).
   const values = useMemo(() => [OXY, ...menus.map((menu, index) => menuValue(index, menu))], [menus]);
   const [open, setOpen] = useState<string | undefined>(undefined);
-  // A closed menu's rows are not mounted: only the open menu's, and the one just left while it
-  // morphs or fades out (`LEAVING_MS`, longer than Bloom's 150 ms menu motion). As a Mac's bar, a
-  // closed menu costs nothing; the shell's rows run no chords (each is the application's, or the
-  // compositor's), so nothing needs them declared while closed (docs/adr/0021-menu-bar.mdx).
-  const [leaving, setLeaving] = useState<string | undefined>(undefined);
-  const shownBefore = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const before = shownBefore.current;
-    shownBefore.current = open;
-    if (before === undefined || before === open) return undefined;
-    setLeaving(before);
-    const timer = setTimeout(() => setLeaving((now) => (now === before ? undefined : now)), LEAVING_MS);
-    return () => clearTimeout(timer);
-  }, [open]);
   const [focused, setFocused] = useState<string | undefined>(undefined);
   // Whether the bar holds the keyboard: leaving is said to the platform once, however many ways
   // it is left at once (a row chosen leaves before its command runs, and Bloom leaves again).
@@ -973,7 +957,7 @@ const BarMenus = memo(function BarMenus({
               </Button>
             </MenubarTrigger>
             <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
-              {open === value || leaving === value ? <MenuEntries items={menu.items} onCommand={command} /> : null}
+              <MenuEntries items={menu.items} onCommand={command} />
             </MenubarContent>
           </MenubarMenu>
         );
