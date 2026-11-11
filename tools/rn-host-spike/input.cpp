@@ -882,7 +882,9 @@ bool PointerInput::tick(bool ready) {
       reportStretch(tag);
     }
     to = {std::clamp(to.x, 0.0f, end.x), std::clamp(to.y, 0.0f, end.y)};
+    glideSampled_ = now;
     moved |= scrollView(tag, to.x - current.x, to.y - current.y, glide.surface);
+    glideSampled_.reset();
     // It ends when its time is up, or at the end it was flung towards, which the stretch then takes
     // (as Android 12's ScrollView aborts its scroller once its edge absorbs it).
     bool done = ms >= std::max(glide.x.durationMs(), glide.y.durationMs()) ||
@@ -1116,9 +1118,14 @@ bool PointerInput::scrollView(Tag tag, float dx, float dy, uint32_t surface, boo
   // With the nearest view with a testID, as a touch: an unnamed scroll view (a sheet's, a
   // sidebar's) is named by it, not by its tag, which every view mounted before it moves.
   if (Report::get().enabled()) {
-    Report::get().deliver("scroll", surface, view,
-                          folly::dynamic::object("x", next.x)("y", next.y)("timestamp", dispatched)(
-                              "within", nearestTestId(tree_, tag)));
+    folly::dynamic extra = folly::dynamic::object("x", next.x)("y", next.y)("timestamp", dispatched)(
+        "within", nearestTestId(tree_, tag));
+    // A glide's frame: when its spline was sampled, on the report's clock (CLOCK_MONOTONIC).
+    if (glideSampled_) {
+      extra["sampled"] = static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::nanoseconds>(glideSampled_->time_since_epoch()).count());
+    }
+    Report::get().deliver("scroll", surface, view, extra);
   }
   if (tracing()) {
     std::cerr << "[input] scroll view " << tag << " to " << next.x << "," << next.y << " of " << content.width << "x"

@@ -512,6 +512,16 @@ class GlidesOnlySlow(unittest.TestCase):
         self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
                          [(2, -1875, -3125)])
 
+    def test_a_frame_timed_by_its_sample_not_its_late_line(self):
+        # touchpad-scroll step 1 on seldon (load 81): the second frame's line came 2.1 ms after its
+        # spline was sampled (its commit waited for JavaScript's), which by the lines alone reads as
+        # 480 then 617 px/s; by the samples, 534 then 543, within the rounding's slack.
+        lines = [(316.58, 316.44, 90.95), (336.14, 334.04, 100.35), (350.51, 350.36, 109.21), (397.24, 397.04, 128.01)]
+        frames = [{"t": int(t * 1e6), "sampled": int(sampled * 1e6), "y": y} for t, sampled, y in lines]
+        self.assertEqual(regress.glide_speeding(frames), [])
+        by_lines = [{"t": f["t"], "y": f["y"]} for f in frames]
+        self.assertEqual(regress.glide_speeding(by_lines), [(1, 481, 617)])
+
 
 class AGlidesClockIsItsOwn(unittest.TestCase):
     """`glide`'s frames_min (touchpad-scroll-scaled.json, step 2): a glide to the end is drawn in

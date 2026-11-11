@@ -341,6 +341,10 @@ class PointerInput {
     std::optional<std::chrono::steady_clock::time_point> stepped;
   };
   std::map<facebook::react::Tag, Glide> glides_;
+  // When the glide being stepped was sampled (its spline's clock), while its scroll is made:
+  // reported with the scroll as `sampled`, since the scroll's line can come later (its commit may
+  // wait for one of JavaScript's to the same tree, the thread may be preempted).
+  std::optional<std::chrono::steady_clock::time_point> glideSampled_;
   // Each scroll view's stretch along each axis, and which end it is past (-1 its start, 1 its end),
   // while one shows; when the receding ones last stepped.
   struct Overscroll {

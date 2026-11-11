@@ -3497,12 +3497,14 @@ def offset_before(report, view, start):
 def glide_speeding(scrolls, axis="y"):
     """Where a glide sped up: its offsets come from a spline that only slows, sampled at each frame,
     so each frame's average speed is at most the one before (a concave curve's secants only fall),
-    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end) and the
-    microseconds between a frame's clock and its report. A glide begun again, or a frame's offset
-    taken from another clock, goes faster. Each (frame, px/s before, px/s then) that did, along
-    `axis` ("x" across, "y" down)."""
+    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end). Each
+    frame is timed by when its spline was sampled (`sampled`, the host's), not by its report's line,
+    which a loaded machine can write milliseconds later (the scroll's commit waiting for one of
+    JavaScript's, the thread preempted); a line without it, by the line. A glide begun again, or a
+    frame's offset taken from another clock, goes faster. Each (frame, px/s before, px/s then) that
+    did, along `axis` ("x" across, "y" down)."""
     speeding = []
-    times = [line["t"] / 1e9 for line in scrolls]
+    times = [line.get("sampled", line["t"]) / 1e9 for line in scrolls]
     offsets = [line[axis] for line in scrolls]
     speeds = [(b - a) / max(u - t, 1e-6) for a, b, t, u in zip(offsets, offsets[1:], times, times[1:])]
     for i in range(1, len(speeds)):
