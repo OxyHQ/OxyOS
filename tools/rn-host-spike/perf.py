@@ -149,7 +149,7 @@ REFRESH = [
     ("animations at 120 Hz", "refresh-120-animations.json"),
 ]
 
-# JavaScript held 500 ms while something moves (docs/adr/0067-the-ui-thread.mdx): perf-stall.json's
+# JavaScript held 500 ms while something moves (docs/adr/0071-the-ui-thread.mdx): perf-stall.json's
 # steps that hold it, each motion's frames through the block.
 STALL = "perf-stall.json"
 

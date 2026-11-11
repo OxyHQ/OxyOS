@@ -6555,7 +6555,7 @@ fn a_client_that_answers_pings_itself_is_given_them_and_answers_when_it_says() {
         OXYOS_EVENT_PING
     );
     // The Bloom host reads its events on its UI thread and answers a Ping once JavaScript took
-    // what came before it (docs/adr/0067-the-ui-thread.mdx): the library leaves it to it.
+    // what came before it (docs/adr/0071-the-ui-thread.mdx): the library leaves it to it.
     let directory =
         std::env::temp_dir().join(format!("oxyos-client-ffi-pong-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
