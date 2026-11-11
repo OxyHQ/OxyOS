@@ -87,6 +87,11 @@ export type ShellMenu = {
 };
 export type ShellSnapshot = {
   applications: readonly ShellApplication[];
+  /** The registry's applications no list shows (an entry with `NoDisplay`: About This Computer),
+      which are never in Launchpad, Spotlight, the dock or the switcher, but whose windows the bar's
+      application menu names and whose icon and version the standard About panel shows
+      (docs/adr/0021-menu-bar.mdx). Absent where the platform tells none. */
+  unlisted?: readonly ShellApplication[];
   folders: readonly ShellFolder[];
   windows: readonly ShellWindow[];
   workspaces: readonly ShellWorkspace[];

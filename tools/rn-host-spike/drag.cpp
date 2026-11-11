@@ -574,7 +574,8 @@ void DragDrop::observe(const OxyOSEvent& event) {
         auto content = surfaces_(event.surface);
         Point origin = content ? content->origin : Point{};
         pressPoint_ = Point{origin.x + event.x / 256.0f, origin.y + event.y / 256.0f};
-      } else if (event.detail == OXYOS_POINTER_RELEASE || event.detail == OXYOS_POINTER_CANCEL) {
+      } else if (event.detail == OXYOS_POINTER_CANCEL) {
+        // Released, it is still the press a drag asked late starts from; cancelled, none.
         pressSerial_ = 0;
       }
       return;
