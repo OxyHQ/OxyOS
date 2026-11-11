@@ -65,7 +65,8 @@ const en = (f: Formats) => ({
   common: {
     close: "Close",
     options: "Options",
-    systemSettings: "System Settings",
+    /** A window of an application that does not answer (docs/adr/0067-hangs-and-force-quit.mdx). */
+    notRespondingTitle: (title: string) => `${title} (Not Responding)`,
     showDesktops: "Show Desktops",
     searchApplications: "Search Applications",
     controlCenter: "Control Center",
@@ -85,8 +86,14 @@ const en = (f: Formats) => ({
   topBar: {
     menuBar: "Menu Bar",
     oxyMenu: "Oxy Menu",
+    /** The Oxy menu's first row, a Mac's About This Mac: the window with the computer's facts. */
+    aboutThisComputer: "About This Computer",
+    systemSettings: "System Settings…",
+    /** The App Store's row, by its name (Atlas), as a Mac's App Store…. */
+    appStore: (name: string) => `${name}…`,
     applications: "Applications",
     lockScreen: "Lock Screen",
+    forceQuit: "Force Quit…",
     /** The battery, a level indicator: its charge and state are its value. */
     battery: "Battery",
     /** The wired network's value, as the Wi-Fi item's is the network joined. */
@@ -633,6 +640,12 @@ const en = (f: Formats) => ({
     reopenAgainBody: "Do you want to try to reopen them again?",
     reopenAgainButton: "Reopen",
     dontReopen: "Don’t Reopen",
+    forceQuitTitle: "Force Quit Applications",
+    forceQuitBody: "If an app doesn’t respond for a while, select its name and click Force Quit.",
+    forceQuitNone: "No apps are open.",
+    forceQuitList: "Apps",
+    forceQuitButton: "Force Quit",
+    notResponding: "Not Responding",
     wifiPassword: (ssid: string, kind: string) => `The Wi-Fi network “${ssid}” requires a ${kind} password.`,
     wifiIncorrect: "Incorrect password. Try again.",
     wifiJoin: "Join",
@@ -739,7 +752,7 @@ const es = (f: Formats): Catalogue => ({
   common: {
     close: "Cerrar",
     options: "Opciones",
-    systemSettings: "Ajustes del Sistema",
+    notRespondingTitle: (title) => `${title} (No responde)`,
     showDesktops: "Ver escritorios",
     searchApplications: "Buscar aplicaciones",
     controlCenter: "Centro de control",
@@ -756,8 +769,12 @@ const es = (f: Formats): Catalogue => ({
   topBar: {
     menuBar: "Barra de menús",
     oxyMenu: "Menú de Oxy",
+    aboutThisComputer: "Acerca de este ordenador",
+    systemSettings: "Ajustes del Sistema…",
+    appStore: (name) => `${name}…`,
     applications: "Aplicaciones",
     lockScreen: "Bloquear pantalla",
+    forceQuit: "Forzar salida…",
     battery: "Batería",
     connected: "Conectado",
     clockHint: "Abre el centro de notificaciones",
@@ -1231,6 +1248,12 @@ const es = (f: Formats): Catalogue => ({
     reopenAgainBody: "¿Quieres intentar volver a abrirlas?",
     reopenAgainButton: "Volver a abrir",
     dontReopen: "No volver a abrir",
+    forceQuitTitle: "Forzar salida de las aplicaciones",
+    forceQuitBody: "Si una app no responde durante un tiempo, selecciona su nombre y haz clic en Forzar salida.",
+    forceQuitNone: "No hay apps abiertas.",
+    forceQuitList: "Apps",
+    forceQuitButton: "Forzar salida",
+    notResponding: "No responde",
     wifiPassword: (ssid, kind) => `La red Wi-Fi “${ssid}” requiere una contraseña ${kind}.`,
     wifiIncorrect: "Contraseña incorrecta. Vuelve a intentarlo.",
     wifiJoin: "Conectarse",

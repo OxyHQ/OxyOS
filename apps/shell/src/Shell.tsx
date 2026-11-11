@@ -47,6 +47,7 @@ import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
 import { showsBackupItem } from "./backup";
 import { personName } from "./session-user";
+import { ABOUT_THIS_COMPUTER, APP_STORE } from "./system-menu";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -188,6 +189,8 @@ export const Shell = memo(function Shell({
         chosen and the Oxy account's password, to the session alone. Without it such a sheet
         cannot be answered but by Cancel. */
     answerPasskey?: (choice: number | undefined, password: string) => void;
+    /** Force Quit Applications' answer: the application chosen (docs/adr/0067). */
+    answerChoice?: (choice: number) => void;
     /** What else a sheet offers, pressed (an application that quit: Reset…, which asks the session
         to reset it, docs/adr/0061-crashes-and-resetting-an-application.mdx). */
     act?: (action: SheetAction) => void;
@@ -644,6 +647,11 @@ export const Shell = memo(function Shell({
     [dock, launcherOpen],
   );
   const lockSession = lock?.lockSession;
+  // The App Store (Atlas) where it is installed: the Oxy menu's row for it, by its name.
+  const appStore = useMemo(
+    () => snapshot.applications.find((app) => app.id === APP_STORE)?.name,
+    [snapshot.applications],
+  );
   // The desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx): what the bar's menus show of it,
   // and what they ask of it.
   const [desktop, setDesktop] = useState<DesktopState>(NO_DESKTOP);
@@ -659,6 +667,10 @@ export const Shell = memo(function Shell({
       if (id === "view.launcher") setView("launcher");
       else if (id === "view.overview") setView("overview");
       else if (id === "session.lock") lockSession?.();
+      // About This Computer and the App Store, as any application is opened: its window if it has
+      // one (About This Computer chosen again comes forward, as a Mac's), else the session starts it.
+      else if (id === "system.aboutThisComputer") latest.current.actions.activateApp(ABOUT_THIS_COMPUTER);
+      else if (id === "system.store") latest.current.actions.activateApp(APP_STORE);
       else latest.current.actions.menuCommand(id);
     },
     [lockSession],
@@ -889,11 +901,11 @@ export const Shell = memo(function Shell({
             returnKeyboard={actions.returnKeyboard}
             menus={menus}
             now={now}
-            overview={toggleOverview}
             launcher={toggleLauncher}
             canLock={!!lock}
             powerActions={powerActions}
             userName={lock ? personName(lock.user) : undefined}
+            store={appStore}
             menuKeyboard={keyboard}
             onCommand={menuCommand}
             power={controls?.power}
@@ -1173,6 +1185,7 @@ export const Shell = memo(function Shell({
               answerPassword={sheet.answerPassword}
               answerCode={sheet.answerCode}
               answerPasskey={sheet.answerPasskey}
+              answerChoice={sheet.answerChoice}
               act={sheet.act}
               toggle={sheet.toggle}
               copy={sheet.copy}

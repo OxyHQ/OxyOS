@@ -7,7 +7,8 @@ import type { ShellApplication, ShellNotifications } from "../model";
 import { groupNotifications } from "../notifications";
 import { BANNER_WIDTH, NotificationCard } from "./NotificationBanner";
 import { useShellMessages } from "../useShellMessages";
-import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { BloomColorScope, useReducedTransparency } from "@oxy.so/bloom/theme";
+import { useAccent } from "./accent";
 import { glass } from "./glass";
 
 /**
@@ -32,13 +33,16 @@ export const NotificationCenter = memo(function NotificationCenter({
   close: () => void;
 }) {
   const reduced = useReducedTransparency();
+  const accentPreset = useAccent();
   const messages = useShellMessages();
   const words = messages.notifications;
   const groups = groupNotifications(
     notifications.list.filter((notification) => !notification.withheld),
     applications,
   );
+  // Its buttons in the person's accent.
   return (
+    <BloomColorScope colorPreset={accentPreset} asChild>
     <Box className="absolute inset-0">
       <PressArea
         testID="notification-center-outside"
@@ -124,5 +128,6 @@ export const NotificationCenter = memo(function NotificationCenter({
         )}
       </Box>
     </Box>
+    </BloomColorScope>
   );
 });

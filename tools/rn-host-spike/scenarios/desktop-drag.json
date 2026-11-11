@@ -50,12 +50,31 @@
             "informe.txt",
             "foto.png"
           ],
-          "react": {}
+          "react": {
+            "loadStart@desktop-picture-foto.png": [
+              0,
+              1
+            ],
+            "load@desktop-picture-foto.png": [
+              0,
+              1
+            ],
+            "loadEnd@desktop-picture-foto.png": [
+              0,
+              1
+            ]
+          }
         },
         "react": {
           "insetsChange@RNCSafeAreaProvider#6": 2,
-          "insetsChange@RNCSafeAreaProvider#18": 1,
-          "insetsChange@RNCSafeAreaProvider#10": 1
+          "insetsChange@RNCSafeAreaProvider#18": [
+            1,
+            2
+          ],
+          "insetsChange@RNCSafeAreaProvider#10": [
+            1,
+            2
+          ]
         },
         "delivered": {}
       }
@@ -99,8 +118,14 @@
           },
           "1": {
             "cancel": 1,
-            "drag.enter": 1,
-            "drag.leave": 1,
+            "drag.enter": [
+              0,
+              1
+            ],
+            "drag.leave": [
+              0,
+              1
+            ],
             "enter": 1,
             "leave": 1,
             "press": 1
@@ -132,8 +157,14 @@
           },
           "1": {
             "cancel": 1,
-            "drag.enter": 1,
-            "drag.leave": 1,
+            "drag.enter": [
+              0,
+              1
+            ],
+            "drag.leave": [
+              0,
+              1
+            ],
             "enter": 1,
             "leave": 1,
             "press": 1
@@ -174,10 +205,12 @@
           ],
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": [
-              1,
-              2
-            ],
+            "touchMove@desktop": {
+              "turns": [
+                1,
+                2
+              ]
+            },
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -228,10 +261,12 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": [
-              1,
-              2
-            ],
+            "touchMove@desktop": {
+              "turns": [
+                1,
+                2
+              ]
+            },
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": [
               1,
@@ -277,10 +312,12 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": [
-              1,
-              2
-            ],
+            "touchMove@desktop": {
+              "turns": [
+                1,
+                2
+              ]
+            },
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -356,10 +393,12 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": [
-              1,
-              2
-            ],
+            "touchMove@desktop": {
+              "turns": [
+                1,
+                2
+              ]
+            },
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -410,10 +449,12 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": [
-              1,
-              2
-            ],
+            "touchMove@desktop": {
+              "turns": [
+                1,
+                2
+              ]
+            },
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [
@@ -465,10 +506,12 @@
         "in_shell": {
           "react": {
             "touchStart@desktop": 1,
-            "touchMove@desktop": [
-              1,
-              2
-            ],
+            "touchMove@desktop": {
+              "turns": [
+                1,
+                2
+              ]
+            },
             "touchCancel@desktop": 1,
             "drag.dragEnter@desktop": 1,
             "drag.dragOver@desktop": [

@@ -8430,6 +8430,8 @@ mod expose;
 mod input_sources;
 /// Key repeat (ADR 0036).
 mod key_repeat;
+/// A surface's material regions (docs/adr/0069-the-platforms-material.mdx).
+mod material;
 /// The menu bar (ADR 0021).
 mod menus;
 /// Where each window minimizes into (ADR 0011's genie).
@@ -8446,6 +8448,8 @@ mod shortcuts;
 /// System sounds (docs/adr/0044-system-sounds.mdx).
 mod sounds;
 mod system;
+/// Window tiling (ADR 0016, decision 12).
+mod tiling;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 
 /// The shell's overview: an overlay over the whole output.

@@ -8,6 +8,9 @@ order: 30
 
 Status: **accepted** (the global menu bar was chosen with the platform's author); steps 2, 3 and 4 implemented; step 1 in Bloom ([OxyHQ/Bloom#518](https://github.com/OxyHQ/Bloom/pull/518), not released yet). The `menu-bar` capability of [ADR 0015](./0015-application-model). Builds on [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter), [ADR 0009](./0009-session-shell) (the shell and its top bar), [ADR 0013](./0013-launching-applications) (applications' names) and [ADR 0016](./0016-windows) (the active window).
 
+**10 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** the Oxy menu is in a Mac's Apple menu's order: About This Computer (its own window, a Mac's About This Mac), System Settings… and Atlas… (the App Store, where it is installed), then Sleep, Restart…, Shut Down…, Lock Screen and Log Out *name*…. Applications and Show Desktops left it for where a Mac keeps Launchpad and Mission Control (the dock, their keys, the desktop's View menu); Force Quit… comes with its window.
+
+
 **9 November 2026 ([ADR 0064](./0064-sleep-restart-shut-down-and-log-out)):** the shell's own Oxy menu, the bar's first, is the Apple menu's equal: System Settings, Applications, Show Desktops, then Sleep, Restart…, Shut Down…, then Lock Screen (Ctrl+Super+Q) and Log Out *name*… (Shift+Super+Q), with Alt's alternates (no ellipsis, no question). Its commands are the session's to decide (`endSession`, `sleep`), never the shell's.
 
 ## Problem
