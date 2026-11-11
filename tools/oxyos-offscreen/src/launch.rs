@@ -4445,6 +4445,8 @@ fn transitions_json(compositor: &mut Compositor) -> String {
                 AppearanceChange::WorkspaceOut { forward: true } => "workspace_out_forward",
                 AppearanceChange::WorkspaceOut { forward: false } => "workspace_out_back",
                 AppearanceChange::Zoomed => "zoomed",
+                AppearanceChange::EdgeShown => "edge_shown",
+                AppearanceChange::EdgeHidden => "edge_hidden",
                 AppearanceChange::Returned { .. } => "returned",
                 AppearanceChange::Vanished { .. } => "vanished",
             };

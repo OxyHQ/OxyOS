@@ -456,6 +456,7 @@ const en = {
     notifications: "Notifications",
     sound: "Sound",
     lockScreen: "Lock Screen",
+    desktopDock: "Desktop & Dock",
     displays: "Displays",
     keyboard: "Keyboard",
     mouse: "Mouse",
@@ -786,6 +787,12 @@ const en = {
     reduceTransparencyDescription: "The Dock’s, menus’, panels’ and windows’ glass is drawn opaque.",
     steadyCaret: "Prefer non-blinking cursor",
     steadyCaretDescription: "The cursor in text fields stays lit instead of blinking.",
+  },
+  /** Desktop & Dock (docs/adr/0034-the-dock.mdx, 10 November 2026), as a Mac's. */
+  desktopDock: {
+    dock: "Dock",
+    autohide: "Automatically hide and show the Dock",
+    autohideDescription: "The Dock shows when the pointer reaches the bottom of the screen. Super+Alt+D turns it on and off.",
   },
   about: {
     name: "Name",
@@ -1536,6 +1543,7 @@ const es: Messages = {
     notifications: "Notificaciones",
     sound: "Sonido",
     lockScreen: "Pantalla de bloqueo",
+    desktopDock: "Escritorio y Dock",
     displays: "Pantallas",
     keyboard: "Teclado",
     mouse: "Ratón",
@@ -1850,6 +1858,11 @@ const es: Messages = {
     reduceTransparencyDescription: "El cristal del Dock, los menús, los paneles y las ventanas se dibuja opaco.",
     steadyCaret: "Preferir cursor sin parpadeo",
     steadyCaretDescription: "El cursor de los campos de texto se queda fijo en vez de parpadear.",
+  },
+  desktopDock: {
+    dock: "Dock",
+    autohide: "Ocultar y mostrar el Dock automáticamente",
+    autohideDescription: "El Dock aparece al llevar el puntero al borde inferior de la pantalla. Super+Alt+D lo activa y desactiva.",
   },
   about: {
     name: "Nombre",
