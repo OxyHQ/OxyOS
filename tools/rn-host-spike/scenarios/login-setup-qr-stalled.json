@@ -27,8 +27,7 @@
         "deviceSecret": "played-device-secret-1"
       },
       "qr": {
-        "approve": "socket",
-        "approve_after_ms": 7500,
+        "approve": "cue",
         "stall_after_claim_ms": 20000
       }
     },
@@ -105,8 +104,12 @@
     {
       "name": "a phone approves the QR and the link stalls: the PIN page at once, its field focused, no error",
       "do": [
-        "wait",
-        4000
+        "cue",
+        "qr-approve"
+      ],
+      "until_named": [
+        "Create a PIN",
+        20000
       ],
       "allow_unchanged": true,
       "expect": {

@@ -455,6 +455,12 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
+two seconds after an application stopped answering, its own cursor once it answers): it settles only
+once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
+wait that the steps before it may have eaten into. A `cue` step (a name) tells a part played beside
+the session to act now: the director appends the name to `cues` in the run's output (`qr-approve`:
+the played phone approves the QR, `login.oxy.qr.approve` "cue").
 A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a
 thread of its own after the frame that laid it out, in a window the shell launched, whose frames
 are not a step's changes): it settles only once the output shows its `output_pixels`, within `ms`.
@@ -774,9 +780,11 @@ accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's AP
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
 code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks
-(true) or `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
+(true), `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
 namespace over a WebSocket, which tells the screen at once ("socket"; its frames logged as `WS ...`
-requests with status 101),
+requests with status 101), or, told the same way, once a step gives the cue `qr-approve` ("cue": a
+`cue` step, after the screen joined), so the approval lands when the scenario reaches that step and
+never on a clock the steps before it race,
 for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
@@ -892,7 +900,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
+             "expect_popup", "cue", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -1263,11 +1271,16 @@ def director_args(step, out):
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
+    if step.get("until_pointer"):
+        shape, ms = step["until_pointer"]
+        args += ["--until-pointer", str(ms), shape]
     if step.get("until_output_pixels"):
         # Its answer is drawn on the application's own clock: it settles once the output shows the
         # step's `output_pixels` (those it expects of a colour, not "!" those it must not show).
         shown = {at: colour for at, colour in step["expect"]["output_pixels"].items() if not colour.startswith("!")}
         args += ["--until-pixels", str(step["until_output_pixels"]), ";".join(f"{at}={colour}" for at, colour in shown.items())]
+    if kind == "cue":
+        return args + ["--cue", value]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
@@ -2314,6 +2327,9 @@ def played_oxy(spec, log):
     state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
              "on_device": False, "revision": 0, "qr_claims": 0, "stalled_until": 0}
     lock = threading.Lock()
+    # The cues the run's steps give (`cue`), beside the log in the run's output: none yet.
+    cues = pathlib.Path(log).parent / "cues"
+    cues.unlink(missing_ok=True)
 
     class Oxy(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2460,12 +2476,18 @@ def played_oxy(spec, log):
                     if event[:1] != ["join"] or len(event) < 2:
                         continue
                     self.log("WS /auth-session join {token}")
-                    if spec.get("qr", {}).get("approve") == "socket":
+                    if spec.get("qr", {}).get("approve") in ("socket", "cue"):
                         threading.Thread(target=self.approve, args=(event[1], writing), daemon=True).start()
 
         def approve(self, token, writing):
-            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, told
-            on the socket at once."""
+            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, or
+            once a step gave the cue `qr-approve` ("cue"), told on the socket at once."""
+            if spec.get("qr", {}).get("approve") == "cue":
+                given = time.monotonic() + 600
+                while not (cues.exists() and "qr-approve" in cues.read_text().split()):
+                    if time.monotonic() > given:
+                        return
+                    time.sleep(0.02)
             time.sleep(spec.get("qr", {}).get("approve_after_ms", 0) / 1000)
             with lock:
                 request = state["requests"].get(token)
