@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@oxy.so/bloom':
-        specifier: 19.8.1
-        version: 19.8.1(501a0e62c95a3ecb87ea142691e9afd2)
+        specifier: 19.8.3
+        version: 19.8.3(501a0e62c95a3ecb87ea142691e9afd2)
       expo:
         specifier: ~58.0.14
         version: 58.0.20(@babel/core@7.29.7(supports-color@8.1.1))(@expo/dom-webview@58.0.2)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3)
@@ -921,8 +921,8 @@ packages:
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
 
-  '@oxy.so/bloom@19.8.1':
-    resolution: {integrity: sha512-eF+qxNk/lG787cGEbQSeIZXaSyAxDhUkRoV1QtrJl+xh3ygDxXgU09Ha9fNvoQeiCgsaIzXdgyEWxY4Fbf8+IA==}
+  '@oxy.so/bloom@19.8.3':
+    resolution: {integrity: sha512-NQwsb7Dt3DImzZShnWdFCaD4bym63XK4QrXbFk4oQPyi2N3GIKKqXktk/e9+SNptE3KEQtJ2wh8AnAtBMQDcQg==}
     peerDependencies:
       '@lottiefiles/dotlottie-react': '>=0.13.0'
       '@react-native-community/netinfo': '>=11.1.0'
@@ -4177,7 +4177,7 @@ snapshots:
 
   '@oxc-project/types@0.154.0': {}
 
-  '@oxy.so/bloom@19.8.1(501a0e62c95a3ecb87ea142691e9afd2)':
+  '@oxy.so/bloom@19.8.3(501a0e62c95a3ecb87ea142691e9afd2)':
     dependencies:
       '@tanstack/react-virtual': 3.14.23(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       expo-blur: 58.0.5(expo@58.0.20)(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
