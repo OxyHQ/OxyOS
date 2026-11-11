@@ -51,7 +51,19 @@ class OxyOSPopupViewProps final : public ViewProps {
   Tag trackingTag{-1};
 };
 
-using OxyOSPopupViewShadowNode = ConcreteViewShadowNode<OxyOSPopupViewComponentName, OxyOSPopupViewProps>;
+// A popup is a surface of its own, so its content is laid out as a Yoga root of its own, with no
+// width given: as wide and as tall as what it holds, never the width left to it where it is mounted
+// (inside its anchor: a dock icon's, a button's). Its parent's pass places it, as an absolute child,
+// and lays it out within that box, which is all a window's child can be; this node then lays its
+// subtree out again as a root, its width and height undefined, keeping the origin its parent gave
+// it (the compositor places the surface), and hands its children their metrics from that layout.
+// React Native's Modal is the same kind of node, a layout root sized by the host (to the screen).
+class OxyOSPopupViewShadowNode final
+    : public ConcreteViewShadowNode<OxyOSPopupViewComponentName, OxyOSPopupViewProps> {
+ public:
+  using ConcreteViewShadowNode::ConcreteViewShadowNode;
+  void layout(LayoutContext layoutContext) override;
+};
 using OxyOSPopupViewComponentDescriptor = ConcreteComponentDescriptor<OxyOSPopupViewShadowNode>;
 
 }  // namespace facebook::react

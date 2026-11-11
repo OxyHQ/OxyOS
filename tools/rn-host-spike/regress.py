@@ -530,7 +530,8 @@ or [x, y, dy, events]) at a point of the output.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
 `press_secondary_named`, `double_press_named` (an icon on the shell's desktop opened, ADR 0047) and
-`move_named` (a name) and `hold_named` ([name, ms]) are the output's
+`move_named` (a name, or {"role", "name"} when a node of another role shares the name: a Settings
+row's title text and its switch) and `hold_named` ([name, ms]) are the output's
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
@@ -1355,14 +1356,14 @@ def director_args(step, out):
         # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
         # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
         # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
-        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
+        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), named(value[0]), named(value[1])]
     if kind in ("press_named", "press_secondary_named", "double_press_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
         # its label, an icon on the desktop by its name), wherever it is when the step runs.
-        return args + ["--" + kind.replace("_", "-"), value]
+        return args + ["--" + kind.replace("_", "-"), named(value)]
     if kind == "hold_named":
         # A long press on the node of this name: [name, ms].
-        return args + ["--hold-named", str(value[1]), value[0]]
+        return args + ["--hold-named", str(value[1]), named(value[0])]
     if kind == "hold_output":
         # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
         return args + ["--hold-output", ",".join(map(str, value))]
@@ -3285,6 +3286,14 @@ def content_shown_ms(report, texts):
             if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
                 return round((line["t"] - main) / 1e6, 1)
     return None
+
+
+def named(value):
+    """A named step's node for oxyos-offscreen: a name, or {"role", "name"} when a node of
+    another role shares the name (a Settings row's title and its switch): `ROLE::NAME`."""
+    if isinstance(value, dict):
+        return f"{value['role']}::{value['name']}"
+    return value
 
 
 def png_pixel_reader(path):

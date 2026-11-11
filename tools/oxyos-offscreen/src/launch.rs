@@ -4444,6 +4444,14 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
 /// The middle of the node named `name` on the topmost shown surface that has one, as the
 /// assistive technology holds it (global coordinates), if any.
 fn named_point(session: &Session, name: &str) -> Option<(i32, i32)> {
+    // `ROLE::NAME` names the role too (`Switch::Prefer non-blinking cursor`): a row's title text
+    // shares its control's name, and comes first.
+    let (role, name) = match name.split_once("::") {
+        Some((role, rest)) if !role.is_empty() && role.chars().all(|c| c.is_ascii_alphabetic()) => {
+            (Some(role), rest)
+        }
+        _ => (None, name),
+    };
     session
         .compositor
         .scene
@@ -4452,12 +4460,9 @@ fn named_point(session: &Session, name: &str) -> Option<(i32, i32)> {
         .rev()
         .find_map(|item| match item {
             RenderItem::Surface { key, .. } => {
-                let node = session
-                    .reader
-                    .trees
-                    .get(&key)?
-                    .iter()
-                    .find(|node| node.name == name)?;
+                let node = session.reader.trees.get(&key)?.iter().find(|node| {
+                    node.name == name && role.is_none_or(|role| format!("{:?}", node.role) == role)
+                })?;
                 let (x, y, width, height) = node.rect;
                 Some((x + (width / 2) as i32, y + (height / 2) as i32))
             }
