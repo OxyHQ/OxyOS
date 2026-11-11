@@ -3236,25 +3236,6 @@ def latest_frames(report, until, closed_before):
     return {s: f for s, f in frames.items() if s not in closed_before}
 
 
-def content_shown_ms(report, texts):
-    """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
-    "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
-    reads them (in each surface's latest frame, a closed popup's left out); None when they never
-    all were, or the host reported no start."""
-    main = next((line["t"] for line in report if line["kind"] == "stage" and line.get("name") == "main"), None)
-    if main is None:
-        return None
-    shown = {}
-    for line in report:
-        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
-            shown.pop(line["surface"], None)
-        elif line["kind"] == "frame" and line.get("presented", True):
-            shown[line["surface"]] = line.get("texts", [])
-            if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
-                return round((line["t"] - main) / 1e6, 1)
-    return None
-
-
 def content_shown_cpu_ms(report, texts):
     """Launch to content on the CPU (`content_cpu_ms_max`): ms of CPU the host's main thread and its
     JavaScript spent (each frame's `timing` line: `cpu_ms`, and `js`'s for the stretches since the
@@ -3272,6 +3253,25 @@ def content_shown_cpu_ms(report, texts):
             # The turn that presented the content frame reports its timing after it.
             if content:
                 return round(cpu, 1)
+    return None
+
+
+def content_shown_ms(report, texts):
+    """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
+    "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
+    reads them (in each surface's latest frame, a closed popup's left out); None when they never
+    all were, or the host reported no start."""
+    main = next((line["t"] for line in report if line["kind"] == "stage" and line.get("name") == "main"), None)
+    if main is None:
+        return None
+    shown = {}
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True):
+            shown[line["surface"]] = line.get("texts", [])
+            if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
+                return round((line["t"] - main) / 1e6, 1)
     return None
 
 
