@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { shellMessages } from "../src/messages.ts";
 import { chordLabel } from "../src/chord.ts";
 import {
+  aboutApplication,
   appMenuCommand,
   applicationMenus,
   applicationName,
@@ -221,4 +222,24 @@ test("an application nothing names still has its own menu, under a word of the c
   assert.deepEqual(read(menus[0].items).slice(0, 1), ["Acerca de Aplicación"]);
   assert.equal(read(menus[0].items).at(-1), "Salir de Aplicación Super+Q");
   assert.deepEqual(titles(applicationMenus(bar, "", en, BOTH)), ["Application"]);
+});
+
+test("the standard About panel finds an application no list shows, as well as the listed ones", () => {
+  const settings = { id: "so.oxy.settings", name: "Ajustes", icon: { svg: "<svg/>" }, version: "1.0", build: 3 };
+  const about = { id: "so.oxy.aboutthiscomputer", name: "Acerca de este ordenador", icon: { svg: "<svg/>" } };
+  const window = (appId: string, launched = true) => ({ appId, title: "Ventana", launched });
+  // About This Computer is never listed (NoDisplay): the panel still has its icon and name.
+  assert.deepEqual(aboutApplication(window(about.id), [settings], [about], es), {
+    name: "Acerca de este ordenador",
+    application: about,
+  });
+  // A listed one, as before, its version with it.
+  assert.equal(aboutApplication(window(settings.id), [settings], [about], es).application?.version, "1.0");
+  // A platform that tells no unlisted ones: the listed alone; an unlisted one is then its window's title.
+  assert.deepEqual(aboutApplication(window(about.id), [settings], undefined, es), { name: "Ventana", application: undefined });
+  // An id a client claims, the session not having started it, is never a registry application's.
+  assert.equal(aboutApplication(window(about.id, false), [settings], [about], es).application, undefined);
+  // Nothing names it: the catalogue's word.
+  assert.deepEqual(aboutApplication({ appId: "", title: "", launched: false }, [], [], en), { name: "Application", application: undefined });
+  assert.deepEqual(aboutApplication(undefined, [], [], es), { name: "Aplicación", application: undefined });
 });

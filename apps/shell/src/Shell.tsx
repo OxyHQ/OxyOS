@@ -37,7 +37,7 @@ import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner"
 import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
 import { AboutPanel, ABOUT_WIDTH, type AboutApplication } from "./components/AboutPanel";
-import { appMenuCommand, applicationName } from "./app-menu";
+import { aboutApplication, appMenuCommand } from "./app-menu";
 import { chordLabel } from "./chord";
 import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
@@ -689,11 +689,9 @@ export const Shell = memo(function Shell({
     (id: string) => {
       const own = appMenuCommand(id);
       if (own?.kind === "about") {
-        const { snapshot: shown } = latest.current;
+        const { snapshot: shown, messages: words } = latest.current;
         const window = shown.windows.find((told) => told.id === String(own.window));
-        const application = window?.launched ? shown.applications.find((app) => app.id === window.appId) : undefined;
-        const name = applicationName(window, shown.applications) || latest.current.messages.menus.unnamedApp;
-        setAbout({ name, application });
+        setAbout(aboutApplication(window, shown.applications, shown.unlisted, words));
         return;
       }
       if (id === "desktop.open" || id === "desktop.trash" || id === "desktop.select-all") {
