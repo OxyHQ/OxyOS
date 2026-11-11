@@ -1,31 +1,70 @@
 # OxyOS
 
-> Universal standards live in `~/AGENTS.md`, Oxy-wide gotchas in `~/Oxy/AGENTS.md`. Documentation belongs in `docs/`, history in git, status in issues. This file holds only RULES, commands and pointers. **Budget: under 8 KB.**
+Native Linux platform rebuild: a custom OxyOS display compositor and protocol running BloomUI apps, with no X11, XWayland or Wayland.
 
-Linux native-platform rebuild. Read `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx` and `docs/native-foundation.mdx` first. Target session: custom OxyOS compositor/protocol + actual BloomUI, no X11/XWayland/Wayland. The root Rust workspace is the foundation. The development compositor (`oxyos-offscreen --launch --kms`) can show a live Bloom app on a real output through DRM/KMS, but it is a fixture with scripted input, not a session. The session program is `oxyos-session` (the `oxyos-compositor` library on a logind seat, run from a terminal login or by the login program `oxyos-login`, ADR 0020; neither is in the image, and `oxyos-login --dev` never starts a session). Never install `oxyos-offscreen`, `oxyos-kms-show` or the headless probe as a compositor/session.
+## Commands
 
-Bloom's application-layout compositor is distinct from the OS display compositor. Preserve existing Bloom APIs and layout engine; do not create Petal or lookalike replacements. Metal/macOS code from Astro is not a required backend. Issue #9's Wayland/Petal choices are superseded. Website: https://oxy.so/os (served by OxyHQ/website).
+```bash
+cargo fmt --all --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+python3 scripts/check-native-boundary.py        # Cargo graph audit
+python3 scripts/check-image-config.py           # config/ and workflows
+cargo run --locked -p oxyos-platform-probe
+npx --yes @biomejs/biome@2.5.15 ci apps tools/rn-host-spike/sample tools/shell-preview scripts
+pipx run ruff==0.17.4 check .
+tools/dev/bootstrap                             # fetch everything pinned in tools/dev/pins
+```
 
-**Names:** what belongs to the OS uses the `oxyos` prefix: crates and binaries `oxyos-*`, the C ABI `oxyos_*`, `OxyOS*` and `OXYOS_*`, environment variables `OXYOS_*`, the host's namespace `oxyos`. Plain `oxy`/`Oxy` means the Oxy ecosystem (accounts, the `oxy` SDK, `@oxy.so/*`); never use it for OS parts.
+## Map
 
-## Checks
+- `docs/native-architecture.mdx`, `docs/bloom-native-audit.mdx`, `docs/native-foundation.mdx`: read first.
+- `docs/developing.mdx`: a machine from nothing, the gate, deploys, the gate's machine.
+- `docs/iso-build.mdx`: the console base image config in `config/`.
+- `docs/adr/`: decisions, one per file. `docs/agent-rules.mdx`: the full rule set behind this file.
+- Entry points: `crates/` (Rust workspace), `tools/` (binaries and dev tooling), `scripts/` (CI audits).
 
-Merging: `gh pr merge N --auto` puts a pull request in the merge queue once its fast checks pass; the queue's **Scenarios** run of the combined tree is the gate (`tools/gate/run-scenarios.sh`), and a failing run takes the pull request out with its failure (the `gate` label runs it on a pull request first). A machine from nothing, the gate, deploys (`tools/deploy/deploy.sh`) and the gate's machine: `docs/developing.mdx`. `tools/dev/bootstrap` fetches everything at `tools/dev/pins`; machine-specific values go in `tools/dev/local.conf` (git-ignored), never in the repo.
+## Conventions that differ from defaults
 
-Native: `cargo fmt --all --check`, `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`, `python3 scripts/check-native-boundary.py`, `cargo run --locked -p oxyos-platform-probe`; `oxyos-offscreen` is a CPU fixture, not DRM/KMS. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
+- OS parts use the `oxyos` prefix: crates and binaries `oxyos-*`, C ABI `oxyos_*`, env vars `OXYOS_*`. Plain `oxy`/`Oxy` means the Oxy ecosystem (accounts, SDK, `@oxy.so/*`).
+- Bloom's application-layout compositor is separate from the OS display compositor. Keep existing Bloom APIs; do not create Petal or lookalike replacements.
+- Machine-specific values go in `tools/dev/local.conf` (git-ignored), never in the repo.
+- Add real modules as functionality arrives, not empty scaffolds.
+- Rust uses `rust-toolchain.toml`; root `target/` is generated. Biome and ruff are lint-only with baselines at `warn` (`biome.jsonc`, `ruff.toml`); lint rules: [lint-and-format](https://github.com/OxyHQ/oxy/blob/main/docs/engineering/lint-and-format.md).
 
-TS/JS: `npx --yes @biomejs/biome@2.5.15 ci apps tools/rn-host-spike/sample tools/shell-preview scripts` (`biome.jsonc`: lint only, existing violations baselined to `warn`; formatting lands per directory later, `~/Oxy/docs/lint-and-format.md`).
+## Boundaries
 
-Image: `python3 scripts/check-image-config.py` (`config/` and workflows; the boundary script audits Cargo). Locally, never in CI: `tools/image/build.sh` builds the console base in a privileged Trixie container under `~/oxyos-build` (never `/tmp`) and runs `scripts/check-image-contents.py`, the built image's audit; `python3 tools/image/acceptance ISO [--firmware uefi|secureboot|bios]` boot-tests it in QEMU (`docs/iso-build.mdx`; `--recovery`: install, recovery and erase on a virtual disk). Installing: ADR 0023; recovery and erasing: ADR 0054. Destructive steps (install, erase) run only in QEMU disk images, never on a real disk.
+Never:
+- install `oxyos-offscreen`, `oxyos-kms-show` or the headless probe as a session: they are fixtures with scripted input. The session is `oxyos-session`.
+- add X.org, XWayland, Wayland compositors, GTK/Qt/WebKit runtimes or desktop apps to the image manifest, or export `DISPLAY`/`WAYLAND_DISPLAY`/`GDK_BACKEND`/`QT_QPA_PLATFORM`: the target has no such stack.
+- reintroduce the retired React/Tauri shell (history at `6c35e60`, `docs/retired-desktop-stack.mdx`).
+- publish an ISO or add fake binaries, placeholder login, fallback sessions or compatibility launchers: images return only with a real runtime, boot acceptance and a contents audit.
+- run destructive steps (install, erase) on a real disk: QEMU disk images only.
+- build the image in `/tmp`: use `oxyos-build` in your home directory via `tools/image/build.sh` (local only, never CI).
 
-Python: `pipx run ruff==0.17.4 check .` (`ruff.toml`: lint only, its baseline per file; formatting lands later).
+Ask first: changing the image package manifest, `config/oxyos.conf`, or the merge gate (`tools/gate/`).
 
-## Image rules (`config/`, see `docs/iso-build.mdx`)
+## Testing
 
-- `config/` is a live-build config for a console-only Debian Trixie base. It is not the OxyOS desktop and is never published as one.
-- No workflow builds or publishes an ISO. Image publication returns only with a real compositor/runtime, boot acceptance tests and a final package-contents audit. No fake binaries, placeholder login, missing-binary success, fallback session or compatibility launcher.
-- Never add X.org, XWayland, Wayland compositors, greeters, GTK/Qt/WebKit runtimes or desktop apps to the manifest, and never export `DISPLAY`/`WAYLAND_DISPLAY`/`GDK_BACKEND`/`QT_QPA_PLATFORM` from session or build paths. The retired React/Tauri shell is gone; recover history from `6c35e60`, do not reintroduce it (`docs/retired-desktop-stack.mdx`).
-- `package-lists/live.list.chroot` is the one package manifest. PipeWire is the one audio stack.
-- `config/oxyos.conf` and `includes.chroot_after_packages/etc/oxyos/oxyos.conf` stay identical. Build identifiers use the `oxyos` prefix.
-- Hooks are POSIX `sh`; no device-group grants or pre-created accounts (live-config owns the live user).
-- The ISO build is not a bun/Node project; there is no JS in the build pipeline.
+- Rust or protocol change: fmt, test, clippy and `check-native-boundary.py`.
+- `config/` or workflow change: `check-image-config.py`.
+- `apps/`, `scripts/` or `tools/` JS: the Biome command; Python: ruff.
+- Image or boot change: `tools/image/build.sh`, then `python3 tools/image/acceptance ISO` in QEMU (`docs/iso-build.mdx`).
+- Done means these pass locally and the merge queue's Scenarios run is green.
+
+## PR and commit rules
+
+- Merge with `gh pr merge N --auto`: the queue's Scenarios run of the combined tree (`tools/gate/run-scenarios.sh`) is the gate; a failing run removes the PR with its failure. The `gate` label runs it on a PR first.
+- Docs go in `docs/`, history in git, status in issues.
+
+## Secrets
+
+None are needed to build or test. Machine and deploy credentials live in `tools/dev/local.conf` (git-ignored); never print or commit them.
+
+## Links
+
+- [Developing](docs/developing.mdx), [Agent rules](docs/agent-rules.mdx), [Image build](docs/iso-build.mdx)
+- [Oxy engineering standards](https://github.com/OxyHQ/oxy/blob/main/docs/engineering/standards.md)
+- [Agent team workflow](https://github.com/OxyHQ/oxy/blob/main/docs/engineering/agent-team-workflow.md)
+
+Owner: Nate Isern (OxyHQ). Last reviewed: 2026-11-11.

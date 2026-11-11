@@ -185,6 +185,7 @@ void PopupHost::sync(uint64_t serial) {
         popup.unanswered += 1;
         popup.placed = placed;
         popup.dirty = true;
+        popup.onlyTurning = false;
         Report::get().popup("reposition", popup.surface, &view,
                             folly::dynamic::object("width", placed.width)("height", placed.height)(
                                 "anchor_x", placed.anchor_x)("anchor_y", placed.anchor_y));
@@ -269,7 +270,26 @@ void PopupHost::observe(Popup& popup) const {
 }
 
 void PopupHost::changed() {
-  for (auto& [tag, popup] : popups_) popup.dirty = true;
+  for (auto& [tag, popup] : popups_) {
+    popup.dirty = true;
+    popup.onlyTurning = false;
+  }
+}
+
+bool PopupHost::spinning() const {
+  return std::any_of(popups_.begin(), popups_.end(),
+                     [](const auto& entry) { return entry.second.spins && !entry.second.dismissed; });
+}
+
+bool PopupHost::turn() {
+  bool ready = false;
+  for (auto& [tag, popup] : popups_) {
+    if (!popup.spins || popup.dismissed) continue;
+    if (!popup.dirty) popup.onlyTurning = true;
+    popup.dirty = true;
+    ready |= window_.ready(popup.surface);
+  }
+  return ready;
 }
 
 void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
@@ -301,7 +321,11 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
     if (auto secure = secureFields(tree_, tag); window_.setSecureRegions(popup.surface, secure)) {
       Report::get().input("secure.regions", popup.surface, folly::dynamic::object("rects", toDynamic(secure)));
     }
-    window_.present(popup.surface, canvas);
+    // Drawn for its configure as the frame before was, with nothing but its rings to turn.
+    bool onlyTurning = popup.onlyTurning && surface->configure == popup.drawnFor;
+    window_.present(popup.surface, canvas, {}, onlyTurning);
+    popup.spins = stats.spinning;
+    popup.onlyTurning = false;
     Report::get().frame(popup.surface, canvas.width, canvas.height, renderMs, stats.textContent, focus);
     // A tooltip is no element of its own for an assistive technology: what it shows is its
     // trigger's name (the dock's icon), as a Mac's help tag is its control's help, never a place

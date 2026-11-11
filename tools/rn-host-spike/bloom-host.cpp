@@ -47,6 +47,7 @@
 #include "window.h"
 #include "animation-frames.h"
 #include "native-animated.h"
+#include "progress-bar.h"
 #include "reanimated-host.h"
 #include "worklets-host.h"
 
@@ -1358,6 +1359,10 @@ int main(int argc, char** argv) {
     // and present whenever the tree changed and the previous frame was answered.
     // The first frame is the first mounted tree, never an empty window.
     bool dirty = false;
+    // A ProgressBar spun in the window's last frame (progress-bar.h): its frames go on, one each
+    // refresh of the display from when the rings last turned.
+    bool windowSpins = false;
+    std::optional<Clock::time_point> ringsTurned;
     // The GPU's painter has just taken over: the next frame is drawn whole.
     bool painterChanged = false;
     int status = 0;
@@ -1627,6 +1632,8 @@ int main(int argc, char** argv) {
     folly::dynamic toldShellState = nullptr;
     // The preferences as JavaScript was last told them (docs/adr/0019-settings.mdx).
     std::optional<oxyos::Window::Drawing> toldDrawing = window ? std::optional(window->drawing()) : std::nullopt;
+    // A spinning ring's motion (progress-bar.h), as the session tells Reduce Motion.
+    if (toldDrawing) oxyos::setProgressReducedMotion(toldDrawing->reduceMotion);
     // Reduce transparency as the session told it at connect: expo-blur's views blur nothing.
     if (window) oxyos::setReducedTransparency(window->drawing().reduceTransparency);
     std::map<std::string, std::string> toldPreferences;
@@ -2822,6 +2829,29 @@ int main(int argc, char** argv) {
             popups.changed();
             shellSurfaces.changed();
           }
+          // A ProgressBar spinning in a surface's last frame (progress-bar.h): that surface draws
+          // again each refresh of the display, its ring alone damaged (the window, a popup, a shell
+          // region), on this thread whatever JavaScript is doing. As an animation's frames are, a
+          // refresh apart: a compositor that answers each frame at once (the development one, with
+          // no display) is not asked for thousands a second.
+          // The frame is due from the turn that asks for it, drawn then or as soon as its surface can
+          // take one (the compositor's answer to the one before, later in the turn or after it).
+          bool ringsSpin = windowSpins || popups.spinning() || shellSurfaces.spinning();
+          if (ringsSpin && (!ringsTurned || Clock::now() >= *ringsTurned + refresh.period())) {
+            ringsTurned = Clock::now();
+            // (Below an input that comes in the turn, which its frame answers: the motion of a
+            // pointer's rank.)
+            diagnostics.trigger("a spinning ring", 1);
+            bool turning = false;
+            if (windowSpins) {
+              dirty = true;
+              // (Not while the window waits for JavaScript's layout of a resize: no frame is drawn.)
+              turning = window->ready(oxyos::Window::kToplevel) && !settleBy;
+            }
+            turning |= popups.turn();
+            turning |= shellSurfaces.turn();
+            busy |= turning;
+          }
           if (animating) diagnostics.trigger("an animation frame");
           busy |= animating;
         }
@@ -3248,7 +3278,10 @@ int main(int argc, char** argv) {
             windowCanvas = oxyos::Canvas{};
             dirty = true;
           }
-          if (now.reduceMotion != toldDrawing->reduceMotion) emit("reduceMotionDidChange", now.reduceMotion);
+          if (now.reduceMotion != toldDrawing->reduceMotion) {
+            emit("reduceMotionDidChange", now.reduceMotion);
+            oxyos::setProgressReducedMotion(now.reduceMotion);
+          }
           // Reduce transparency: expo-blur's views draw their tint alone from now on (or blur
           // again), every one of them, though none of their props changed: the window is drawn
           // again whole, as when the painter changes.
@@ -3956,6 +3989,8 @@ int main(int argc, char** argv) {
           auto damage = windowDamage.update(tree, display, drawn);
           if (painterChanged) damage.reset();
           painterChanged = false;
+          // Nothing changed but spinning rings: the report says so of the frame.
+          bool onlyTurning = damage && windowDamage.spinningOnly();
           if (damage && damage->empty() && window->answered(oxyos::Window::kToplevel)) {
             // Nothing visible changed (focus moved to a popup, say): nothing is drawn or presented.
             // The report still learns the focus, with the texts of the frame shown.
@@ -3963,10 +3998,12 @@ int main(int argc, char** argv) {
                                      focusName(), 0, false);
             publishWindowAccessibility();
             dirty = false;
+            windowSpins = false;
           } else {
             auto stats = damage ? oxyos::drawDamaged(tree, display, windowCanvas, drawn, *damage)
                                 : oxyos::draw(tree, display, windowCanvas, drawn);
             shownTexts = stats.textContent;
+            windowSpins = stats.spinning;
             double renderMs = std::chrono::duration<double, std::milli>(Clock::now() - started).count();
             if (checkDamage && damage) {
               oxyos::Canvas whole;
@@ -4017,7 +4054,7 @@ int main(int argc, char** argv) {
               oxyos::Report::get().input("secure.regions", oxyos::Window::kToplevel,
                                          folly::dynamic::object("rects", oxyos::toDynamic(secure)));
             }
-            window->present(oxyos::Window::kToplevel, windowCanvas, pixels);
+            window->present(oxyos::Window::kToplevel, windowCanvas, pixels, onlyTurning);
             // The share of the window drawn again (overlaps counted once per rectangle, at most 1).
             double area = 0;
             for (const auto& rect : pixels) area += static_cast<double>(rect.width) * rect.height;
@@ -4099,6 +4136,9 @@ int main(int argc, char** argv) {
                            animationFrames.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            pointer.nextFrame(window->ready(oxyos::Window::kToplevel)),
                            images.nextFrame(window->ready(oxyos::Window::kToplevel)), diagnostics.nextDeadline(),
+                           (windowSpins || popups.spinning() || shellSurfaces.spinning()) && ringsTurned
+                               ? std::optional(*ringsTurned + refresh.period())
+                               : std::nullopt,
                            editing.nextBlink(), oxyos::Memory::get().nextDeadline(),
                            services.accountSession ? services.accountSession->nextDeadline() : std::nullopt}) {
             if (due && (!deadline || *due < *deadline)) deadline = *due;

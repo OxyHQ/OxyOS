@@ -12,6 +12,8 @@
 //! full screen and Super+Alt with F, C, R or an arrow (Shift: arrangements) tiles it (ADR 0016,
 //! decision 12, `tiling.rs`); with Alt, as a Mac's ⌥⌘W and ⌥⌘M, Super+Alt+W asks every window of
 //! the active application to close and Super+Alt+M minimizes every one shown on this workspace.
+//! Super+Alt+D turns the dock's automatic hiding on and off (docs/adr/0034-the-dock.mdx), which
+//! the program keeps as the person's preference.
 //! What needs a picture is the shell's (its `shortcuts` grant): Super+Tab and
 //! Super+Shift+Tab open the application switcher and move in it while Super is held (Q quits and
 //! H hides the application it has chosen, Escape cancels it, releasing Super activates the
@@ -58,6 +60,8 @@ const KEY_5: u32 = 6;
 const TAB: u32 = 15;
 const Q: u32 = 16;
 const W: u32 = 17;
+/// D: the dock hiding automatically on and off, as a Mac's ⌥⌘D (docs/adr/0034-the-dock.mdx).
+const D: u32 = 32;
 /// R and C, with F: tiling's Return to Previous Size, Center and Fill (ADR 0016, decision 12).
 const R: u32 = 19;
 const F: u32 = 33;
@@ -336,6 +340,12 @@ impl Scene {
         if key == Q && shift && !ctrl && !self.capturing() {
             self.dismiss_grab(DismissReason::OutsidePress);
             self.session_key(super::SessionKey::LogOut { confirm: !alt });
+            return;
+        }
+        // The dock hiding automatically on and off, as a Mac's ⌥⌘D (docs/adr/0034-the-dock.mdx,
+        // 10 November 2026): the program turns the preference over, keeps and applies it.
+        if alt && key == D && !ctrl && !shift && !self.capturing() {
+            self.toggle_dock_hiding();
             return;
         }
         // Hide Others, as a Mac's ⌥⌘H: every application but the active window's (every one
@@ -866,6 +876,11 @@ impl Scene {
             .inputs
             .get(&key.client)
             .is_some_and(|inputs| inputs.contains(&serial));
+        // The dock hiding automatically comes up to take the keys (Super+F3, ADR 0039), and stays
+        // while it has them (docs/adr/0034-the-dock.mdx, 10 November 2026).
+        if recent && self.grab.is_empty() {
+            self.bring_up_dock(key);
+        }
         if (recent || sheet) && self.focusable(key) && self.grab.is_empty() {
             self.activate(key);
         }
