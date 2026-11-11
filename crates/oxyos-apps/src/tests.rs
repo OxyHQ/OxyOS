@@ -47,6 +47,28 @@ fn an_entry_is_an_application_named_in_the_sessions_language() {
 }
 
 #[test]
+fn an_entry_says_its_version_and_build_for_the_about_panel() {
+    let entry = "[Desktop Entry]\nType=Application\nName=Notes\nExec=notes\nX-OxyOS-Version= 1.2.0 \nX-OxyOS-Package-Version=345\n";
+    let notes = parse("so.oxy.notes", entry, Path::new("/"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (notes.version.as_deref(), notes.build),
+        (Some("1.2.0"), Some(345))
+    );
+    // An entry that says neither, or says them wrongly, has none.
+    let allo = parse("so.oxy.allo", ALLO, Path::new("/"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!((allo.version, allo.build), (None, None));
+    let wrong = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nX-OxyOS-Version=\nX-OxyOS-Package-Version=0\n";
+    let wrong = parse("so.oxy.x", wrong, Path::new("/"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!((wrong.version, wrong.build), (None, None));
+}
+
+#[test]
 fn keywords_are_listed_in_the_sessions_language_else_their_own() {
     let entry = "[Desktop Entry]\nType=Application\nName=Inbox\nExec=inbox\nKeywords=mail;email; letters ;\nKeywords[es]=correo;email;\n";
     let keywords = |languages: &[&str]| {
@@ -1078,6 +1100,8 @@ fn a_system_launch_runs_what_the_policy_names() {
         id: "so.oxy.settings".into(),
         name: "Settings".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "Settings".into(),
@@ -1410,6 +1434,8 @@ fn an_application_runs_on_its_runtimes_host() {
         id: "so.oxy.inbox".into(),
         name: "Inbox".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "Inbox".into(),
@@ -1529,6 +1555,8 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
         id: "so.oxy.settings".into(),
         name: "Settings".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "OxyOSSettings".into(),
@@ -1957,6 +1985,8 @@ fn a_package_is_the_directory_of_its_compiled_bundle_and_manifest() {
         id: "so.oxy.inbox".into(),
         name: "Inbox".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "Inbox".into(),

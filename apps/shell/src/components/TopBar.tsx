@@ -87,6 +87,8 @@ function MenuEntries({
           return (
             <MenubarCheckboxItem
               key={item.id}
+              // Named by its label alone, as the Oxy menu's rows: its chord is drawn beside it.
+              accessibilityLabel={item.label}
               checked={item.checked}
               disabled={item.enabled === false}
               trailing={chord}
@@ -99,6 +101,7 @@ function MenuEntries({
         return (
           <MenubarItem
             key={item.id}
+            accessibilityLabel={item.label}
             disabled={item.enabled === false}
             trailing={chord}
             onPress={() => onCommand(item.id)}
@@ -937,7 +940,8 @@ const BarMenus = memo(function BarMenus({
       </MenubarMenu>
       {menus.map((menu, index) => {
         const value = menuValue(index, menu);
-        const weight = index === 0 ? ("600" as const) : ("400" as const);
+        // The first is the active application's own menu, its name in bold, as a Mac's.
+        const weight = index === 0 ? ("700" as const) : ("400" as const);
         return (
           <MenubarMenu key={value} value={value}>
             <MenubarTrigger asChild label={menu.label} style={[{ borderRadius: 4 }, highlight(value)]}>

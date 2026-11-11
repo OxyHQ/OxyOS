@@ -1,5 +1,5 @@
 {
- "about": "The session's language and region (docs/adr/0040-language-and-region.mdx) in an English session (en_US.UTF-8): Settings with the shell and the screen reader. Everything starts in English: Settings' pages, the shell's Oxy menu and View menu, the top bar's clock as the United States writes it (12 hours), the reader's speech with eSpeak's English voice. General › Language & Region shows the system's choices and a sample formatted for the United States. Choosing Español changes Settings, the shell, its clock (es-US: 12 hours) and the reader's words and voice at once, with no restart; 24 horas then changes the sample and the clock. The preferences file keeps the choices. At 1 (1280 × 720).",
+ "about": "The session's language and region (docs/adr/0040-language-and-region.mdx) in an English session (en_US.UTF-8): Settings with the shell and the screen reader. Everything starts in English: Settings' pages, the shell's Oxy menu and Settings' own menu in the bar (its name in the session's language), the top bar's clock as the United States writes it (12 hours), the reader's speech with eSpeak's English voice. General › Language & Region shows the system's choices and a sample formatted for the United States. Choosing Español changes Settings, the shell, its clock (es-US: 12 hours) and the reader's words and voice at once, with no restart; 24 horas then changes the sample and the clock. The preferences file keeps the choices. At 1 (1280 × 720).",
  "locale": "en_US.UTF-8",
  "module": "OxyOSSettings",
  "window": [
@@ -48,7 +48,7 @@
     },
     "in_shell": {
      "texts": [
-      "View"
+      "Settings"
      ],
      "texts_matching": [
       "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) \\d{1,2} [1-9]\\d?:\\d{2}[   ](AM|PM)$"
@@ -193,10 +193,10 @@
     },
     "in_shell": {
      "texts": [
-      "Ver"
+      "Ajustes"
      ],
      "absent": [
-      "View"
+      "Settings"
      ],
      "texts_matching": [
       "^(lun|mar|mié|jue|vie|sáb|dom), \\d{1,2} de (ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic) [1-9]\\d?:\\d{2}[   ](a|p)\\.m\\.$"
@@ -218,7 +218,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "OxyOS, contraído, botón",
+      "text": "Ajustes, contraído, botón",
       "interrupting": true,
       "voice": "es"
      }
@@ -282,7 +282,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Ver, contraído, botón",
+      "text": "Buscar aplicaciones, botón",
       "interrupting": true,
       "voice": "es"
      }

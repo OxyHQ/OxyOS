@@ -427,6 +427,7 @@ impl Scene {
             | Request::MenusBegin { surface, .. }
             | Request::MenuItem { surface, .. }
             | Request::MenuText { surface, .. }
+            | Request::MenuItemRole { surface, .. }
             | Request::MenusCommit { surface }
             | Request::BeginMove { surface, .. } => surface,
             _ => return None,

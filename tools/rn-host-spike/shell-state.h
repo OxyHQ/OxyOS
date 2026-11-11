@@ -120,7 +120,7 @@ class ShellState {
   // The active window's menus as last committed, and those being received.
   struct MenuItem {
     int64_t parent = -1;
-    uint32_t kind = 0;
+    uint32_t kind = 0, role = OXYOS_MENU_ROLE_NONE;
     uint8_t flags = 0;
     std::string label, shortcut;
   };
