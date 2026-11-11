@@ -3106,16 +3106,10 @@ thread_local! {
     static HELD: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
 }
 
-/// The session served once, as a wait step serves it: the compositor, the pasteboard, the
-/// launches, installs, background, preferences and the screen reader's trees.
-/// What opens as the person logs in, as `oxyos-session` opens it after its shells: the person's
-/// login items (docs/adr/0034-the-dock.mdx; none in Safe Mode), then what Resume reopens or asks
-/// to (docs/adr/0065, decision 3), and how the last session ended; their windows come back where
-/// they were (docs/adr/0070).
-fn open_at_login(session: &mut Session, launch: &Launch) {
-    // The applications the person opens at login (docs/adr/0034-the-dock.mdx), once the shell is
-    // up, as `oxyos-session` starts them after its shells: their windows open in the work area
-    // the panels leave, where they were (docs/adr/0070). None in Safe Mode.
+/// The applications the person opens at login (docs/adr/0034-the-dock.mdx), as `oxyos-session`
+/// opens them after its shells; none in Safe Mode. Their windows come back where they were
+/// (docs/adr/0070).
+fn open_login_items(session: &mut Session, launch: &Launch) {
     if !launch.safe_mode {
         let open_at_login = session.settings.preferences().open_at_login.clone();
         if let Some(launcher) = session.launcher.as_mut() {
@@ -3131,9 +3125,13 @@ fn open_at_login(session: &mut Session, launch: &Launch) {
             }
         }
     }
-    // Resume (docs/adr/0065, decision 3), as the session starts it once its shell is shown: what the run's state folder
-    // says the last session left, opened again or asked; and how the last session ended,
-    // as the login program tells it (`OXYOS_SESSION_ENDED`).
+}
+
+/// What Resume reopens or asks to (docs/adr/0065, decision 3), and how the last session ended;
+/// what it reopens comes back where it was (docs/adr/0070).
+fn resume_at_login(session: &mut Session, launch: &Launch) {
+    // What the run's state folder says the last session left, opened again or asked; how the last
+    // session ended, as the login program tells it (`OXYOS_SESSION_ENDED`).
     if let (Some(path), Some(launcher)) =
         (oxyos_compositor::resume::path(), session.launcher.as_mut())
     {
@@ -3167,6 +3165,8 @@ fn open_at_login(session: &mut Session, launch: &Launch) {
     }
 }
 
+/// The session served once, as a wait step serves it: the compositor, the pasteboard, the
+/// launches, installs, background, preferences and the screen reader's trees.
 fn serve_session(session: &mut Session) -> Result<()> {
     session.compositor.serve(&session.listener)?;
     if let Some(pasteboard) = session.pasteboard.as_mut() {
@@ -6936,10 +6936,11 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     // Its launch is now, as it was started: what it asks of the services as it starts (the
     // accounts' service's subscription, say) is the first step's, however long it takes to connect.
     let launched_ns = monotonic_ns();
-    // What opens at login, once the director's own application is client 1 (`CLIENT`), the window
-    // every step follows: opened before it connected, one of theirs could take that number, and
-    // the run would follow its window instead, which never settles if it opens minimized or on
-    // another desktop. The session opens them after its shells, as here, with no such number.
+    // What Resume reopens (and, after the first frame, the login items), once the director's own
+    // application is client 1 (`CLIENT`), the window every step follows: opened before it
+    // connected, one of theirs could take that number, and the run would follow its window
+    // instead, which never settles if it opens minimized or on another desktop. The session opens
+    // them after its shells, with no such number.
     if !launch.command.is_empty() {
         while !session.compositor.peers.contains_key(&CLIENT) {
             if Instant::now() > deadline {
@@ -6953,7 +6954,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             serve_session(&mut session)?;
         }
     }
-    open_at_login(&mut session, launch);
+    resume_at_login(&mut session, launch);
 
     // A login screen has no window: the output stands for it, and its first frame is the one
     // its shell has already shown.
@@ -6983,6 +6984,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         }
     };
     let mut window = first.window;
+    // The login items once the application's window is shown, as it stands for what was there
+    // before the person logged in: theirs come back in their order around it, the front one
+    // with the keyboard (docs/adr/0070, decision 3), whichever host is ready first.
+    open_login_items(&mut session, launch);
     if let Some(command) = &launch.companion {
         start_companion(
             &mut session,
