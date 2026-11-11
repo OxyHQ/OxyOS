@@ -1,0 +1,256 @@
+{
+ "about": "React Native's ActivityIndicator on OxyOS (issue #559; progress-bar.h): Android's AndroidProgressBar, drawn by the host as AOSP's indeterminate ring, on the UI thread (sample/ProgressProbe.tsx, the screen reader on in Spanish). Its rings held at 666.5 ms of their animation (`progress_phase_ms`), still drawn again every refresh: the frames that turn only a ring are no change a step waits on. A large indicator labelled Sincronizando spins all along, in its colour (#d03030): a progress indicator, busy. Bloom's Guardar button, pressed from the keyboard, works for 2.5 s: its spinner over its hidden label, in the label's colour, the button busy, the keyboard staying on it, the status line said; then the result, said, the spinner gone. The reader's cursor, moved on from the button, says the status line, then the indicator: a progress indicator, busy.",
+ "module": "ProgressProbe",
+ "window": [
+  480,
+  240
+ ],
+ "locale": "es_ES.UTF-8",
+ "reader": {},
+ "progress_phase_ms": 666.5,
+ "steps": [
+  {
+   "name": "The button, the status line and the indicator spinning: its ring in its colour, open where the held phase leaves it; the step settles while it turns",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": null,
+    "spoken": [],
+    "announcements": [],
+    "progress_frames": [
+     10,
+     100000
+    ],
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Guardar"
+      },
+      {
+       "name": "Sin guardar",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Sincronizando",
+       "state": [
+        "busy"
+       ]
+      }
+     ]
+    },
+    "pixels": {
+     "225,94": "#d03030",
+     "240,80": "#d03030",
+     "240,108": "#d03030",
+     "254,94": "#ffffff",
+     "63,34": "#9422ae",
+     "55,42": "#9422ae"
+    }
+   }
+  },
+  {
+   "name": "Tab: Guardar, said",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Guardar, botón",
+      "interrupting": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "Space: the button works, its spinner over its hidden label, in the label's colour, the button busy; the status line said; the keyboard stays on it",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "texts": [
+     "Guardando…"
+    ],
+    "progress_frames": [
+     5,
+     100000
+    ],
+    "spoken": [
+     {
+      "text": "Guardando…",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Guardando…",
+      "live": true
+     }
+    ],
+    "pixels": {
+     "225,94": "#d03030",
+     "240,80": "#d03030",
+     "240,108": "#d03030",
+     "254,94": "#ffffff",
+     "63,34": "!#9422ae",
+     "55,42": "!#9422ae",
+     "71,42": "#9422ae"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Guardar",
+       "state": [
+        "disabled",
+        "busy",
+        "focused"
+       ]
+      },
+      {
+       "name": "Guardando…",
+       "state": [
+        "live-polite"
+       ]
+      },
+      {
+       "role": "ProgressBar",
+       "name": "Sincronizando",
+       "state": [
+        "busy"
+       ]
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "ProgressBar",
+       "name": ""
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Its work done: the result said, the spinner gone, the button no longer busy, the keyboard still on it",
+   "do": [
+    "wait",
+    3500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "texts": [
+     "Guardado"
+    ],
+    "spoken": [
+     {
+      "text": "Guardado",
+      "interrupting": false
+     }
+    ],
+    "announcements": [
+     {
+      "politeness": "polite",
+      "text": "Guardado",
+      "live": true
+     }
+    ],
+    "pixels": {
+     "225,94": "#d03030",
+     "240,80": "#d03030",
+     "240,108": "#d03030",
+     "254,94": "#ffffff",
+     "63,34": "#9422ae",
+     "55,42": "#9422ae"
+    },
+    "at": {
+     "window": [
+      {
+       "role": "Button",
+       "name": "Guardar",
+       "state": [
+        "focused"
+       ]
+      },
+      {
+       "name": "Guardado",
+       "state": [
+        "live-polite"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Ctrl+Alt+Right: the reader's cursor from the button on to the status line",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "Guardado",
+      "interrupting": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "on to the indicator: said as a progress indicator, busy",
+   "do": [
+    "key",
+    [
+     29,
+     56,
+     106
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "spoken": [
+     {
+      "text": "Sincronizando, ocupado, indicador de progreso",
+      "interrupting": true
+     }
+    ]
+   }
+  }
+ ]
+}

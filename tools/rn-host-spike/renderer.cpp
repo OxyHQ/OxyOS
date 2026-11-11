@@ -6,6 +6,7 @@
 #include "expo-blur.h"
 #include "expo-image.h"
 #include "masked-view.h"
+#include "progress-bar.h"
 #include "skia-gpu.h"
 
 #include "svg.h"
@@ -175,7 +176,7 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "Image", "RNSVGSvgView", "RNSVGSvgViewAndroid",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurView",
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
-                                            "ViewManagerAdapter_ExpoImage",
+                                            "ViewManagerAdapter_ExpoImage", kAndroidProgressBar,
                                             kWindowViewComponent, kMinimizeTargetComponent,
                                             kScrollTargetComponent};
 // The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
@@ -963,6 +964,19 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     Rect rect = draw.toSurface.bounds(Rect{{x, y}, {w, h}});
     for (uint32_t window : minimizeTargetWindows(view)) {
       stats.minimizeTargets.push_back(RenderStats::MinimizeTarget{window, rect});
+    }
+  }
+
+  // ProgressBar (progress-bar.h): its ring in its content box, in its colour, else the accent's.
+  if (name == kAndroidProgressBar && visible) {
+    auto content = view.layoutMetrics.getContentFrame();
+    // A ring nothing shows (scrolled away, clipped) does not turn: no frames go on for it.
+    if (touches(draw, x, y, w, h)) {
+      const auto& progress = static_cast<const AndroidProgressBarProps&>(*view.props);
+      drawProgressBar(canvas, progress, x + content.origin.x, y + content.origin.y, content.size.width,
+                      content.size.height, draw.edit ? draw.edit->focusRingColor : TextInputEdit{}.focusRingColor,
+                      opacity, progressClockMs(), progressReducedMotion());
+      if (draw.stats && progressBarSpins(progress)) draw.stats->spinning = true;
     }
   }
 
