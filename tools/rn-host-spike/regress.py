@@ -314,6 +314,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "wide-y" as the pointer over one brings it wide, "hidden" once faded out; "scrollbar_thumbs",
   where each view's thumbs were in the window (logical pixels) as last reported in the step,
   {testID: {"x"|"y": [x, y, width, height]}};
+- progress_frames: [least, most] frames the application presented in the step (any of its surfaces)
+  that changed nothing but spinning rings (progress-bar.h; its report's `present` lines with
+  `progress_only`): an ActivityIndicator turning on the UI thread, each refresh, while the step
+  settled around it (a step's settling leaves those frames aside, tools/oxyos-offscreen/src/progress.rs);
 - stall: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx): the step's longest
   stretch of JavaScript's work on its thread (`js_timing`, at least "block_ms_min", 450 by default)
   is the block, and what moves ("motion": "animated:TARGET", the props Animated's native driver
@@ -343,7 +347,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "stopped_by" "hold" and "press". With "kept_by" (the same kinds of input on another surface of
   the application while it glides, a popup's), the glide goes on to its end as without it;
 - scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
-  the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
+  the momentum's) carries as its `timestamp` when the host dispatched it (after it received the
+  input behind it, a glide's frame the last before it, and before it reported the event), as React
   Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
   device's time of the input behind it, nor nothing;
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
@@ -427,9 +432,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
   JavaScript (waiting for another thread, a lock, a file), both budgets on speed held only with
   --speed-budgets; "presented", [least, most] frames presented (0: the step changed nothing
-  the host draws, from the `timing` lines); "js_wall_ms_max", the most JavaScript any one of them ran
-  by the wall clock, a
-  backstop for a gross regression set far above what the work takes. In `in_shell`, the shell's;
+  the host draws, from the `timing` lines); "js_ms_backstop", the most JavaScript any one of them ran
+  on its thread's CPU, a backstop for a gross regression held on every run, set far above what the
+  work takes (its time by the clock, blocked and preempted, is said with it, never held: the
+  machine's load makes it). In `in_shell`, the shell's;
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
   count of work the machine's load cannot change: "tops", exactly the components the step's
@@ -442,6 +448,14 @@ A step with `until_sheet` asks the session for something it confirms in a system
 it settles once the session has a sheet waiting and the shell shows a surface it did not show before
 the step, however long after the step's first answer that is (an update is staged, downloaded and
 verified, before its consent is asked), never after a set time.
+
+A `drag_paced` (or `drag_paced_named`) step with `until_taken` drags as a hand that lets the
+application take each motion: after each, it waits until the application pressed, or the drag's
+target once a drag has begun, has taken everything it was sent (two Pings answered in turn), then goes
+on. What the drag passes over (a drop target's edge, the window it leaves, the touches React is given
+before it begins) and what each is told (the action its answer was told) is then where the hand was,
+whatever the machine's load; a drag that begins late, its press already released, is a `drag_output`
+step's, whose events all reach the application before it reads any (ADR 0035, decision 2).
 
 A step with `until_named` ([name, ms]) is answered on the application's own clock (an install the
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
@@ -548,6 +562,12 @@ every process its /proc shows, as a Mac's lists all of the user's; the run's /pr
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
 it, for longer than that on a loaded machine.
+
+A scenario's `progress_phase_ms` draws its hosts' spinning rings (React Native's ActivityIndicator,
+progress-bar.h) at that point of their animation, every frame: each is still drawn again every
+refresh, as it turns, but always as it is that far in, so that `pixels` can say where its arc is.
+Without it the rings turn by the clock. Either way a frame that only turns a ring is no change a
+step waits on, or that makes one settle (tools/oxyos-offscreen/src/progress.rs).
 
 A scenario's `clear_of_minute_ms` keeps its steps clear of the wall clock's minute: no step begins
 in its last that many milliseconds, the session served until the minute has begun, the shell has
@@ -1241,6 +1261,11 @@ def director_args(step, out):
         # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         # logged out, or logind asked, once every application quit on its own clock.
         args.append("--until-ended")
+    if step.get("until_taken"):
+        # A paced drag whose hand lets the application take each motion: after each, it waits for
+        # the application pressed (the drag's target once a drag began) to take what it was sent, so
+        # what the drag passes over and what each is told is where the hand was, whatever the load.
+        args.append("--until-taken")
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
@@ -3383,6 +3408,39 @@ def android_fling_distance(velocity, friction):
     return math.copysign(distance, velocity)
 
 
+def android_spline_positions(samples=100):
+    """SplineOverScroller's SPLINE_POSITION, computed as its static initializer computes it (as
+    scroll-physics.h does): the share of a fling's distance gone at each hundredth of its time."""
+    start_tension, end_tension, inflexion = 0.5, 1.0, 0.35
+    p1, p2 = start_tension * inflexion, 1.0 - end_tension * (1.0 - inflexion)
+    positions, x_min = [], 0.0
+    for i in range(samples):
+        alpha, x_max = i / samples, 1.0
+        while True:
+            x = x_min + (x_max - x_min) / 2.0
+            coefficient = 3.0 * x * (1.0 - x)
+            tx = coefficient * ((1.0 - x) * p1 + x * p2) + x * x * x
+            if abs(tx - alpha) < 1e-5:
+                break
+            if tx > alpha:
+                x_max = x
+            else:
+                x_min = x
+        positions.append(coefficient * ((1.0 - x) * start_tension + x) + x * x * x)
+    return positions + [1.0]
+
+
+def android_fling_time(share):
+    """When a fling has gone `share` of its distance, as a share of its time (its spline, as
+    SplineOverScroller.update steps it, inverted)."""
+    positions = android_spline_positions()
+    samples = len(positions) - 1
+    for i in range(samples):
+        if positions[i + 1] >= share:
+            return (i + (share - positions[i]) / (positions[i + 1] - positions[i])) / samples
+    return 1.0
+
+
 def edge_stretch(distance):
     """EdgeEffect's dampStretchVector: the stretch drawn for a pull of `distance` (a share of the
     view's size)."""
@@ -3596,8 +3654,18 @@ def check_glide(wanted, report, start, end, fail):
     speeding = glide_speeding(after[0:1] + after[2:-1], axis)
     if speeding:
         fail(f"{view} sped up as it glided: {speeding}")
-    if len(steps) < wanted.get("frames_min", 0):
-        fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
+    # The glide is drawn a frame at a time (never a jump), but where it is is its clock's, as
+    # Android's: a glide that met the end was there when its spline had gone that far, and a first
+    # frame drawn after that (late, on a loaded machine) rightly shows it there, in one frame.
+    def late_first():
+        if not steps or not distance or not wanted.get("to_end"):
+            return False
+        met_end_by = fling["ms"] * android_fling_time(abs(offsets[-1] - offsets[0]) / abs(distance))
+        return (after[2]["t"] - fling["t"]) / 1e6 >= met_end_by
+    # How many frames fit in the glide is the machine's rate (frames_least: all of them with
+    # --speed-budgets, else two).
+    if len(steps) < frames_least(wanted.get("frames_min", 0)) and not late_first():
+        fail(f"{view} glided in {len(steps)} frames, expected at least {frames_least(wanted['frames_min'])}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get(axis)
     reached_end = wanted.get("to_end", False)
     meets = stopped_by or kept_by
@@ -4839,14 +4907,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms (waiting for another "
                  f"thread, a lock or a file; {js(waited, 'cpu'):.2f} on the CPU), expected at most "
                  f"{wanted['js_blocked_ms_max']}")
-        # A backstop by the wall clock, for a gross regression only (docs/performance.mdx, "What a
-        # step re-renders"): set far above what the work takes, so that a loaded machine never
-        # reaches it.
-        slowest = max(work, key=lambda line: js(line, "parts"), default=None)
-        if not COLLECT and slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
-            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock "
-                 f"({js(slowest, 'cpu'):.2f} on the CPU), expected at most {wanted['js_wall_ms_max']} (a backstop "
-                 f"for a gross regression)")
+        # A backstop on its thread's CPU, for a gross regression only (docs/performance.mdx, "What a
+        # step re-renders"), held on every run: set far above what the work takes. Its time by the
+        # clock is the machine's as much as its own (preempted, the thread waits for a CPU another
+        # process has; blocked, for a page another reads in), so the clock is said, never held.
+        if not COLLECT and costly and most > wanted.get("js_ms_backstop", float("inf")):
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on its thread's CPU, expected at most "
+                 f"{wanted['js_ms_backstop']} (a backstop for a gross regression); by the clock "
+                 f"{js(costly, 'parts'):.2f}: {js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} "
+                 f"preempted")
         presented = len(presented_frames)
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
@@ -5578,6 +5647,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "progress_frames" in expect:
+        # Frames that turned only spinning rings (progress-bar.h), any of the application's surfaces'.
+        least, most = expect["progress_frames"]
+        turned = sum(1 for line in report if line["kind"] == "present" and line.get("progress_only")
+                     and start < line["t"] <= end)
+        if not least <= turned <= most:
+            fail(f"{turned} frames turned only a spinner in the step, expected {least} to {most}")
     if "resize_work" in expect:
         # A window resized (`drag_paced` on an edge, a zoom): the application's host's frames in the
         # step, the work each took, the JavaScript in it and React's commits.
@@ -5626,11 +5702,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  and line.get("event") in kinds]
         if not lines:
             fail("no scroll event was delivered")
+        # Dispatched after the host received the input behind it (its `received` line; a glide's
+        # frame has none: the last input received before it) and before the host reported it:
+        # never the device's time, which comes before the host received it. Bounds of the host's
+        # own, not a gap in time, which a loaded machine stretched past 2 ms between stamping an
+        # event and writing its line.
+        received = {line["seq"]: line["t"] for line in report if line["kind"] == "received" and "seq" in line}
+        inputs = sorted(received.values())
         for line in lines:
             stamp = line.get("timestamp")
-            if stamp is None or abs(stamp - line["t"] / 1e6) > 2:
+            behind = received.get(line.get("input_seq"))
+            if behind is None:
+                behind = max((t for t in inputs if t <= line["t"]), default=None)
+            if (stamp is None or stamp > line["t"] / 1e6 + 0.01
+                    or (behind is not None and stamp < behind / 1e6 - 0.01)):
                 fail(f"{line['event']}@{line.get('target')} carried timestamp {stamp}, dispatched at "
-                     f"{line['t'] / 1e6:.1f} ms")
+                     f"{line['t'] / 1e6:.1f} ms, after the input behind it at "
+                     f"{'none' if behind is None else f'{behind / 1e6:.1f} ms'}")
                 break
     if "stretch" in expect:
         check_stretch(expect["stretch"], report, start, end, fail)
@@ -7242,6 +7330,9 @@ def main():
     # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26); or an
     # application window's host, between a modal's own focus and the host following the modal
     # coming: "window-focus-first" (decision 27).
+    env.pop("OXYOS_HOST_PROGRESS_PHASE_MS", None)
+    if "progress_phase_ms" in scenario:
+        env["OXYOS_HOST_PROGRESS_PHASE_MS"] = str(float(scenario["progress_phase_ms"]))
     env.pop("OXYOS_HOST_TEST_ORDER", None)
     if "host_order" in scenario:
         if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first", "window-focus-first"):

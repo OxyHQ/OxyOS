@@ -74,6 +74,8 @@ pub(super) struct Dock {
     /// The Ping each client has not answered: its serial and when it was sent.
     pings: BTreeMap<ClientId, (u32, Duration)>,
     next_ping: u32,
+    /// The latest Ping each client answered.
+    answered: BTreeMap<ClientId, u32>,
     not_responding: BTreeSet<ClientId>,
     /// The clients of each application the shell asked to force-quit, not yet taken.
     force_quits: Vec<Vec<ClientId>>,
@@ -153,6 +155,24 @@ impl Scene {
         Some(serial)
     }
 
+    /// Pings `client` after everything it was sent, for the program to know once it has read and
+    /// handled all of it (`answered`): a scenario's hand waiting for an application to take its
+    /// motions. The serial sent, or none for a version that answers no Ping.
+    pub fn ping_after(&mut self, client: ClientId) -> Option<u32> {
+        if !self.clients.contains_key(&client) {
+            return None;
+        }
+        self.ping_after_events(client)
+    }
+
+    /// Whether `client` answered the Ping `serial` (or one sent after it).
+    pub fn answered(&self, client: ClientId, serial: u32) -> bool {
+        self.dock
+            .answered
+            .get(&client)
+            .is_some_and(|latest| latest.wrapping_sub(serial) < u32::MAX / 2)
+    }
+
     /// Pings `client` whatever it was sent, unless a Ping to it is unanswered: the program keeps
     /// its shell answering (the shell's watch, docs/adr/0061, decision 6).
     pub fn ping_client(&mut self, client: ClientId) {
@@ -184,6 +204,7 @@ impl Scene {
     }
 
     pub(super) fn pong(&mut self, client: ClientId, serial: u32) {
+        self.dock.answered.insert(client, serial);
         if self
             .dock
             .pings
@@ -554,6 +575,7 @@ impl Scene {
         let dock = &mut self.dock;
         dock.versions.remove(&client);
         dock.pings.remove(&client);
+        dock.answered.remove(&client);
         dock.not_responding.remove(&client);
         for clients in &mut dock.force_quits {
             clients.retain(|c| *c != client);

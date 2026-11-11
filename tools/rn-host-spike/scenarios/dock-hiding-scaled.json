@@ -1,0 +1,273 @@
+{
+  "about": "The dock hiding automatically, as a Mac's *Automatically hide and show the Dock* and its ⌥⌘D (docs/adr/0034-the-dock.mdx, as amended on 10 November 2026), in English at 1.25 (1600 × 1000 pixels, 1280 × 800 logical): Settings (its own window, granted `settings`) with the session's shell. Settings › Desktop & Dock's switch turns it on: the session keeps the preference, the dock keeps no strip of the screen (the work area to the screen's bottom) and slides down off it; the pointer at the screen's last row of pixels brings it up, and it slides down again once the pointer leaves it. Super+Alt+D turns it off: the same preference kept, the dock up and keeping its strip, Settings' switch following, and nothing of the chord reaching Settings. Super+Alt+D again turns it back on.",
+  "module": "OxyOSSettings",
+  "window": [
+    900,
+    640
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.settings",
+    "title": "Settings"
+  },
+  "settings": {
+    "app": "so.oxy.settings",
+    "preferences": {
+      "appearance": "light",
+      "accent": "oxy"
+    }
+  },
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "Settings › Desktop & Dock: the switch, off; the dock keeps its strip",
+      "do": [
+        "a11y-action",
+        [
+          "activate",
+          "Desktop & Dock"
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Automatically hide and show the Dock"
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Automatically hide and show the Dock",
+              "state": []
+            }
+          ]
+        },
+        "shell": {
+          "work_area": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        }
+      }
+    },
+    {
+      "name": "the switch on: the session keeps it, the dock keeps no strip and slides down off the screen",
+      "do": [
+        "press",
+        [
+          830,
+          130
+        ]
+      ],
+      "expect": {
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Automatically hide and show the Dock",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "preferences_file": {
+          "dock_autohide": "true"
+        },
+        "shell": {
+          "work_area": [
+            0,
+            28,
+            1280,
+            772
+          ]
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "panel",
+              "change": "edge_hidden",
+              "ended": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the pointer near the bottom edge, not at it: the dock stays down",
+      "do": [
+        "move_output",
+        [
+          640,
+          797
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "transitions": {
+          "count": 0
+        }
+      }
+    },
+    {
+      "name": "the pointer at the screen's last row of pixels: the dock slides up, over what is there",
+      "do": [
+        "move_output",
+        [
+          640,
+          799
+        ]
+      ],
+      "expect": {
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "panel",
+              "change": "edge_shown",
+              "ended": true
+            }
+          ]
+        },
+        "shell": {
+          "work_area": [
+            0,
+            28,
+            1280,
+            772
+          ]
+        }
+      }
+    },
+    {
+      "name": "over the dock (its shelf, beside its icons) it stays",
+      "do": [
+        "move_output",
+        [
+          100,
+          770
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "transitions": {
+          "count": 0
+        }
+      }
+    },
+    {
+      "name": "the pointer leaves it: it slides down again",
+      "do": [
+        "move_output",
+        [
+          640,
+          400
+        ]
+      ],
+      "expect": {
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "panel",
+              "change": "edge_hidden",
+              "ended": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+Alt+D, a Mac's ⌥⌘D: off, kept as the switch keeps it, the dock up and keeping its strip, the switch following; Settings hears nothing of the chord",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          32
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Automatically hide and show the Dock",
+              "state": []
+            }
+          ]
+        },
+        "preferences_file": {
+          "dock_autohide": "false"
+        },
+        "shell": {
+          "work_area": [
+            0,
+            28,
+            1280,
+            716
+          ]
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "panel",
+              "change": "edge_shown",
+              "ended": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Super+Alt+D again: on, the dock down again",
+      "do": [
+        "key",
+        [
+          125,
+          56,
+          32
+        ]
+      ],
+      "expect": {
+        "react": {},
+        "at": {
+          "window": [
+            {
+              "role": "Switch",
+              "name": "Automatically hide and show the Dock",
+              "state": [
+                "checked"
+              ]
+            }
+          ]
+        },
+        "preferences_file": {
+          "dock_autohide": "true"
+        },
+        "shell": {
+          "work_area": [
+            0,
+            28,
+            1280,
+            772
+          ]
+        },
+        "transitions": {
+          "count": 1,
+          "seen": [
+            {
+              "kind": "panel",
+              "change": "edge_hidden",
+              "ended": true
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

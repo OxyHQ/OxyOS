@@ -474,7 +474,7 @@ def measure_steps(scenario, summary, report, shell):
             # Each stretch of JavaScript's work on its thread (js-thread.h), as regress.py holds it.
             work = [line for line in lines if line["kind"] == "js_timing" and start <= line["t"] <= end]
             for budget, measure in (("js_ms_max", "cpu_ms"), ("js_blocked_ms_max", "blocked_ms"),
-                                    ("js_wall_ms_max", "work_ms")):
+                                    ("js_ms_backstop", "cpu_ms")):
                 if budget in wanted.get("js_work", {}):
                     measured[(index, host, budget)] = max((line[measure] for line in work), default=0.0)
             resize = wanted.get("resize_work", {})

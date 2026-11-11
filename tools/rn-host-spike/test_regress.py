@@ -469,6 +469,26 @@ class LaunchToContent(unittest.TestCase):
 
 
 
+class SpinnerFrames(unittest.TestCase):
+    """`progress_frames`: the frames the application presented in the step that turned only spinning
+    rings (its report's `present` lines with `progress_only`), from the step before's end on."""
+
+    def check(self, presents, wanted):
+        report = [{"t": t, "kind": "present", "surface": 1, "sequence": n, **({"progress_only": True} if only else {})}
+                  for n, (t, only) in enumerate(presents)]
+        failures = []
+        step = {"name": "wait", "do": ["wait", 1000], "expect": {"progress_frames": wanted}}
+        regress.check_step(0, step, {"t_settled": 100}, report, 10, failures)
+        return failures
+
+    def test_the_rings_turning_in_the_step(self):
+        self.assertEqual(self.check([(5, True), (20, False), (30, True), (40, True), (120, True)], [2, 2]), [])
+
+    def test_too_few_fail(self):
+        failures = self.check([(20, False), (30, True)], [2, 100])
+        self.assertEqual(failures, ["step 1 (wait): 1 frames turned only a spinner in the step, expected 2 to 100"])
+
+
 class GlidesOnlySlow(unittest.TestCase):
     """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
 
@@ -491,6 +511,51 @@ class GlidesOnlySlow(unittest.TestCase):
     def test_upwards_too(self):
         self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
                          [(2, -1875, -3125)])
+
+
+class AGlidesClockIsItsOwn(unittest.TestCase):
+    """`glide`'s frames_min (touchpad-scroll-scaled.json, step 2): a glide to the end is drawn in
+    frames, unless its first frame came after its spline had already reached the end."""
+
+    def check(self, first_ms):
+        # Flung at 1200 px/s from 280, 45.6 px short of the end, its spline 634.9 ms long.
+        fling = {"kind": "fling", "t": 0, "target": "inbox", "friction": 0.015, "vy": 1200.0, "vx": 0.0,
+                 "dy": regress.android_fling_distance(1200.0, 0.015), "dx": 0.0, "ms": 634.9}
+        line = lambda ms, event, y: {"kind": "deliver", "t": int(ms * 1e6), "event": event, "target": "inbox",
+                                     "surface": 1, "y": y, "x": 0}
+        report = [line(0, "scrollEndDrag", 280.0), line(0.1, "momentumScrollBegin", 280.0), fling,
+                  line(first_ms, "scroll", 325.6), line(first_ms + 0.1, "momentumScrollEnd", 325.6)]
+        failures = []
+        regress.check_glide({"view": "inbox", "velocity": [900, 1800], "to_end": True, "frames_min": 2},
+                            report, 0, int(10e9), failures.append)
+        return failures
+
+    def test_a_first_frame_after_the_spline_met_the_end_shows_it_there(self):
+        self.assertAlmostEqual(regress.android_fling_time(45.6 / 266.7) * 634.9, 38.6, places=1)
+        self.assertEqual(self.check(101), [])
+
+    def test_a_jump_to_the_end_the_clock_did_not_make_fails(self):
+        self.assertEqual(self.check(16), ["inbox glided in 1 frames, expected at least 2"])
+
+
+class ScrollsStampedAtDispatch(unittest.TestCase):
+    """`scroll_times: "dispatch"` (touchpad-hold-scaled.json): between the host receiving the input
+    behind it and its line, however long the host was preempted between the two."""
+
+    def check(self, stamp_ms):
+        report = [{"kind": "received", "t": int(100e6), "seq": 7, "event": "scroll"},
+                  dict(deliver(int(102.6e6), "scroll", "ScrollView#3", "list"), input_seq=7, timestamp=stamp_ms)]
+        step = {"name": "flick", "do": ["wait", 0], "expect": {"scroll_times": "dispatch"}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(200e6)}, report, 0, failures)
+        return [f for f in failures if "timestamp" in f]
+
+    def test_stamped_when_dispatched_however_late_its_line(self):
+        self.assertEqual(self.check(100.1), [])
+
+    def test_the_devices_time_or_a_later_one_fails(self):
+        self.assertEqual(len(self.check(98.0)), 1)
+        self.assertEqual(len(self.check(103.0)), 1)
 
 
 class GlidesMeetInput(unittest.TestCase):

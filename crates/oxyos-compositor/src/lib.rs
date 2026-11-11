@@ -4598,6 +4598,10 @@ impl Compositor {
         if let Some(repeat) = self.scene.next_repeat() {
             wait = wait.min(repeat.saturating_sub(self.now()));
         }
+        // The dock held up for a window minimized into it goes down again (ADR 0034).
+        if let Some(down) = self.scene.next_dock_deadline() {
+            wait = wait.min(down);
+        }
         // A transition running composes a frame for every refresh of the fastest display (a
         // display's flip wakes the turn sooner).
         if let (false, Some(period)) = (self.transitions.is_empty(), self.fastest_refresh()) {
@@ -4841,6 +4845,9 @@ impl Compositor {
         if !self.away {
             self.scene.repeat_keys();
         }
+        // The dock hiding automatically: up while it is wanted, down once nothing holds it (ADR
+        // 0034): the keyboard, a menu of it, a window just minimized into it.
+        self.scene.follow_dock_hiding();
         // A turn that waited until the deadline locks now, and composes the lock.
         self.follow_idle();
         self.authenticate();
