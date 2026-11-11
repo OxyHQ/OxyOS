@@ -3323,6 +3323,24 @@ fn host_turning(pid: i32) -> bool {
         .is_ok_and(|call| call.split_whitespace().next() != Some(PPOLL))
 }
 
+/// The clients that take a step's input: the application, the companion and the shells. A
+/// step is answered only once each has taken everything it was sent before the step began to
+/// settle (`settle`).
+fn input_takers(session: &Session) -> Vec<ClientId> {
+    let shells: Vec<i32> = session.shells.iter().flat_map(Shells::pids).collect();
+    let mut clients = vec![CLIENT];
+    clients.extend(session.companion_client());
+    clients.extend(
+        session
+            .compositor
+            .peers
+            .iter()
+            .filter(|(_, peer)| shells.contains(&peer.pid))
+            .map(|(client, _)| *client),
+    );
+    clients
+}
+
 /// Whether the application's host, the companion's or a shell's is in the middle of a turn
 /// (`host_turning`): the step is not answered until each has gone back to waiting for work. A
 /// shell's turn can be the step's answer too: a file dropped on the dock's Trash is put there only
@@ -3397,6 +3415,16 @@ fn settle(
             .is_some_and(|writer| writer.writing())
     };
     let mut was_writing = writing(session);
+    // The step's input taken: each client that takes input (`input_takers`) is pinged after
+    // everything it was sent, once the compositor has read the step's input (the loop's first
+    // serve), and the step is answered only once each has answered, as Espresso waits for the
+    // main looper to be idle before it checks. The Bloom host answers once JavaScript took what
+    // came before (Window::answerPingsItself). A step whose answer may be nothing (`may_stay`)
+    // otherwise settled on stillness alone: on a loaded machine its press reached React in the
+    // step after (transform, step 1). Its stillness starts once the input is taken; a client that
+    // has not answered in five seconds (stopped, hung) is not waited for any longer.
+    let mut untaken: Option<Vec<(ClientId, u32)>> = None;
+    let taken_by = Instant::now() + Duration::from_secs(5);
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -3422,6 +3450,24 @@ fn settle(
             pasteboard.serve(&mut session.compositor);
         }
         session.reader.absorb(&mut session.compositor);
+        let pings = untaken.get_or_insert_with(|| {
+            input_takers(session)
+                .into_iter()
+                .filter_map(|client| {
+                    let serial = session.compositor.scene.ping_after(client)?;
+                    Some((client, serial))
+                })
+                .collect()
+        });
+        let waited = !pings.is_empty();
+        pings.retain(|(client, serial)| !session.compositor.scene.answered(*client, *serial));
+        if Instant::now() > taken_by {
+            pings.clear();
+        }
+        let taken = pings.is_empty();
+        if waited && taken {
+            last.1 = Instant::now();
+        }
         let now = session
             .progress
             .steady(shown(&session.compositor), application);
@@ -3552,6 +3598,7 @@ fn settle(
             && !shell_changed
             && !writing_now
             && !turning
+            && taken
             && answered
             && sheet_shown
             && named_shown
