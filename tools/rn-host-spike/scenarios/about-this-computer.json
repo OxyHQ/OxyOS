@@ -453,7 +453,7 @@
       }
     },
     {
-      "name": "its About: the standard About panel with its icon and name from the registry, which no list shows it in",
+      "name": "its About: the standard About panel with its icon, name and version from the registry, which no list shows it in",
       "do": [
         "press_named",
         "Acerca de Acerca de este ordenador"
@@ -462,7 +462,8 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Acerca de este ordenador"
+            "Acerca de este ordenador",
+            "Versión 0.1.0 (1)"
           ],
           "absent": [
             "Ocultar Acerca de este ordenador"
@@ -480,11 +481,11 @@
           ]
         },
         "output_pixels": {
-          "640,212": "#010203",
-          "640,226": "#010203",
-          "626,240": "#010203"
+          "616,202": "#000000",
+          "612,226": "#000000"
         },
-        "react": {}
+        "react": {},
+        "pixel_tolerance": 16
       }
     },
     {

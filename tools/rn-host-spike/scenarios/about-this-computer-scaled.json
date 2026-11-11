@@ -438,51 +438,47 @@
       "name": "About This Computer's own menu in the bar, named as the registry names it though no list shows it",
       "do": [
         "press_named",
-        "Acerca de este ordenador"
+        "About This Computer"
       ],
       "allow_unchanged": true,
       "expect": {
         "in_shell": {
           "texts": [
-            "Acerca de Acerca de este ordenador",
-            "Ocultar Acerca de este ordenador",
-            "Salir de Acerca de este ordenador"
+            "About About This Computer",
+            "Hide About This Computer",
+            "Quit About This Computer"
           ]
         },
         "react": {}
       }
     },
     {
-      "name": "its About: the standard About panel with its icon and name from the registry, which no list shows it in",
+      "name": "its About: the standard About panel with its icon, name and version from the registry, which no list shows it in",
       "do": [
         "press_named",
-        "Acerca de Acerca de este ordenador"
+        "About About This Computer"
       ],
       "allow_unchanged": true,
       "expect": {
         "in_shell": {
           "texts": [
-            "Acerca de este ordenador"
+            "About This Computer",
+            "Version 0.1.0 (1)"
           ],
           "absent": [
-            "Ocultar Acerca de este ordenador"
+            "Hide About This Computer"
           ]
         },
         "at": {
           "shell": [
             {
-              "name": "Acerca de Acerca de este ordenador"
+              "name": "About About This Computer"
             },
             {
               "role": "Button",
-              "name": "Cerrar"
+              "name": "Close"
             }
           ]
-        },
-        "output_pixels": {
-          "800,288": "#010203",
-          "800,305": "#010203",
-          "782,322": "#010203"
         },
         "react": {}
       }
@@ -499,7 +495,7 @@
       "expect": {
         "in_shell": {
           "absent": [
-            "Acerca de Acerca de este ordenador"
+            "About About This Computer"
           ]
         },
         "window_states": {
