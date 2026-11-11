@@ -355,6 +355,10 @@ struct Press {
     pointer: bool,
     /// Where the pointer was (global, logical): where a drag from it began.
     at: (i32, i32),
+    /// Its release, once its last button came up (where the pointer was, global and logical, and
+    /// the release's serial): a drag its client asks for late, as a loaded machine reads a press,
+    /// its motions and its release in one turn, is dropped there (ADR 0035, decision 2).
+    released: Option<((i32, i32), u64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -606,6 +610,8 @@ pub struct Scene {
     clock: std::time::Duration,
     /// Pings, force quits, the person's lists of applications and URLs the shell opens (ADR 0034).
     dock: dock::Dock,
+    /// The dock hiding automatically (docs/adr/0034-the-dock.mdx, 10 November 2026).
+    dock_hiding: dock_hiding::DockHiding,
     /// The key held and pressed again while it is (ADR 0036).
     key_repeat: key_repeat::KeyRepeat,
     /// The drag going on, the drops not finished and the shell's files for the Trash (ADR 0035).
@@ -1055,6 +1061,10 @@ impl Scene {
                 continue;
             };
             if output != id || node.dismissed || exclusive == 0 {
+                continue;
+            }
+            // A dock that hides automatically keeps no strip: it comes over the windows.
+            if edge == PanelEdge::Bottom && self.dock_hiding() {
                 continue;
             }
             let exclusive = exclusive.min(area.height / 2).min(area.width / 2);
@@ -3930,6 +3940,10 @@ impl Scene {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
+        // Into a dock that hides: it comes up for the window to go into it (ADR 0034).
+        if change == appearances::Change::Minimized {
+            self.hold_dock();
+        }
         self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.withdraw_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
@@ -4253,6 +4267,8 @@ impl Scene {
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
         self.user_input();
         self.pointer = (x, y);
+        // The dock that hides comes up at the bottom edge and goes once left (ADR 0034).
+        self.follow_dock_hiding();
         if self.dragging() {
             self.drag_motion();
             return;
@@ -4560,6 +4576,10 @@ impl Scene {
                 self.pointer_event(target, serial, PointerKind::Release, button);
             }
             if self.buttons_down == 0 {
+                let at = self.pointer;
+                if let Some(press) = self.last_press.as_mut().filter(|press| press.pointer) {
+                    press.released = Some((at, serial));
+                }
                 self.capture = None;
                 self.refresh_pointer_focus();
             }
@@ -4585,6 +4605,7 @@ impl Scene {
             surface: target,
             pointer,
             at: self.pointer,
+            released: None,
         });
         self.activation.insert(target.client, serial);
     }
@@ -5311,6 +5332,7 @@ pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
 mod dock;
+mod dock_hiding;
 mod drag;
 pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, BUSY_AFTER, PING_TIMEOUT};
 pub use drag::{

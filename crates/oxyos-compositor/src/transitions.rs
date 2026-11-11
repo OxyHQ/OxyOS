@@ -203,6 +203,17 @@ pub fn motions(kind: Kind, change: Change, place: &Place) -> Motion {
                 },
             }
         }
+        // The dock hiding automatically (ADR 0034): it slides down off its output's bottom edge,
+        // all of its height, and back up, unfaded.
+        (_, Change::EdgeShown | Change::EdgeHidden) => Motion {
+            moves: Some(motion::DOCK_SLIDES),
+            fades: None,
+            scale_permille: 1000,
+            shift: Shift::Own {
+                x_permille: 0,
+                y_permille: 1000,
+            },
+        },
         // A Mac's zoom: the frame goes to its new rectangle, unfaded (`zoom`).
         (_, Change::Zoomed) => Motion {
             moves: Some(motion::ZOOM),
@@ -430,7 +441,7 @@ impl Seen {
     pub fn arriving(&self) -> bool {
         matches!(
             self.change,
-            Change::Arrived | Change::Restored | Change::WorkspaceIn { .. }
+            Change::Arrived | Change::Restored | Change::WorkspaceIn { .. } | Change::EdgeShown
         )
     }
 }

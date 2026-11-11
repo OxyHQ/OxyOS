@@ -308,6 +308,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "wide-y" as the pointer over one brings it wide, "hidden" once faded out; "scrollbar_thumbs",
   where each view's thumbs were in the window (logical pixels) as last reported in the step,
   {testID: {"x"|"y": [x, y, width, height]}};
+- progress_frames: [least, most] frames the application presented in the step (any of its surfaces)
+  that changed nothing but spinning rings (progress-bar.h; its report's `present` lines with
+  `progress_only`): an ActivityIndicator turning on the UI thread, each refresh, while the step
+  settled around it (a step's settling leaves those frames aside, tools/oxyos-offscreen/src/progress.rs);
 - stall: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx): the step's longest
   stretch of JavaScript's work on its thread (`js_timing`, at least "block_ms_min", 450 by default)
   is the block, and what moves ("motion": "animated:TARGET", the props Animated's native driver
@@ -437,6 +441,14 @@ it settles once the session has a sheet waiting and the shell shows a surface it
 the step, however long after the step's first answer that is (an update is staged, downloaded and
 verified, before its consent is asked), never after a set time.
 
+A `drag_paced` (or `drag_paced_named`) step with `until_taken` drags as a hand that lets the
+application take each motion: after each, it waits until the application pressed, or the drag's
+target once a drag has begun, has taken everything it was sent (two Pings answered in turn), then goes
+on. What the drag passes over (a drop target's edge, the window it leaves, the touches React is given
+before it begins) and what each is told (the action its answer was told) is then where the hand was,
+whatever the machine's load; a drag that begins late, its press already released, is a `drag_output`
+step's, whose events all reach the application before it reads any (ADR 0035, decision 2).
+
 A step with `until_named` ([name, ms]) is answered on the application's own clock (an install the
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
@@ -543,6 +555,12 @@ every process its /proc shows, as a Mac's lists all of the user's; the run's /pr
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
 it, for longer than that on a loaded machine.
+
+A scenario's `progress_phase_ms` draws its hosts' spinning rings (React Native's ActivityIndicator,
+progress-bar.h) at that point of their animation, every frame: each is still drawn again every
+refresh, as it turns, but always as it is that far in, so that `pixels` can say where its arc is.
+Without it the rings turn by the clock. Either way a frame that only turns a ring is no change a
+step waits on, or that makes one settle (tools/oxyos-offscreen/src/progress.rs).
 
 A scenario's `clear_of_minute_ms` keeps its steps clear of the wall clock's minute: no step begins
 in its last that many milliseconds, the session served until the minute has begun, the shell has
@@ -1236,6 +1254,11 @@ def director_args(step, out):
         # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         # logged out, or logind asked, once every application quit on its own clock.
         args.append("--until-ended")
+    if step.get("until_taken"):
+        # A paced drag whose hand lets the application take each motion: after each, it waits for
+        # the application pressed (the drag's target once a drag began) to take what it was sent, so
+        # what the drag passes over and what each is told is where the hand was, whatever the load.
+        args.append("--until-taken")
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
@@ -5572,6 +5595,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "progress_frames" in expect:
+        # Frames that turned only spinning rings (progress-bar.h), any of the application's surfaces'.
+        least, most = expect["progress_frames"]
+        turned = sum(1 for line in report if line["kind"] == "present" and line.get("progress_only")
+                     and start < line["t"] <= end)
+        if not least <= turned <= most:
+            fail(f"{turned} frames turned only a spinner in the step, expected {least} to {most}")
     if "resize_work" in expect:
         # A window resized (`drag_paced` on an edge, a zoom): the application's host's frames in the
         # step, the work each took, the JavaScript in it and React's commits.
@@ -7223,6 +7253,9 @@ def main():
     # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26); or an
     # application window's host, between a modal's own focus and the host following the modal
     # coming: "window-focus-first" (decision 27).
+    env.pop("OXYOS_HOST_PROGRESS_PHASE_MS", None)
+    if "progress_phase_ms" in scenario:
+        env["OXYOS_HOST_PROGRESS_PHASE_MS"] = str(float(scenario["progress_phase_ms"]))
     env.pop("OXYOS_HOST_TEST_ORDER", None)
     if "host_order" in scenario:
         if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first", "window-focus-first"):

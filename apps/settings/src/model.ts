@@ -69,6 +69,8 @@ export type Preferences = {
   hourCycle: HourCycle;
   /** Do Not Disturb: notifications are kept, none shown as a banner (docs/adr/0026-notifications.mdx). */
   doNotDisturb: boolean;
+  /** Automatically hide and show the Dock (docs/adr/0034-the-dock.mdx, 10 November 2026). */
+  dockAutohide: boolean;
   notificationPreviews: NotificationPreviews;
   /** The applications whose notifications play no sound (docs/adr/0044-system-sounds.mdx), by id. */
   notificationSoundsOff: string[];
@@ -218,6 +220,7 @@ export const PREFERENCE_KEYS = {
   region: "region",
   hourCycle: "hour_cycle",
   doNotDisturb: "do_not_disturb",
+  dockAutohide: "dock_autohide",
   notificationPreviews: "notification_previews",
   notificationSoundsOff: "notification_sounds_off",
   openAtLogin: "open_at_login",

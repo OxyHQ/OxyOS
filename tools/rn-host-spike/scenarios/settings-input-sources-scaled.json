@@ -66,7 +66,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 19",
+      "text": "Apariencia, seleccionado, 1 de 20",
       "interrupting": true
      }
     ],
@@ -74,10 +74,11 @@
    }
   },
   {
-   "name": "↓ eight times: Keyboard selected and shown, said once; its Input Sources list holds the layout, named, then 2-Set Korean, in use and selected",
+   "name": "↓ nine times: Keyboard selected and shown, said once; its Input Sources list holds the layout, named, then 2-Set Korean, in use and selected",
    "do": [
     "strokes",
     [
+     108,
      108,
      108,
      108,
@@ -91,7 +92,7 @@
    "allow_unchanged": true,
    "expect": {
     "react": {
-     "shortcut@menu-bar": 8,
+     "shortcut@menu-bar": 9,
      "blur@settings-nav-appearance": 1,
      "focus@settings-nav-keyboard": 1
     },
@@ -101,7 +102,7 @@
     },
     "spoken": [
      {
-      "text": "Teclado, seleccionado, 9 de 19",
+      "text": "Teclado, seleccionado, 10 de 20",
       "interrupting": true
      }
     ],
