@@ -19,11 +19,12 @@ pub use wire::{
     Anchor, ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind,
     BackgroundStatus, BatteryState, BluetoothState, BufferLayout, CaptureDestination, CaptureKind,
     CaptureMode, Clock, Control, DismissReason, DragActions, DragCancelReason, ErrorCode, Format,
-    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, NotificationField,
-    NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape, Politeness, Positioner,
-    PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd,
-    ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound, TextChunk, TextContentType,
-    TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES, TEXT_CHUNK_BYTES,
+    GestureOverlay, GesturePhase, Gravity, MenuField, MenuFlags, MenuKind, MenuRole,
+    NotificationField, NotificationOutcome, Outcome, PanelEdge, PointerKind, PointerShape,
+    Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand, Rect, ScrollSource,
+    SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut, SystemSound,
+    TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, MAX_BUFFER_BYTES,
+    TEXT_CHUNK_BYTES,
 };
 
 /// Lowest and highest protocol versions this implementation speaks (ADR 0033): it serves every

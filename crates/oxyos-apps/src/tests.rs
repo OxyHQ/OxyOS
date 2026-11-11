@@ -47,6 +47,28 @@ fn an_entry_is_an_application_named_in_the_sessions_language() {
 }
 
 #[test]
+fn an_entry_says_its_version_and_build_for_the_about_panel() {
+    let entry = "[Desktop Entry]\nType=Application\nName=Notes\nExec=notes\nX-OxyOS-Version= 1.2.0 \nX-OxyOS-Package-Version=345\n";
+    let notes = parse("so.oxy.notes", entry, Path::new("/"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (notes.version.as_deref(), notes.build),
+        (Some("1.2.0"), Some(345))
+    );
+    // An entry that says neither, or says them wrongly, has none.
+    let allo = parse("so.oxy.allo", ALLO, Path::new("/"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!((allo.version, allo.build), (None, None));
+    let wrong = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nX-OxyOS-Version=\nX-OxyOS-Package-Version=0\n";
+    let wrong = parse("so.oxy.x", wrong, Path::new("/"), &[])
+        .unwrap()
+        .unwrap();
+    assert_eq!((wrong.version, wrong.build), (None, None));
+}
+
+#[test]
 fn keywords_are_listed_in_the_sessions_language_else_their_own() {
     let entry = "[Desktop Entry]\nType=Application\nName=Inbox\nExec=inbox\nKeywords=mail;email; letters ;\nKeywords[es]=correo;email;\n";
     let keywords = |languages: &[&str]| {
@@ -96,8 +118,25 @@ fn exec_is_split_as_the_specification_quotes_and_field_codes_are_refused() {
 #[test]
 fn entries_not_to_list_and_invalid_ids_are_not_applications() {
     let dir = Path::new("/");
-    let hidden = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nNoDisplay=true\n";
+    // `Hidden` is a deleted entry: no application.
+    let hidden = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nHidden=true\n";
     assert_eq!(parse("so.oxy.x", hidden, dir, &[]), Ok(None));
+    // `NoDisplay` is an application never listed: it is there to be started, not shown.
+    let unlisted = "[Desktop Entry]\nType=Application\nName=X\nExec=x\nNoDisplay=true\n";
+    let application = parse("so.oxy.x", unlisted, dir, &[]).unwrap().unwrap();
+    assert!(!application.shown);
+    assert_eq!(application.launch, Launch::Exec(vec!["x".into()]));
+    assert!(
+        parse(
+            "so.oxy.x",
+            "[Desktop Entry]\nType=Application\nName=X\nExec=x\n",
+            dir,
+            &[]
+        )
+        .unwrap()
+        .unwrap()
+        .shown
+    );
     let link = "[Desktop Entry]\nType=Link\nName=X\nURL=https://oxy.so\n";
     assert_eq!(parse("so.oxy.x", link, dir, &[]), Ok(None));
     assert!(parse("../etc/passwd", ALLO, dir, &[]).is_err());
@@ -142,6 +181,10 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
                 "so.oxy.broken.desktop",
                 "[Desktop Entry]\nType=Application\nName=Broken\n",
             ),
+            (
+                "so.oxy.about.desktop",
+                "[Desktop Entry]\nType=Application\nName=About\nExec=/bin/about\nNoDisplay=true\n",
+            ),
             ("README", "not an entry"),
         ],
     );
@@ -156,11 +199,18 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
         .iter()
         .map(|a| (a.id.as_str(), a.name.as_str()))
         .collect();
-    // The user's Allo replaces the system's; the user hid Gone; Broken is said and left out.
+    // The user's Allo replaces the system's; the user hid Gone; Broken is said and left out;
+    // About is an application never listed: there, and not shown.
     assert_eq!(
         names,
-        [("so.oxy.astro", "Astro"), ("so.oxy.allo", "Mi Allo")]
+        [
+            ("so.oxy.about", "About"),
+            ("so.oxy.astro", "Astro"),
+            ("so.oxy.allo", "Mi Allo")
+        ]
     );
+    let shown: Vec<bool> = apps.iter().map(|a| a.shown).collect();
+    assert_eq!(shown, [false, true, true]);
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     assert!(skipped[0].contains("so.oxy.broken"));
     assert_eq!(
@@ -174,6 +224,19 @@ fn the_registry_lists_by_name_and_the_first_directory_wins() {
         )
         .map(|a| a.name),
         Some("Allo".into())
+    );
+    // Started by its id, as the Oxy menu starts About This Computer.
+    assert_eq!(
+        find(
+            &[system.0.clone()],
+            &[],
+            &Policy::none(),
+            None,
+            &|_| false,
+            "so.oxy.about"
+        )
+        .map(|a| (a.name, a.shown)),
+        Some(("About".into(), false))
     );
     assert_eq!(
         find(
@@ -1037,6 +1100,8 @@ fn a_system_launch_runs_what_the_policy_names() {
         id: "so.oxy.settings".into(),
         name: "Settings".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "Settings".into(),
@@ -1046,6 +1111,7 @@ fn a_system_launch_runs_what_the_policy_names() {
         pinned: None,
         origin: Origin::System,
         opens: Vec::new(),
+        shown: true,
     };
     let host = entries.join("host");
     let bundle = entries.join("bundle.js");
@@ -1368,6 +1434,8 @@ fn an_application_runs_on_its_runtimes_host() {
         id: "so.oxy.inbox".into(),
         name: "Inbox".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "Inbox".into(),
@@ -1377,6 +1445,7 @@ fn an_application_runs_on_its_runtimes_host() {
         pinned: None,
         origin: Origin::Development,
         opens: Vec::new(),
+        shown: true,
     };
     let session = Runtime {
         socket: PathBuf::from("/run/oxyos-test"),
@@ -1486,6 +1555,8 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
         id: "so.oxy.settings".into(),
         name: "Settings".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "OxyOSSettings".into(),
@@ -1495,6 +1566,7 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
         pinned: None,
         origin: Origin::System,
         opens: Vec::new(),
+        shown: true,
     };
     let system = |host: &Path| SystemApplication {
         entry: root.join("so.oxy.settings.desktop"),
@@ -1913,6 +1985,8 @@ fn a_package_is_the_directory_of_its_compiled_bundle_and_manifest() {
         id: "so.oxy.inbox".into(),
         name: "Inbox".into(),
         keywords: Vec::new(),
+        version: None,
+        build: None,
         icon: None,
         launch: Launch::Bloom {
             module: "Inbox".into(),
@@ -1922,6 +1996,7 @@ fn a_package_is_the_directory_of_its_compiled_bundle_and_manifest() {
         pinned: None,
         origin: Origin::Development,
         opens: Vec::new(),
+        shown: true,
     };
     let packaged = bloom(package.0.join("index.hbc"));
     assert_eq!(package_directory(&packaged), Some(package.0.as_path()));

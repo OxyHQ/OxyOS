@@ -606,6 +606,8 @@ pub struct Scene {
     clock: std::time::Duration,
     /// Pings, force quits, the person's lists of applications and URLs the shell opens (ADR 0034).
     dock: dock::Dock,
+    /// The dock hiding automatically (docs/adr/0034-the-dock.mdx, 10 November 2026).
+    dock_hiding: dock_hiding::DockHiding,
     /// The key held and pressed again while it is (ADR 0036).
     key_repeat: key_repeat::KeyRepeat,
     /// The drag going on, the drops not finished and the shell's files for the Trash (ADR 0035).
@@ -1055,6 +1057,10 @@ impl Scene {
                 continue;
             };
             if output != id || node.dismissed || exclusive == 0 {
+                continue;
+            }
+            // A dock that hides automatically keeps no strip: it comes over the windows.
+            if edge == PanelEdge::Bottom && self.dock_hiding() {
                 continue;
             }
             let exclusive = exclusive.min(area.height / 2).min(area.width / 2);
@@ -1777,6 +1783,11 @@ impl Scene {
                 field,
                 text,
             } => self.menu_text(key(surface), index, field, text),
+            Request::MenuItemRole {
+                surface,
+                index,
+                role,
+            } => self.menu_item_role(key(surface), index, role),
             Request::MenusCommit { surface } => self.menus_commit(key(surface)),
             Request::ActivateMenuItem {
                 window,
@@ -1792,6 +1803,8 @@ impl Scene {
             | Request::RemoveWorkspace { .. }
             | Request::HideApplication { .. }
             | Request::QuitApplication { .. }
+            | Request::HideOtherApplications { .. }
+            | Request::ShowAllApplications {}
             | Request::ForceQuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
             Request::Pong { serial } => {
@@ -3923,6 +3936,10 @@ impl Scene {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
+        // Into a dock that hides: it comes up for the window to go into it (ADR 0034).
+        if change == appearances::Change::Minimized {
+            self.hold_dock();
+        }
         self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.withdraw_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
@@ -4246,6 +4263,8 @@ impl Scene {
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
         self.user_input();
         self.pointer = (x, y);
+        // The dock that hides comes up at the bottom edge and goes once left (ADR 0034).
+        self.follow_dock_hiding();
         if self.dragging() {
             self.drag_motion();
             return;
@@ -5304,6 +5323,7 @@ pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
 mod dock;
+mod dock_hiding;
 mod drag;
 pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, BUSY_AFTER, PING_TIMEOUT};
 pub use drag::{

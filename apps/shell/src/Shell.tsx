@@ -36,6 +36,9 @@ import { ControlCenter, type ControlCenterPage } from "./components/ControlCente
 import { BANNER_WIDTH, NotificationCard } from "./components/NotificationBanner";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { SystemSheet } from "./components/SystemSheet";
+import { AboutPanel, ABOUT_WIDTH, type AboutApplication } from "./components/AboutPanel";
+import { appMenuCommand, applicationName } from "./app-menu";
+import { chordLabel } from "./chord";
 import { Screenshots } from "./components/Screenshots";
 import { CandidateWindow } from "./components/CandidateWindow";
 import { AutofillWindow } from "./components/AutofillWindow";
@@ -47,6 +50,7 @@ import { hasWifiView } from "./network";
 import { firstStatusItem } from "./components/TopBar";
 import { showsBackupItem } from "./backup";
 import { personName } from "./session-user";
+import { ABOUT_THIS_COMPUTER, APP_STORE } from "./system-menu";
 import { applicationOf, BANNER_MS, nextBanner, spoken } from "./notifications";
 import {
   chosen,
@@ -70,6 +74,9 @@ const TOP_BAR_HEIGHT = 28;
 
 /** Where a region over the whole output is (the switcher, the overlays). */
 const WHOLE = StyleSheet.absoluteFill;
+/** The standard About panel's region: its own size, centred across the output a quarter of the
+    way down, so presses elsewhere reach what is there. */
+const ABOUT_AREA = { position: "absolute", top: "22%", left: "50%", marginLeft: -ABOUT_WIDTH / 2 } as const;
 const SWITCHER_AREA = {
   position: "absolute",
   top: 0,
@@ -100,12 +107,22 @@ function withDesktopMenus(menus: readonly ShellMenu[], state: DesktopState, mess
     {
       label: words.file,
       items: [
-        { id: "desktop.open", label: words.open, enabled: state.selection, shortcut: "Ctrl+O" },
+        { id: "desktop.open", label: words.open, enabled: state.selection, shortcut: chordLabel("Mod+O", messages) },
         { kind: "separator", id: "desktop.file-separator" },
-        { id: "desktop.trash", label: words.moveToTrash, enabled: state.selection, shortcut: "Ctrl+Backspace" },
+        {
+          id: "desktop.trash",
+          label: words.moveToTrash,
+          enabled: state.selection,
+          shortcut: chordLabel("Mod+Backspace", messages),
+        },
       ],
     },
-    { label: words.edit, items: [{ id: "desktop.select-all", label: words.selectAll, enabled: state.items, shortcut: "Ctrl+A" }] },
+    {
+      label: words.edit,
+      items: [
+        { id: "desktop.select-all", label: words.selectAll, enabled: state.items, shortcut: chordLabel("Mod+A", messages) },
+      ],
+    },
   ];
   return [...menus.slice(0, 1), ...desktop, ...menus.slice(1)];
 }
@@ -303,8 +320,8 @@ export const Shell = memo(function Shell({
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight, messages });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight, messages };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -646,12 +663,39 @@ export const Shell = memo(function Shell({
     [dock, launcherOpen],
   );
   const lockSession = lock?.lockSession;
+  // The App Store (Atlas) where it is installed: the Oxy menu's row for it, by its name.
+  const appStore = useMemo(
+    () => snapshot.applications.find((app) => app.id === APP_STORE)?.name,
+    [snapshot.applications],
+  );
   // The desktop (docs/adr/0047-finder-drags-and-the-desktop.mdx): what the bar's menus show of it,
   // and what they ask of it.
   const [desktop, setDesktop] = useState<DesktopState>(NO_DESKTOP);
   const [desktopCommand, setDesktopCommand] = useState<DesktopCommand | undefined>(undefined);
+ // The standard About panel (docs/adr/0021-menu-bar.mdx): the application whose own menu's About
+  // opened it, by its window.
+  const [about, setAbout] = useState<AboutApplication | null>(null);
+  const closeAbout = useCallback((returnKeyboard: boolean) => {
+    setAbout(null);
+    if (returnKeyboard) latest.current.actions.returnKeyboard?.();
+  }, []);
+  const dismissAbout = useCallback(() => closeAbout(true), [closeAbout]);
+  const aboutKeyboardLost = useCallback(() => closeAbout(false), [closeAbout]);
+  // The lock closes it, as it closes every other panel.
+  useEffect(() => {
+    if (lock?.locked) setAbout(null);
+  }, [lock?.locked]);
   const menuCommand = useCallback(
     (id: string) => {
+      const own = appMenuCommand(id);
+      if (own?.kind === "about") {
+        const { snapshot: shown } = latest.current;
+        const window = shown.windows.find((told) => told.id === String(own.window));
+        const application = window?.launched ? shown.applications.find((app) => app.id === window.appId) : undefined;
+        const name = applicationName(window, shown.applications) || latest.current.messages.menus.unnamedApp;
+        setAbout({ name, application });
+        return;
+      }
       if (id === "desktop.open" || id === "desktop.trash" || id === "desktop.select-all") {
         const action = id === "desktop.open" ? "open" : id === "desktop.trash" ? "trash" : "select-all";
         setDesktopCommand((last) => ({ id: (last?.id ?? 0) + 1, action }));
@@ -661,6 +705,10 @@ export const Shell = memo(function Shell({
       if (id === "view.launcher") setView("launcher");
       else if (id === "view.overview") setView("overview");
       else if (id === "session.lock") lockSession?.();
+      // About This Computer and the App Store, as any application is opened: its window if it has
+      // one (About This Computer chosen again comes forward, as a Mac's), else the session starts it.
+      else if (id === "system.aboutThisComputer") latest.current.actions.activateApp(ABOUT_THIS_COMPUTER);
+      else if (id === "system.store") latest.current.actions.activateApp(APP_STORE);
       else latest.current.actions.menuCommand(id);
     },
     [lockSession],
@@ -891,11 +939,11 @@ export const Shell = memo(function Shell({
             returnKeyboard={actions.returnKeyboard}
             menus={menus}
             now={now}
-            overview={toggleOverview}
             launcher={toggleLauncher}
             canLock={!!lock}
             powerActions={powerActions}
             userName={lock ? personName(lock.user) : undefined}
+            store={appStore}
             menuKeyboard={keyboard}
             onCommand={menuCommand}
             power={controls?.power}
@@ -1152,6 +1200,13 @@ export const Shell = memo(function Shell({
             />
             {/* Locked, the keys still act, and their bezel shows on the lock screen. */}
             <Bezel bezel={controls?.bezel} levels={shownControls.levels} />
+          </Surface>
+        )}
+        {/* The standard About panel (docs/adr/0021-menu-bar.mdx): its own region, with the keyboard
+            while it shows; going elsewhere (a press in a window) closes it. */}
+        {about && !lock?.locked && (
+          <Surface kind="overlay" style={ABOUT_AREA} keyboard={!sheet} onKeyboardLost={aboutKeyboardLost}>
+            <AboutPanel about={about} close={dismissAbout} keyboard={sheet ? undefined : keyboard} />
           </Surface>
         )}
         {/* A system sheet (ADR 0030): over everything but the lock screen, the session's question

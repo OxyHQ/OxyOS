@@ -456,6 +456,7 @@ const en = {
     notifications: "Notifications",
     sound: "Sound",
     lockScreen: "Lock Screen",
+    desktopDock: "Desktop & Dock",
     displays: "Displays",
     keyboard: "Keyboard",
     mouse: "Mouse",
@@ -787,12 +788,23 @@ const en = {
     steadyCaret: "Prefer non-blinking cursor",
     steadyCaretDescription: "The cursor in text fields stays lit instead of blinking.",
   },
+  /** Desktop & Dock (docs/adr/0034-the-dock.mdx, 10 November 2026), as a Mac's. */
+  desktopDock: {
+    dock: "Dock",
+    autohide: "Automatically hide and show the Dock",
+    autohideDescription: "The Dock shows when the pointer reaches the bottom of the screen. Super+Alt+D turns it on and off.",
+  },
   about: {
     name: "Name",
     version: "OxyOS",
     processor: "Processor",
     memory: "Memory",
     display: "Display",
+  },
+  /** About This Computer (the Oxy menu's first row, a Mac's About This Mac): its window's button,
+      which opens Settings › About, as a Mac's More Info… opens General › About. */
+  aboutThisComputer: {
+    moreInfo: "More Info…",
   },
   wifi: {
     wifi: "Wi-Fi",
@@ -1531,6 +1543,7 @@ const es: Messages = {
     notifications: "Notificaciones",
     sound: "Sonido",
     lockScreen: "Pantalla de bloqueo",
+    desktopDock: "Escritorio y Dock",
     displays: "Pantallas",
     keyboard: "Teclado",
     mouse: "Ratón",
@@ -1846,12 +1859,20 @@ const es: Messages = {
     steadyCaret: "Preferir cursor sin parpadeo",
     steadyCaretDescription: "El cursor de los campos de texto se queda fijo en vez de parpadear.",
   },
+  desktopDock: {
+    dock: "Dock",
+    autohide: "Ocultar y mostrar el Dock automáticamente",
+    autohideDescription: "El Dock aparece al llevar el puntero al borde inferior de la pantalla. Super+Alt+D lo activa y desactiva.",
+  },
   about: {
     name: "Nombre",
     version: "OxyOS",
     processor: "Procesador",
     memory: "Memoria",
     display: "Pantalla",
+  },
+  aboutThisComputer: {
+    moreInfo: "Más información…",
   },
   wifi: {
     wifi: "Wi-Fi",

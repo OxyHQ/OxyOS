@@ -1,6 +1,7 @@
 #include "native-animated.h"
 
 #include "report.h"
+#include "ui-thread.h"
 
 #include <react/renderer/animated/AnimatedModule.h>
 #include <react/renderer/animated/NativeAnimatedNodesManagerProvider.h>
@@ -44,17 +45,25 @@ class Module : public AnimatedModule {
 
 NativeAnimatedHost::NativeAnimatedHost(const DisplayRefresh& refresh)
     : refresh_(refresh), frames_(std::make_shared<Frames>()) {
-  // The manager asks for frames when JavaScript sends it operations or an animation starts, and
-  // stops when a frame finds nothing to animate, as iOS's animated module provider drives it.
+  // The manager asks for frames when JavaScript sends it operations (on its thread) or an
+  // animation starts, and stops when a frame finds nothing to animate (on the UI thread), as iOS's
+  // animated module provider drives it: asked from JavaScript's thread, the loop is woken for them.
   // State the callbacks share with the host outlives either: the manager stops its frames as it
   // is destroyed, with the runtime.
   std::weak_ptr<Frames> frames = frames_;
   provider_ = std::make_shared<NativeAnimatedNodesManagerProvider>(
       [frames](std::function<void()>&& render, bool /*isAsync*/) {
-        if (auto shared = frames.lock()) shared->render = std::move(render);
+        if (auto shared = frames.lock()) {
+          std::lock_guard lock(shared->mutex);
+          shared->render = std::make_shared<std::function<void()>>(std::move(render));
+        }
+        if (!UiThread::isCurrent()) UiThread::wake();
       },
       [frames](bool /*isAsync*/) {
-        if (auto shared = frames.lock()) shared->render = nullptr;
+        if (auto shared = frames.lock()) {
+          std::lock_guard lock(shared->mutex);
+          shared->render = nullptr;
+        }
       });
 }
 
@@ -64,15 +73,20 @@ std::shared_ptr<TurboModule> NativeAnimatedHost::module(const std::shared_ptr<Ca
 
 bool NativeAnimatedHost::tick() {
   double now = nowMs();
-  if (!frames_->render || now - frames_->last < refresh_.periodMs()) return false;
-  frames_->last = now;
-  // The frame may stop the frames (the last animation ended), which drops `render`.
-  auto render = frames_->render;
-  render();
+  std::shared_ptr<std::function<void()>> render;
+  {
+    std::lock_guard lock(frames_->mutex);
+    if (!frames_->render || now - frames_->last < refresh_.periodMs()) return false;
+    frames_->last = now;
+    // The frame may stop the frames (the last animation ended), which drops `render`: held here.
+    render = frames_->render;
+  }
+  (*render)();
   return true;
 }
 
 std::optional<std::chrono::steady_clock::time_point> NativeAnimatedHost::nextFrame() const {
+  std::lock_guard lock(frames_->mutex);
   if (!frames_->render) return std::nullopt;
   double wait = std::max(0.0, frames_->last + refresh_.periodMs() - nowMs());
   return std::chrono::steady_clock::now() +

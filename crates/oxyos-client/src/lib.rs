@@ -8,12 +8,13 @@ use oxyos_ipc::{create_shared_memory, write_at, Connection};
 use oxyos_protocol::NotificationField;
 use oxyos_protocol::{
     AccessibleActions, AccessibleField, AccessibleRole, AccessibleState, BufferLayout,
-    ClientConnection, DragActions, Event, Format, MenuField, MenuFlags, MenuKind, Politeness,
-    PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES, MAX_ACCESSIBLE_TEXT_BYTES,
-    MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES,
-    MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES, MAX_NOTIFICATION_BODY_BYTES,
-    MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES, MAX_NOTIFICATION_REPLY_BYTES,
-    MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION, VERSION,
+    ClientConnection, DragActions, Event, Format, MenuField, MenuFlags, MenuKind, MenuRole,
+    Politeness, PreeditText, Rect, Request, Size, TextChunk, MAX_ACCESSIBLE_NODES,
+    MAX_ACCESSIBLE_TEXT_BYTES, MAX_ANNOUNCEMENT_BYTES, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES,
+    MAX_MENU_SHORTCUT_BYTES, MAX_NOTIFICATION_ACTIONS, MAX_NOTIFICATION_ACTION_BYTES,
+    MAX_NOTIFICATION_BODY_BYTES, MAX_NOTIFICATION_DATA_BYTES, MAX_NOTIFICATION_IDENTIFIER_BYTES,
+    MAX_NOTIFICATION_REPLY_BYTES, MAX_NOTIFICATION_TITLE_BYTES, MAX_PREFERENCE_BYTES, MIN_VERSION,
+    VERSION,
 };
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::io;
@@ -98,6 +99,8 @@ pub struct Client {
     /// The text of the SystemData event last returned (version 37,
     /// docs/adr/0063-activity-monitor.mdx), read whole from the file it carried.
     system_data: Option<String>,
+    /// Pings are the caller's to answer (`answer_pings_itself`), not answered as they are read.
+    pings_are_callers: bool,
 }
 
 /// What one offer to the clipboard holds: each media type with its content.
@@ -170,7 +173,27 @@ impl Client {
             text_inputs: text_input::TextInputs::default(),
             candidate_lists: candidates::CandidateLists::default(),
             gpu: gpu::Gpu::default(),
+            pings_are_callers: false,
         })
+    }
+
+    /// The caller answers the compositor's pings itself (`pong`), and [`Client::poll`] returns
+    /// them: a client whose events are read on one thread and handled on another (the Bloom
+    /// host's JavaScript, docs/adr/0067-the-ui-thread.mdx) answers once it handled what came before
+    /// the ping, so a stuck handler is a hang (docs/adr/0067-hangs-and-force-quit.mdx) however
+    /// promptly its events are read.
+    pub fn answer_pings_itself(&mut self) {
+        self.pings_are_callers = true;
+    }
+
+    /// Whether the caller answers pings itself.
+    pub fn answers_pings_itself(&self) -> bool {
+        self.pings_are_callers
+    }
+
+    /// Answers the compositor's Ping `serial` (`answer_pings_itself`).
+    pub fn pong(&self, serial: u32) -> io::Result<()> {
+        self.send(&Request::Pong { serial })
     }
 
     /// Sends a request that carries no descriptor. Buffers go through [`Client::present`].
@@ -1334,6 +1357,16 @@ impl Client {
                     })?;
                 }
             }
+            if let Some(role) = entry.role {
+                let request = Request::MenuItemRole {
+                    surface,
+                    index,
+                    role,
+                };
+                if oxyos_protocol::request_since(&request) <= self.version {
+                    self.send(&request)?;
+                }
+            }
         }
         self.send(&Request::MenusCommit { surface })
     }
@@ -1528,9 +1561,12 @@ impl Client {
                 Ok(event)
             }
             // Still responding (docs/adr/0034-the-dock.mdx): answered as the client reads its
-            // events, so a process stuck in its own work does not answer.
+            // events, so a process stuck in its own work does not answer; or by the caller, once
+            // it handled what came before (`answer_pings_itself`).
             Event::Ping { serial } => {
-                self.send(&Request::Pong { serial })?;
+                if !self.pings_are_callers {
+                    self.send(&Request::Pong { serial })?;
+                }
                 Ok(event)
             }
             Event::ProtocolError { code } => Err(io::Error::other(format!("{code:?}"))),
@@ -1634,6 +1670,10 @@ pub struct Menu<'a> {
     pub label: &'a str,
     /// A command's key chord (`Mod+N`); empty for none.
     pub shortcut: &'a str,
+    /// Which of the application's standard commands it is (its About, its Settings…), which a
+    /// compositor of version 43 or newer tells the shell; an older one is told nothing of it, and
+    /// its shell shows the command where it is declared.
+    pub role: Option<MenuRole>,
 }
 
 /// Custom action labels within the protocol's limit, whole lines only: a label cut short would

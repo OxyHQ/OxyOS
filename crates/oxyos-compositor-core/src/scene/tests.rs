@@ -8423,6 +8423,8 @@ mod choosers;
 mod controls;
 mod displays;
 mod dock;
+/// The dock hiding automatically (ADR 0034, 10 November 2026).
+mod dock_hiding;
 mod drag;
 /// Mission Control and App Exposé (ADR 0045).
 mod expose;
