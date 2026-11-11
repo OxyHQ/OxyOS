@@ -2182,11 +2182,14 @@ pub fn entry_text(manifest: &Manifest, version_dir: &Path, runtime_abi: u32) -> 
         ));
     }
     text.push_str(&format!(
-        "Icon={}\nX-OxyOS-Bloom-Module={}\nX-OxyOS-Bloom-Bundle={}\nX-OxyOS-Runtime={runtime_abi}\nX-OxyOS-Package-Version={}\n",
+        "Icon={}\nX-OxyOS-Bloom-Module={}\nX-OxyOS-Bloom-Bundle={}\nX-OxyOS-Runtime={runtime_abi}\nX-OxyOS-Package-Version={}\nX-OxyOS-Version={}\n",
         version_dir.join(manifest.icon.as_str()).display(),
         manifest.entry.module,
         version_dir.join("index.hbc").display(),
-        manifest.version_code
+        manifest.version_code,
+        // Its version as people read it, which the standard About panel shows
+        // (docs/adr/0021-menu-bar.mdx).
+        entry_value(&manifest.version)
     ));
     // What it opens (its manifest's `opens`): the kinds of file, and the URL schemes as
     // freedesktop.org's entries declare them (`x-scheme-handler/…`, docs/adr/0034-the-dock.mdx).

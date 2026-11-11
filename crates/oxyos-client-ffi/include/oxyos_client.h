@@ -185,6 +185,9 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_LIST_CHOSEN 2
 /* To the shell: how many items the user's Trashes hold (code), when it connects and as it changes. */
 #define OXYOS_EVENT_TRASH_ITEMS 232
+/* The compositor's Ping (serial), given only to a client that answers pings itself
+ * (oxyos_client_answer_pings_itself), which answers with oxyos_client_pong. */
+#define OXYOS_EVENT_PING 230
 /* Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: DRAG_ENTER (surface; serial: the
  * entering, which oxyos_client_accept_drag cites; code: the offer; x, y: surface-local, as a
  * POINTER's; detail: the source's actions, OXYOS_DRAG_* bits; width: how many DRAG_OFFER_TYPE
@@ -284,6 +287,7 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_MENU_BAR_TEXT 72
 #define OXYOS_EVENT_MENU_BAR_COMMITTED 73
 #define OXYOS_EVENT_MENU_ITEM_ACTIVATED 74
+#define OXYOS_EVENT_MENU_BAR_ROLE 75
 /* A CONFIGURE's flag bits (docs/adr/0016-windows.mdx). */
 #define OXYOS_CONFIGURE_FULLSCREEN 1
 #define OXYOS_CONFIGURE_MAXIMIZED 2
@@ -506,6 +510,9 @@ typedef struct OxyOSClient OxyOSClient;
  *               flag: OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
  *   MENU_BAR_TEXT  code: the window; detail: the entry; height: OXYOS_MENU_LABEL or
  *               OXYOS_MENU_SHORTCUT; text: a chunk of it, appended.
+ *   MENU_BAR_ROLE  (version 43) code: the window; detail: the entry; height: OXYOS_MENU_ROLE_ABOUT
+ *               or _SETTINGS: the application's standard command it is, which the shell shows in
+ *               the application's own menu.
  *   MENU_BAR_COMMITTED  code: the window: the bar is whole.
  *   To an application:
  *   MENU_ITEM_ACTIVATED  serial: the choice (a user input, as a key press's); code: the serial of
@@ -757,16 +764,23 @@ typedef struct OxyOSAccessibleDetail {
 #define OXYOS_MENU_LABEL 1
 #define OXYOS_MENU_SHORTCUT 2
 #define OXYOS_NO_MENU_PARENT 0xFFFFFFFF
+/* Which of the application's standard commands an entry is: none, its About, its Settings…
+ * (ADR 0021), told to a compositor of version 43 or newer. */
+#define OXYOS_MENU_ROLE_NONE 0
+#define OXYOS_MENU_ROLE_ABOUT 1
+#define OXYOS_MENU_ROLE_SETTINGS 2
 
 /* One entry of a window's menus: the index of the menu or submenu it is in, earlier in the list
  * (OXYOS_NO_MENU_PARENT for a menu of the bar), its kind (OXYOS_MENU_MENU, _ITEM, _SUBMENU,
  * _SEPARATOR), its state (OXYOS_MENU_DISABLED on a command or submenu; _CHECKABLE and _CHECKED on
- * a command), its label and a command's key chord (`Mod+N`; UTF-8, NUL-terminated, NULL for
- * none). */
+ * a command), which of the application's standard commands it is (OXYOS_MENU_ROLE_*; a command
+ * without a check, each role once), its label and a command's key chord (`Mod+N`; UTF-8,
+ * NUL-terminated, NULL for none). */
 typedef struct OxyOSMenuItem {
   uint32_t parent;
   uint8_t kind;
   uint8_t flags;
+  uint8_t role;
   const char* label;
   const char* shortcut;
 } OxyOSMenuItem;
@@ -823,6 +837,11 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
  * it, which cannot refuse; never one it did not start (docs/adr/0034-the-dock.mdx). Refused to a
  * compositor of a version before 8. */
 #define OXYOS_MANAGE_FORCE_QUIT_APPLICATION 10
+/* Hides every application but the one of `window` (0: every application), as a Mac's Hide Others,
+ * and shows every hidden application again without changing the active window, as its Show All
+ * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 43. */
+#define OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS 11
+#define OXYOS_MANAGE_SHOW_ALL_APPLICATIONS 12
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
  * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
 int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);
@@ -1274,6 +1293,13 @@ int64_t oxyos_client_submit_buffer_synced(OxyOSClient* client, uint32_t surface,
 
 /* Takes one queued event without blocking. */
 int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
+/* From now on the client answers the compositor's pings itself: oxyos_client_poll gives each as
+ * OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client answers
+ * with oxyos_client_pong once it handled what came before it (a runtime whose events are handled on
+ * another thread than the one reading them, docs/adr/0067-the-ui-thread.mdx). 0, or OXYOS_ERROR. */
+int oxyos_client_answer_pings_itself(OxyOSClient* client);
+/* Answers the compositor's Ping `serial` (an OXYOS_EVENT_PING's). 0, or OXYOS_ERROR. */
+int oxyos_client_pong(OxyOSClient* client, uint64_t serial);
 
 /* The clipboard (docs/adr/0007-clipboard.mdx). Copies `length` bytes of UTF-8 text as the
  * clipboard (text/plain;charset=utf-8) with the serial of the user input that asked for it; the

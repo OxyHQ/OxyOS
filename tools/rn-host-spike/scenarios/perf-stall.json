@@ -1,0 +1,124 @@
+{
+ "about": "The timing phase's check of stall.json (docs/adr/0067-the-ui-thread.mdx; docs/performance.mdx): the same steps alone on the gate's reserved cores, where --speed-budgets holds each motion to a frame each refresh while JavaScript is held 500 ms: the gaps between the window's frames through the block within 1.5 refreshes at the 95th percentile and none over 2, 90 % of the block's refreshes drawn, and of the motion's own lines. ",
+ "module": "StallProbe",
+ "window": [
+  480,
+  420
+ ],
+ "app": {
+  "id": "so.oxy.stallprobe",
+  "title": "Stall"
+ },
+ "steps": [
+  {
+   "name": "the window starts",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "texts": [
+     "Ready",
+     "No glide yet"
+    ]
+   }
+  },
+  {
+   "name": "Animated's native driver: a 3 s linear timing, JavaScript held 500 ms a second in; the box moves on through the block, a frame each refresh",
+   "do": [
+    "press",
+    [
+     80,
+     40
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Native ended"
+    ],
+    "animated": {
+     "native": {
+      "transform.translateX": [
+       0,
+       200
+      ]
+     }
+    },
+    "stall": {
+     "block_ms_min": 450,
+     "motion": "animated:native"
+    }
+   }
+  },
+  {
+   "name": "Reanimated: a 3 s linear withTiming, JavaScript held 500 ms a second in; the worklet runs on through the block on the UI runtime, its commits mounted each refresh",
+   "do": [
+    "press",
+    [
+     220,
+     40
+    ]
+   ],
+   "expect": {
+    "texts": [
+     "Worklet ended"
+    ],
+    "stall": {
+     "block_ms_min": 450,
+     "motion": "committed:worklet"
+    }
+   }
+  },
+  {
+   "name": "a touchpad's flick, JavaScript free: the list glides its distance",
+   "do": [
+    "flick",
+    [
+     240,
+     280,
+     120,
+     6,
+     60
+    ]
+   ],
+   "expect": {
+    "glide": {
+     "view": "list",
+     "velocity": [
+      600,
+      2000
+     ],
+     "frames_min": 8
+    }
+   }
+  },
+  {
+   "name": "the same flick, JavaScript held 500 ms 30 ms into the glide: the list glides on through the block, a frame each refresh, as far as the free glide",
+   "do": [
+    "flick",
+    [
+     240,
+     280,
+     120,
+     6,
+     60
+    ]
+   ],
+   "expect": {
+    "glide": {
+     "view": "list",
+     "velocity": [
+      600,
+      2000
+     ],
+     "frames_min": 8
+    },
+    "stall": {
+     "block_ms_min": 450,
+     "motion": "frames"
+    }
+   }
+  }
+ ]
+}

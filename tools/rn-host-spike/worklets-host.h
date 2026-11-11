@@ -9,7 +9,9 @@
 #include <ReactCommon/TurboModule.h>
 #include <jsi/jsi.h>
 
+#include <atomic>
 #include <functional>
+#include <mutex>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -36,8 +38,8 @@ class WorkletsHost {
       facebook::jsi::Runtime& runtime,
       const std::shared_ptr<facebook::react::CallInvoker>& invoker);
 
-  // Runs pending UI-runtime jobs and, once per frame interval, requested animation frames.
-  // The host has one thread: the UI runtime runs on it between React Native's tasks.
+  // Runs pending UI-runtime jobs and, once per frame interval, requested animation frames, on the
+  // UI thread (ui-thread.h), the host's loop: the UI runtime is its, as on Android's and iOS's.
   //
   // Worklets' frame loop asks for its next frame in every frame, and Reanimated runs its mappers
   // at the end of every frame, whether or not anything changed: run as asked, an application
@@ -62,12 +64,17 @@ class WorkletsHost {
  private:
   const DisplayRefresh& refresh_;
   std::shared_ptr<worklets::UIScheduler> ui_;
-  std::shared_ptr<std::vector<std::function<void(double)>>> frames_;
+  // The frame callbacks asked for: on the UI thread, or by a worklet JavaScript's thread runs at once.
+  struct Frames {
+    std::mutex mutex;
+    std::vector<std::function<void(double)>> callbacks;
+  };
+  std::shared_ptr<Frames> frames_;
   // Whether the next frame is wanted (tick); shared with the UI runtime's requestAnimationFrame.
-  std::shared_ptr<bool> wanted_;
+  std::shared_ptr<std::atomic<bool>> wanted_;
   // Whether the UI runtime's requests are watched (watchRequests): until they are, or if they
   // cannot be, every frame is wanted.
-  bool watching_ = false, watched_ = false;
+  std::atomic<bool> watching_ = false, watched_ = false;
   void watchRequests();
   // The UI runtime makes each worklet from what the framework compiled ahead, its text compiled
   // only for one it does not have (an application's own).

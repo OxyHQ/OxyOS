@@ -1780,6 +1780,11 @@ impl Scene {
                 field,
                 text,
             } => self.menu_text(key(surface), index, field, text),
+            Request::MenuItemRole {
+                surface,
+                index,
+                role,
+            } => self.menu_item_role(key(surface), index, role),
             Request::MenusCommit { surface } => self.menus_commit(key(surface)),
             Request::ActivateMenuItem {
                 window,
@@ -1795,6 +1800,8 @@ impl Scene {
             | Request::RemoveWorkspace { .. }
             | Request::HideApplication { .. }
             | Request::QuitApplication { .. }
+            | Request::HideOtherApplications { .. }
+            | Request::ShowAllApplications {}
             | Request::ForceQuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
             Request::Pong { serial } => {

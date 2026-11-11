@@ -1,5 +1,5 @@
 {
- "about": "The host's frame diagnostics (frame-diagnostics.h; sample/FrameProbe.tsx; docs/performance.mdx, \"Reading the session's log\"): a frame whose work takes longer than a refresh of its display writes one line to the session's log naming what started it and where its time went (JavaScript holding the thread 120 ms after a press: its JavaScript at least 100 ms, its refreshes dropped), at most one a second with how many went unsaid; presses answered at once write none, and 90 frames of requestAnimationFrame stay within a refresh (every run checks a frame is said to be slow exactly when its work passes a refresh); and while the window draws, a summary every 10 s whose numbers are those of the frames in its report (regress.py checks every summary of every run), and none while it is idle.",
+ "about": "The host's frame diagnostics (frame-diagnostics.h; sample/FrameProbe.tsx; docs/performance.mdx, \"Reading the session's log\"), each of the host's two threads its own (docs/adr/0067-the-ui-thread.mdx): a frame of the UI thread's whose work takes longer than a refresh of its display writes one line to the session's log naming what started it and where its time went, and so does a stretch of JavaScript's work on its thread longer than a refresh, at most one a second each, with how many went unsaid. Presses answered at once write none; a press whose JavaScript holds its thread 120 ms writes one line of JavaScript's (at least 100 ms, the window free to present meanwhile) and no slow frame, the frame showing its answer timed from the press (at least 100 ms); 90 frames of requestAnimationFrame stay within a refresh (every run checks a frame is said to be slow exactly when its work passes a refresh, and each frame counts JavaScript's work since the frame before); and while the window draws, a summary every 10 s whose numbers are those of the frames and of JavaScript's stretches in its report (regress.py checks every summary of every run), and none while it is idle.",
  "module": "FrameProbe",
  "window": [
   480,
@@ -74,7 +74,7 @@
    }
   },
   {
-   "name": "a press whose JavaScript holds the thread 120 ms: one slow line, its time in JavaScript, its refreshes dropped",
+   "name": "a press whose JavaScript holds its thread 120 ms: one line of JavaScript's, no slow frame, the answer's frame timed from the press",
    "do": [
     "press",
     [
@@ -88,19 +88,26 @@
     ],
     "diagnostics": {
      "slow": [
-      1,
-      1
+      0,
+      0
      ],
      "slow_frames": [
+      0,
+      0
+     ],
+     "slow_js": [
       1,
       1
      ],
-     "slow_line": {
-      "subject": "a frame after pointer\\.(press|release)",
-      "javascript_min": 100,
-      "work_min": 100,
-      "dropped_min": 5
-     }
+     "slow_js_stretches": [
+      1,
+      1
+     ],
+     "slow_js_line": {
+      "subject": "pointer\\.(press|release)",
+      "work_min": 100
+     },
+     "latency_min_ms": 100
     }
    }
   },
@@ -113,7 +120,7 @@
    "allow_unchanged": true
   },
   {
-   "name": "three such presses within a second: three slow frames, one line",
+   "name": "three such presses within a second: three slow stretches of JavaScript, one line",
    "do": [
     "press_paced",
     [
@@ -129,10 +136,14 @@
     ],
     "diagnostics": {
      "slow": [
+      0,
+      0
+     ],
+     "slow_js": [
       1,
       1
      ],
-     "slow_frames": [
+     "slow_js_stretches": [
       3,
       3
      ]
@@ -148,7 +159,7 @@
    "allow_unchanged": true
   },
   {
-   "name": "the next slow line says the two not shown",
+   "name": "the next line of JavaScript's says the two not shown",
    "do": [
     "press",
     [
@@ -162,11 +173,15 @@
     ],
     "diagnostics": {
      "slow": [
+      0,
+      0
+     ],
+     "slow_js": [
       1,
       1
      ],
-     "slow_line": {
-      "javascript_min": 100,
+     "slow_js_line": {
+      "work_min": 100,
       "skipped": 2
      }
     }

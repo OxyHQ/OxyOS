@@ -11,6 +11,7 @@ import settingsPanes from "../../../apps/settings/searchable.json";
 import type { BluetoothState } from "../../../apps/shell/src/bluetooth";
 import type { SoundState } from "../../../apps/shell/src/sound";
 import type { Language, ShellMessages } from "../../../apps/shell/src/messages";
+import { desktopMenus } from "../../../apps/shell/src/app-menu";
 import astro from "../assets/apps/astro.png";
 import inbox from "../assets/apps/inbox.png";
 import mention from "../assets/apps/mention.png";
@@ -106,10 +107,8 @@ const FIXTURE_WORDS: Record<Language, typeof FIXTURE_ENGLISH> = {
 function previewMenus(messages: ShellMessages): ShellMenu[] {
   const words = FIXTURE_WORDS[messages.language];
   return [
-    {
-      label: "OxyOS",
-      items: [{ id: "system.about", label: messages.menus.about, enabled: false }],
-    },
+    // The desktop's own menu, as the bar shows it while no window is active (ADR 0021).
+    desktopMenus(messages, { shown: { others: true, hidden: false } })[0],
     {
       label: words.file,
       items: [{ id: "app.new", label: words.newWindow, enabled: false }],
