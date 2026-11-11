@@ -6,8 +6,9 @@
 //! dictionary, and a match reads only strings), and is read and dropped with no call. That is
 //! exactly one wake of the watch's thread and one of async-io's, whose reactor sees the socket
 //! readable and wakes it; no other thread wakes, and the process uses at most 0.1 % of a core
-//! (the idle budget, docs/performance.mdx). A change is still told, and the order to stop ends the
-//! watch at once.
+//! (the idle budget, docs/performance.mdx). The joined access point's strength is told at once,
+//! and the window opens once every thread sleeps after it; a change is still told, and the order to
+//! stop ends the watch at once.
 //!
 //! A wake is a voluntary context switch, a wait something ended. A thread taken off its core while
 //! it runs (an involuntary one) is the machine's load, not a wake; what it costs is the CPU share.
@@ -65,6 +66,35 @@ fn sample() -> (std::collections::BTreeMap<(String, String), u64>, u64) {
     (switches, cpu)
 }
 
+/// Whether every thread of the process but the calling one sleeps, `threads` among them.
+fn sleeping(threads: &[&str]) -> bool {
+    let me = std::fs::read_link("/proc/thread-self").unwrap();
+    let mut seen = Vec::new();
+    for task in std::fs::read_dir("/proc/self/task").unwrap().flatten() {
+        if Some(task.file_name().as_os_str()) == me.file_name() {
+            continue;
+        }
+        let Ok(status) = std::fs::read_to_string(task.path().join("status")) else {
+            continue;
+        };
+        let field = |name: &str| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix(name))
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        };
+        if !field("State:").starts_with('S') {
+            return false;
+        }
+        seen.push(field("Name:"));
+    }
+    threads
+        .iter()
+        .all(|thread| seen.iter().any(|name| name == thread))
+}
+
 /// The bus and the played daemon, ended however the test ends.
 struct Children(Vec<std::process::Child>);
 
@@ -114,50 +144,51 @@ fn a_quiet_daemon_followed_wakes_only_for_what_is_delivered() {
         .spawn()
         .unwrap();
     let _children = Children(vec![bus, fake]);
+    // The access point joined, read once before the watch: no call to the daemon in the watch
+    // (a blocking connection's executor thread and async-io's waits after it) to wait out.
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !oxyos_networks::NetworkManager::connect(Some(&address))
-        .and_then(|manager| manager.state())
-        .is_ok_and(|state| state.available)
-    {
+    let point = loop {
+        if let Ok(state) = oxyos_networks::NetworkManager::connect(Some(&address))
+            .and_then(|manager| manager.state())
+        {
+            if state.available {
+                break state.wifi.point;
+            }
+        }
         assert!(Instant::now() < deadline, "the played daemon did not start");
         std::thread::sleep(Duration::from_millis(20));
-    }
+    };
+    assert!(point.is_some(), "an access point is joined");
 
     let (stop, mut order) = std::os::unix::net::UnixStream::pair().unwrap();
     let (told, heard) = std::sync::mpsc::channel();
-    let watching = {
-        let address = address.clone();
-        std::thread::Builder::new()
-            .name("networks-watch".into())
-            .spawn(move || {
+    let watching = std::thread::Builder::new()
+        .name("networks-watch".into())
+        .spawn({
+            let address = address.clone();
+            move || {
                 oxyos_networks::watch(
                     Some(&address),
                     Duration::from_millis(30),
                     stop.as_fd(),
-                    |_| {
-                        // The access point joined, as a read says it: its strength is followed.
-                        let point = oxyos_networks::NetworkManager::connect(Some(&address))
-                            .and_then(|manager| manager.state())
-                            .ok()
-                            .and_then(|state| state.wifi.point);
-                        if told.send(point.is_some()).is_ok() {
-                            oxyos_networks::Follow::Point(point)
+                    |changes| {
+                        // The access point joined: its strength is followed.
+                        if told.send(changes.clone()).is_ok() {
+                            oxyos_networks::Follow::Point(point.clone())
                         } else {
                             oxyos_networks::Follow::Stop
                         }
                     },
                 )
-            })
-            .unwrap()
-    };
-    assert!(
+            }
+        })
+        .unwrap();
+    assert_eq!(
         heard
             .recv_timeout(Duration::from_secs(5))
             .expect("told at start"),
-        "an access point is joined"
+        oxyos_networks::Changes::Any
     );
-    std::thread::sleep(Duration::from_millis(500));
-    while heard.try_recv().is_ok() {}
 
     let act = |what: &str| {
         let status = Command::new("busctl")
@@ -175,6 +206,20 @@ fn a_quiet_daemon_followed_wakes_only_for_what_is_delivered() {
             .unwrap();
         assert!(status.success());
     };
+    // The joined access point's strength is told at once, alone: its match is made, and the watch
+    // waits again once its thread and async-io's sleep (nothing else wakes them before the window).
+    act(r#"{"strength": {"ssid": "Home", "strength": 80}}"#);
+    assert!(matches!(
+        heard
+            .recv_timeout(Duration::from_secs(5))
+            .expect("told of the strength"),
+        oxyos_networks::Changes::Strengths(_)
+    ));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sleeping(&["async-io", "networks-watch"]) {
+        assert!(Instant::now() < deadline, "the watch did not wait again");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let (switches, cpu) = sample();
     let measured = Duration::from_secs(3);
     // Another access point's strength: never delivered. The joined one seen again by a scan:
