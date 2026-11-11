@@ -83,7 +83,7 @@ phase "native parts built"
 # runs), installed as runtime 1, its framework, then every package built against it.
 HOST=$W/host-$(printf '%s' "$TREE" | sha256sum | cut -c1-12)
 step cmake.log env CC="$W/clang/usr/bin/clang-19" CXX="$W/clang/usr/bin/clang++-19" "$W/tools/bin/cmake" -S tools/rn-host-spike -B "$HOST" -G Ninja \
-  $(sed 's/^/-D/' "$W/cmake-vars.txt") -DOXYOS_CLIENT_LIB="$T/liboxyos_client_ffi.a"
+  $(sed 's/^/-D/' "$OXYOS_CMAKE_VARS") -DOXYOS_CLIENT_LIB="$T/liboxyos_client_ffi.a"
 step ninja.log "$W/tools/bin/ninja" -C "$HOST" -j "${JOBS:-12}" oxyos-bloom-host oxyos-turbo-module-cache-test
 # The runtime's TurboModules (turbo-module-cache.h): one per name, and what is said of a missing one.
 step turbo-module-cache.log "$HOST/oxyos-turbo-module-cache-test"
