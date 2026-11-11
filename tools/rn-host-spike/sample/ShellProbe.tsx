@@ -301,6 +301,19 @@ type Registered = {
   /** False for an entry never listed (`NoDisplay`): About This Computer, which the Oxy menu opens. */
   shown?: boolean;
 };
+/** An application of the registry as the shell's model has it (one with an icon). */
+function modelled(app: Registered, pinned: boolean) {
+  return {
+    id: app.id,
+    name: app.name,
+    icon: app.icon!,
+    iconBody: app.iconBody ?? undefined,
+    pinned,
+    opens: app.opens,
+    version: app.version ?? undefined,
+    build: app.build ?? undefined,
+  };
+}
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
 type ToldControls = Record<'output' | 'input' | 'display' | 'keyboard', Level> & {
@@ -501,17 +514,14 @@ function SessionShell() {
       .filter((app) => app.icon !== null && app.shown !== false)
       .map((app, order) => ({ app, order, place: place(app) }))
       .sort((a, b) => (a.place ?? Infinity) - (b.place ?? Infinity) || a.order - b.order)
-      .map(({ app, place }) => ({
-        id: app.id,
-        name: app.name,
-        icon: app.icon!,
-        iconBody: app.iconBody ?? undefined,
-        pinned: place !== null,
-        opens: app.opens,
-        version: app.version ?? undefined,
-        build: app.build ?? undefined,
-      }));
+      .map(({ app, place }) => modelled(app, place !== null));
   }, [registry, kept]);
+  // The applications no list shows: the bar names their windows and the standard About panel
+  // shows their icon and version (ADR 0021).
+  const unlisted = React.useMemo(
+    () => registry.filter((app) => app.icon !== null && app.shown === false).map((app) => modelled(app, false)),
+    [registry],
+  );
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
   const openAtLogin = lists?.openAtLogin ?? undefined;
   const trashItems: number | null = state?.trashItems ?? null;
@@ -539,6 +549,7 @@ function SessionShell() {
     () => ({
       ...snapshot,
       applications,
+      unlisted,
       folders: NO_FOLDERS,
       windows,
       workspaces,
@@ -549,7 +560,7 @@ function SessionShell() {
       trash,
       safeMode,
     }),
-    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash, safeMode],
+    [applications, unlisted, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash, safeMode],
   );
   // The actions read the state when they act, so they are made once (and again once the session
   // told the person's lists, which a session of an older protocol never does).

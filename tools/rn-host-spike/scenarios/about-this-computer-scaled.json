@@ -1,5 +1,5 @@
 {
-  "about": "The Oxy menu as a Mac's Apple menu and About This Computer as its About This Mac (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx and docs/adr/0021-menu-bar.mdx, as amended on 10 November 2026), in English at 1.25 (1600 × 1000), Allo (EditingProbe) with the session's shell. The menu's rows and chords exactly: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen with Ctrl+Super+Q and Log Out with Shift+Super+Q, never Launchpad's or Mission Control's; Alt held shows the alternates with Alt+Shift+Super+Q. About This Computer opens its window (an application never listed, so.oxy.aboutthiscomputer), which says this machine's name, processor, memory and OxyOS's version, exactly as the host reads them, and More Info…; Tab reaches More Info…, and Space opens Settings at About (oxyos-settings://about); chosen again from the Oxy menu, the window comes forward and nothing new starts. With two Settings windows, Super+Alt+M (a Mac's ⌥⌘M) sends both into the dock together through the genie and the keyboard moves once, to About This Computer; Settings' icon brings back the one used last; Super+Alt+W (⌥⌘W) asks both to close, the one still minimized too, each once. Every step checks the windows' states as the shell is told them, the deliveries and that no React tree hears anything of a chord.",
+  "about": "The Oxy menu as a Mac's Apple menu and About This Computer as its About This Mac (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx and docs/adr/0021-menu-bar.mdx, as amended on 10 November 2026), in English at 1.25 (1600 × 1000), Allo (EditingProbe) with the session's shell. The menu's rows and chords exactly: About This Computer, System Settings…, Sleep, Restart…, Shut Down…, Lock Screen with Ctrl+Super+Q and Log Out with Shift+Super+Q, never Launchpad's or Mission Control's; Alt held shows the alternates with Alt+Shift+Super+Q. About This Computer opens its window (an application never listed, so.oxy.aboutthiscomputer), which says this machine's name, processor, memory and OxyOS's version, exactly as the host reads them, and More Info…; Tab reaches More Info…, and Space opens Settings at About (oxyos-settings://about); chosen again from the Oxy menu, the window comes forward and nothing new starts. With two Settings windows, Super+Alt+M (a Mac's ⌥⌘M) sends both into the dock together through the genie and the keyboard moves once, to About This Computer; Settings' icon brings back the one used last; Super+Alt+W (⌥⌘W) asks both to close, the one still minimized too, each once. Every step checks the windows' states as the shell is told them, the deliveries and that no React tree hears anything of a chord. Its own menu in the bar is named as the registry names it, and its About is the standard About panel with its icon from the registry, though no list shows it (docs/adr/0021-menu-bar.mdx).",
   "module": "EditingProbe",
   "window": [
     600,
@@ -432,6 +432,91 @@
             "focused": true
           }
         }
+      }
+    },
+    {
+      "name": "About This Computer's own menu in the bar, named as the registry names it though no list shows it",
+      "do": [
+        "press_named",
+        "Acerca de este ordenador"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de Acerca de este ordenador",
+            "Ocultar Acerca de este ordenador",
+            "Salir de Acerca de este ordenador"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "its About: the standard About panel with its icon and name from the registry, which no list shows it in",
+      "do": [
+        "press_named",
+        "Acerca de Acerca de este ordenador"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Acerca de este ordenador"
+          ],
+          "absent": [
+            "Ocultar Acerca de este ordenador"
+          ]
+        },
+        "at": {
+          "shell": [
+            {
+              "name": "Acerca de Acerca de este ordenador"
+            },
+            {
+              "role": "Button",
+              "name": "Cerrar"
+            }
+          ]
+        },
+        "output_pixels": {
+          "800,288": "#010203",
+          "800,305": "#010203",
+          "782,322": "#010203"
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Escape closes it, and About This Computer has the keyboard again",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "absent": [
+            "Acerca de Acerca de este ordenador"
+          ]
+        },
+        "window_states": {
+          "1": {
+            "app": "so.oxy.allo",
+            "minimized": false,
+            "hidden": false,
+            "focused": false
+          },
+          "2": {
+            "app": "so.oxy.aboutthiscomputer",
+            "minimized": false,
+            "hidden": false,
+            "focused": true
+          }
+        },
+        "react": {}
       }
     }
   ],
