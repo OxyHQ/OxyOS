@@ -126,11 +126,11 @@
       }
     },
     {
-      "name": "the second output's top bar opens its Ver menu as a popup of its panel, under the item, on that output",
+      "name": "the second output's top bar opens the active application's own menu (its window is EditingProbe's, which declares no menus) as a popup of its panel, under its title, on that output",
       "do": [
         "press_output",
         [
-          1404,
+          1350,
           16
         ]
       ],
@@ -168,17 +168,17 @@
               28
             ],
             [
-              1377,
+              1320,
               32,
               266,
-              72
+              213
             ]
           ],
           "top": [
-            1377,
+            1320,
             32,
             266,
-            72
+            213
           ]
         },
         "react": {}

@@ -56,6 +56,7 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
    | Super+Alt+M | Minimize All, a Mac's ⌥⌘M: every window of the active application shown on this workspace into the dock together (10 November 2026). | Compositor |
    | Super+Alt+D | The dock's automatic hiding on and off, a Mac's ⌥⌘D ([ADR 0034](./0034-the-dock), 10 November 2026). | Compositor, then the session's preference |
    | Super+H | Hides the active application: its windows leave the screen, not into the dock, until it is activated. | Compositor |
+   | Alt+Super+H | Hides every other application, as a Mac's ⌥⌘H (every one with no window active); the active window stays active. Its menu's Show All brings them back ([ADR 0021](./0021-menu-bar), step 5; protocol version 43). | Compositor |
    | Super+\` (Super+Shift+\`) | The active application's next (previous) window on this workspace. Forwards, the active one goes behind the others, so presses go through them all. | Compositor |
    | Super+Ctrl+F | Full screen on and off for the active window. | Compositor |
    | Super+Alt+F, C, R; Super+Alt+← → ↑ ↓; Super+Alt+Shift+← → ↑ ↓ | Tiling, as a Mac's Fn-Control with the same keys ([ADR 0016](./0016-windows), decision 12): Fill, Center, Return to Previous Size; the left, right, top and bottom halves; Left & Right, Right & Left, Top & Bottom, Bottom & Top. | Compositor |
@@ -74,7 +75,7 @@ Applications already have their shortcuts: Bloom's chords, `Mod+N`, where `Mod` 
 
    Screenshots, Super+Shift+3, 4 and 5, are decision 10's.
 
-   **Not in this decision:** Super+Alt+H (hide the others) and Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)). (Super+Alt+M and Super+Alt+W, minimize all and close all, came on 10 November 2026; Super+Alt+Esc, Force Quit, with [ADR 0067](./0067-hangs-and-force-quit); tiling's keys with [ADR 0016](./0016-windows), decision 12.)
+   **Not in this decision:** Launchpad keys (Mission Control's and App Exposé's came with [ADR 0045](./0045-app-expose)). (Alt+Super+H, hide the others, came with [ADR 0021](./0021-menu-bar), step 5; Super+Alt+M and Super+Alt+W, minimize all and close all, on 10 November 2026; Super+Alt+Esc, Force Quit, with [ADR 0067](./0067-hangs-and-force-quit); tiling's keys with [ADR 0016](./0016-windows), decision 12.)
 
 3. **Keys by their place.** The scene has no keymap: keys are Linux key codes and are matched by place, named as on the US layout, as Bloom matches applications' chords (ADR 0021). So the two can never meet on any layout, and \` is the key above Tab, left of 1 (º on the Spanish layout), as a Mac's ⌘\` is on most ISO keyboards. On a layout that moves letters (AZERTY), Super+W is the key where W is on a US keyboard; when the compositor's keymap reaches the scene, system shortcuts and Bloom's chords move to the layout's characters together.
 

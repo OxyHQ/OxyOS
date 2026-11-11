@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <sys/file.h>
 #include <unistd.h>
+#include <utility>
 
 using namespace facebook::react;
 
@@ -156,9 +157,12 @@ void Report::animationFrame(double timestamp, size_t callbacks) {
 
 void Report::write(folly::dynamic&& line) {
   if (!file_) return;
-  line["t"] = monotonicNs();
+  // Made into text before the lock (a react_render line can be large, and the two threads write),
+  // stamped and written under it, so the file's lines are in the order of their time.
   std::string text = folly::toJson(line);
-  std::fwrite(text.data(), 1, text.size(), file_);
+  std::lock_guard lock(mutex_);
+  std::string stamped = "{\"t\":" + std::to_string(monotonicNs()) + (text.size() > 2 ? "," : "") + text.substr(1);
+  std::fwrite(stamped.data(), 1, stamped.size(), file_);
   std::fputc('\n', file_);
   std::fflush(file_);
 }
@@ -168,18 +172,21 @@ void Report::frame(uint32_t surface, int width, int height, double renderMs, con
   if (!file_) return;
   folly::dynamic list = folly::dynamic::array;
   for (const auto& text : texts) list.push_back(text);
+  std::lock_guard lock(mutex_);
   // The work so far in this turn is the frame's.
   if (turning_) {
     auto now = std::chrono::steady_clock::now();
     busyMs_ += std::chrono::duration<double, std::milli>(now - turn_).count();
     turn_ = now;
   }
+  // The loop's work and JavaScript's on its thread (counted once: the loop's own JavaScript, worklets',
+  // is in its turns).
   write(folly::dynamic::object("kind", "frame")("surface", surface)("width", width)("height", height)(
-      "render_ms", renderMs)("busy_ms", busyMs_)("js_ms", js_.wallMs)("js_cpu_ms", js_.cpuMs)(
+      "render_ms", renderMs)("busy_ms", busyMs_ + jsThreadMs_)("js_ms", js_.wallMs)("js_cpu_ms", js_.cpuMs)(
       "js_blocked_ms", js_.blockedMs)("react_commits", reactCommits_)("damaged", damaged)(
       "texts", std::move(list))(
       "focus", focus.empty() ? folly::dynamic(nullptr) : folly::dynamic(focus))("presented", presented));
-  busyMs_ = 0;
+  busyMs_ = jsThreadMs_ = 0;
   js_ = {};
   reactCommits_ = 0;
 }
@@ -191,19 +198,24 @@ void Report::stage(const char* name) {
 
 void Report::beginTurn() {
   if (!file_) return;
+  std::lock_guard lock(mutex_);
   turn_ = std::chrono::steady_clock::now();
   turning_ = true;
-  ++turns_;
 }
 
 void Report::endTurn() {
-  if (!file_ || !turning_) return;
+  if (!file_) return;
+  std::lock_guard lock(mutex_);
+  if (!turning_) return;
   busyMs_ += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - turn_).count();
   turning_ = false;
 }
 
-void Report::javascript(const ThreadSpan& span) {
-  if (file_) js_ += span;
+void Report::javascript(const ThreadSpan& span, bool onItsThread) {
+  if (!file_) return;
+  std::lock_guard lock(mutex_);
+  js_ += span;
+  if (onItsThread) jsThreadMs_ += span.wallMs;
 }
 
 void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
@@ -213,7 +225,10 @@ void Report::watchReactCommits(facebook::jsi::Runtime& runtime) {
       jsi::Function::createFromHostFunction(
           runtime, jsi::PropNameID::forAscii(runtime, "__oxyosReactCommitted"), 1,
           [this](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
-            ++reactCommits_;
+            {
+              std::lock_guard lock(mutex_);
+              ++reactCommits_;
+            }
             // [[name, count, {name: count, …}], …]: where each re-render began, how many components
             // it rendered and which.
             if (count == 0 || !args[0].isObject()) return jsi::Value::undefined();
@@ -383,6 +398,11 @@ void Report::deliver(const std::string& event, uint32_t surface, const ShadowVie
   deliver(event, surface, name(view), extra);
 }
 
+void Report::countTurnsBy(std::function<uint64_t()> turns) {
+  std::lock_guard lock(mutex_);
+  turns_ = std::move(turns);
+}
+
 void Report::deliver(const std::string& event, uint32_t surface, const std::string& target,
                      const folly::dynamic& extra) {
   if (!file_) return;
@@ -391,7 +411,10 @@ void Report::deliver(const std::string& event, uint32_t surface, const std::stri
   line["event"] = event;
   line["surface"] = surface;
   line["target"] = target;
-  line["turn"] = turns_;
+  {
+    std::lock_guard lock(mutex_);
+    line["turn"] = turns_ ? turns_() : 0;
+  }
   if (handlingKind_) {
     line["input_serial"] = handlingSerial_;
     line["input_seq"] = handlingSeq_;
@@ -439,7 +462,9 @@ void Report::received(const OxyOSEvent& event) {
       "pid", static_cast<int64_t>(getpid()))("seq", ++received_));
 }
 
-Report::Handling::Handling(const OxyOSEvent& event) {
+Report::Handling::Handling(const OxyOSEvent& event) : Handling(event, Report::get().received_) {}
+
+Report::Handling::Handling(const OxyOSEvent& event, uint64_t seq) {
   auto& report = Report::get();
   kind_ = report.handlingKind_;
   serial_ = report.handlingSerial_;
@@ -447,8 +472,9 @@ Report::Handling::Handling(const OxyOSEvent& event) {
   seq_ = report.handlingSeq_;
   if (const char* kind = inputKind(event)) {
     report.handlingKind_ = kind;
-    // The event `received` wrote last, when it is this one (Window::dispatch writes it first).
-    report.handlingSeq_ = report.received_;
+    // The event `received` wrote last, when it is this one (Window::dispatch writes it first), or
+    // the number it was received as (an event handled after others received since).
+    report.handlingSeq_ = seq;
     report.handlingSerial_ = event.serial;
     report.handlingSurface_ = event.kind == OXYOS_EVENT_SYSTEM_SHORTCUT ? event.code : event.surface;
   }
