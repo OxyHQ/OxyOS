@@ -6933,6 +6933,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.app = Some((children.0[0].id(), id));
     }
     let deadline = Instant::now() + LAUNCH_DEADLINE;
+    // Its launch is now, as it was started: what it asks of the services as it starts (the
+    // accounts' service's subscription, say) is the first step's, however long it takes to connect.
+    let launched_ns = monotonic_ns();
     // What opens at login, once the director's own application is client 1 (`CLIENT`), the window
     // every step follows: opened before it connected, one of theirs could take that number, and
     // the run would follow its window instead, which never settles if it opens minimized or on
@@ -6952,7 +6955,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     }
     open_at_login(&mut session, launch);
 
-    let launched_ns = monotonic_ns();
     // A login screen has no window: the output stands for it, and its first frame is the one
     // its shell has already shown.
     let login = launch.command.is_empty();
