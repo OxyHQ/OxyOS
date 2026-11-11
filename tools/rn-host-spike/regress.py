@@ -5,7 +5,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 (OXYOS_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
 
 - texts / absent: text the application shows (or must not) once the step settled, across its
-  window and popups (each surface's latest presented frame); texts_matching, regular expressions
+  window and popups (each surface's latest presented frame), "{machine:FACT}" in a text this
+  machine's name, processor, memory or os (machine_fact: what About This Computer shows of it);
+  texts_matching, regular expressions
   each some shown text matches (re.search): what follows the wall clock (the top bar's clock, in
   the locale's format);
 - focus_input: the text input holding focus (null for none), from the latest frame;
@@ -385,11 +387,12 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 - react_presses: those presses, exactly, as `react` checks its events;
 - diagnostics: the application's frame diagnostics in the step (frame-diagnostics.h), from its
   report's `timing` and `log` lines: "slow", [least, most] slow lines written to the log;
-  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh;
+  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh (each most
+  a speed budget: with --speed-budgets);
   "slow_line", a slow line written in the step having each key given ("subject", a pattern it
   matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
   unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
-  presented within a refresh; "logged", patterns (regular expressions) each
+  presented within a refresh (a speed budget: with --speed-budgets); "logged", patterns (regular expressions) each
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
@@ -935,10 +938,51 @@ def spoken_matches(said, wanted, any_order=False):
     return True
 
 
+def machine_fact(name):
+    """One of the facts Settings › About and About This Computer show of this machine, read here from
+    where the host reads them (host-modules.cpp, systemFacts), so a scenario run on any machine
+    expects exactly its own: "name" (/etc/hostname's first line), "processor" (/proc/cpuinfo's first
+    model name), "memory" (MemTotal as Settings writes it: whole GB, else MB) and "os" (os-release's
+    PRETTY_NAME, unquoted)."""
+    def first_line(path):
+        try:
+            return pathlib.Path(path).read_text().split("\n", 1)[0]
+        except OSError:
+            return ""
+    if name == "name":
+        return first_line("/etc/hostname")
+    if name == "processor":
+        for line in pathlib.Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].lstrip(" ")
+        return ""
+    if name == "memory":
+        kib = int(pathlib.Path("/proc/meminfo").read_text().split()[1])
+        gib = kib * 1024 / 1024 ** 3
+        # JavaScript's Math.round, never Python's round to even.
+        return f"{math.floor(gib + 0.5)} GB" if gib >= 1 else f"{math.floor(kib / 1024 + 0.5)} MB"
+    if name == "os":
+        for line in pathlib.Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                value = line[len("PRETTY_NAME="):]
+                return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
+        return ""
+    raise SystemExit(f"no machine fact {name!r}")
+
+
+def machine_text(wanted):
+    """`wanted` with each "{machine:FACT}" in it this machine's fact (machine_fact)."""
+    if not isinstance(wanted, str) or "{machine:" not in wanted:
+        return wanted
+    return re.sub(r"\{machine:([a-z]+)\}", lambda match: machine_fact(match.group(1)), wanted)
+
+
 def same_text(got, wanted, t_ns):
     """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
-    `t_ns`, or in the minute before it (the clock said as its minute turned), and "{size:ID}" the
-    size of the package ID as built (package_size), which every change to its bundle moves."""
+    `t_ns`, or in the minute before it (the clock said as its minute turned), "{size:ID}" the
+    size of the package ID as built (package_size), which every change to its bundle moves, and
+    "{machine:FACT}" this machine's (machine_fact)."""
+    wanted = machine_text(wanted)
     if isinstance(wanted, str) and "{size:" in wanted:
         wanted = re.sub(r"\{size:([^}]+)\}", lambda match: package_size(match.group(1)), wanted)
     if not isinstance(wanted, str) or "{clock}" not in wanted:
@@ -4356,7 +4400,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     def fail(message):
         failures.append(f"{name}: {message}")
 
-    for text in expect.get("texts", []):
+    for text in map(machine_text, expect.get("texts", [])):
         if not any(text in shown_text for shown_text in shown):
             fail(f"expected text {text!r} is not shown")
     for text in expect.get("absent", []):
@@ -4541,10 +4585,21 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
         fast_frames = [line for line in report if line["kind"] == "timing" and line["presented"] and not line["slow"]
                        and start <= line["t"] <= end]
-        if len(fast_frames) < wanted.get("fast_frames_min", 0):
+        # How many frames fit in a refresh is the machine's speed, which a loaded one does not
+        # hold (66 of 90 beside seven other scenarios at load 35): held with --speed-budgets, as
+        # perf.py runs it on the machine alone. That each frame is said slow exactly when its work
+        # passes a refresh is held always (`slow_frames`, `slow`).
+        if SPEED_BUDGETS and len(fast_frames) < wanted.get("fast_frames_min", 0):
             fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
-            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+            # A frame the step makes slow (JavaScript holding the thread 120 ms) is slow on any
+            # machine, but one that is not may be on a loaded one (a press's frame took 18 to 49 ms
+            # beside other scenarios at load 45 to 67): how many at most is a speed budget, held
+            # with --speed-budgets; the least always.
+            if key not in wanted:
+                continue
+            most = wanted[key][1] if SPEED_BUDGETS or key == "summaries" else float("inf")
+            if not wanted[key][0] <= got <= most:
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
                      f"{wanted[key][1]}: {logs}")
         if "slow_line" in wanted:
@@ -5795,7 +5850,8 @@ class Machine:
         """The development registry (`applications/`) in `into`: each packaged application's entry the
         one oxyos-installd writes for it where its package is now (`oxyos-pack entry`, beside the
         offscreen compositor; the packages may have been built elsewhere and copied), with the
-        development registry's place in the dock; any other entry as it is, its icon where its is."""
+        development registry's place in the dock and whether it is listed (`NoDisplay`, About This
+        Computer's); any other entry as it is, its icon where its is."""
         source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
         target = into / "oxyos" / "applications"
         target.mkdir(parents=True, exist_ok=True)
@@ -5807,7 +5863,7 @@ class Machine:
                     raise SystemExit(f"{pack} is not built: the registry's entries for the packages are its")
                 lines = subprocess.run([str(pack), "entry", str(self.by_id[entry.stem]["dir"])], check=True,
                                        capture_output=True, text=True).stdout.splitlines()
-                lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
+                lines += [line for line in text if line.startswith(("X-OxyOS-Pinned=", "NoDisplay="))]
             else:
                 lines = [("Icon=" + str((source / line[5:]).resolve()))
                          if line.startswith("Icon=") and not line[5:].startswith("/") else line

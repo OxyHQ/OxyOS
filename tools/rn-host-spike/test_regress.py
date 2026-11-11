@@ -114,6 +114,21 @@ def scroll_names(report):
     return failures
 
 
+class MachineFacts(unittest.TestCase):
+    """About This Computer's facts as a scenario expects them: this machine's, as the host reads them."""
+
+    def test_a_text_names_the_machines_facts(self):
+        self.assertEqual(regress.machine_text("{machine:memory}"), regress.machine_fact("memory"))
+        self.assertRegex(regress.machine_fact("memory"), r"^\d+ (GB|MB)$")
+        self.assertEqual(regress.machine_text("Name: {machine:name}."), f"Name: {regress.machine_fact('name')}.")
+        self.assertEqual(regress.machine_text("plain"), "plain")
+        self.assertTrue(regress.same_text(regress.machine_fact("os"), "{machine:os}", 0))
+
+    def test_an_unknown_fact_stops_the_run(self):
+        with self.assertRaises(SystemExit):
+            regress.machine_text("{machine:serial}")
+
+
 class ViewsAreNamedNotTagged(unittest.TestCase):
     # settings-input-sources.json's step 8: the Add sheet's scroll view has no testID, nor has the
     # modal it is in; the page that declares the modal has.

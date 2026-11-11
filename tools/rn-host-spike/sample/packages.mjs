@@ -31,13 +31,14 @@ const framework = path.join(runtime, 'framework', 'framework.json');
 if (!fs.existsSync(framework)) throw new Error(`${runtime} has no framework: build it with framework.mjs`);
 if (!fs.existsSync(key)) execFileSync(pack, ['key', key], { stdio: 'inherit' });
 
-// Each application's icon, the artwork the registry already shows for it; the shell and the login
-// screen, which the dock never shows, carry the OS's mark.
+// Each application's icon, the artwork the registry already shows for it; the shell, the login
+// screen and About This Computer, which the dock never shows, carry the OS's mark.
 const repository = path.resolve(here, '../../..');
 const icons = {
   'so.oxy.shell': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.login': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.settings': 'tools/shell-preview/assets/apps/settings.png',
+  'so.oxy.aboutthiscomputer': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.activitymonitor': 'tools/shell-preview/assets/apps/activity-monitor.png',
   'so.oxy.inbox': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.allo': 'tools/shell-preview/assets/apps/allo.png',
@@ -60,6 +61,7 @@ const entries = {
   'so.oxy.shell': 'entries/shell.js',
   'so.oxy.login': 'entries/login.js',
   'so.oxy.settings': 'entries/settings.js',
+  'so.oxy.aboutthiscomputer': 'entries/about-this-computer.js',
   'so.oxy.activitymonitor': 'entries/activity-monitor.js',
   'so.oxy.inbox': 'entries/inbox.js',
   'so.oxy.allo': 'entries/allo.js',

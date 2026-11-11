@@ -71,7 +71,9 @@ void ShellState::readApplications() {
         "iconBody", app["iconBody"])("pinned", app["pinned"])(
         // The media types it declares it opens (docs/adr/0034-the-dock.mdx): what files dropped
         // on its dock icon it takes.
-        "opens", app.getDefault("opens", folly::dynamic::array())));
+        "opens", app.getDefault("opens", folly::dynamic::array()))(
+        // An entry never listed (NoDisplay, About This Computer): started, never shown in a list.
+        "shown", app.getDefault("shown", true)));
   }
   applications_ = std::move(applications);
 }

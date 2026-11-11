@@ -225,6 +225,9 @@ struct Node {
     /// number the scene gave it (SetPointerImage; the program running the compositor keeps its
     /// pixels).
     pointer_image: Option<u64>,
+    /// Its material regions (docs/adr/0069-the-platforms-material.mdx), by the frames they are
+    /// for.
+    material: material::Material,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -1942,6 +1945,13 @@ impl Scene {
                 node.requested = bounded([requested, vec![rect]].concat());
                 Ok(())
             }
+            Request::MaterialRegion {
+                surface,
+                index,
+                last,
+                rect,
+                radius,
+            } => self.material_region(key(surface), index, last, rect, radius),
             Request::SetInputRegion { surface, region } => {
                 let node = self
                     .nodes
@@ -2225,6 +2235,7 @@ impl Scene {
                 workspace: self.workspaces.active,
                 pointer_shape: PointerShape::Arrow,
                 pointer_image: None,
+                material: material::Material::default(),
             },
         );
         match parent {
@@ -2768,6 +2779,9 @@ impl Scene {
         self.send_minimize_targets(key);
         self.send_secure_regions(key, frame.sequence);
         let node = self.nodes.get_mut(&key).expect("checked");
+        // The material list told whole before this Submit is this frame's.
+        let displayed = node.presentation.displayed().map(|frame| frame.sequence);
+        node.material.submitted(frame.sequence, displayed);
         // What the client drew into this frame since its previous one: the damage it asked for,
         // clipped to the buffer, or the whole surface without any or at a new size. It adds to
         // what the frames not yet presenting changed, shown or discarded.
@@ -5301,6 +5315,8 @@ mod places;
 pub use places::{LaunchedWindow, Placing, WindowPlace};
 mod shell;
 pub use shell::{ShellWindowState, MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
+mod material;
+pub use material::MaterialRegion;
 mod lock;
 pub use lock::{Secret, Submitted};
 mod launch;

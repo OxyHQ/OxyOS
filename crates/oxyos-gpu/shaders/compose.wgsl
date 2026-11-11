@@ -18,7 +18,10 @@ struct Layer {
     out_width: u32,
     out_height: u32,
     // 0: opaque copy, 1: premultiplied source-over, 2: fill with `color`, 3: a shadow, its
-    // profile's premultiplied pixel for its distance from `shadow_*`, not within `clip_*`.
+    // profile's premultiplied pixel for its distance from `shadow_*`, not within `clip_*`; 4: a
+    // material area (docs/adr/0069-the-platforms-material.mdx), its blurred cells `src_width` ×
+    // `src_height` from word `src_offset` of `scratch`, the first at (`shadow_x`, `shadow_y`) on
+    // the output (`material`).
     mode: u32,
     color: u32,
     // The part of the layer drawn (within its clip), from (base_x, base_y) within the layer,
@@ -60,8 +63,11 @@ struct Layer {
 }
 
 // The region of the output a dispatch composes (on the tiles' grid), the output's size, its
-// background and how many layers `layers` holds, bottom to top; and where `bins` starts, in words,
-// how many bins make a row of the output, and how many words each has.
+// background and how many layers `layers` holds, bottom to top, from entry `first`; where `bins`
+// starts, in words, how many bins make a row of the output, and how many words each has; and where
+// the pixels go: 0, the output (`dst`); 1, a material area's backdrop in `scratch`, the rectangle
+// (`into_x`, `into_y`) `into_width` × `into_height` of the output, row by row from word
+// `into_offset`, nothing outside it written.
 struct Frame {
     base_x: u32,
     base_y: u32,
@@ -74,6 +80,13 @@ struct Frame {
     bins_offset: u32,
     bins_across: u32,
     bin_words: u32,
+    first: u32,
+    into: u32,
+    into_x: u32,
+    into_y: u32,
+    into_width: u32,
+    into_height: u32,
+    into_offset: u32,
 }
 
 var<push_constant> frame: Frame;
@@ -85,6 +98,9 @@ var<push_constant> frame: Frame;
 // each, bottom to top, those under the topmost one covering the whole bin with an opaque copy or
 // a fill at full opacity left out (what is under it is never seen there).
 @group(0) @binding(4) var<storage, read> bins: array<u32>;
+// The material areas' working pixels (`vulkan::Blur`): a backdrop composed afresh, and each area's
+// cells as they are blurred, 0x00RRGGBB each.
+@group(0) @binding(5) var<storage, read_write> scratch: array<u32>;
 //@images-binding
 
 // Pixel (x, y) of layer `l`'s pixels, 0xAARRGGBB: from `src`, or from the client's GPU buffer
@@ -464,11 +480,83 @@ fn source_over(pixel: u32, alpha: u32, opacity: u32, under: u32) -> u32 {
     return (rb & 0x00ff00ffu) | ((g & 0xffu) << 8u);
 }
 
+// The material (docs/adr/0069-the-platforms-material.mdx), as `src/material.rs` makes it, operation
+// for operation: the backdrop composed afresh into `scratch` (`main`, `into` 1), averaged into cells
+// of CELL × CELL pixels (`cells`), blurred by three box passes along rows and three along columns
+// (`box_blur`), then, for each pixel of the area as the frame is composed, sampled bilinearly from
+// the cells, saturated and drawn over what is beneath (`material`).
+const CELL: u32 = 4u;
+
+// A cell, 0x00RRGGBB, as its three channels.
+fn channels(cell: u32) -> vec3<u32> {
+    return vec3<u32>((cell >> 16u) & 0xffu, (cell >> 8u) & 0xffu, cell & 0xffu);
+}
+
+fn pack_rgb(value: vec3<u32>) -> u32 {
+    return (value.x << 16u) | (value.y << 8u) | value.z;
+}
+
+// `material::blurred`'s bilinear axis: for pixel `p` of the output, the two cells (of `count`
+// from the one at `origin`) whose centres are either side of its centre, and the second's weight
+// in eighths of a cell.
+fn cell_axis(p: u32, origin: u32, count: u32) -> vec3<u32> {
+    let local = p - origin;
+    let cell = i32(local / CELL);
+    // Eighths, −3 ..= 3.
+    let offset = 2 * i32(local % CELL) - 3;
+    var a = cell;
+    var b = cell + 1;
+    var wb = offset;
+    if (offset < 0) {
+        a = cell - 1;
+        b = cell;
+        wb = 8 + offset;
+    }
+    let last = i32(count) - 1;
+    return vec3<u32>(u32(clamp(a, 0, last)), u32(clamp(b, 0, last)), u32(wb));
+}
+
+// One of a material area's cells, as its channels.
+fn cell_at(l: Layer, column: u32, row: u32) -> vec3<i32> {
+    return vec3<i32>(channels(scratch[l.src_offset + row * l.src_width + column]));
+}
+
+// `material::blurred` at output pixel (x, y): bilinear in eighths, rounded, then saturated by
+// `material::SATURATION` in 4096ths and clamped.
+fn blurred(l: Layer, x: u32, y: u32) -> u32 {
+    let ax = cell_axis(x, u32(l.shadow_x), l.src_width);
+    let ay = cell_axis(y, u32(l.shadow_y), l.src_height);
+    let wx = i32(ax.z);
+    let wy = i32(ay.z);
+    let top = cell_at(l, ax.x, ay.x) * (8 - wx) + cell_at(l, ax.y, ay.x) * wx;
+    let bottom = cell_at(l, ax.x, ay.y) * (8 - wx) + cell_at(l, ax.y, ay.y) * wx;
+    let rgb = (top * (8 - wy) + bottom * wy + vec3<i32>(32)) / vec3<i32>(64);
+    let red = (6677 * rgb.x - 2344 * rgb.y - 237 * rgb.z + 2048) >> 12u;
+    let green = (-697 * rgb.x + 5030 * rgb.y - 237 * rgb.z + 2048) >> 12u;
+    let blue = (-697 * rgb.x - 2344 * rgb.y + 7137 * rgb.z + 2048) >> 12u;
+    return pack_rgb(vec3<u32>(clamp(vec3<i32>(red, green, blue), vec3<i32>(0), vec3<i32>(255))));
+}
+
+// `material::draw` at output pixel (x, y), pixel (lx, ly) of the area: the blurred backdrop over
+// `under` by the area's rounded corners' coverage and its opacity.
+fn material(l: Layer, lx: u32, ly: u32, x: u32, y: u32, under: u32) -> u32 {
+    let alpha = corner_coverage(lx, ly, l.width, l.height, l.radius) * l.opacity / 255u;
+    if (alpha == 0u) {
+        return under;
+    }
+    let blur = channels(blurred(l, x, y));
+    let below = channels(under);
+    return pack_rgb((blur * alpha + below * (255u - alpha) + vec3<u32>(127u)) / vec3<u32>(255u));
+}
+
 // Pixel (x, y) with layer `l` over `color`.
 fn over(l: Layer, x: u32, y: u32, color: u32) -> u32 {
     let at = within(l, x, y);
     if (at.z == 0u) {
         return color;
+    }
+    if (l.mode == 4u) {
+        return material(l, at.x, at.y, x, y, color);
     }
     // A copy at its own size through no mesh (most of a frame: windows, the shell's surfaces),
     // filtered or not its pixel there: `blend` for it, without what it does not need.
@@ -519,6 +607,10 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_id) l
     if (x >= min(frame.base_x + frame.count_x, frame.out_width) || y >= min(frame.base_y + frame.count_y, frame.out_height)) {
         return;
     }
+    if (frame.into == 1u && (x < frame.into_x || y < frame.into_y
+        || x >= frame.into_x + frame.into_width || y >= frame.into_y + frame.into_height)) {
+        return;
+    }
     let bin = frame.bins_offset + ((y0 / BIN_HEIGHT) * frame.bins_across + x0 / BIN_WIDTH) * frame.bin_words;
     var color = frame.background & 0xffffffu;
     for (var word = 0u; word < frame.bin_words; word++) {
@@ -527,10 +619,80 @@ fn main(@builtin(workgroup_id) group: vec3<u32>, @builtin(local_invocation_id) l
             // The layer read whole at once, the same for every pixel of the tile: a few wide
             // reads, where a read of each field as it is needed is one each, which a device at its
             // efficient clock waits on (Intel's, at 300 MHz) more than on the composing.
-            let l = layers[word * 32u + countTrailingZeros(bits)];
+            let l = layers[frame.first + word * 32u + countTrailingZeros(bits)];
             bits &= bits - 1u;
             color = over(l, x, y, color);
         }
     }
+    if (frame.into == 1u) {
+        scratch[frame.into_offset + (y - frame.into_y) * frame.into_width + x - frame.into_x] = color;
+        return;
+    }
     dst[y * frame.out_width + x] = color;
+}
+
+// A material area's pass over its cells (`vulkan::Blur`): from word `read_at` of `scratch` to word
+// `write_at`, `cols` × `rows` cells; the backdrop's rectangle, `src_width` × `src_height` pixels (`cells`);
+// a box `width` cells wide, `before` of them before the cell, along rows (`axis` 0) or columns (1)
+// (`box_blur`).
+struct BlurPass {
+    read_at: u32,
+    write_at: u32,
+    cols: u32,
+    rows: u32,
+    src_width: u32,
+    src_height: u32,
+    width: u32,
+    before: u32,
+    axis: u32,
+}
+
+var<push_constant> blur_pass: BlurPass;
+
+// `material::blurred`'s first step: each cell the rounded average of the backdrop's pixels under
+// it, fewer at the output's edge.
+@compute @workgroup_size(8, 8)
+fn cells(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= blur_pass.cols || id.y >= blur_pass.rows) {
+        return;
+    }
+    let x0 = id.x * CELL;
+    let y0 = id.y * CELL;
+    let x1 = min(x0 + CELL, blur_pass.src_width);
+    let y1 = min(y0 + CELL, blur_pass.src_height);
+    var sum = vec3<u32>(0u);
+    for (var y = y0; y < y1; y++) {
+        for (var x = x0; x < x1; x++) {
+            sum += channels(scratch[blur_pass.read_at + y * blur_pass.src_width + x]);
+        }
+    }
+    let count = (x1 - x0) * (y1 - y0);
+    scratch[blur_pass.write_at + id.y * blur_pass.cols + id.x] = pack_rgb((sum + vec3<u32>(count / 2u)) / vec3<u32>(count));
+}
+
+// `material::box_pass` at one cell: the rounded average of the `width` cells around it along its
+// line, the line's edge cells continuing beyond it.
+@compute @workgroup_size(8, 8)
+fn box_blur(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= blur_pass.cols || id.y >= blur_pass.rows) {
+        return;
+    }
+    var count = blur_pass.cols;
+    var at = id.x;
+    if (blur_pass.axis == 1u) {
+        count = blur_pass.rows;
+        at = id.y;
+    }
+    let first = i32(at) - i32(blur_pass.before);
+    let last = first + i32(blur_pass.width) - 1;
+    var sum = vec3<u32>(0u);
+    for (var i = first; i <= last; i++) {
+        let along = u32(clamp(i, 0, i32(count) - 1));
+        var cell = id.y * blur_pass.cols + along;
+        if (blur_pass.axis == 1u) {
+            cell = along * blur_pass.cols + id.x;
+        }
+        sum += channels(scratch[blur_pass.read_at + cell]);
+    }
+    scratch[blur_pass.write_at + id.y * blur_pass.cols + id.x] = pack_rgb((sum + vec3<u32>(blur_pass.width / 2u)) / vec3<u32>(blur_pass.width));
 }
