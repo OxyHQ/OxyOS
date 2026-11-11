@@ -2,7 +2,7 @@
 
 #include "android-view-props.h"
 #include "keyboard-focus.h"
-
+#include "progress-bar.h"
 #include "report.h"
 #include "window.h"
 
@@ -221,6 +221,12 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
   std::string role;
   if (props) role = props->role != Role::None ? toString(props->role) : props->accessibilityRole;
   if (textInput && role.empty()) role = "textinput";
+  // A ProgressBar (progress-bar.h) is a progress indicator, as Android's ProgressBar is to TalkBack:
+  // busy while it spins, how far along when it does not; not animating it is hidden, and not seen.
+  const auto* progressBar =
+      name == kAndroidProgressBar ? static_cast<const AndroidProgressBarProps*>(view.props.get()) : nullptr;
+  if (progressBar && !progressBarShown(*progressBar)) return;
+  if (progressBar && role.empty()) role = "progressbar";
   // How far a scroll view can still move back and on, if it scrolls at all.
   uint16_t scrolls = 0;
   if (name == "ScrollView" && w.hooks && w.hooks->scrollRange) {
@@ -230,7 +236,7 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
       if (at.x < end.x || at.y < end.y) scrolls |= OXYOS_OFFERS_SCROLL_FORWARD;
     }
   }
-  bool element = props && (props->accessible || !role.empty() || !props->accessibilityLabel.empty() ||
+  bool element = props && (progressBar || props->accessible || !role.empty() || !props->accessibilityLabel.empty() ||
                            props->importantForAccessibility == ImportantForAccessibility::Yes || scrolls);
   if (element) {
     if (scrolls && role.empty()) role = "scrollview";
@@ -246,6 +252,11 @@ void walk(Walk& w, Tag tag, bool isRoot, bool merged, int parent, int depth) {
     if (auto live = liveOf(*props, role)) node.state["live"] = live;
     declaredActions(*props, node);
     node.actions |= scrolls;
+    if (progressBar && progressBar->indeterminate) {
+      node.state["busy"] = true;
+    } else if (progressBar && !props->accessibilityValue.text && !props->accessibilityValue.now) {
+      node.value = std::to_string(static_cast<int>(std::lround(std::clamp(progressBar->progress, 0.0, 1.0) * 100))) + "%";
+    }
     if (textInput) {
       auto input = std::static_pointer_cast<const AndroidTextInputProps>(view.props);
       if (node.name.empty()) node.name = input->placeholder;

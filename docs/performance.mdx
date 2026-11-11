@@ -1158,7 +1158,7 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   backlights' sysfs notifications and PipeWire's default devices and volumes
   (`oxyos_controls::follow`), and the top bar's network is told from what the networks' part read;
   an access point's strength signalled is applied to the state with no call (`Changes::Strengths`,
-  `State::with_strengths`), and a scan's "last seen" alone wakes nothing. Every connection kept
+  `State::with_strengths`), and a scan's "last seen" alone is no call. Every connection kept
   waits on futures-lite's `block_on` (`oxyos_seat::system_bus`): a thread waiting long in
   async-io's (as zbus's internal executor and blocking iterators do) keeps async-io's reactor
   thread waking about ten times after every message. `blocking` stays at 1.6.2: 1.7.0's idle
@@ -1184,9 +1184,13 @@ display that runs at it (the ThinkPad's runs at 60, where the genie holds).
   change (`arcs`, `State::shows_as`, as `signalBars` draws them), the strength kept until the next
   change. The controls read only what changed (`ReadBattery`, `ReadNetwork`, `ReadBluetooth`). On
   the ThinkPad the session's parts on its own bus woke 0.95 times a second over 20 s with one of
-  NetworkManager's background scans in it; `watch_idle.rs` holds another access point's strength
-  and the joined one seen again by a scan to nothing delivered (it fails at 27 a second when every
-  signal is).
+  NetworkManager's background scans in it. `watch_idle.rs` holds another access point's strength
+  to nothing delivered and no thread woken, and the joined one seen again by a scan (its "last
+  seen" alone, delivered: a match cannot tell which properties a `PropertiesChanged` names, they
+  are a dictionary) to exactly one wake of the watch's thread and one of async-io's, and no call
+  (it fails at 27 a second when every signal is). It counts wakes as voluntary context switches: a
+  thread taken off its core as it runs is the machine's load, and two such on a busy runner failed
+  the merge queue when it counted every switch against one a second.
 - **Bluetooth follows BlueZ the same way** (7 November 2026, [ADR 0055](./adr/0055-bluetooth)):
   one connection, its executor run by the session's `bluetooth` thread as it waits, delivered only
   BlueZ's objects added and removed, its adapters', devices' and batteries' properties and its

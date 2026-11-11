@@ -1,0 +1,87 @@
+{
+ "about": "React Native's ActivityIndicator turning by the clock (issue #559; progress-bar.h, scenarios/progress.json holds its phase): sample/ProgressProbe.tsx's indicator spins all along, a frame each refresh that changes nothing but its ring, and every step still settles (tools/oxyos-offscreen/src/progress.rs): the window, then Guardar pressed from the keyboard, its spinner turning for 2.5 s over its label, then the result. With the director counting those frames as changes, the window never settles: the run gives up waiting for its first frame.",
+ "module": "ProgressProbe",
+ "window": [
+  480,
+  240
+ ],
+ "locale": "es_ES.UTF-8",
+ "steps": [
+  {
+   "name": "The indicator turning: the step settles all the same",
+   "do": [
+    "wait",
+    1000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "progress_frames": [
+     10,
+     100000
+    ],
+    "texts": [
+     "Sin guardar"
+    ]
+   }
+  },
+  {
+   "name": "Tab: Guardar",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    }
+   }
+  },
+  {
+   "name": "Space: the button's spinner turning with the indicator, the step settling while both do",
+   "do": [
+    "key",
+    [
+     57
+    ]
+   ],
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "texts": [
+     "Guardando…"
+    ],
+    "progress_frames": [
+     5,
+     100000
+    ]
+   }
+  },
+  {
+   "name": "Its work done: the result, the indicator still turning",
+   "do": [
+    "wait",
+    3500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "save",
+     "ring": true
+    },
+    "texts": [
+     "Guardado"
+    ],
+    "progress_frames": [
+     10,
+     100000
+    ]
+   }
+  }
+ ]
+}
