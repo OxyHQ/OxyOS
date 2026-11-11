@@ -458,7 +458,8 @@ once the assistive technology holds a node so named on a shown surface (as `wait
 A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
 two seconds after an application stopped answering, its own cursor once it answers): it settles only
 once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
-wait that the steps before it may have eaten into. A `cue` step (a name) tells a part played beside
+wait that the steps before it may have eaten into; the shape is not held for the stillness (no client
+draws it), the surfaces still are. A `cue` step (a name) tells a part played beside
 the session to act now: the director appends the name to `cues` in the run's output (`qr-approve`:
 the played phone approves the QR, `login.oxy.qr.approve` "cue").
 A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a

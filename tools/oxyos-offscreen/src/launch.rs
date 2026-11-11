@@ -1001,8 +1001,11 @@ pub struct Settling {
     /// `--until-pointer MS SHAPE`: its answer is the pointer's shape on the compositor's own
     /// clock (the wait cursor two seconds after an application stopped answering, its own cursor
     /// again once it answers): it settles only once the pointer shows SHAPE (as a step's
-    /// `pointer_shape` names it: Arrow, Wait, ...), within MS, and has shown it for the step's
-    /// stillness, rather than after a set wait that the steps before it may have eaten into.
+    /// `pointer_shape` names it: Arrow, Wait, ...), within MS, rather than after a set wait that
+    /// the steps before it may have eaten into. The shape is the compositor's state, drawn by no
+    /// client, so it is not held for the stillness (the surfaces still are): a brief hang's wait
+    /// cursor shows for as little as what is left of the hang after its two seconds (0.63 s on a
+    /// loaded machine).
     pub until_pointer: Option<(u64, String)>,
     /// `--until-ended`: its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
@@ -3412,8 +3415,6 @@ fn settle(
     // starts the stillness itself: settling the moment it appeared left what that frame set off
     // (its live region said by the screen reader) to the next step.
     let mut named_since: Option<Instant> = None;
-    // Since when the pointer has shown the answer's shape (`pointer`).
-    let mut pointer_since: Option<Instant> = None;
     // Since when the output has shown the answer's colours (`pixels`).
     let mut pixels_since: Option<Instant> = None;
     // A screenshot being written (on the writer's thread, ADR 0024's decision 10) is an answer
@@ -3573,17 +3574,8 @@ fn settle(
             }
         };
         // The answer's pointer shape, once the compositor shows it.
-        let pointer_shown = match pointer {
-            None => true,
-            Some(shape) => {
-                if format!("{:?}", session.compositor.scene.pointer_shape()) != shape {
-                    pointer_since = None;
-                } else if pointer_since.is_none() {
-                    pointer_since = Some(Instant::now());
-                }
-                pointer_since.is_some_and(|since| since.elapsed() >= still)
-            }
-        };
+        let pointer_shown = pointer
+            .is_none_or(|shape| format!("{:?}", session.compositor.scene.pointer_shape()) == shape);
         // The session's end, once every application quit (ADR 0064).
         let ended_now = !ended
             || session
