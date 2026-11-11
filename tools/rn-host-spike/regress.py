@@ -425,9 +425,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
   JavaScript (waiting for another thread, a lock, a file), both budgets on speed held only with
   --speed-budgets; "presented", [least, most] frames presented (0: the step changed nothing
-  the host draws, from the `timing` lines); "js_wall_ms_max", the most JavaScript any one of them ran
-  by the wall clock, a
-  backstop for a gross regression set far above what the work takes. In `in_shell`, the shell's;
+  the host draws, from the `timing` lines); "js_ms_backstop", the most JavaScript any one of them ran
+  on its thread's CPU, a backstop for a gross regression held on every run, set far above what the
+  work takes (its time by the clock, blocked and preempted, is said with it, never held: the
+  machine's load makes it). In `in_shell`, the shell's;
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
   count of work the machine's load cannot change: "tops", exactly the components the step's
@@ -4847,14 +4848,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms (waiting for another "
                  f"thread, a lock or a file; {js(waited, 'cpu'):.2f} on the CPU), expected at most "
                  f"{wanted['js_blocked_ms_max']}")
-        # A backstop by the wall clock, for a gross regression only (docs/performance.mdx, "What a
-        # step re-renders"): set far above what the work takes, so that a loaded machine never
-        # reaches it.
-        slowest = max(work, key=lambda line: js(line, "parts"), default=None)
-        if not COLLECT and slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
-            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock "
-                 f"({js(slowest, 'cpu'):.2f} on the CPU), expected at most {wanted['js_wall_ms_max']} (a backstop "
-                 f"for a gross regression)")
+        # A backstop on its thread's CPU, for a gross regression only (docs/performance.mdx, "What a
+        # step re-renders"), held on every run: set far above what the work takes. Its time by the
+        # clock is the machine's as much as its own (preempted, the thread waits for a CPU another
+        # process has; blocked, for a page another reads in), so the clock is said, never held.
+        if not COLLECT and costly and most > wanted.get("js_ms_backstop", float("inf")):
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on its thread's CPU, expected at most "
+                 f"{wanted['js_ms_backstop']} (a backstop for a gross regression); by the clock "
+                 f"{js(costly, 'parts'):.2f}: {js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} "
+                 f"preempted")
         presented = len(presented_frames)
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
