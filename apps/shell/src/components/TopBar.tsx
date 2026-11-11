@@ -50,9 +50,19 @@ import { useShellLocale, useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
 import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
+/** Whether two lists of entries are the same rows (labels, states, chords, ids): a menu whose rows
+    did not change renders nothing again when the bar's menus are made anew, as they are whenever
+    anything the bar shows changes (docs/adr/0021-menu-bar.mdx; the Window menu's rows are many). */
+function sameEntries(
+  before: { items: readonly ShellMenuItem[]; onCommand: (id: string) => void },
+  after: { items: readonly ShellMenuItem[]; onCommand: (id: string) => void },
+): boolean {
+  return before.onCommand === after.onCommand && JSON.stringify(before.items) === JSON.stringify(after.items);
+}
+
 /** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
     and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
-function MenuEntries({
+const MenuEntries = memo(function MenuEntries({
   items,
   onCommand,
 }: {
@@ -112,7 +122,7 @@ function MenuEntries({
       })}
     </>
   );
-}
+}, sameEntries);
 
 function ControlsIcon({
   width = 15,
@@ -835,7 +845,14 @@ const BarMenus = memo(function BarMenus({
     if (holding.current) leave(true);
     run();
   };
-  const command = (id: string) => choose(() => onCommand(id))();
+  // The same function in every render, so a menu whose rows did not change renders nothing again
+  // (MenuEntries): it reads the latest handlers when chosen.
+  const latestCommand = useRef({ choose, onCommand });
+  latestCommand.current = { choose, onCommand };
+  const command = useCallback((id: string) => {
+    const { choose: chosen, onCommand: run } = latestCommand.current;
+    chosen(() => run(id))();
+  }, []);
   const messages = useShellMessages();
   // Option (Alt) held while the Oxy menu is open: Restart, Shut Down and Log Out lose their
   // question, as a Mac's alternates (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
