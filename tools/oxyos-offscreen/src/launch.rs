@@ -3108,6 +3108,65 @@ thread_local! {
 
 /// The session served once, as a wait step serves it: the compositor, the pasteboard, the
 /// launches, installs, background, preferences and the screen reader's trees.
+/// What opens as the person logs in, as `oxyos-session` opens it after its shells: the person's
+/// login items (docs/adr/0034-the-dock.mdx; none in Safe Mode), then what Resume reopens or asks
+/// to (docs/adr/0065, decision 3), and how the last session ended; their windows come back where
+/// they were (docs/adr/0070).
+fn open_at_login(session: &mut Session, launch: &Launch) {
+    // The applications the person opens at login (docs/adr/0034-the-dock.mdx), once the shell is
+    // up, as `oxyos-session` starts them after its shells: their windows open in the work area
+    // the panels leave, where they were (docs/adr/0070). None in Safe Mode.
+    if !launch.safe_mode {
+        let open_at_login = session.settings.preferences().open_at_login.clone();
+        if let Some(launcher) = session.launcher.as_mut() {
+            for id in &open_at_login {
+                match launcher.launch(id) {
+                    Ok(_) => {
+                        if let Some(places) = session.places.as_mut() {
+                            places.opened_at_login(id);
+                        }
+                    }
+                    Err(error) => eprintln!("[launch] {id} not opened at login: {error}"),
+                }
+            }
+        }
+    }
+    // Resume (docs/adr/0065, decision 3), as the session starts it once its shell is shown: what the run's state folder
+    // says the last session left, opened again or asked; and how the last session ended,
+    // as the login program tells it (`OXYOS_SESSION_ENDED`).
+    if let (Some(path), Some(launcher)) =
+        (oxyos_compositor::resume::path(), session.launcher.as_mut())
+    {
+        let (mut resume, reopened) = oxyos_compositor::resume::Resume::at_login(
+            path,
+            oxyos_compositor::session_end::reopen_path().as_deref(),
+            session.settings.preferences(),
+            launch.safe_mode,
+            launcher,
+            &mut session.compositor.scene,
+            Instant::now(),
+        );
+        // What it opened again comes back whole where it was, as the login items do (ADR 0070).
+        if let Some(places) = session.places.as_mut() {
+            for id in resume.take_opened() {
+                places.opened_at_login(&id);
+            }
+        }
+        session.resume = Some(resume);
+        if let Some(ended) = oxyos_compositor::crashes::SessionEnded::take() {
+            session
+                .crashes
+                .session_ended(&mut session.compositor.scene, &ended, reopened);
+        }
+        // A kernel panic's account (docs/adr/0068): the scenario's own folder of them.
+        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
+            session
+                .crashes
+                .restarted(&mut session.compositor.scene, &problems, &told);
+        }
+    }
+}
+
 fn serve_session(session: &mut Session) -> Result<()> {
     session.compositor.serve(&session.listener)?;
     if let Some(pasteboard) = session.pasteboard.as_mut() {
@@ -6822,58 +6881,6 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         Some(command) => Some(start_shell(&mut session, command)?),
         None => None,
     };
-    // The applications the person opens at login (docs/adr/0034-the-dock.mdx), once the shell is
-    // up, as `oxyos-session` starts them after its shells: their windows open in the work area
-    // the panels leave, where they were (docs/adr/0070). None in Safe Mode.
-    if !launch.safe_mode {
-        let open_at_login = session.settings.preferences().open_at_login.clone();
-        if let Some(launcher) = session.launcher.as_mut() {
-            for id in &open_at_login {
-                match launcher.launch(id) {
-                    Ok(_) => {
-                        if let Some(places) = session.places.as_mut() {
-                            places.opened_at_login(id);
-                        }
-                    }
-                    Err(error) => eprintln!("[launch] {id} not opened at login: {error}"),
-                }
-            }
-        }
-    }
-    // Resume (docs/adr/0065, decision 3), as the session starts it once its shell is shown: what the run's state folder
-    // says the last session left, opened again or asked; and how the last session ended,
-    // as the login program tells it (`OXYOS_SESSION_ENDED`).
-    if let (Some(path), Some(launcher)) =
-        (oxyos_compositor::resume::path(), session.launcher.as_mut())
-    {
-        let (mut resume, reopened) = oxyos_compositor::resume::Resume::at_login(
-            path,
-            oxyos_compositor::session_end::reopen_path().as_deref(),
-            session.settings.preferences(),
-            launch.safe_mode,
-            launcher,
-            &mut session.compositor.scene,
-            Instant::now(),
-        );
-        // What it opened again comes back whole where it was, as the login items do (ADR 0070).
-        if let Some(places) = session.places.as_mut() {
-            for id in resume.take_opened() {
-                places.opened_at_login(&id);
-            }
-        }
-        session.resume = Some(resume);
-        if let Some(ended) = oxyos_compositor::crashes::SessionEnded::take() {
-            session
-                .crashes
-                .session_ended(&mut session.compositor.scene, &ended, reopened);
-        }
-        // A kernel panic's account (docs/adr/0068): the scenario's own folder of them.
-        if let (problems, Some(told)) = oxyos_compositor::crashes::restarts() {
-            session
-                .crashes
-                .restarted(&mut session.compositor.scene, &problems, &told);
-        }
-    }
     // The screen reader before the application, as a session that runs one starts it; off, only
     // its socket, for Super+F5 to start it on.
     let speech = out.join("speech.jsonl");
@@ -6926,6 +6933,24 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         session.app = Some((children.0[0].id(), id));
     }
     let deadline = Instant::now() + LAUNCH_DEADLINE;
+    // What opens at login, once the director's own application is client 1 (`CLIENT`), the window
+    // every step follows: opened before it connected, one of theirs could take that number, and
+    // the run would follow its window instead, which never settles if it opens minimized or on
+    // another desktop. The session opens them after its shells, as here, with no such number.
+    if !launch.command.is_empty() {
+        while !session.compositor.peers.contains_key(&CLIENT) {
+            if Instant::now() > deadline {
+                return Err("deadline exceeded waiting for the application to connect".into());
+            }
+            if let Some(status) = children.application_exited()? {
+                return Err(
+                    format!("the application exited ({status}) before it connected").into(),
+                );
+            }
+            serve_session(&mut session)?;
+        }
+    }
+    open_at_login(&mut session, launch);
 
     let launched_ns = monotonic_ns();
     // A login screen has no window: the output stands for it, and its first frame is the one
