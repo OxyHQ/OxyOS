@@ -1799,6 +1799,7 @@ impl Scene {
             | Request::QuitApplication { .. }
             | Request::HideOtherApplications { .. }
             | Request::ShowAllApplications {}
+            | Request::LayOutWindow { .. }
             | Request::ForceQuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
             Request::Pong { serial } => {

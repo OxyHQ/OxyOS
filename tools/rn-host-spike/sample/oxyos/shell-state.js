@@ -39,6 +39,9 @@
  * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window;
  * `hideOtherApplications(window)` hides every other application (window 0: every one) and
  * `showAllApplications()` shows every hidden one again (docs/adr/0021-menu-bar.mdx).
+ * `layOutWindow(window, layout)` has the compositor lay a window out as the Window menu asks
+ * (docs/adr/0016-windows.mdx, decision 12): 'fill', 'center', a half or quarter, an arrangement,
+ * 'returnToPreviousSize' or 'zoom'; true if sent.
  *
  * Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): `capture` is the screenshot
  * interface the compositor opened, { serial, mode: 'selection' | 'window' | 'toolbar', output, confirm }
@@ -235,6 +238,7 @@ const actions = {
   hideOtherApplications: (id) => intents.hideOtherApplications(id),
   showAllApplications: () => intents.showAllApplications(),
   forceQuitApplication: (id) => intents.forceQuitApplication(id) ?? false,
+  layOutWindow: (id, layout) => intents.layOutWindow(id, layout) ?? false,
   setApplicationList: (list, ids) => intents.setApplicationList(list, [...ids]) ?? false,
   openUrl: (url) => intents.openUrl(url) ?? 0,
   emptyTrash: () => intents.emptyTrash() ?? false,

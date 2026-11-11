@@ -276,6 +276,9 @@ class Window {
   bool setApplicationList(uint32_t serial, uint32_t list, const std::string& ids);
   bool openUrl(uint32_t serial, uint64_t input, const std::string& url);
   bool forceQuitApplication(uint32_t window);
+  // Lays out the window `window` as `layout` (OXYOS_WINDOW_LAYOUT_*: the Window menu, ADR 0016,
+  // decision 12). False if not sent (a compositor before version 48, an unknown layout).
+  bool layOutWindow(uint32_t window, uint8_t layout);
   // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
   bool emptyTrash(uint64_t input);
   // One of the system's interface sounds (OXYOS_SYSTEM_SOUND_*), citing `input`

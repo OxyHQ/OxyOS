@@ -671,6 +671,12 @@ function SessionShell() {
           case 'minimize':
             shell.minimizeWindow(command.window);
             break;
+          case 'zoom':
+            shell.layOutWindow(command.window, 'zoom');
+            break;
+          case 'layout':
+            shell.layOutWindow(command.window, command.layout);
+            break;
           case 'moveToDesktop':
             shell.moveWindowToWorkspace(command.window, Number(command.desktop));
             break;

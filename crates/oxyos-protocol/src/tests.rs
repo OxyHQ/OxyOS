@@ -336,6 +336,14 @@ fn requests() -> Vec<Request> {
         Request::HideApplication { window: 7 },
         Request::QuitApplication { window: 8 },
         Request::HideOtherApplications { window: 7 },
+        Request::LayOutWindow {
+            window: 7,
+            layout: WindowLayout::BottomAndTop,
+        },
+        Request::LayOutWindow {
+            window: 7,
+            layout: WindowLayout::Zoom,
+        },
         Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
@@ -3260,6 +3268,21 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_48_lay_out_window_is_only_version_48s() {
+    let asked = Request::LayOutWindow {
+        window: 1,
+        layout: WindowLayout::Fill,
+    };
+    assert_eq!(request_since(&asked), 48);
+    assert_eq!(LAYOUT_WINDOW_VERSION, 48);
+    // Every layout has its byte, and no other byte is one.
+    let every = (1..=17).filter_map(WindowLayout::from_raw).count();
+    assert_eq!(every, 17);
+    assert_eq!(WindowLayout::from_raw(0), None);
+    assert_eq!(WindowLayout::from_raw(18), None);
 }
 
 #[test]

@@ -16,7 +16,7 @@ use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, CaptureDestination,
     CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, MenuRole, PanelEdge,
     Politeness, Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
-    TextContentType, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
+    TextContentType, TextHints, TextPurpose, WindowLayout, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -229,6 +229,26 @@ pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
 /// 43.
 pub const OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS: u8 = 11;
 pub const OXYOS_MANAGE_SHOW_ALL_APPLICATIONS: u8 = 12;
+/// Where the session's shell asks the compositor to put a window (`oxyos_client_lay_out_window`,
+/// ADR 0016, decision 12: the Window menu): Fill, Center, the halves, the quarters, the
+/// arrangements with the windows behind it, Return to Previous Size, and Zoom (and back).
+pub const OXYOS_WINDOW_LAYOUT_FILL: u8 = 1;
+pub const OXYOS_WINDOW_LAYOUT_CENTER: u8 = 2;
+pub const OXYOS_WINDOW_LAYOUT_LEFT: u8 = 3;
+pub const OXYOS_WINDOW_LAYOUT_RIGHT: u8 = 4;
+pub const OXYOS_WINDOW_LAYOUT_TOP: u8 = 5;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM: u8 = 6;
+pub const OXYOS_WINDOW_LAYOUT_TOP_LEFT: u8 = 7;
+pub const OXYOS_WINDOW_LAYOUT_TOP_RIGHT: u8 = 8;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT: u8 = 9;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT: u8 = 10;
+pub const OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT: u8 = 11;
+pub const OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT: u8 = 12;
+pub const OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM: u8 = 13;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP: u8 = 14;
+pub const OXYOS_WINDOW_LAYOUT_QUARTERS: u8 = 15;
+pub const OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE: u8 = 16;
+pub const OXYOS_WINDOW_LAYOUT_ZOOM: u8 = 17;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
 /// own, which oxyos_client_focus_shell_surface may cite; detail: OXYOS_SHORTCUT_*; code: the
 /// output to show it on; flag: OXYOS_SHORTCUT_INTENT_*, version 25), and how recently a window was active (code: the window; detail: its
@@ -3318,6 +3338,28 @@ pub unsafe extern "C" fn oxyos_client_manage(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// The session's shell lays out a window (the `shell` grant; ADR 0016, decision 12: the Window
+/// menu), by its number: `layout` is an OXYOS_WINDOW_LAYOUT_*. The compositor tiles it, centres it,
+/// arranges it with the windows behind it, returns it to its size before, or zooms it and back;
+/// a window gone since, full screen or hidden is left as it is. Refused to a compositor of a
+/// version before 48. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_lay_out_window(
+    client: *mut OxyOSClient,
+    window: u32,
+    layout: u8,
+) -> c_int {
+    let Some(layout) = WindowLayout::from_raw(layout) else {
+        return fail("unknown layout");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::LayOutWindow { window, layout }) }
 }
 
 /// A window a shell surface shows live (docs/adr/0022-window-views.mdx): the window's number,

@@ -289,6 +289,24 @@ impl Scene {
                 }
             }
             Request::ShowAllApplications {} => self.show_all_applications(),
+            // The Window menu (ADR 0016, decision 12): the compositor lays the window out, as
+            // Super+Alt's keys do, or zooms it and back, as its green bubble does; a window gone
+            // since is ignored, and one that takes no layout (full screen, hidden, while locked)
+            // is left as it is.
+            Request::LayOutWindow {
+                window: number,
+                layout,
+            } => {
+                if let Some(key) = window(self, number) {
+                    match super::tiling::layout_of(layout) {
+                        Some(layout) => self.lay_out_window(key, layout),
+                        None => {
+                            let zoomed = self.is_maximized(key);
+                            self.set_maximized(key, !zoomed)?;
+                        }
+                    }
+                }
+            }
             Request::ForceQuitApplication { window: number } => {
                 if let Some(key) = window(self, number) {
                     self.force_quit_application(key)?;

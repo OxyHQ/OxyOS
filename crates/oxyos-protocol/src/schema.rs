@@ -10,7 +10,7 @@ use crate::wire::{
     PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
     ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size,
     SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind,
-    WifiState, Wire,
+    WifiState, WindowLayout, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -290,6 +290,9 @@ messages! {
         // Show All, without changing the active window.
         113 => HideOtherApplications { window: u32 },
         114 => ShowAllApplications {},
+        // Version 48 (ADR 0016, decision 12): the Window menu's tiling, Center, Return to Previous
+        // Size and Zoom for `window`, as Super+Alt's keys and its green bubble ask them.
+        115 => LayOutWindow { window: u32, layout: WindowLayout },
         // The session's shell gives the keyboard focus to one of its own panels or overlays (the
         // launcher's search), citing the serial of an input it received: a press, a key or a
         // SystemShortcut. One it did not receive lately is ignored.
