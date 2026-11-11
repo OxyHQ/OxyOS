@@ -2368,6 +2368,11 @@ struct RunningShell {
 }
 
 impl Shells {
+    /// The processes of the shells running, one an output.
+    fn pids(&self) -> impl Iterator<Item = i32> + '_ {
+        self.running.values().map(|shell| shell.child.id() as i32)
+    }
+
     /// The shell of `output`, started.
     fn spawn(&mut self, session: &Session, output: OutputId) -> Result<RunningShell> {
         let command = &self.command;
@@ -3298,13 +3303,18 @@ fn host_turning(pid: i32) -> bool {
         .is_ok_and(|call| call.split_whitespace().next() != Some(PPOLL))
 }
 
-/// Whether the application's host, or the companion's, is in the middle of a turn
-/// (`host_turning`): the step is not answered until each has gone back to waiting for work.
+/// Whether the application's host, the companion's or a shell's is in the middle of a turn
+/// (`host_turning`): the step is not answered until each has gone back to waiting for work. A
+/// shell's turn can be the step's answer too: a file dropped on the dock's Trash is put there only
+/// once the shell's JavaScript has run the drop and asked (`TrashFiles`), and on a loaded machine
+/// that turn outlasted the settling's stillness (`dropsea-drag-scaled`, step 3: the drop counted,
+/// the file not yet in the Trash).
 fn hosts_turning(session: &Session) -> bool {
     [Some(CLIENT), session.companion_client()]
         .into_iter()
         .flatten()
         .filter_map(|client| session.compositor.peers.get(&client).map(|peer| peer.pid))
+        .chain(session.shells.iter().flat_map(Shells::pids))
         .any(host_turning)
 }
 
