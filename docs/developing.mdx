@@ -222,12 +222,14 @@ On 8 November 2026 four such jobs held the queue for hours.
   whenever the merge queue changes (a group built, an entry taken out) and on a ten-minute schedule
   as a backstop: GitHub ran that schedule every four to eight hours, and on 10 November 2026 four
   superseded merge queue runs held four of the five merge runners for 80 minutes. It force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
-  one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
-  started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
-  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+  one in progress longer than its `timeout-minutes` and a quarter of an hour, and an older job on a
+  runner that has started a newer one; never by a step's age, since the scenarios are one step that
+  takes over an hour when the runners' gates run together. It also cancels the merge queue's runs that no entry waits
   for any more (a group superseded when the queue changed: an entry removed or another put ahead),
-  which GitHub leaves running on runners the queue needs: a run whose commit no entry's group has,
-  never the run asking, one younger than two minutes or any when the queue cannot be read
+  which GitHub leaves running on runners the queue needs: a run whose commit no entry's group has
+  and whose pull request is out of the queue or has another group built, never one whose entry is
+  waiting for its group to be built (GitHub may still count it: cancelled, it fails the entry and
+  takes it out), the run asking, one younger than two minutes or any when the queue cannot be read
   (`tools/gate/test_watchdog.py`, on GitHub's recorded answers). `--dry-run` says what it would end.
 
 ### Images on the gate's machine

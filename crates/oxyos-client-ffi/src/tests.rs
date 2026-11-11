@@ -6506,6 +6506,15 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
             oxyos_client_manage(client, OXYOS_MANAGE_FORCE_QUIT_APPLICATION, 7, 0),
             0
         );
+        // Hide Others and Show All (ADR 0021).
+        assert_eq!(
+            oxyos_client_manage(client, OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS, 7, 0),
+            0
+        );
+        assert_eq!(
+            oxyos_client_manage(client, OXYOS_MANAGE_SHOW_ALL_APPLICATIONS, 0, 0),
+            0
+        );
         assert_eq!(oxyos_client_empty_trash(client, 43), 0);
         let received = compositor.join().unwrap();
         oxyos_client_close(client);
@@ -6530,7 +6539,81 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
                 text: PreeditText::new("dropsea://trash").unwrap(),
             },
             Request::ForceQuitApplication { window: 7 },
+            Request::HideOtherApplications { window: 7 },
+            Request::ShowAllApplications {},
             Request::EmptyTrash { input: 43 },
+        ]
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn a_client_that_answers_pings_itself_is_given_them_and_answers_when_it_says() {
+    assert_eq!(define("OXYOS_EVENT_PING"), i64::from(OXYOS_EVENT_PING));
+    assert_eq!(
+        u32::from(Event::Ping { serial: 1 }.opcode()),
+        OXYOS_EVENT_PING
+    );
+    // The Bloom host reads its events on its UI thread and answers a Ping once JavaScript took
+    // what came before it (docs/adr/0067-the-ui-thread.mdx): the library leaves it to it.
+    let directory =
+        std::env::temp_dir().join(format!("oxyos-client-ffi-pong-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let socket = directory.join("s");
+    let listener = Listener::bind(&socket).unwrap();
+    let compositor = std::thread::spawn(move || {
+        let server = listener.accept().unwrap();
+        let mut protocol = ServerConnection::new();
+        let (hello, _) = server.recv_request().unwrap();
+        server
+            .send_event(&protocol.receive(&hello).unwrap().unwrap(), None)
+            .unwrap();
+        // Sent once the client said it answers pings itself (its EmptyTrash says so).
+        let (first, _) = server.recv_request().unwrap();
+        server.send_event(&Event::Ping { serial: 5 }, None).unwrap();
+        server
+            .send_event(&Event::TrashItems { items: 2 }, None)
+            .unwrap();
+        let (second, _) = server.recv_request().unwrap();
+        [first, second]
+    });
+    let path = CString::new(socket.to_str().unwrap()).unwrap();
+    // SAFETY: the client pointer comes from oxyos_client_connect and is closed once.
+    let received = unsafe {
+        let client = oxyos_client_connect(path.as_ptr());
+        assert!(!client.is_null());
+        assert_eq!(oxyos_client_answer_pings_itself(client), 0);
+        assert_eq!(oxyos_client_empty_trash(client, 1), 0);
+        let mut events = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while events.len() < 2 {
+            let mut event = OxyOSEvent::default();
+            if oxyos_client_poll(client, &mut event) == OXYOS_POLL_EVENT {
+                events.push((event.kind, event.serial, event.code));
+            } else {
+                assert!(std::time::Instant::now() < deadline, "no event");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        // The Ping is the client's, in its place, and nothing answered it as it was read.
+        assert_eq!(
+            events,
+            [(OXYOS_EVENT_PING, 5, 0), (OXYOS_EVENT_TRASH_ITEMS, 0, 2)]
+        );
+        assert_eq!(
+            oxyos_client_pong(client, u64::from(u32::MAX) + 1),
+            OXYOS_ERROR
+        );
+        assert_eq!(oxyos_client_pong(client, 5), 0);
+        let received = compositor.join().unwrap();
+        oxyos_client_close(client);
+        received
+    };
+    assert_eq!(
+        received,
+        [
+            Request::EmptyTrash { input: 1 },
+            Request::Pong { serial: 5 }
         ]
     );
     std::fs::remove_dir_all(directory).unwrap();
@@ -7584,11 +7667,19 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
             "OXYOS_SUDDEN_TERMINATION_VERSION",
             i64::from(OXYOS_SUDDEN_TERMINATION_VERSION),
         ),
+        ("OXYOS_MATERIAL_VERSION", i64::from(OXYOS_MATERIAL_VERSION)),
+        (
+            "OXYOS_MAX_MATERIAL_REGIONS",
+            i64::from(OXYOS_MAX_MATERIAL_REGIONS),
+        ),
     ] {
         assert_eq!(define(name), value, "{name}");
     }
     assert!(HEADER.contains(
         "int oxyos_client_set_sudden_termination(OxyOSClient* client, uint8_t enabled);"
+    ));
+    assert!(HEADER.contains(
+        "int oxyos_client_set_material_regions(OxyOSClient* client, uint32_t surface, const int32_t* regions, size_t count);"
     ));
     assert_eq!(
         oxyos_protocol::SessionEnd::Restart as u32,
@@ -7646,4 +7737,25 @@ fn a_request_to_quit_and_its_answer_cross_the_abi() {
         oxyos_client_close(client);
     }
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+#[allow(unsafe_code)]
+fn material_regions_past_the_limit_or_missing_are_refused_before_sending() {
+    // SAFETY: each call fails on its arguments before the client is touched.
+    unsafe {
+        assert_ne!(
+            oxyos_client_set_material_regions(std::ptr::null_mut(), 1, std::ptr::null(), 17),
+            0
+        );
+        assert_ne!(
+            oxyos_client_set_material_regions(std::ptr::null_mut(), 1, std::ptr::null(), 1),
+            0
+        );
+        let negative = [0, 0, -4, 10, 0];
+        assert_ne!(
+            oxyos_client_set_material_regions(std::ptr::null_mut(), 1, negative.as_ptr(), 1),
+            0
+        );
+    }
 }

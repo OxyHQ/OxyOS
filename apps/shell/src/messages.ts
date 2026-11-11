@@ -65,7 +65,8 @@ const en = (f: Formats) => ({
   common: {
     close: "Close",
     options: "Options",
-    systemSettings: "System Settings",
+    /** A window of an application that does not answer (docs/adr/0067-hangs-and-force-quit.mdx). */
+    notRespondingTitle: (title: string) => `${title} (Not Responding)`,
     showDesktops: "Show Desktops",
     searchApplications: "Search Applications",
     controlCenter: "Control Center",
@@ -85,8 +86,14 @@ const en = (f: Formats) => ({
   topBar: {
     menuBar: "Menu Bar",
     oxyMenu: "Oxy Menu",
+    /** The Oxy menu's first row, a Mac's About This Mac: the window with the computer's facts. */
+    aboutThisComputer: "About This Computer",
+    systemSettings: "System Settings…",
+    /** The App Store's row, by its name (Atlas), as a Mac's App Store…. */
+    appStore: (name: string) => `${name}…`,
     applications: "Applications",
     lockScreen: "Lock Screen",
+    forceQuit: "Force Quit…",
     /** The battery, a level indicator: its charge and state are its value. */
     battery: "Battery",
     /** The wired network's value, as the Wi-Fi item's is the network joined. */
@@ -144,16 +151,47 @@ const en = (f: Formats) => ({
     item: (primary: string, secondary: string, place: number, count: number) =>
       `${primary}, ${secondary}, ${f.number(place)} of ${f.number(count)}`,
   },
-  /** The shell's own menus, while no application is active, and an application's own menu. */
+  /** An application's own menu, the desktop's while no application is active
+      (docs/adr/0021-menu-bar.mdx, app-menu.ts), and the standard About panel. */
   menus: {
-    about: "About OxyOS",
+    /** The desktop's own menu, Finder's on a Mac, while no window is active. */
+    desktop: "Desktop",
+    /** An application's name when nothing names it (no registry entry, title or id it claims). */
+    unnamedApp: "Application",
     view: "View",
     showApplications: "Show Applications",
     aboutApp: (name: string) => `About ${name}`,
+    settings: "Settings…",
     hideApp: (name: string) => `Hide ${name}`,
+    hideOthers: "Hide Others",
+    showAll: "Show All",
     quitApp: (name: string) => `Quit ${name}`,
-    /** The Shift key in a menu's chord. */
+    emptyTrash: "Empty Trash…",
+    /** The About panel's version line: the application's version and, where the platform knows
+        it, its build (the package's version code), as a Mac's "Version 1.2 (345)". */
+    version: (version: string, build?: number) =>
+      build === undefined ? `Version ${version}` : `Version ${version} (${build})`,
+    /** Its close button. */
+    closeAbout: "Close",
+  },
+  /** The keys of a chord as menus show them (chord.ts): as a PC keyboard of the language labels
+      them, its modifiers in a Mac's order. */
+  keys: {
+    ctrl: "Ctrl",
+    alt: "Alt",
     shift: "Shift",
+    super: "Super",
+    enter: "Enter",
+    escape: "Esc",
+    tab: "Tab",
+    space: "Space",
+    backspace: "Backspace",
+    delete: "Del",
+    insert: "Ins",
+    home: "Home",
+    end: "End",
+    pageUp: "PgUp",
+    pageDown: "PgDn",
   },
   /** Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
       the Oxy menu's rows, the session's question and its countdown, and what it says when an
@@ -633,6 +671,12 @@ const en = (f: Formats) => ({
     reopenAgainBody: "Do you want to try to reopen them again?",
     reopenAgainButton: "Reopen",
     dontReopen: "Don’t Reopen",
+    forceQuitTitle: "Force Quit Applications",
+    forceQuitBody: "If an app doesn’t respond for a while, select its name and click Force Quit.",
+    forceQuitNone: "No apps are open.",
+    forceQuitList: "Apps",
+    forceQuitButton: "Force Quit",
+    notResponding: "Not Responding",
     wifiPassword: (ssid: string, kind: string) => `The Wi-Fi network “${ssid}” requires a ${kind} password.`,
     wifiIncorrect: "Incorrect password. Try again.",
     wifiJoin: "Join",
@@ -739,7 +783,7 @@ const es = (f: Formats): Catalogue => ({
   common: {
     close: "Cerrar",
     options: "Opciones",
-    systemSettings: "Ajustes del Sistema",
+    notRespondingTitle: (title) => `${title} (No responde)`,
     showDesktops: "Ver escritorios",
     searchApplications: "Buscar aplicaciones",
     controlCenter: "Centro de control",
@@ -756,8 +800,12 @@ const es = (f: Formats): Catalogue => ({
   topBar: {
     menuBar: "Barra de menús",
     oxyMenu: "Menú de Oxy",
+    aboutThisComputer: "Acerca de este ordenador",
+    systemSettings: "Ajustes del Sistema…",
+    appStore: (name) => `${name}…`,
     applications: "Aplicaciones",
     lockScreen: "Bloquear pantalla",
+    forceQuit: "Forzar salida…",
     battery: "Batería",
     connected: "Conectado",
     clockHint: "Abre el centro de notificaciones",
@@ -796,13 +844,37 @@ const es = (f: Formats): Catalogue => ({
     item: (primary, secondary, place, count) => `${primary}, ${secondary}, ${f.number(place)} de ${f.number(count)}`,
   },
   menus: {
-    about: "Acerca de OxyOS",
+    desktop: "Escritorio",
+    unnamedApp: "Aplicación",
     view: "Ver",
     showApplications: "Ver aplicaciones",
     aboutApp: (name) => `Acerca de ${name}`,
+    settings: "Ajustes…",
     hideApp: (name) => `Ocultar ${name}`,
+    hideOthers: "Ocultar otros",
+    showAll: "Mostrar todo",
     quitApp: (name) => `Salir de ${name}`,
+    emptyTrash: "Vaciar Papelera…",
+    version: (version, build) =>
+      build === undefined ? `Versión ${version}` : `Versión ${version} (${build})`,
+    closeAbout: "Cerrar",
+  },
+  keys: {
+    ctrl: "Ctrl",
+    alt: "Alt",
     shift: "Mayús",
+    super: "Super",
+    enter: "Intro",
+    escape: "Esc",
+    tab: "Tab",
+    space: "Espacio",
+    backspace: "Retroceso",
+    delete: "Supr",
+    insert: "Insert",
+    home: "Inicio",
+    end: "Fin",
+    pageUp: "RePág",
+    pageDown: "AvPág",
   },
   power: {
     sleep: "Reposo",
@@ -1231,6 +1303,12 @@ const es = (f: Formats): Catalogue => ({
     reopenAgainBody: "¿Quieres intentar volver a abrirlas?",
     reopenAgainButton: "Volver a abrir",
     dontReopen: "No volver a abrir",
+    forceQuitTitle: "Forzar salida de las aplicaciones",
+    forceQuitBody: "Si una app no responde durante un tiempo, selecciona su nombre y haz clic en Forzar salida.",
+    forceQuitNone: "No hay apps abiertas.",
+    forceQuitList: "Apps",
+    forceQuitButton: "Forzar salida",
+    notResponding: "No responde",
     wifiPassword: (ssid, kind) => `La red Wi-Fi “${ssid}” requiere una contraseña ${kind}.`,
     wifiIncorrect: "Contraseña incorrecta. Vuelve a intentarlo.",
     wifiJoin: "Conectarse",

@@ -20,6 +20,18 @@ Status: **accepted; implemented** (the session's side, the Bloom host's report, 
 
 Not in this note: the shell's watchdog (a shell that hangs) and the login program's own screen when its login screen cannot start at all, which follow.
 
+**10 November 2026: the shell is watched** (decision 6 widened again, the research's "the session survives the shell hanging"). A hung shell was a dead Dock, menu bar, notifications, Spotlight and system sheets, and, while locked, a dead lock screen: the person locked out, the power key the only way out.
+
+- **Pinged whatever the person does** (`oxyos_compositor::shell_watch`, the session's and the development compositor's): every shell process is sent a Ping every two seconds ([`KEEP_ALIVE`]), not only when input reaches it, so a shell nobody touches (the lock screen most of all) is watched too. It is watched once it has answered one, so the time its JavaScript takes to start on a loaded machine is never a hang (its start has the session's own deadline).
+- **Eight seconds without an answer** ([`SHELL_HANG`], the research's figure; a Mac's is of the same order): it is asked for its report (`SIGQUIT`, on which the Bloom host writes its JavaScript thread's stack, [ADR 0067](./0067-hangs-and-force-quit); and `SIGCONT`, for one stopped), ended half a second later (`SIGKILL`), never blocking the turn, and started again as a shell that crashed: at once the first time, then with the doubling wait. Its report says *OxyOS stopped responding and was started again.*, its reason *hang: no response for 8 seconds; ended by the session*, then its stack.
+- **Locked, never locked out.** While the shell is gone the session stays under the covers (fail-closed, as before): nothing under the lock is ever shown, and the new shell shows the lock screen, whose password unlocks.
+- **A shell that ends before its panels are shown** is started again with the same wait until the session's start deadline, instead of ending the session at once: one failure as the session starts no longer sends the person back to the login screen.
+- **The development compositor keeps its shells as the session does** (`Shells`), so scenarios can end one (`signal` to `shell`: `SEGV`, or `STOP`, a hang).
+
+Not in this note: a Force Quit window the compositor draws itself while the shell is gone, and the compositor's own panel after the shell failed to start three times; the login program's own screen when its login screen cannot start at all.
+
+**10 November 2026 ([ADR 0067](./0067-hangs-and-force-quit)):** an application the person force-quits while it does not answer is asked for its report first (`SIGQUIT`: the Bloom host writes its JavaScript thread's stack into its report file), and its report is written as decision 4 says, saying the hang (*X stopped responding and was force quit.*, *hang: no response for N seconds*), with nothing more said: the person asked.
+
 ## Problem
 
 An application that crashed on OxyOS vanished: its window went, the session wrote `exited` to its log, and nobody told the person anything. A JavaScript error nothing caught did not even end it: the Bloom host logged `[js exception]` and kept a window whose React tree the error had unmounted, drawn by nothing. An application that crashed at every launch (its preferences corrupted, the most common cause of a crash loop on a Mac) could only be fixed by finding and deleting `~/.local/share/oxyos/apps/<id>` in a terminal, and the session's own shell crashing ended the whole session, every application with it.

@@ -4,7 +4,8 @@ import { Slider } from "@oxy.so/bloom/slider";
 import { RiVolumeMuteLine } from "@oxy.so/bloom/icons/RiVolumeMuteLine";
 import type { RiWifiLine } from "@oxy.so/bloom/icons/RiWifiLine";
 import { Box } from "../primitives";
-import { ACCENT, INK } from "./control-style";
+import { INK } from "./control-style";
+import { useTheme } from "@oxy.so/bloom/theme";
 import { percent, silent } from "../controls";
 import type { ShellControl, ShellControls, ShellLevel } from "../model";
 import { useShellMessages } from "../useShellMessages";
@@ -42,6 +43,7 @@ export const LevelSlider = memo(function LevelSlider({
   testID?: string;
   children?: React.ReactNode;
 }) {
+  const accent = useTheme().colors.primary;
   const messages = useShellMessages();
   if (!level?.available) return null;
   const Glyph = icon;
@@ -79,7 +81,7 @@ export const LevelSlider = memo(function LevelSlider({
           showTooltip={false}
           formatValue={(value) => messages.common.percent(percent(value / 100))}
           accessibilityLabel={title}
-          minimumTrackTintColor={ACCENT}
+          minimumTrackTintColor={accent}
           onValueChange={(value) => setLevel?.(control, value / 100)}
         />
       </Box>

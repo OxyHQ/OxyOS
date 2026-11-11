@@ -340,11 +340,15 @@ What only the session's shell does: the system's sheets, AutoFill's list, the em
 | `shell.setReopenWindows` | `(enabled: boolean): void` | Reopen windows when logging back in, as the person toggled it in the session's question: their `reopen_windows`, which the session keeps. |
 | `shell.endSession` | `(action: string, confirm: boolean, options?: CallOptions): Promise<void>` | Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx): the shell's Oxy menu and the login screen's buttons. The session decides: it asks its own question (`confirm`), every application, then logind. Resolves once it answered (`{confirming}`, `{ending: {action}}`), rejects with its refusal. |
 | `shell.sleep` | `(options?: CallOptions): Promise<void>` | Sleeps the computer at once (`{sleeping}`). |
+| `shell.forceQuit` | `(options?: CallOptions): Promise<void>` | Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session shows its sheet, citing the press or key that asked. |
+| `shell.forceQuitApplication` | `(sheet: number, id: string, options?: CallOptions): Promise<void>` | Force Quit Applications' answer: the application chosen in the sheet `sheet`, which the session ends (a hung one after its report), citing the press or key. |
 | `shell.intents.focusWindow` | `(window: number): void` | Focuses the window `window`. |
 | `shell.intents.closeWindow` | `(window: number): void` | Closes the window `window`. |
 | `shell.intents.minimizeWindow` | `(window: number): void` | Minimizes the window `window`. |
 | `shell.intents.hideApplication` | `(window: number): void` | Hides the application of the window `window` (ADR 0024). |
 | `shell.intents.quitApplication` | `(window: number): void` | Quits the application of the window `window`. |
+| `shell.intents.hideOtherApplications` | `(window: number): void` | Hides every application but the one of the window `window` (0: every one), as a Mac's Hide Others (docs/adr/0021-menu-bar.mdx). |
+| `shell.intents.showAllApplications` | `(): void` | Shows every hidden application again, the active window staying the active one, as a Mac's Show All. |
 | `shell.intents.forceQuitApplication` | `(window: number): boolean` | Has the session end the application of the window `window` (ADR 0034). |
 | `shell.intents.moveWindowToWorkspace` | `(window: number, workspace: number): void` | Moves the window `window` to the workspace `workspace`. |
 | `shell.intents.activateWorkspace` | `(workspace: number): void` | Shows the workspace `workspace`. |

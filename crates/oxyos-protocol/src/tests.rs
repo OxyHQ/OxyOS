@@ -328,8 +328,15 @@ fn requests() -> Vec<Request> {
             serial: 3,
             index: 1,
         },
+        Request::MenuItemRole {
+            surface: 1,
+            index: 1,
+            role: MenuRole::Settings,
+        },
         Request::HideApplication { window: 7 },
         Request::QuitApplication { window: 8 },
+        Request::HideOtherApplications { window: 7 },
+        Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
             serial: 41,
@@ -437,6 +444,13 @@ fn requests() -> Vec<Request> {
             quit: true,
         },
         Request::SuddenTermination { enabled: true },
+        Request::MaterialRegion {
+            surface: 3,
+            index: 1,
+            last: true,
+            rect: Rect::new(8, 12, 240, 160),
+            radius: 12,
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -1136,6 +1150,11 @@ fn events() -> Vec<Event> {
             index: 0,
             field: MenuField::Label,
             text: TextChunk::new("Archivo").unwrap(),
+        },
+        Event::MenuBarItemRole {
+            window: 7,
+            index: 1,
+            role: MenuRole::About,
         },
         Event::MenuBarCommitted { window: 7 },
         Event::MenuItemActivated {
@@ -3241,6 +3260,19 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_45_material_regions_are_only_version_45s() {
+    let region = Request::MaterialRegion {
+        surface: 1,
+        index: 0,
+        last: true,
+        rect: Rect::new(0, 0, 0, 0),
+        radius: 0,
+    };
+    assert_eq!(request_since(&region), 45);
+    assert_eq!(MATERIAL_VERSION, 45);
 }
 
 #[test]

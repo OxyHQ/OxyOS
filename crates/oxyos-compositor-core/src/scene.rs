@@ -225,6 +225,9 @@ struct Node {
     /// number the scene gave it (SetPointerImage; the program running the compositor keeps its
     /// pixels).
     pointer_image: Option<u64>,
+    /// Its material regions (docs/adr/0069-the-platforms-material.mdx), by the frames they are
+    /// for.
+    material: material::Material,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -603,6 +606,8 @@ pub struct Scene {
     clock: std::time::Duration,
     /// Pings, force quits, the person's lists of applications and URLs the shell opens (ADR 0034).
     dock: dock::Dock,
+    /// The dock hiding automatically (docs/adr/0034-the-dock.mdx, 10 November 2026).
+    dock_hiding: dock_hiding::DockHiding,
     /// The key held and pressed again while it is (ADR 0036).
     key_repeat: key_repeat::KeyRepeat,
     /// The drag going on, the drops not finished and the shell's files for the Trash (ADR 0035).
@@ -1052,6 +1057,10 @@ impl Scene {
                 continue;
             };
             if output != id || node.dismissed || exclusive == 0 {
+                continue;
+            }
+            // A dock that hides automatically keeps no strip: it comes over the windows.
+            if edge == PanelEdge::Bottom && self.dock_hiding() {
                 continue;
             }
             let exclusive = exclusive.min(area.height / 2).min(area.width / 2);
@@ -1774,6 +1783,11 @@ impl Scene {
                 field,
                 text,
             } => self.menu_text(key(surface), index, field, text),
+            Request::MenuItemRole {
+                surface,
+                index,
+                role,
+            } => self.menu_item_role(key(surface), index, role),
             Request::MenusCommit { surface } => self.menus_commit(key(surface)),
             Request::ActivateMenuItem {
                 window,
@@ -1789,6 +1803,8 @@ impl Scene {
             | Request::RemoveWorkspace { .. }
             | Request::HideApplication { .. }
             | Request::QuitApplication { .. }
+            | Request::HideOtherApplications { .. }
+            | Request::ShowAllApplications {}
             | Request::ForceQuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
             Request::Pong { serial } => {
@@ -1939,6 +1955,13 @@ impl Scene {
                 node.requested = bounded([requested, vec![rect]].concat());
                 Ok(())
             }
+            Request::MaterialRegion {
+                surface,
+                index,
+                last,
+                rect,
+                radius,
+            } => self.material_region(key(surface), index, last, rect, radius),
             Request::SetInputRegion { surface, region } => {
                 let node = self
                     .nodes
@@ -2222,6 +2245,7 @@ impl Scene {
                 workspace: self.workspaces.active,
                 pointer_shape: PointerShape::Arrow,
                 pointer_image: None,
+                material: material::Material::default(),
             },
         );
         match parent {
@@ -2765,6 +2789,9 @@ impl Scene {
         self.send_minimize_targets(key);
         self.send_secure_regions(key, frame.sequence);
         let node = self.nodes.get_mut(&key).expect("checked");
+        // The material list told whole before this Submit is this frame's.
+        let displayed = node.presentation.displayed().map(|frame| frame.sequence);
+        node.material.submitted(frame.sequence, displayed);
         // What the client drew into this frame since its previous one: the damage it asked for,
         // clipped to the buffer, or the whole surface without any or at a new size. It adds to
         // what the frames not yet presenting changed, shown or discarded.
@@ -3909,6 +3936,10 @@ impl Scene {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
+        // Into a dock that hides: it comes up for the window to go into it (ADR 0034).
+        if change == appearances::Change::Minimized {
+            self.hold_dock();
+        }
         self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.withdraw_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
@@ -4232,6 +4263,8 @@ impl Scene {
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
         self.user_input();
         self.pointer = (x, y);
+        // The dock that hides comes up at the bottom edge and goes once left (ADR 0034).
+        self.follow_dock_hiding();
         if self.dragging() {
             self.drag_motion();
             return;
@@ -4274,6 +4307,10 @@ impl Scene {
             return None;
         }
         let key = self.pointer_focus?;
+        // A client that does not answer has no say over the pointer: the wait cursor is shown.
+        if self.busy(key.client) {
+            return None;
+        }
         self.live(key)?.pointer_image.map(|image| (key, image))
     }
 
@@ -4321,6 +4358,11 @@ impl Scene {
         }
         if let Some(edges) = self.resizing.map(|r| r.edges).or(self.resize_hover) {
             return edges.pointer_shape();
+        }
+        // Over a client that has not answered for a while, the compositor's own wait cursor,
+        // whatever the client asked for (docs/adr/0067-hangs-and-force-quit.mdx, decision 1).
+        if self.pointer_focus.is_some_and(|key| self.busy(key.client)) {
+            return PointerShape::Wait;
         }
         self.pointer_focus
             .and_then(|key| self.live(key))
@@ -5274,13 +5316,16 @@ mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
 mod shell;
 pub use shell::{ShellWindowState, MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
+mod material;
+pub use material::MaterialRegion;
 mod lock;
 pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
 mod dock;
+mod dock_hiding;
 mod drag;
-pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
+pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, BUSY_AFTER, PING_TIMEOUT};
 pub use drag::{
     negotiate_action, OpenFilesRequest, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
     DRAG_VERSION, MAX_OPEN_DROPS, VANISH_VERSION, VOLUMES_VERSION,

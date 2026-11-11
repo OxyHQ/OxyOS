@@ -25,7 +25,7 @@
       }
     },
     {
-      "name": "Super+Tab released at once: back to Allo, the application used before, with no switcher shown",
+      "name": "Super+Tab released at once: back to Allo, the application used before, with no switcher shown, the bar showing Allo's own menu",
       "do": ["key", [125, 15]],
       "allow_unchanged": true,
       "expect": {
@@ -33,7 +33,7 @@
         "delivered": {"1": {"focus.in": 1}, "launched": {"focus.out": 1}},
         "focus_surface": 1,
         "output_pixels": {"900,480": "#ffffff", "650,385": "#ffffff", "738,716": "#64717a", "796,716": "#64717a"},
-        "in_shell": {"absent": ["Inbox", "Allo"]}
+        "in_shell": {"texts": ["Allo"], "absent": ["Inbox"]}
       }
     },
     {
@@ -50,8 +50,8 @@
         "delivered": {"launched": {}},
         "focus_surface": 1,
         "announcements": [{"politeness": "assertive", "text": "Inbox"}],
-        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"},
-        "in_shell": {"texts": ["Inbox"], "absent": ["Allo"]},
+        "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"},
+        "in_shell": {"texts": ["Inbox"]},
         "at": {"shell": [
           {"role": "List", "name": "Selector de apps"},
           {"role": "Button", "name": "Allo", "state": []},
@@ -66,7 +66,7 @@
         "react": {},
         "delivered": {"launched": {}},
         "announcements": [{"politeness": "assertive", "text": "Allo"}],
-        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#e4e6ea"},
+        "output_pixels": {"650,385": "#f0f2f7", "556,385": "#d3d7e0"},
         "in_shell": {"texts": ["Allo"], "absent": ["Inbox"]},
         "at": {"shell": [{"role": "Button", "name": "Allo", "state": ["selected"]}, {"role": "Button", "name": "Inbox", "state": []}]}
       }
@@ -78,7 +78,7 @@
         "react": {},
         "delivered": {"launched": {}},
         "announcements": [{"politeness": "assertive", "text": "Inbox"}],
-        "output_pixels": {"650,385": "#e4e6ea", "556,385": "#f0f2f7"}
+        "output_pixels": {"650,385": "#d3d7e0", "556,385": "#f0f2f7"}
       }
     },
     {

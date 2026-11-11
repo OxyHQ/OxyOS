@@ -18,8 +18,9 @@
  *
  * The menu bar (docs/adr/0021-menu-bar.mdx): `menuBar` is the active window's menus, { window,
  * serial, items: [{ parent, kind: 'menu' | 'item' | 'submenu' | 'separator', enabled, checkable,
- * checked, label, shortcut }] } (window 0: none is active; no items: it declared none; parent an
- * earlier item's index, -1 for a menu of the bar). `activateMenuItem(window, serial, index)` chooses
+ * checked, label, shortcut, role }] } (window 0: none is active; no items: it declared none; parent an
+ * earlier item's index, -1 for a menu of the bar; role 'about' | 'settings' for the application's
+ * About and Settings…, which the shell shows in the application's own menu, else null). `activateMenuItem(window, serial, index)` chooses
  * one; the compositor gives it to the application only while those menus are the active window's.
  *
  * The lock (docs/adr/0010-lock-screen.mdx): `lockSession()` locks; `authenticate(password)` sends
@@ -35,7 +36,9 @@
  * rising `id` for each, as several may come before the shell draws again; action 'switcher-next' | 'switcher-previous' | 'switcher-quit' | 'switcher-hide' |
  * 'switcher-done' | 'switcher-cancel' | 'search' | 'menu-bar' | 'spotlight' | 'reveal' (Super+Space
  * and Super+Return, docs/adr/0051-search.mdx); output the one to show it on).
- * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window.
+ * `hideApplication(window)` and `quitApplication(window)` hide or quit the application of a window;
+ * `hideOtherApplications(window)` hides every other application (window 0: every one) and
+ * `showAllApplications()` shows every hidden one again (docs/adr/0021-menu-bar.mdx).
  *
  * Screenshots (docs/adr/0024-system-shortcuts.mdx, decision 10): `capture` is the screenshot
  * interface the compositor opened, { serial, mode: 'selection' | 'window' | 'toolbar', output, confirm }
@@ -229,6 +232,8 @@ const actions = {
   minimizeWindow: (id) => intents.minimizeWindow(id),
   hideApplication: (id) => intents.hideApplication(id),
   quitApplication: (id) => intents.quitApplication(id),
+  hideOtherApplications: (id) => intents.hideOtherApplications(id),
+  showAllApplications: () => intents.showAllApplications(),
   forceQuitApplication: (id) => intents.forceQuitApplication(id) ?? false,
   setApplicationList: (list, ids) => intents.setApplicationList(list, [...ids]) ?? false,
   openUrl: (url) => intents.openUrl(url) ?? 0,

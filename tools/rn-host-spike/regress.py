@@ -5,7 +5,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 (OXYOS_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
 
 - texts / absent: text the application shows (or must not) once the step settled, across its
-  window and popups (each surface's latest presented frame); texts_matching, regular expressions
+  window and popups (each surface's latest presented frame), "{machine:FACT}" in a text this
+  machine's name, processor, memory or os (machine_fact: what About This Computer shows of it);
+  texts_matching, regular expressions
   each some shown text matches (re.search): what follows the wall clock (the top bar's clock, in
   the locale's format);
 - focus_input: the text input holding focus (null for none), from the latest frame;
@@ -19,10 +21,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   never its tag, which every view mounted before it moves; two scroll views under one name in a
   step fail it (as in scroll_offset, scroll_moved and glide). Any delivered event the step does not list fails it, which catches
   duplicated and leaked events; a count may be [least, most] for events one a frame (a glide's
-  scroll events), and [0, most] for events that may not come; {"turns": count} counts the host's
-  turns that delivered the event instead (each delivery says its turn): a press's motions the host
-  read at once after a stall come in one turn and reach JavaScript together, so how many there were
-  is the machine's load, not the application's (a drag starts on the first past its threshold);
+  scroll events), and [0, most] for events that may not come; {"turns": count} counts JavaScript's
+  turns that took the event instead (each delivery says its turn, Report::deliver): a press's
+  motions the loop read while JavaScript was busy (behind a stall, under load) wait for it together
+  and reach it in one turn, so how many there were is the machine's load, not the application's (a
+  drag starts on the first past its threshold);
 - delivered: compositor input routed to the application per surface (exact; a count may be
   [least, most], and [0, most] for an event that may not come), plus `leaked`
   (what the session's shell takes is its own, never leaked),
@@ -85,7 +88,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
   exactly and in order: each a text, or keys matching an utterance (text, interrupting, voice:
-  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040); in a
+  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040), or
+  "typed", the echo of text typed at once, said as the field took it: whole, or in the pieces it
+  took one after another, which join to it (each matching the other keys): a field takes a key
+  once JavaScript has answered it (docs/adr/0067-the-ui-thread.mdx, decision 6); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
   minute it was said or the one before); spoken_any_order: the same, each said once, in either
@@ -222,8 +228,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ending exactly where its window is (its last frame the one that ended it, at its end, whatever
   frames were dropped before);
 - window_states: every window as the shell is told of it once the step settled, by its number,
-  exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
-  matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+  exactly those: each key given of "app", "workspace", "minimized", "hidden", "focused" and
+  "responding" (whether its application answers, docs/adr/0067-hangs-and-force-quit.mdx) matching
+  (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
 - tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
   (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
   exactly how many configures the director's window was sent in the step (a window tiled is told
@@ -301,6 +308,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "wide-y" as the pointer over one brings it wide, "hidden" once faded out; "scrollbar_thumbs",
   where each view's thumbs were in the window (logical pixels) as last reported in the step,
   {testID: {"x"|"y": [x, y, width, height]}};
+- stall: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx): the step's longest
+  stretch of JavaScript's work on its thread (`js_timing`, at least "block_ms_min", 450 by default)
+  is the block, and what moves ("motion": "animated:TARGET", the props Animated's native driver
+  set on it; "committed:TARGET", Reanimated's commits mounted; "frames", the window's frames, a
+  glide) is drawn throughout it: every run, half the block's refreshes presented and as many lines
+  of its motion, no gap of 6 refreshes between the frames; with --speed-budgets, a frame each
+  refresh (the gaps' 95th percentile within 1.5 refreshes, none over 2, 90 % of them drawn);
 - glide: for a `flick` step (a `scroll_paced` whose fingers then lift), the scroll view
   ("view", by testID) the fingers flung, as Android's ScrollView flings: the velocity the host
   measured at the lift ("velocity": [least, most] in logical pixels a second, along the offset);
@@ -378,30 +392,38 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   pointer presses, every mouse button's pointerdown and pointerup;)
 - react_presses: those presses, exactly, as `react` checks its events;
 - diagnostics: the application's frame diagnostics in the step (frame-diagnostics.h), from its
-  report's `timing` and `log` lines: "slow", [least, most] slow lines written to the log;
-  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh;
-  "slow_line", a slow line written in the step having each key given ("subject", a pattern it
-  matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
-  unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
-  presented within a refresh; "logged", patterns (regular expressions) each
+  report's `timing`, `js_timing` and `log` lines: "slow", [least, most] slow frames' lines written
+  to the log; "slow_frames", [least, most] frames (or work that drew nothing) of the UI thread's
+  slower than a refresh (each most a speed budget: with --speed-budgets); "slow_line", a slow frame's
+  line written in the step having each key given ("subject", a pattern it matches whole;
+  "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went unsaid);
+  "slow_js", [least, most] lines written for stretches of JavaScript's work on its thread longer than
+  a refresh, and "slow_js_stretches", [least, most] such stretches (each most a speed budget);
+  "slow_js_line", such a line having each key given ("subject", "work_min", "frames_min", the frames
+  the window presented meanwhile, "dropped_max", "skipped"); "summaries", [least, most] summaries
+  written; "fast_frames_min", the fewest frames presented within a refresh (a speed budget: with
+  --speed-budgets); "logged", patterns (regular expressions) each
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
   the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
-  frames presented in it that timed an input. Every run also checks, for each host's report, that every
+  frames presented in it that timed an input, and "latency_min_ms", the least such input to present
+  (an answer JavaScript took that long to give). Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
   its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
-  work its `timing` line has, that a hold is at least the host's bound long and the frame after it
-  is not charged its wait, and that each summary's numbers are those of the frames presented
-  since the summary before;
-- js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
-  work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
+  work its `timing` line has and a slow stretch's line its `js_timing` line, that each frame counts
+  JavaScript's stretches since the frame line before, that a hold is at least the host's bound long
+  and the frame after it is not charged its wait, and that each summary's numbers are those of the
+  frames presented, and of JavaScript's stretches, since the summary before;
+- js_work: what the host's JavaScript cost in the step, from its report's `js_timing` lines (each
+  stretch of its work on its thread, js-thread.h): "js_ms_max", the most JavaScript any one
   of them ran on the host's CPU (its thread's CPU time, which the machine's load does not
   lengthen; an event the shell is told that changes nothing it shows, another window's zoom,
   runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
   JavaScript (waiting for another thread, a lock, a file), both budgets on speed held only with
   --speed-budgets; "presented", [least, most] frames presented (0: the step changed nothing
-  the host draws); "js_wall_ms_max", the most JavaScript any one of them ran by the wall clock, a
+  the host draws, from the `timing` lines); "js_wall_ms_max", the most JavaScript any one of them ran
+  by the wall clock, a
   backstop for a gross regression set far above what the work takes. In `in_shell`, the shell's;
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
@@ -912,14 +934,15 @@ def package_size(package):
 
 def spoken_matches(said, wanted, any_order=False):
     """Whether the utterances `said` are those `wanted` (each a text, or keys matching an
-    utterance), each once: in order, or with `any_order` in either."""
+    utterance, or in order "typed": spoken_as_wanted), each once: in order, or with `any_order` in
+    either."""
     wanted = [w if isinstance(w, dict) else {"text": w} for w in wanted]
+    if not any_order:
+        return spoken_as_wanted(said, wanted)
     if len(said) != len(wanted):
         return False
     def matches(u, w):
         return all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
-    if not any_order:
-        return all(matches(u, w) for u, w in zip(said, wanted))
     left = list(said)
     for w in wanted:
         match = next((u for u in left if matches(u, w)), None)
@@ -929,15 +952,82 @@ def spoken_matches(said, wanted, any_order=False):
     return True
 
 
+def machine_fact(name):
+    """One of the facts Settings › About and About This Computer show of this machine, read here from
+    where the host reads them (host-modules.cpp, systemFacts), so a scenario run on any machine
+    expects exactly its own: "name" (/etc/hostname's first line), "processor" (/proc/cpuinfo's first
+    model name), "memory" (MemTotal as Settings writes it: whole GB, else MB) and "os" (os-release's
+    PRETTY_NAME, unquoted)."""
+    def first_line(path):
+        try:
+            return pathlib.Path(path).read_text().split("\n", 1)[0]
+        except OSError:
+            return ""
+    if name == "name":
+        return first_line("/etc/hostname")
+    if name == "processor":
+        for line in pathlib.Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].lstrip(" ")
+        return ""
+    if name == "memory":
+        kib = int(pathlib.Path("/proc/meminfo").read_text().split()[1])
+        gib = kib * 1024 / 1024 ** 3
+        # JavaScript's Math.round, never Python's round to even.
+        return f"{math.floor(gib + 0.5)} GB" if gib >= 1 else f"{math.floor(kib / 1024 + 0.5)} MB"
+    if name == "os":
+        for line in pathlib.Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                value = line[len("PRETTY_NAME="):]
+                return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
+        return ""
+    raise SystemExit(f"no machine fact {name!r}")
+
+
+def machine_text(wanted):
+    """`wanted` with each "{machine:FACT}" in it this machine's fact (machine_fact)."""
+    if not isinstance(wanted, str) or "{machine:" not in wanted:
+        return wanted
+    return re.sub(r"\{machine:([a-z]+)\}", lambda match: machine_fact(match.group(1)), wanted)
+
+
 def same_text(got, wanted, t_ns):
     """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
-    `t_ns`, or in the minute before it (the clock said as its minute turned), and "{size:ID}" the
-    size of the package ID as built (package_size), which every change to its bundle moves."""
+    `t_ns`, or in the minute before it (the clock said as its minute turned), "{size:ID}" the
+    size of the package ID as built (package_size), which every change to its bundle moves, and
+    "{machine:FACT}" this machine's (machine_fact)."""
+    wanted = machine_text(wanted)
     if isinstance(wanted, str) and "{size:" in wanted:
         wanted = re.sub(r"\{size:([^}]+)\}", lambda match: package_size(match.group(1)), wanted)
     if not isinstance(wanted, str) or "{clock}" not in wanted:
         return got == wanted
     return any(got == wanted.replace("{clock}", clock_said(t_ns - back * 60_000_000_000)) for back in (0, 1))
+
+
+def spoken_as_wanted(said, wanted):
+    """Whether the utterances `said` are those `wanted` (`spoken`), in order: each wanted one keys an
+    utterance matches, or "typed", a text said by one utterance or by several in a row joining to it,
+    each matching the other keys."""
+    def matches(utterance, keys):
+        return all(same_text(utterance.get(k), v, utterance["t"]) for k, v in keys.items() if k != "typed")
+
+    def match(i, j):
+        if j == len(wanted):
+            return i == len(said)
+        if "typed" not in wanted[j]:
+            return i < len(said) and matches(said[i], wanted[j]) and match(i + 1, j + 1)
+        text, joined = wanted[j]["typed"], ""
+        for end in range(i, len(said)):
+            if not matches(said[end], wanted[j]):
+                return False
+            joined += said[end]["text"]
+            if not text.startswith(joined):
+                return False
+            if joined == text and match(end + 1, j + 1):
+                return True
+        return False
+
+    return match(0, 0)
 
 
 # Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
@@ -976,17 +1066,26 @@ def holds_renders(value):
     return False
 
 
-# A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish).
+# A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish): the UI
+# thread's work, and JavaScript's on its own thread meanwhile.
 SLOW_LINE = re.compile(
     r"\[host (?P<app>\S+)\] (?P<subject>.+?) took (?P<work>[\d.]+) ms, (?P<dropped>\d+) dropped "
-    r"\(a refresh is (?P<refresh>[\d.]+) ms\): events (?P<events>[\d.]+), JavaScript (?P<javascript>[\d.]+) "
-    r"\(commits (?P<commits>[\d.]+), of which Yoga layout (?P<layout>[\d.]+) and text (?P<text>[\d.]+)\), "
-    r"animation (?P<animation>[\d.]+), mount (?P<mount>[\d.]+), drawing (?P<draw>[\d.]+), "
+    r"\(a refresh is (?P<refresh>[\d.]+) ms\): events (?P<events>[\d.]+), laying out (?P<laying_out>[\d.]+), "
+    r"animation (?P<animation>[\d.]+), mount (?P<mount>[\d.]+) \(commits (?P<commits>[\d.]+), of which Yoga "
+    r"layout (?P<layout>[\d.]+) and text (?P<text>[\d.]+)\), drawing (?P<draw>[\d.]+), "
     r"presenting (?P<present>[\d.]+)(?P<painter>| on the GPU \(sync [\d.]+\)| from the CPU), "
-    r"other (?P<other>[\d.]+); of it on the CPU (?P<cpu>[\d.]+) \(JavaScript (?P<javascript_cpu>[\d.]+)\), "
-    r"blocked (?P<blocked>[\d.]+) \(JavaScript (?P<javascript_blocked>[\d.]+)\), preempted (?P<preempted>[\d.]+); "
-    r"waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?"
+    r"other (?P<other>[\d.]+); of it on the CPU (?P<cpu>[\d.]+), blocked (?P<blocked>[\d.]+), "
+    r"preempted (?P<preempted>[\d.]+); waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?; "
+    r"JavaScript on its thread meanwhile (?P<javascript>[\d.]+) \(on the CPU (?P<javascript_cpu>[\d.]+), "
+    r"blocked (?P<javascript_blocked>[\d.]+)\)"
     r"(?:; input to present (?P<latency>[\d.]+) ms)?(?:; (?P<skipped>\d+) slow not shown since the last)?$")
+
+# A stretch of JavaScript's work on its thread longer than a refresh (FrameDiagnostics::javascriptWorked).
+SLOW_JS_LINE = re.compile(
+    r"\[host (?P<app>\S+)\] JavaScript worked (?P<work>[\d.]+) ms after (?P<subject>.+?), on its own thread: "
+    r"on the CPU (?P<cpu>[\d.]+), blocked (?P<blocked>[\d.]+), preempted (?P<preempted>[\d.]+); "
+    r"(?P<tasks>\d+) tasks?; the window presented (?P<frames>\d+) frames? meanwhile, (?P<dropped>\d+) dropped "
+    r"\(a refresh is (?P<refresh>[\d.]+) ms\)(?:; (?P<skipped>\d+) slow not shown since the last)?$")
 
 
 def percentile(ordered, p):
@@ -1023,12 +1122,18 @@ def check_pacing(report, hz, end, failures):
 
 
 def check_diagnostics(report, log_text, failures, who="the application"):
-    """A host's frame diagnostics (frame-diagnostics.h) against its own report: each line written to
-    the log is there, a slow frame's line names the work its `timing` line has, each part's time by
-    the wall clock is its time on the CPU, blocked and preempted (thread-clock.h), and each summary
-    sums up exactly the frames presented since the summary before."""
+    """A host's frame diagnostics (frame-diagnostics.h) against its own report, for each of its two
+    threads: each line written to the log is there; a slow frame's line names the work its `timing`
+    line has, and a slow stretch of JavaScript's (`js_timing`) its own; each part's time by the wall
+    clock is its time on the CPU, blocked and preempted (thread-clock.h), the UI thread's and
+    JavaScript's alike; each frame counts exactly JavaScript's stretches since the frame line
+    before; and each summary sums up exactly the frames presented, and the stretches, since the
+    summary before."""
     logged = set(log_text.splitlines())
-    frames, last_slow, after_hold = [], None, None
+    frames, stretches, since_frame, last_slow, last_slow_js, after_hold = [], [], [], None, None, None
+    def split(line, wall, of=""):
+        cpu, blocked, preempted = (line[f"{of}cpu_ms"], line[f"{of}blocked_ms"], line[f"{of}preempted_ms"])
+        return abs(cpu + blocked + preempted - wall) <= 1e-6 * max(1.0, wall)
     for line in report:
         if line["kind"] == "held":
             # A hold is a wait for the compositor's answer of at least the host's bound; what it
@@ -1037,6 +1142,17 @@ def check_diagnostics(report, log_text, failures, who="the application"):
                 failures.append(f"{who}'s hold of {line['held_ms']:.2f} ms is shorter than its bound "
                                 f"({line['held_after_ms']:.0f} ms)")
             after_hold = line
+        if line["kind"] == "js_timing":
+            if not split(line, line["work_ms"]):
+                failures.append(f"{who}'s JavaScript of {line['work_ms']:.2f} ms is {line['cpu_ms']:.2f} on the CPU, "
+                                f"{line['blocked_ms']:.2f} blocked and {line['preempted_ms']:.2f} preempted")
+            if line["slow"] != (line["work_ms"] > line["refresh_ms"]):
+                failures.append(f"{who}'s JavaScript of {line['work_ms']:.2f} ms (a refresh {line['refresh_ms']:.2f}) is "
+                                f"{'' if line['slow'] else 'not '}said to be slow")
+            stretches.append(line)
+            since_frame.append(line)
+            if line["slow"]:
+                last_slow_js = line
         if line["kind"] == "timing":
             if after_hold is not None and line["wait_ms"] >= after_hold["held_after_ms"]:
                 failures.append(f"{who}'s frame after a hold of {after_hold['held_ms']:.2f} ms was charged a wait of "
@@ -1051,13 +1167,23 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             # Each part by the wall clock is exactly its CPU's, blocked and preempted time (each rounded
             # to 0.01 ms), so that nothing off the CPU goes unsaid.
             for part, wall in line["parts"].items():
-                split = line["cpu"][part] + line["blocked"][part] + line["preempted"][part]
-                if abs(split - wall) > 0.031:
+                split_parts = line["cpu"][part] + line["blocked"][part] + line["preempted"][part]
+                if abs(split_parts - wall) > 0.031:
                     failures.append(f"{who}'s {part} of {wall:.2f} ms is {line['cpu'][part]:.2f} on the CPU, "
                                     f"{line['blocked'][part]:.2f} blocked and {line['preempted'][part]:.2f} preempted")
             if abs(line["cpu_ms"] + line["blocked_ms"] + line["preempted_ms"] - line["work_ms"]) > 1e-6:
                 failures.append(f"{who}'s frame of {line['work_ms']:.2f} ms is {line['cpu_ms']:.2f} on the CPU, "
                                 f"{line['blocked_ms']:.2f} blocked and {line['preempted_ms']:.2f} preempted")
+            # JavaScript's work on its thread since the frame line before: its stretches', exactly.
+            js = line["js"]
+            if not split(js, js["work_ms"]):
+                failures.append(f"{who}'s JavaScript meanwhile of {js['work_ms']:.2f} ms is {js['cpu_ms']:.2f} on the "
+                                f"CPU, {js['blocked_ms']:.2f} blocked and {js['preempted_ms']:.2f} preempted")
+            counted = sum(stretch["work_ms"] for stretch in since_frame)
+            if js["stretches"] != len(since_frame) or abs(js["work_ms"] - counted) > 1e-6 * max(1.0, counted):
+                failures.append(f"{who}'s frame counts {js['stretches']} stretches of JavaScript, {js['work_ms']:.2f} "
+                                f"ms; its stretches since the frame before were {len(since_frame)}, {counted:.2f} ms")
+            since_frame = []
             if line["presented"]:
                 frames.append(line)
             if line["slow"]:
@@ -1066,13 +1192,21 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             if line["text"] not in logged:
                 failures.append(f"{who}'s diagnostics wrote {line['text']!r} to its report, not to the log")
             slow = SLOW_LINE.match(line["text"])
+            slow_js = SLOW_JS_LINE.match(line["text"])
             if " took " in line["text"] and " dropped (a refresh is " in line["text"] and not slow:
                 failures.append(f"{who}'s slow line {line['text']!r} is not as frame-diagnostics.cpp writes it")
             elif slow and (last_slow is None or abs(float(slow["work"]) - last_slow["work_ms"]) > 0.051
                            or abs(float(slow["cpu"]) - last_slow["cpu_ms"]) > 0.051
-                           or abs(float(slow["javascript_cpu"]) - last_slow["cpu"]["javascript"]) > 0.051):
+                           or abs(float(slow["javascript_cpu"]) - last_slow["js"]["cpu_ms"]) > 0.051):
                 failures.append(f"{who}'s slow line {line['text']!r} does not name its frame's work "
                                 f"({last_slow and last_slow['work_ms']})")
+            if " JavaScript worked " in line["text"] and not slow_js:
+                failures.append(f"{who}'s line {line['text']!r} is not as frame-diagnostics.cpp writes JavaScript's")
+            elif slow_js and (last_slow_js is None or abs(float(slow_js["work"]) - last_slow_js["work_ms"]) > 0.051
+                              or abs(float(slow_js["cpu"]) - last_slow_js["cpu_ms"]) > 0.051
+                              or int(slow_js["frames"]) != last_slow_js["frames"]):
+                failures.append(f"{who}'s line {line['text']!r} does not name its stretch of JavaScript "
+                                f"({last_slow_js and last_slow_js['work_ms']})")
         elif line["kind"] == "timing_summary":
             work = sorted(frame["work_ms"] for frame in frames)
             latency = sorted(frame["latency_ms"] for frame in frames if frame["latency_ms"] is not None)
@@ -1080,11 +1214,17 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             wanted = {"frames": len(frames), "work_p50": percentile(work, 50), "work_p95": percentile(work, 95),
                       "work_max": work[-1] if work else None, "latency_p50": percentile(latency, 50),
                       "latency_p95": percentile(latency, 95), "inputs": len(latency), "slow": len(slow),
-                      "dropped": sum(frame["dropped"] for frame in slow)}
+                      "dropped": sum(frame["dropped"] for frame in slow), "js_stretches": len(stretches),
+                      "js_slow": sum(1 for stretch in stretches if stretch["slow"])}
             got = {key: line[key] for key in wanted}
             if got != wanted:
                 failures.append(f"{who}'s summary says {got}, its frames since the one before {wanted}")
-            frames = []
+            js_ms = sum(stretch["work_ms"] for stretch in stretches)
+            longest = max((stretch["work_ms"] for stretch in stretches), default=0.0)
+            if abs(line["js_ms"] - js_ms) > 1e-6 * max(1.0, js_ms) or abs(line["js_longest_ms"] - longest) > 1e-9:
+                failures.append(f"{who}'s summary says JavaScript worked {line['js_ms']:.2f} ms, the longest "
+                                f"{line['js_longest_ms']:.2f}; its stretches since the one before {js_ms:.2f}, {longest:.2f}")
+            frames, stretches = [], []
 
 
 def director_args(step, out):
@@ -1266,10 +1406,13 @@ def director_args(step, out):
         return args + ["--idle", str(value)]
     if kind == "signal":
         # A part of the session ended as a crash or a `kill` would, [SIGNAL, PART] ("SEGV",
-        # "reader"): the session then does what it does when that part ends on its own.
+        # "reader"; "shell", the primary output's): the session then does what it does when that
+        # part ends on its own. "STOP" hangs the shell (it answers nothing), for its watch.
         signal, part = value
-        if signal not in ("SEGV", "ABRT", "KILL", "TERM") or part not in ("reader",):
-            raise ValueError(f"signal: {value}: a signal of SEGV, ABRT, KILL or TERM to the reader")
+        if (part not in ("reader", "shell") or signal not in ("SEGV", "ABRT", "KILL", "TERM", "STOP")
+                or signal == "STOP" and part != "shell"):
+            raise ValueError(f"signal: {value}: SEGV, ABRT, KILL or TERM to the reader or the shell, "
+                             "or STOP to the shell")
         return args + ["--signal", signal, part]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
@@ -3356,6 +3499,82 @@ GLIDE_INPUTS = {
 }
 
 
+def measure_stall(wanted, report, start, end, refresh_hz):
+    """What a step holding JavaScript (its `stall`, below) drew through the block: None without a block,
+    else the block's length, what started it, the window's frames presented in it, the lines of its
+    motion in it, the block's refreshes and the gaps between the frames (with the last before it and
+    the first after), sorted, in ms. perf.py measures with it too."""
+    refresh = 1000.0 / refresh_hz
+    blocks = [line for line in report if line["kind"] == "js_timing" and start <= line["t"] <= end
+              and line["work_ms"] >= wanted.get("block_ms_min", 450)]
+    if not blocks:
+        return None
+    block = max(blocks, key=lambda line: line["work_ms"])
+    until = block["t"] / 1e6
+    since = until - block["work_ms"]
+    frames = [line["t"] / 1e6 for line in report if line["kind"] == "frame" and line.get("surface") == 1
+              and line.get("presented", True)]
+    before = [t for t in frames if t < since]
+    after = [t for t in frames if t > until]
+    inside = [t for t in frames if since <= t <= until]
+    edges = before[-1:] + inside + after[:1]
+    kind, _, target = wanted["motion"].partition(":")
+    motion = inside if kind == "frames" else [
+        line["t"] / 1e6 for line in report if line["kind"] == kind and line.get("target") == target
+        and since <= line["t"] / 1e6 <= until]
+    return {"block_ms": block["work_ms"], "trigger": block["trigger"], "frames": len(inside), "motion": len(motion),
+            "refreshes": block["work_ms"] / refresh, "refresh_ms": refresh,
+            "gaps_ms": sorted(b - a for a, b in zip(edges, edges[1:]))}
+
+
+def stall_held(measured, strict):
+    """Whether a stall's measure (measure_stall) holds what every run holds (half the block's
+    refreshes drawn, and of its motion, no gap of 6 refreshes) or, `strict`, a frame each refresh (the
+    gaps' 95th percentile within 1.5 refreshes, none over 2, 90 % of the block's refreshes drawn),
+    and the 95th percentile of its gaps."""
+    gaps, refresh, refreshes = measured["gaps_ms"], measured["refresh_ms"], measured["refreshes"]
+    if not gaps:
+        return False, None
+    p95 = gaps[min(len(gaps) - 1, round(0.95 * (len(gaps) - 1)))]
+    least = 0.9 if strict else 0.5
+    held = measured["frames"] >= least * refreshes and measured["motion"] >= least * refreshes
+    held = held and (p95 <= 1.5 * refresh and gaps[-1] <= 2 * refresh if strict else gaps[-1] < 6 * refresh)
+    return held, p95
+
+
+def check_stall(wanted, report, start, end, fail, refresh_hz):
+    """The step's `stall`: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx).
+    The block is the step's longest stretch of JavaScript's work on its thread (`js_timing`), at least
+    "block_ms_min" long; what moves is drawn throughout it, by the UI thread: the window's frames
+    presented in it (with the last before it and the first after), and the lines of what moves
+    ("motion": "animated:TARGET", the props Animated's native driver set; "committed:TARGET", the
+    commits of Reanimated's mounted; "frames", the frames alone: a glide). Every run holds what a
+    loaded machine still meets and a JavaScript holding the frames up never does: half the block's
+    refreshes presented, and of its motion's lines, and no gap of 6 refreshes; with --speed-budgets
+    (the timing phase, alone on reserved cores), one frame each refresh: the gaps' 95th percentile
+    within 1.5 refreshes, none over 2, and 90 % of the block's refreshes presented, and of its
+    motion's lines."""
+    measured = measure_stall(wanted, report, start, end, refresh_hz)
+    if measured is None:
+        fail(f"JavaScript was not held {wanted.get('block_ms_min', 450)} ms in the step")
+        return
+    said = (f"JavaScript held {measured['block_ms']:.0f} ms ({measured['trigger']}): {measured['frames']} frames "
+            f"presented, {measured['motion']} of {wanted['motion']}, gaps {[round(g, 1) for g in measured['gaps_ms'][-3:]]} "
+            f"ms at most")
+    if not measured["gaps_ms"]:
+        fail(f"{said}; no frame around it")
+        return
+    held, p95 = stall_held(measured, strict=False)
+    if not held:
+        fail(f"{said}: what moves was held up with JavaScript (expected half the block's "
+             f"{measured['refreshes']:.0f} refreshes drawn, no gap of 6 refreshes)")
+        return
+    held, p95 = stall_held(measured, strict=True)
+    if SPEED_BUDGETS and not held:
+        fail(f"{said}, the 95th percentile {p95:.1f}: expected a frame each refresh ({measured['refresh_ms']:.1f} ms; "
+             f"95th percentile within 1.5, none over 2, 90 % of the block's {measured['refreshes']:.0f} drawn)")
+
+
 def check_glide(wanted, report, start, end, fail):
     """The step's `glide`: a scroll view flung by a touchpad's fingers, as Android flings it."""
     view, axis = wanted["view"], wanted.get("axis", "y")
@@ -3547,8 +3766,9 @@ def scroll_view_name(line):
 def react_events(report, start, end, turns=False):
     """The events delivered to React in a step, as "event@name" -> count (`react`): a view named by
     its testID, else the nearest ancestor's (`within`), as the host reports them; a scroll view by
-    `scroll_view_name`. With `turns`, each one's count is of the host's turns that delivered it
-    (Report::beginTurn): what a turn delivers reaches JavaScript together, at the next turn's start."""
+    `scroll_view_name`. With `turns`, each one's count is of JavaScript's turns that took it
+    (Report::deliver): what the loop queues while JavaScript works is handed over to it together,
+    the batch it takes next."""
     got = {}
     for line in report:
         # Hover follows every pointer motion: the W3C events it makes are checked by what the
@@ -4381,7 +4601,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     def fail(message):
         failures.append(f"{name}: {message}")
 
-    for text in expect.get("texts", []):
+    for text in map(machine_text, expect.get("texts", [])):
         if not any(text in shown_text for shown_text in shown):
             fail(f"expected text {text!r} is not shown")
     for text in expect.get("absent", []):
@@ -4416,9 +4636,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "react" in expect:
         got = react_events(report, start, end)
         wanted = expect["react"]
-        # An event given {"turns": count} is counted by the host's turns that delivered it: a
-        # press's motions the host read at once (after a stall, under load) are one turn's, which
-        # JavaScript takes together, acting on the first; how many motions waited is the machine's.
+        # An event given {"turns": count} is counted by JavaScript's turns that took it: a press's
+        # motions the loop read while JavaScript was busy (behind a stall, under load) are one
+        # turn's, which it takes together, acting on the first; how many motions waited is the machine's.
         by_turns = react_events(report, start, end, turns=True)
         counted = {k: by_turns.get(k, 0) if isinstance(want, dict) else got.get(k, 0) for k, want in wanted.items()}
         def within(count, want):
@@ -4566,10 +4786,21 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
         fast_frames = [line for line in report if line["kind"] == "timing" and line["presented"] and not line["slow"]
                        and start <= line["t"] <= end]
-        if len(fast_frames) < wanted.get("fast_frames_min", 0):
+        # How many frames fit in a refresh is the machine's speed, which a loaded one does not
+        # hold (66 of 90 beside seven other scenarios at load 35): held with --speed-budgets, as
+        # perf.py runs it on the machine alone. That each frame is said slow exactly when its work
+        # passes a refresh is held always (`slow_frames`, `slow`).
+        if SPEED_BUDGETS and len(fast_frames) < wanted.get("fast_frames_min", 0):
             fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
-            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+            # A frame the step makes slow (JavaScript holding the thread 120 ms) is slow on any
+            # machine, but one that is not may be on a loaded one (a press's frame took 18 to 49 ms
+            # beside other scenarios at load 45 to 67): how many at most is a speed budget, held
+            # with --speed-budgets; the least always.
+            if key not in wanted:
+                continue
+            most = wanted[key][1] if SPEED_BUDGETS or key == "summaries" else float("inf")
+            if not wanted[key][0] <= got <= most:
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
                      f"{wanted[key][1]}: {logs}")
         if "slow_line" in wanted:
@@ -4580,6 +4811,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                        and float(m["work"]) >= like.get("work_min", 0)
                        and int(m["dropped"]) >= like.get("dropped_min", 0) for m in slow_lines):
                 fail(f"no slow line like {like} was written: {logs}")
+        # JavaScript's stretches on its thread longer than a refresh, and their lines.
+        slow_js_lines = [m for m in map(SLOW_JS_LINE.match, logs) if m]
+        slow_js = [line for line in report if line["kind"] == "js_timing" and line["slow"] and start <= line["t"] <= end]
+        # As the UI thread's slow frames: a stretch the step makes slow (JavaScript holding its
+        # thread 120 ms) is slow on any machine, how many at most a speed budget.
+        for key, got in (("slow_js", len(slow_js_lines)), ("slow_js_stretches", len(slow_js))):
+            if key in wanted and not wanted[key][0] <= got <= (wanted[key][1] if SPEED_BUDGETS else float("inf")):
+                fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
+                     f"{wanted[key][1]}: {logs}")
+        if "slow_js_line" in wanted:
+            like = wanted["slow_js_line"]
+            if not any(("subject" not in like or re.fullmatch(like["subject"], m["subject"]))
+                       and ("skipped" not in like or int(m["skipped"] or 0) == like["skipped"])
+                       and float(m["work"]) >= like.get("work_min", 0)
+                       and int(m["frames"]) >= like.get("frames_min", 0)
+                       and int(m["dropped"]) <= like.get("dropped_max", float("inf")) for m in slow_js_lines):
+                fail(f"no line of JavaScript's like {like} was written: {logs}")
         for pattern in wanted.get("logged", []):
             if not any(re.search(pattern, text) for text in logs):
                 fail(f"no line matching {pattern!r} was written: {logs}")
@@ -4595,37 +4843,40 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
         if len(timed) < wanted.get("timed_inputs_min", 0):
             fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
+        if "latency_min_ms" in wanted and max(timed, default=0.0) < wanted["latency_min_ms"]:
+            fail(f"the longest input to present was {max(timed, default=0.0):.2f} ms, expected at least "
+                 f"{wanted['latency_min_ms']} (the frame showing JavaScript's answer)")
     if "js_work" in expect:
-        # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
-        # frame, and the work that drew none but ran JavaScript.
-        # JavaScript's work is its time on the loop thread's CPU, which the machine's load does not
-        # lengthen (preempted, the host waits for a CPU another process has); its time blocked (on
-        # another thread, a lock, a file) is held to a bound of its own, never hidden.
+        # JavaScript's work in the step as the host's diagnostics measured it (frame-diagnostics.cpp):
+        # each stretch of it on its thread. Its time on that thread's CPU, which the machine's load
+        # does not lengthen (preempted, the thread waits for a CPU another process has); its time
+        # blocked (on another thread, a lock, a file) is held to a bound of its own, never hidden.
         wanted = expect["js_work"]
-        work = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
+        work = [line for line in report if line["kind"] == "js_timing" and start <= line["t"] <= end]
+        presented_frames = [line for line in report if line["kind"] == "timing" and line["presented"]
+                            and start <= line["t"] <= end]
         def js(line, measure):
-            return line[measure].get("javascript", 0)
+            return line[{"cpu": "cpu_ms", "blocked": "blocked_ms", "preempted": "preempted_ms", "parts": "work_ms"}[measure]]
         costly = max(work, key=lambda line: js(line, "cpu"), default=None)
         most = js(costly, "cpu") if costly else 0.0
         if SPEED_BUDGETS and most > wanted.get("js_ms_max", float("inf")):
-            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on the CPU"
-                 f"{'' if costly['presented'] else ' (no frame)'} ({js(costly, 'parts'):.2f} by the clock: "
-                 f"{js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} preempted), expected at most "
-                 f"{wanted['js_ms_max']}")
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on the CPU ({js(costly, 'parts'):.2f} by the "
+                 f"clock: {js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} preempted), expected at "
+                 f"most {wanted['js_ms_max']}")
         waited = max(work, key=lambda line: js(line, "blocked"), default=None)
         if SPEED_BUDGETS and waited and js(waited, "blocked") > wanted.get("js_blocked_ms_max", float("inf")):
-            fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms"
-                 f"{'' if waited['presented'] else ' (no frame)'} (waiting for another thread, a lock or a file; "
-                 f"{js(waited, 'cpu'):.2f} on the CPU), expected at most {wanted['js_blocked_ms_max']}")
+            fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms (waiting for another "
+                 f"thread, a lock or a file; {js(waited, 'cpu'):.2f} on the CPU), expected at most "
+                 f"{wanted['js_blocked_ms_max']}")
         # A backstop by the wall clock, for a gross regression only (docs/performance.mdx, "What a
         # step re-renders"): set far above what the work takes, so that a loaded machine never
         # reaches it.
         slowest = max(work, key=lambda line: js(line, "parts"), default=None)
         if not COLLECT and slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
-            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock"
-                 f"{'' if slowest['presented'] else ' (no frame)'} ({js(slowest, 'cpu'):.2f} on the CPU), expected at "
-                 f"most {wanted['js_wall_ms_max']} (a backstop for a gross regression)")
-        presented = sum(1 for line in work if line["presented"])
+            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock "
+                 f"({js(slowest, 'cpu'):.2f} on the CPU), expected at most {wanted['js_wall_ms_max']} (a backstop "
+                 f"for a gross regression)")
+        presented = len(presented_frames)
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
     if "memory" in expect:
@@ -4994,7 +5245,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # The menu open in each frame the compositor composed in the step (the popups of the grab
         # chain): ONE popup throughout, the same surface, whose place and size go from `from` to
         # `to` ([x, y, width, height] on the output), each coordinate monotonic between the two,
-        # through at least `frames_min` places between them (`frames_max`: at most).
+        # through at least `frames_min` places between them (`frames_max`: at most). A change at
+        # once (`frames_max` 0) may be the step's first frame composed, the application having
+        # answered the input with its whole change before the compositor composed anything else
+        # (docs/adr/0067-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
         wanted = expect["menu_morph"]
         composed_menus = result.get("menu_frames", [])
         surfaces = {(menu[0], menu[1]) for menus in composed_menus for menu in menus}
@@ -5007,7 +5261,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if not rects or rects[-1] != rect:
                     rects.append(rect)
             start_rect, end_rect = wanted["from"], wanted["to"]
-            if not rects or rects[0] != start_rect or rects[-1] != end_rect:
+            at_once = wanted.get("frames_max") == 0 and rects == [end_rect]
+            if not rects or (rects[0] != start_rect and not at_once) or rects[-1] != end_rect:
                 fail(f"the menu went through {rects}, expected from {start_rect} to {end_rect}")
             for axis in range(4):
                 low, high = sorted((start_rect[axis], end_rect[axis]))
@@ -5392,6 +5647,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                      f"{wanted['zoom_presented_ms_max']}")
     if "glide" in expect:
         check_glide(expect["glide"], report, start, end, fail)
+    if "stall" in expect:
+        check_stall(expect["stall"], report, start, end, fail, refresh_hz)
     if expect.get("scroll_times") == "dispatch":
         kinds = {"scroll", "scrollBeginDrag", "scrollEndDrag", "momentumScrollBegin", "momentumScrollEnd"}
         lines = [line for line in report if start <= line["t"] <= end and line["kind"] == "deliver"
@@ -5576,7 +5833,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
     if "window_states" in expect:
         # Every window as the shell is told of it once the step settled, by its number, exactly:
-        # each given key ("app", "workspace", "minimized", "hidden", "focused") matching, and no
+        # each given key ("app", "workspace", "minimized", "hidden", "focused", "responding")
+        # matching, and no
         # window more or fewer (the dock's press, ADR 0034's decision 9).
         got = result.get("window_states") or {}
         wanted = expect["window_states"]
@@ -5818,7 +6076,8 @@ class Machine:
         """The development registry (`applications/`) in `into`: each packaged application's entry the
         one oxyos-installd writes for it where its package is now (`oxyos-pack entry`, beside the
         offscreen compositor; the packages may have been built elsewhere and copied), with the
-        development registry's place in the dock; any other entry as it is, its icon where its is."""
+        development registry's place in the dock and whether it is listed (`NoDisplay`, About This
+        Computer's); any other entry as it is, its icon where its is."""
         source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
         target = into / "oxyos" / "applications"
         target.mkdir(parents=True, exist_ok=True)
@@ -5830,7 +6089,7 @@ class Machine:
                     raise SystemExit(f"{pack} is not built: the registry's entries for the packages are its")
                 lines = subprocess.run([str(pack), "entry", str(self.by_id[entry.stem]["dir"])], check=True,
                                        capture_output=True, text=True).stdout.splitlines()
-                lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
+                lines += [line for line in text if line.startswith(("X-OxyOS-Pinned=", "NoDisplay="))]
             else:
                 lines = [("Icon=" + str((source / line[5:]).resolve()))
                          if line.startswith("Icon=") and not line[5:].startswith("/") else line
@@ -7049,7 +7308,15 @@ def main():
     # at any time, even as the run ended and whatever the steps said, fails the run, its backtrace
     # said: a crash is never a pass, and the run that saw it is the one that can say where.
     logged = run.stderr.splitlines()
-    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")]
+    # A signal the scenario sent the shell itself (a `signal` step: the host says the signal was
+    # "sent by process", never a fault of its own) is the step's, not a crash.
+    numbers = {"SEGV": 11, "ABRT": 6}
+    sent = {numbers[step["do"][1][0]] for step in scenario.get("steps", [])
+            if step.get("do", [None])[0] == "signal" and step["do"][1][1] == "shell"
+            and step["do"][1][0] in numbers}
+    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")
+               and not (" sent by process " in line
+                        and any(line.startswith(f"[host] fatal signal {number} ") for number in sent))]
     for at in crashes:
         print(f"FAIL: a host crashed; see {out / 'director.log'}")
         print("\n".join(logged[at:at + 24]))
