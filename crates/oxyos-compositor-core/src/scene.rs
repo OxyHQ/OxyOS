@@ -355,6 +355,10 @@ struct Press {
     pointer: bool,
     /// Where the pointer was (global, logical): where a drag from it began.
     at: (i32, i32),
+    /// Its release, once its last button came up (where the pointer was, global and logical, and
+    /// the release's serial): a drag its client asks for late, as a loaded machine reads a press,
+    /// its motions and its release in one turn, is dropped there (ADR 0035, decision 2).
+    released: Option<((i32, i32), u64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -4573,6 +4577,10 @@ impl Scene {
                 self.pointer_event(target, serial, PointerKind::Release, button);
             }
             if self.buttons_down == 0 {
+                let at = self.pointer;
+                if let Some(press) = self.last_press.as_mut().filter(|press| press.pointer) {
+                    press.released = Some((at, serial));
+                }
                 self.capture = None;
                 self.refresh_pointer_focus();
             }
@@ -4598,6 +4606,7 @@ impl Scene {
             surface: target,
             pointer,
             at: self.pointer,
+            released: None,
         });
         self.activation.insert(target.client, serial);
     }

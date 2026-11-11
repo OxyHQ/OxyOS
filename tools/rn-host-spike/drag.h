@@ -2,7 +2,7 @@
 // `OxyOSDropTargetView` host component (sample/oxyos/platform-surface.js renders it as the OxyOS
 // adapter's DropTarget, Bloom's DropZone) and the drags the compositor passes over this client's
 // surfaces; and the application's own drags (OxyOSDrag.start, Bloom's usePlatformDrag), offered
-// from the press it holds, with a view's image as the drag's icon.
+// from its latest press, with a view's image as the drag's icon.
 //
 // The host answers the compositor from its own tree, never waiting on JavaScript: on each entering
 // and motion it finds the innermost drop target under the point that takes a type offered, and
@@ -143,11 +143,12 @@ class DragDrop {
   // the motions it sent meanwhile reach the drag, not the view that let go of them.
   void takesPress(std::function<void()> take) { takePress_ = std::move(take); }
 
-  // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`:
+  // The application drags `data` (Bloom's DragData) from its latest press, allowing `actions`:
   // `count` items, the view `preview` (-1: none) being the one pressed, its image (dragStack: as
   // it looks, stacked and badged for several) under the pointer where it was pressed. `done`
-  // receives the action the drop took, or nothing when it was cancelled or refused (no press held,
-  // nothing to offer). False if it was not started; `done` is then called at once.
+  // receives the action the drop took, or nothing when it was cancelled or refused (no press,
+  // nothing to offer). A press released by the time it starts is the compositor's to drop where it
+  // was released, as a Mac's drag session takes the mouse-up queued after the drag began. False if it was not started; `done` is then called at once.
   // Asked from JavaScript, it starts once the batch of JavaScript's that asked has run and its
   // commits are mounted (`startAsked`): its image is the view as the press left it (selected), never
   // the tree from before the press, which a press and a motion handed to JavaScript together (on a
@@ -250,7 +251,10 @@ class DragDrop {
   Surfaces surfaces_;
   std::optional<Offer> offer_;
   std::vector<Receiving> receiving_;
-  // The pointer press held, if any: its serial, its surface and where it was (root coordinates).
+  // The latest pointer press, held or released since (none once the compositor cancelled it): its
+  // serial, its surface and where it was (root coordinates). A drag asked after its release (a
+  // loaded machine reads a press, its motions and its release in one turn) is the compositor's to
+  // drop where the press was released (docs/adr/0035-drag-and-drop.mdx, decision 2).
   uint64_t pressSerial_ = 0;
   uint32_t pressSurface_ = 0;
   facebook::react::Point pressPoint_{};
