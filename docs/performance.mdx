@@ -599,8 +599,11 @@ until it knew the account's language, which waited for the boot token from the a
 api.oxy.so, a third of first connections lost) its home's listing came 1.4 to 9 s after launch
 signed in, about 0.3 s signed out. A step's `content_ms_max` (`regress.py`) holds launch to content:
 the first frame showing every one of the step's texts at most so many ms after the host's `main`,
-by the wall clock, held as `latency_ms` is (by every run but `--collect`'s, which `perf.py` judges
-at the median of its runs). The account's languages in the platform's snapshot (`oxy` ADR 0058
+by the wall clock. That is a speed budget: `--speed-budgets` holds it in one run, and `perf.py`
+judges it at the median of its runs; the gate does not, as a loaded machine stretches the clock
+(652 ms at load 70 for a 500 ms budget). Every run holds `content_cpu_ms_max` instead: the CPU the
+host's main thread and JavaScript spent before that frame, which load does not stretch (184 to
+214 ms on seldon unloaded, held to 600). The account's languages in the platform's snapshot (`oxy` ADR 0058
 R10) did not reach the owner's account, which names none (the accounts' service keeps them only
 after a profile read): its listing still came 6.1 s after launch (8.3, 9.1 and 15.5 s on other
 launches), the window blank, black in the dark appearance, until then. The platform's language is
