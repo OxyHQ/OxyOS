@@ -210,3 +210,15 @@ test("an application's name: the registry's for one the session started, else it
   assert.equal(applicationName(undefined, apps), "");
   assert.equal(appMenuCommand("view.overview"), null);
 });
+
+test("an application nothing names still has its own menu, under a word of the catalogue", () => {
+  // A window whose process the session did not start, with no title and no id it claims.
+  const name = applicationName({ appId: "", title: "", launched: false }, []);
+  assert.equal(name, "");
+  const bar: ToldMenuBar = { window: 3, serial: 0, items: [] };
+  const menus = applicationMenus(bar, name, es, BOTH);
+  assert.deepEqual(titles(menus), ["Aplicación"]);
+  assert.deepEqual(read(menus[0].items).slice(0, 1), ["Acerca de Aplicación"]);
+  assert.equal(read(menus[0].items).at(-1), "Salir de Aplicación Super+Q");
+  assert.deepEqual(titles(applicationMenus(bar, "", en, BOTH)), ["Application"]);
+});

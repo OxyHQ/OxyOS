@@ -152,6 +152,8 @@ const en = (f: Formats) => ({
   menus: {
     /** The desktop's own menu, Finder's on a Mac, while no window is active. */
     desktop: "Desktop",
+    /** An application's name when nothing names it (no registry entry, title or id it claims). */
+    unnamedApp: "Application",
     view: "View",
     showApplications: "Show Applications",
     aboutApp: (name: string) => `About ${name}`,
@@ -837,6 +839,7 @@ const es = (f: Formats): Catalogue => ({
   },
   menus: {
     desktop: "Escritorio",
+    unnamedApp: "Aplicación",
     view: "Ver",
     showApplications: "Ver aplicaciones",
     aboutApp: (name) => `Acerca de ${name}`,

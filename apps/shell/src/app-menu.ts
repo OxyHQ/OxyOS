@@ -148,11 +148,14 @@ function declaredRows(bar: ToldMenuBar, parent: number, messages: ShellMessages)
  */
 export function applicationMenus(
   bar: ToldMenuBar,
-  name: string,
+  given: string,
   messages: ShellMessages,
   shown: ApplicationsShown,
 ): ShellMenu[] {
   const words = messages.menus;
+  // An application nothing names still has its own menu, under a word of the catalogue: a menu
+  // titled with nothing would be a title no one can see or press.
+  const name = given || words.unnamedApp;
   const window = bar.window;
   const command = (index: number) => `window-menu:${window}:${bar.serial}:${index}`;
   const about = bar.items.findIndex((item) => item.kind === "item" && item.role === "about");

@@ -319,8 +319,8 @@ export const Shell = memo(function Shell({
   const [switcher, setSwitcher] = useState<Switcher | null>(null);
   // Commands act on what is shown now, whichever render they arrive in.
   const inputSources = inputMethod?.sources ?? null;
-  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight });
-  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight };
+  const latest = useRef({ snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight, messages });
+  latest.current = { snapshot, actions, switcher, view, controls, statusKeys, dockKeys, center, notifications, inputSources, battery, backup, spotlight, messages };
   // The application App Exposé shows (docs/adr/0045-app-expose.mdx): the dock menu's Show All
   // Windows, a scroll up on its dock icon, Super+↓ and the touchpad's swipe down.
   const [exposeApp, setExposeApp] = useState<string | null>(null);
@@ -686,7 +686,8 @@ export const Shell = memo(function Shell({
         const { snapshot: shown } = latest.current;
         const window = shown.windows.find((told) => told.id === String(own.window));
         const application = window?.launched ? shown.applications.find((app) => app.id === window.appId) : undefined;
-        setAbout({ name: applicationName(window, shown.applications), application });
+        const name = applicationName(window, shown.applications) || latest.current.messages.menus.unnamedApp;
+        setAbout({ name, application });
         return;
       }
       if (id === "desktop.open" || id === "desktop.trash" || id === "desktop.select-all") {
