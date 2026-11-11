@@ -226,7 +226,7 @@ test("an application nothing names still has its own menu, under a word of the c
 
 /** A menu's rows as read(), and each submenu's rows after it, indented. */
 function readDeep(items: readonly ShellMenuItem[]): string[] {
-  return items.flatMap((item, at) => [
+  return items.flatMap((item) => [
     read([item])[0],
     ...(item.kind === "submenu" ? readDeep(item.items).map((row) => `  ${row}`) : []),
   ]);
