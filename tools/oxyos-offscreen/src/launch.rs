@@ -1025,6 +1025,10 @@ pub struct Settling {
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
     pub ended: bool,
+    /// `--cue-before NAME`: a cue (`Step::Cue`) given as the step begins, before its input: what
+    /// it starts goes on through the step, where a cue step of its own would have to settle first
+    /// (held-frames' loop, drawing every 50 ms, begun as the displays go off).
+    pub cue_before: Option<String>,
     /// `--until-taken`: a paced drag (`DragPaced`) whose hand lets the application take each
     /// motion: after each, it waits until the application holding the press, or the drag's target
     /// once a drag has begun, has taken everything it was sent (two Pings answered in turn: the
@@ -1228,7 +1232,7 @@ pub struct Launch {
     pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] [--until-pointer MS SHAPE] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] [--until-pointer MS SHAPE] [--cue-before NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-press-taken X,Y | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --cue NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1404,6 +1408,11 @@ impl Launch {
                 }
                 Some("--until-ended") => {
                     settling.ended = true;
+                    continue;
+                }
+                Some("--cue-before") => {
+                    let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    settling.cue_before = Some(name.to_string());
                     continue;
                 }
                 Some("--until-taken") => {
@@ -3415,34 +3424,24 @@ struct Wait<'a> {
     ended: bool,
 }
 
-/// Serves the session until the application's surfaces differ from `before` (a new frame, a
-/// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
-/// that do not change for it also count as settled (a step whose expected answer is nothing).
-/// `ppoll`'s number, the one call a Bloom host's loop sleeps in when it has nothing to do
-/// (bloom-host.cpp: "an application doing nothing never turns").
-#[cfg(target_arch = "x86_64")]
-const PPOLL: &str = "271";
-#[cfg(target_arch = "aarch64")]
-const PPOLL: &str = "73";
-/// `futex`'s number, the call a Bloom host's JavaScript thread (`oxyos-js`, js-thread.cpp) waits
-/// for work in (a condition variable).
-#[cfg(target_arch = "x86_64")]
-const FUTEX: &str = "202";
-#[cfg(target_arch = "aarch64")]
-const FUTEX: &str = "98";
+/// How long a host found in the middle of turns may hold back a step that is otherwise still. A turn
+/// is a step's answer still to come: on a loaded machine one ran 350 to 830 ms (a caret's blink, a
+/// page Back opened, a row − removed, a shell's drop on the Trash), longer than the settling's
+/// stillness, and the step settled in the middle of it. But an application can also work all along
+/// on its own (held-frames' timer every 50 ms, the displays off), and a loaded machine stretches
+/// each of those turns until the host is found in one at nearly every sample: waited for without
+/// end, its step never settled. Nothing of the thread tells the two apart (a timer's turn preempted
+/// 600 ms for 5 ms of CPU, a press's 170 ms for 2), so the wait is bounded, far above any turn's
+/// (a page's render starved 13.5 s on seldon, 32 busy loops at its own priority) and within the
+/// step's deadline (STEP_DEADLINE): a step otherwise still waits this long at most for its hosts'
+/// turns to end. A step that would have run to its deadline settles; any other is as before.
+const TURNS_WAITED_AT_MOST: Duration = Duration::from_secs(20);
 
-/// Whether a Bloom host is in the middle of a turn on JavaScript: its JavaScript thread (`oxyos-js`)
-/// anywhere but waiting for work in `futex` (running, preempted, in another call). What it is doing
-/// then is a step's answer still to come, however long since its last frame: on a loaded machine
-/// one such turn ran 350 to 830 ms (a caret's blink, a page Back opened, a row − removed), longer
-/// than the settling's stillness, and the step settled in the middle of it.
-///
-/// Its UI thread drawing is not asked: a spinner (an ActivityIndicator, progress-bar.h) is drawn
-/// there every refresh with JavaScript idle, and a loaded machine stretched each of those frames so
-/// that the main thread was found out of `ppoll` nearly every time it was asked, and progress's
-/// launch never settled. Those frames are no change a step waits on (progress.rs). A host with no
-/// JavaScript thread of its own is asked of its main thread, out of `ppoll`. A process that is not a
-/// Bloom host (a native client, Astro) is never asked: its loop sleeps in calls of its own.
+/// Whether a Bloom host is in the middle of a turn: its JavaScript thread (`oxyos-js`) anywhere but
+/// waiting for work in `futex`, or, for a host with no JavaScript thread of its own, its main thread
+/// out of `ppoll`. A spinner drawn on the UI thread (progress, JavaScript idle) is no turn. A process
+/// that is not a Bloom host (a native client, Astro) is never asked: its loop sleeps in calls of its
+/// own.
 fn host_turning(pid: i32) -> bool {
     let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
         return false;
@@ -3450,6 +3449,10 @@ fn host_turning(pid: i32) -> bool {
     if comm.trim_end() != "oxyos-bloom-hos" {
         return false;
     }
+    #[cfg(target_arch = "x86_64")]
+    let (futex, ppoll) = ("202", "271");
+    #[cfg(target_arch = "aarch64")]
+    let (futex, ppoll) = ("98", "73");
     // The call a thread is blocked in ("running" when it is not blocked); gone, it is no answer to
     // wait for.
     let blocked_in = |tid: &str| {
@@ -3467,17 +3470,14 @@ fn host_turning(pid: i32) -> bool {
                 .is_ok_and(|name| name.trim_end() == "oxyos-js")
         });
     match javascript {
-        Some(tid) => blocked_in(&tid).is_some_and(|call| call != FUTEX),
-        None => blocked_in(&pid.to_string()).is_some_and(|call| call != PPOLL),
+        Some(tid) => blocked_in(&tid).is_some_and(|call| call != futex),
+        None => blocked_in(&pid.to_string()).is_some_and(|call| call != ppoll),
     }
 }
 
 /// Whether the application's host, the companion's or a shell's is in the middle of a turn
-/// (`host_turning`): the step is not answered until each has gone back to waiting for work. A
-/// shell's turn can be the step's answer too: a file dropped on the dock's Trash is put there only
-/// once the shell's JavaScript has run the drop and asked (`TrashFiles`), and on a loaded machine
-/// that turn outlasted the settling's stillness (`dropsea-drag-scaled`, step 3: the drop counted,
-/// the file not yet in the Trash).
+/// (`host_turning`). A shell's turn can be the step's answer too: a file dropped on the dock's Trash
+/// is put there only once the shell's JavaScript has run the drop and asked (`TrashFiles`).
 fn hosts_turning(session: &Session) -> bool {
     [Some(CLIENT), session.companion_client()]
         .into_iter()
@@ -3487,6 +3487,9 @@ fn hosts_turning(session: &Session) -> bool {
         .any(host_turning)
 }
 
+/// Serves the session until the application's surfaces differ from `before` (a new frame, a
+/// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
+/// that do not change for it also count as settled (a step whose expected answer is nothing).
 fn settle(
     session: &mut Session,
     children: &mut Children,
@@ -3547,6 +3550,10 @@ fn settle(
             .is_some_and(|writer| writer.writing())
     };
     let mut was_writing = writing(session);
+    // When a host was last found in the middle of a turn, and since when its turns alone have held
+    // back a step otherwise still (`TURNS_WAITED_AT_MOST`).
+    let mut turned_at: Option<Instant> = None;
+    let mut held_by_turns: Option<Instant> = None;
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -3593,10 +3600,10 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
-        // A host in the middle of a turn: its stillness starts once it is back to waiting.
-        let turning = hosts_turning(session);
-        if turning {
-            last.1 = Instant::now();
+        // A host in the middle of a turn: the step is still once it has ended it, for the stillness,
+        // or once its turns have held it back for TURNS_WAITED_AT_MOST.
+        if hosts_turning(session) {
+            turned_at = Some(Instant::now());
         }
         let shell_changed = shell_now != shell_last
             || launched_changed
@@ -3701,10 +3708,9 @@ fn settle(
                 .ending
                 .as_ref()
                 .is_some_and(|ending| ending.state_name() == "ended");
-        if !changed
+        let quiet = !changed
             && !shell_changed
             && !writing_now
-            && !turning
             && answered
             && sheet_shown
             && named_shown
@@ -3712,8 +3718,16 @@ fn settle(
             && pointer_shown
             && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
-            && last.1.elapsed() >= still
-        {
+            && last.1.elapsed() >= still;
+        let turns_ended = turned_at.is_none_or(|at| at.elapsed() >= still);
+        held_by_turns = if quiet && !turns_ended {
+            held_by_turns.or(Some(Instant::now()))
+        } else {
+            None
+        };
+        let turns_waited = turns_ended
+            || held_by_turns.is_some_and(|since| since.elapsed() >= TURNS_WAITED_AT_MOST);
+        if quiet && turns_waited {
             if let Some(window) = session
                 .compositor
                 .surface_rect(CLIENT, WINDOW)
@@ -6492,6 +6506,18 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
     Ok(())
 }
 
+/// A cue to a part of the run played beside the session (`Step::Cue`, `Settling::cue_before`):
+/// NAME appended as a line to `cues` in the run's output.
+fn cue(out: &Path, name: &str) -> Result<()> {
+    use std::io::Write as _;
+    let mut cues = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out.join("cues"))?;
+    writeln!(cues, "{name}")?;
+    Ok(())
+}
+
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
     // The turn above the applications as a session's is (docs/adr/0066-quality-of-service.mdx,
@@ -7342,6 +7368,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let Some(guard) = launch.clear_of_minute {
             clear_of_minute(&mut session, &mut children, guard, window)?;
         }
+        if let Some(name) = &settling.cue_before {
+            cue(out, name)?;
+        }
         // A step aimed at a node by its name, at where that node is now.
         session.reader.absorb(&mut session.compositor);
         let resolved = named_step(&session, step)?;
@@ -7480,12 +7509,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }
             _ if matches!(step, Step::Cue(_)) => {
                 if let Step::Cue(name) = step {
-                    use std::io::Write as _;
-                    let mut cues = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(out.join("cues"))?;
-                    writeln!(cues, "{name}")?;
+                    cue(out, name)?;
                 }
                 0
             }
