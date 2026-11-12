@@ -1,0 +1,629 @@
+{
+  "about": "The system's Window menu in every app (docs/adr/0016-windows.mdx, decision 12; docs/adr/0021-menu-bar.mdx): WindowProbe as Allo with the session's shell, in Spanish at 1 (1280 × 720, the work area between the top bar and the dock 1280 × 636 from y 28). The bar ends with Ventana: Minimizar (Super+M), Zoom, Rellenar (Alt+Super+F), Centrar (Alt+Super+C) and Mover y redimensionar with the halves, the quarters, the arrangements and Volver al tamaño anterior, each with the chord the compositor takes for it. Each row chosen there is the compositor's for the window, by its number (the shell's LayOutWindow, MinimizeWindow): Rellenar fills the work area within its 8 px margins, each half and quarter takes its tile, Centrar puts the window at its size (a quarter's, after one) in the middle, Volver al tamaño anterior gives back the frame it had before it was first tiled, Zoom zooms it to the work area's edges and back, and Minimizar puts it in the dock; the window keeps the keyboard, and React hears nothing. With no window active, the desktop's bar has Ventana too, every row there and none offered. (The arrangements, which need a second window, are the scene's tests.)",
+  "locale": "es_ES.UTF-8",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "the window is the active one; the bar ends with the system's Ventana menu",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "focus_surface": 1,
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ],
+        "in_shell": {
+          "texts": [
+            "Allo",
+            "Ventana"
+          ]
+        },
+        "react": {
+          "touchStart@settings-page": 1,
+          "touchEnd@settings-page": 1
+        }
+      }
+    },
+    {
+      "name": "Ventana: Minimizar, Zoom, Rellenar, Centrar and Mover y redimensionar, with the compositor's own chords",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Minimizar",
+            "Super+M",
+            "Zoom",
+            "Rellenar",
+            "Alt+Super+F",
+            "Centrar",
+            "Alt+Super+C",
+            "Mover y redimensionar"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Rellenar: the work area within its margins, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Rellenar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          36,
+          1264,
+          620
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "in_shell": {
+          "texts": [
+            "Mitad izquierda",
+            "Alt+Super+←",
+            "Mitad derecha",
+            "Mitad superior",
+            "Mitad inferior",
+            "Cuarto superior izquierdo",
+            "Cuarto inferior derecho",
+            "Izquierda y derecha",
+            "Alt+Mayús+Super+←",
+            "Cuartos",
+            "Volver al tamaño anterior",
+            "Alt+Super+R"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Mitad izquierda: the left half, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Mitad izquierda"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          36,
+          628,
+          620
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Mitad derecha: the right half, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Mitad derecha"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          36,
+          628,
+          620
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Mitad superior: the top half, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Mitad superior"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          36,
+          1264,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Mitad inferior: the bottom half, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Mitad inferior"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          350,
+          1264,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Cuarto superior izquierdo: the top left quarter, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Cuarto superior izquierdo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          36,
+          628,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Cuarto superior derecho: the top right quarter, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Cuarto superior derecho"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          36,
+          628,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Cuarto inferior izquierdo: the bottom left quarter, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Cuarto inferior izquierdo"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          350,
+          628,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Cuarto inferior derecho: the bottom right quarter, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Cuarto inferior derecho"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          350,
+          628,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Centrar: its own size (the quarter's) in the middle of the work area, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Centrar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          326,
+          193,
+          628,
+          306
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "its Mover y redimensionar submenu opens beside it",
+      "do": [
+        "press_named",
+        "Mover y redimensionar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Volver al tamaño anterior: the frame it had before it was first tiled, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Volver al tamaño anterior"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "focus_surface": 1,
+        "react": {}
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Zoom: zoomed to the work area's edges, as its green bubble, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          0,
+          28,
+          1280,
+          636
+        ],
+        "focus_surface": 1,
+        "react": {},
+        "texts": [
+          "active yes, zoomed yes, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Zoom: back where it was, by the compositor; the window keeps the keyboard",
+      "do": [
+        "press_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          46,
+          900,
+          600
+        ],
+        "focus_surface": 1,
+        "react": {},
+        "texts": [
+          "active yes, zoomed no, full screen no"
+        ]
+      }
+    },
+    {
+      "name": "the bar's Ventana menu opens",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {}
+      }
+    },
+    {
+      "name": "Minimizar: the window goes into the dock, by the compositor; no window is active",
+      "do": [
+        "press_named",
+        "Minimizar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "in_shell": {
+          "texts": [
+            "Escritorio",
+            "Ventana"
+          ],
+          "absent": [
+            "Allo"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "with no window, the desktop's Ventana menu is there and offers nothing",
+      "do": [
+        "press_named",
+        "Ventana"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "in_shell": {
+          "texts": [
+            "Minimizar",
+            "Zoom",
+            "Rellenar",
+            "Centrar",
+            "Mover y redimensionar"
+          ]
+        },
+        "react": {}
+      }
+    },
+    {
+      "name": "Minimizar is not offered: pressed, nothing happens and the menu stays",
+      "do": [
+        "press_named",
+        "Minimizar"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_shown": false,
+        "in_shell": {
+          "texts": [
+            "Minimizar",
+            "Rellenar"
+          ]
+        },
+        "react": {}
+      }
+    }
+  ]
+}

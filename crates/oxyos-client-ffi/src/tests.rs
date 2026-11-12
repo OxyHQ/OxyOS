@@ -6511,6 +6511,12 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
             oxyos_client_manage(client, OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS, 7, 0),
             0
         );
+        // The Window menu's layout (ADR 0016, decision 12); an unknown one sends nothing.
+        assert_eq!(oxyos_client_lay_out_window(client, 7, 99), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_lay_out_window(client, 7, OXYOS_WINDOW_LAYOUT_TOP_LEFT),
+            0
+        );
         assert_eq!(
             oxyos_client_manage(client, OXYOS_MANAGE_SHOW_ALL_APPLICATIONS, 0, 0),
             0
@@ -6540,6 +6546,10 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
             },
             Request::ForceQuitApplication { window: 7 },
             Request::HideOtherApplications { window: 7 },
+            Request::LayOutWindow {
+                window: 7,
+                layout: oxyos_protocol::WindowLayout::TopLeft,
+            },
             Request::ShowAllApplications {},
             Request::EmptyTrash { input: 43 },
         ]
@@ -7758,4 +7768,79 @@ fn material_regions_past_the_limit_or_missing_are_refused_before_sending() {
             0
         );
     }
+}
+
+#[test]
+fn the_header_matches_the_window_layouts() {
+    use oxyos_protocol::WindowLayout;
+    let layouts = [
+        ("FILL", OXYOS_WINDOW_LAYOUT_FILL, WindowLayout::Fill),
+        ("CENTER", OXYOS_WINDOW_LAYOUT_CENTER, WindowLayout::Center),
+        ("LEFT", OXYOS_WINDOW_LAYOUT_LEFT, WindowLayout::Left),
+        ("RIGHT", OXYOS_WINDOW_LAYOUT_RIGHT, WindowLayout::Right),
+        ("TOP", OXYOS_WINDOW_LAYOUT_TOP, WindowLayout::Top),
+        ("BOTTOM", OXYOS_WINDOW_LAYOUT_BOTTOM, WindowLayout::Bottom),
+        (
+            "TOP_LEFT",
+            OXYOS_WINDOW_LAYOUT_TOP_LEFT,
+            WindowLayout::TopLeft,
+        ),
+        (
+            "TOP_RIGHT",
+            OXYOS_WINDOW_LAYOUT_TOP_RIGHT,
+            WindowLayout::TopRight,
+        ),
+        (
+            "BOTTOM_LEFT",
+            OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT,
+            WindowLayout::BottomLeft,
+        ),
+        (
+            "BOTTOM_RIGHT",
+            OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT,
+            WindowLayout::BottomRight,
+        ),
+        (
+            "LEFT_AND_RIGHT",
+            OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT,
+            WindowLayout::LeftAndRight,
+        ),
+        (
+            "RIGHT_AND_LEFT",
+            OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT,
+            WindowLayout::RightAndLeft,
+        ),
+        (
+            "TOP_AND_BOTTOM",
+            OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM,
+            WindowLayout::TopAndBottom,
+        ),
+        (
+            "BOTTOM_AND_TOP",
+            OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP,
+            WindowLayout::BottomAndTop,
+        ),
+        (
+            "QUARTERS",
+            OXYOS_WINDOW_LAYOUT_QUARTERS,
+            WindowLayout::Quarters,
+        ),
+        (
+            "RETURN_TO_PREVIOUS_SIZE",
+            OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE,
+            WindowLayout::ReturnToPreviousSize,
+        ),
+        ("ZOOM", OXYOS_WINDOW_LAYOUT_ZOOM, WindowLayout::Zoom),
+    ];
+    for (name, value, layout) in layouts {
+        assert_eq!(
+            define(&format!("OXYOS_WINDOW_LAYOUT_{name}")),
+            i64::from(value),
+            "{name}"
+        );
+        assert_eq!(layout as u8, value, "{name}");
+    }
+    assert!(HEADER.contains(
+        "int oxyos_client_lay_out_window(OxyOSClient* client, uint32_t window, uint8_t layout);"
+    ));
 }

@@ -842,6 +842,29 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
  * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 43. */
 #define OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS 11
 #define OXYOS_MANAGE_SHOW_ALL_APPLICATIONS 12
+/* Where the session's shell asks the compositor to put a window (docs/adr/0016-windows.mdx,
+ * decision 12: the Window menu): Fill, Center, the halves, the quarters, the arrangements with the
+ * windows behind it, Return to Previous Size, and Zoom (and back). */
+#define OXYOS_WINDOW_LAYOUT_FILL 1
+#define OXYOS_WINDOW_LAYOUT_CENTER 2
+#define OXYOS_WINDOW_LAYOUT_LEFT 3
+#define OXYOS_WINDOW_LAYOUT_RIGHT 4
+#define OXYOS_WINDOW_LAYOUT_TOP 5
+#define OXYOS_WINDOW_LAYOUT_BOTTOM 6
+#define OXYOS_WINDOW_LAYOUT_TOP_LEFT 7
+#define OXYOS_WINDOW_LAYOUT_TOP_RIGHT 8
+#define OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT 9
+#define OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT 10
+#define OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT 11
+#define OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT 12
+#define OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM 13
+#define OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP 14
+#define OXYOS_WINDOW_LAYOUT_QUARTERS 15
+#define OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE 16
+#define OXYOS_WINDOW_LAYOUT_ZOOM 17
+/* Lays out the window `window` (its number) as `layout` (OXYOS_WINDOW_LAYOUT_*); a window gone, full
+ * screen or hidden is left as it is. Refused to a compositor of a version before 48. */
+int oxyos_client_lay_out_window(OxyOSClient* client, uint32_t window, uint8_t layout);
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
  * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
 int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);

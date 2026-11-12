@@ -282,7 +282,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Buscar aplicaciones, botón",
+      "text": "Ventana, contraído, botón",
       "interrupting": true,
       "voice": "es"
      }

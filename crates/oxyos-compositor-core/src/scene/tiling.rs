@@ -66,6 +66,31 @@ pub enum Layout {
     ReturnToPreviousSize,
 }
 
+/// The scene's layout for the shell's `LayOutWindow` (the Window menu, decision 12); none for
+/// Zoom, which is the window's zoom and not a layout.
+pub(super) fn layout_of(asked: oxyos_protocol::WindowLayout) -> Option<Layout> {
+    use oxyos_protocol::WindowLayout as Asked;
+    Some(match asked {
+        Asked::Fill => Layout::Tile(Tile::Fill),
+        Asked::Center => Layout::Center,
+        Asked::Left => Layout::Tile(Tile::Left),
+        Asked::Right => Layout::Tile(Tile::Right),
+        Asked::Top => Layout::Tile(Tile::Top),
+        Asked::Bottom => Layout::Tile(Tile::Bottom),
+        Asked::TopLeft => Layout::Tile(Tile::TopLeft),
+        Asked::TopRight => Layout::Tile(Tile::TopRight),
+        Asked::BottomLeft => Layout::Tile(Tile::BottomLeft),
+        Asked::BottomRight => Layout::Tile(Tile::BottomRight),
+        Asked::LeftAndRight => Layout::Arrange(Arrangement::LeftAndRight),
+        Asked::RightAndLeft => Layout::Arrange(Arrangement::RightAndLeft),
+        Asked::TopAndBottom => Layout::Arrange(Arrangement::TopAndBottom),
+        Asked::BottomAndTop => Layout::Arrange(Arrangement::BottomAndTop),
+        Asked::Quarters => Layout::Arrange(Arrangement::Quarters),
+        Asked::ReturnToPreviousSize => Layout::ReturnToPreviousSize,
+        Asked::Zoom => return None,
+    })
+}
+
 /// A window tiled or centred (`tile`, none when centred), and the frame it had before, which
 /// Return to Previous Size and a drag away give back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

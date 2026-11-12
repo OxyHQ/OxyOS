@@ -537,14 +537,16 @@ function SessionShell() {
   const menuName = applicationName(active, registry);
   const activeAppId = toldWindows.find((window) => window.focused)?.appId;
   const { others, hidden } = applicationsShown(windows, active?.appId);
+  const workspaceId = String(state?.active ?? 0);
+  // The Window menu moves the active window to each other desktop (ADR 0016, decision 12).
+  const activeDesktop = active ? String(active.workspace) : undefined;
   const menus = React.useMemo(
     () =>
       bar && bar.window !== 0
-        ? applicationMenus(bar, menuName, messages, { others, hidden })
+        ? applicationMenus(bar, menuName, messages, { others, hidden }, { desktops: workspaces, current: activeDesktop })
         : desktopMenus(messages, { trashItems: trashItems ?? undefined, shown: { others, hidden } }),
-    [bar, menuName, messages, others, hidden, trashItems],
+    [bar, menuName, messages, others, hidden, trashItems, workspaces, activeDesktop],
   );
-  const workspaceId = String(state?.active ?? 0);
   const shown: ShellSnapshot = React.useMemo(
     () => ({
       ...snapshot,
@@ -674,6 +676,20 @@ function SessionShell() {
             break;
           case 'emptyTrash':
             shell.emptyTrash();
+            break;
+          // The Window menu's, the compositor's (ADR 0016, decision 12): minimized into the dock,
+          // or moved to another desktop, as the shell's own minimize and move are.
+          case 'minimize':
+            shell.minimizeWindow(command.window);
+            break;
+          case 'zoom':
+            shell.layOutWindow(command.window, 'zoom');
+            break;
+          case 'layout':
+            shell.layOutWindow(command.window, command.layout);
+            break;
+          case 'moveToDesktop':
+            shell.moveWindowToWorkspace(command.window, Number(command.desktop));
             break;
           default:
             break;
