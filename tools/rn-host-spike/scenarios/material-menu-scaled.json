@@ -1,5 +1,5 @@
 {
- "about": "material-menu.json at 1.25 (ADR 0018): the platform's material (docs/adr/0069-the-platforms-material.mdx), the compositor's part: sample/MaterialMenuProbe.tsx, a window of four colour bands (red, green, blue, yellow, each 100 pixels wide below a white strip holding its buttons). Its menu (Bloom's DropdownMenu, a floating surface) opens in a compositor popup over the bands: the popup has nothing of its own beneath its material, so the host draws its tint alone and tells the compositor the menu's frame and corners (`material.regions`), and the compositor blurs and saturates the bands beneath it there. Under the menu the bands mix across their edges under its tint; outside it they are as sharp as they were. Its dialog (Bloom's Dialog, a floating surface drawn in the window over its content) is the host's part: the window's own bands beneath it blurred under its tint.",
+ "about": "material-menu.json at 1.25 (ADR 0018): the platform's material (docs/adr/0069-the-platforms-material.mdx), the compositor's part: sample/MaterialMenuProbe.tsx, a window of four colour bands (red, green, blue, yellow, each 100 pixels wide below a white strip holding its buttons). Its menu (Bloom's DropdownMenu, a floating surface) opens in a compositor popup over the bands: the popup has nothing of its own beneath its material, so the host draws its tint alone and tells the compositor the menu's frame and corners (`material.regions`), and the compositor blurs and saturates the bands beneath it there. Under the menu the bands mix across their edges under its tint; outside it they are as sharp as they were. Its dialog (Bloom's Dialog, a floating surface drawn in the window over its content) is the host's part: the window's own bands beneath it blurred under its tint. At 1.25 its window's logical points (40, 128), (100, 128), (120, 128) are output pixels (600, 474), (675, 474), (700, 474): the blur's σ is 20 logical pixels at the output's scale, so each shows what it shows at 1.",
  "module": "MaterialMenuProbe",
  "window": [
   400,
@@ -14,7 +14,13 @@
     500
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "output_pixels": {
+     "600,474": "#ff0000",
+     "675,474": "#00c000",
+     "700,474": "#00c000"
+    }
+   }
   },
   {
    "name": "the menu opens over the bands: they mix beneath it under its tint, and stay sharp outside it",
@@ -23,7 +29,15 @@
     "Bands"
    ],
    "expect": {
-    "popups": 1
+    "popups": 1,
+    "output_pixels": {
+     "600,474": "#fbb4b4",
+     "675,474": "#ddcfb4",
+     "700,474": "#b4e8b4",
+     "556,474": "#ff0000",
+     "750,474": "#00c000",
+     "600,564": "#ff0000"
+    }
    }
   },
   {
@@ -35,16 +49,29 @@
     ]
    ],
    "expect": {
-    "popups": 0
+    "popups": 0,
+    "output_pixels": {
+     "600,474": "#ff0000",
+     "675,474": "#00c000",
+     "700,474": "#00c000"
+    }
    }
   },
   {
-   "name": "the dialog opens over the bands in the window: the host blurs them beneath it under its tint",
+   "name": "the dialog opens over the bands in the window, dimmed behind it: the host blurs them beneath it under its tint (the dimmed bands mix across their edges), and they stay sharp around it",
    "do": [
     "press_named",
     "Dialog"
    ],
-   "expect": {}
+   "expect": {
+    "output_pixels": {
+     "575,539": "#ceacac",
+     "675,539": "#b8b4ac",
+     "850,539": "#acacd0",
+     "575,389": "#4c0000",
+     "737,389": "#003900"
+    }
+   }
   }
  ]
 }

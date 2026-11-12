@@ -165,7 +165,7 @@ struct Draw {
   bool placesWindows = true;
   Affine toSurface;
   Clip surfaceClip = kUnclipped;
-  // The innermost view clipping what is drawn now (overflow hidden), in the current coordinates:
+  // The tightest view clipping what is drawn now (overflow hidden), in the current coordinates:
   // its padding box and that box's corners' radii, the smaller of its top two and of its bottom
   // two. A material filling it whole takes its shape (a menu's panel clips its paint, which
   // reaches a pixel beyond it under the panel's edge).
@@ -1111,7 +1111,11 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
   // What clips its children, for a material filling it (Draw::clipBox).
   const Clip clipBox = draw.clipBox;
   const float clipTop = draw.clipTop, clipBottom = draw.clipBottom;
-  if (clips && props) {
+  // A box that holds the one before it whole clips nothing more of it: the tighter one, and its
+  // corners, stay (a menu's paint, a pixel larger than the panel clipping it, clips too).
+  bool holds = clipBox.x0 >= paddingBox.x0 && clipBox.y0 >= paddingBox.y0 && clipBox.x1 <= paddingBox.x1 &&
+               clipBox.y1 <= paddingBox.y1;
+  if (clips && props && !holds) {
     auto border = props->resolveBorderMetrics(view.layoutMetrics);
     const auto& r = border.borderRadii;
     const auto& widths = border.borderWidths;
