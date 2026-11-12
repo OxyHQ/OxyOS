@@ -388,9 +388,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
   after the host's start (its report's first `stage` "main"), by the wall clock: what a person
   waits for from launching an application to seeing what they opened, an application that renders
-  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
-  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
-  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
+  nothing until the network answers among it. A speed budget: held with --speed-budgets (how long
+  the launch takes by the clock is the machine's speed, which a loaded one does not hold), and
+  judged by perf.py over its runs; set far above what the launch takes unloaded and far below what
+  waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
+- content_cpu_ms_max: launch to content on the CPU, with `texts`: the CPU the host's threads (its
+  main thread's and JavaScript's, as each frame's `timing` line reports them) spent from its start
+  through the frame that first showed every one of the step's `texts`, at most so many ms. Held on
+  every run (not under --collect): the work a launch does before its content does not grow with the
+  machine's load, as its time by the clock does. Each measured value is in the run's metrics
+  (`content_cpu_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -3284,6 +3291,26 @@ def latest_frames(report, until, closed_before):
     return {s: f for s, f in frames.items() if s not in closed_before}
 
 
+def content_shown_cpu_ms(report, texts):
+    """Launch to content on the CPU (`content_cpu_ms_max`): ms of CPU the host's main thread and its
+    JavaScript spent (each frame's `timing` line: `cpu_ms`, and `js`'s for the stretches since the
+    one before) through the frame that first showed every one of `texts`, read as
+    `content_shown_ms` reads them; None when they never all were."""
+    shown, cpu, content = {}, 0.0, False
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True) and not content:
+            shown[line["surface"]] = line.get("texts", [])
+            content = all(any(text in got for surface in shown.values() for got in surface) for text in texts)
+        elif line["kind"] == "timing":
+            cpu += line.get("cpu_ms", 0) + line.get("js", {}).get("cpu_ms", 0)
+            # The turn that presented the content frame reports its timing after it.
+            if content:
+                return round(cpu, 1)
+    return None
+
+
 def content_shown_ms(report, texts):
     """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
     "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
@@ -6151,13 +6178,24 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if not expect.get("texts"):
             raise ValueError(f"{name}: content_ms_max needs the step's texts")
         result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
-        if not COLLECT:
+        if SPEED_BUDGETS and not COLLECT:
             if shown_ms is None:
                 fail(f"launch to content: {expect['texts']} never all shown in the run "
                      f"(the {expect['content_ms_max']} ms budget from the host's start)")
             elif shown_ms > expect["content_ms_max"]:
                 fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
                      f"start, over the {expect['content_ms_max']} ms budget")
+    if "content_cpu_ms_max" in expect:
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_cpu_ms_max needs the step's texts")
+        result["content_cpu_ms"] = cpu_ms = content_shown_cpu_ms(report, expect["texts"])
+        if not COLLECT:
+            if cpu_ms is None:
+                fail(f"launch to content on the CPU: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_cpu_ms_max']} ms budget)")
+            elif cpu_ms > expect["content_cpu_ms_max"]:
+                fail(f"launch to content on the CPU: the host spent {cpu_ms} ms of CPU before {expect['texts']} "
+                     f"were first all shown, over the {expect['content_cpu_ms_max']} ms budget")
     return end
 
 
@@ -6974,10 +7012,10 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, content_cpu_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
-                        help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
+                        help="hold the steps' budgets on how fast the work runs too (`content_ms_max`, `js_work`'s js_ms_max and "
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
@@ -7619,6 +7657,9 @@ def main():
         # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
         "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
                        if "content_ms" in s},
+        # And on the CPU (`content_cpu_ms_max`): its number -> ms (None: never shown).
+        "content_cpu_ms": {str(index + 1): s["content_cpu_ms"] for index, s in enumerate(summary["steps"])
+                           if "content_cpu_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }

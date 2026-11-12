@@ -412,7 +412,8 @@ class ARunSeesOnlyItsOwnProcesses(unittest.TestCase):
 
 class LaunchToContent(unittest.TestCase):
     """`content_ms_max`: from the host's `main` to the first frame showing every one of the step's
-    texts, across its surfaces, a closed popup's left out."""
+    texts, across its surfaces, a closed popup's left out; a speed budget, held with
+    --speed-budgets."""
 
     MS = 1_000_000
 
@@ -422,11 +423,16 @@ class LaunchToContent(unittest.TestCase):
             lines.append({"t": (5 + at) * self.MS, "kind": "frame", "surface": surface, "texts": texts})
         return lines
 
-    def check(self, report, budget=1500, texts=("notas.txt", "3 elementos")):
+    def check(self, report, budget=1500, texts=("notas.txt", "3 elementos"), speed=True):
         failures = []
         step = {"name": "launch", "do": ["wait", 2500], "expect": {"texts": list(texts), "content_ms_max": budget}}
         result = {"t_settled": max(line["t"] for line in report)}
-        regress.check_step(0, step, result, report, 0, failures)
+        held = regress.SPEED_BUDGETS
+        regress.SPEED_BUDGETS = speed
+        try:
+            regress.check_step(0, step, result, report, 0, failures)
+        finally:
+            regress.SPEED_BUDGETS = held
         return result.get("content_ms"), failures
 
     def test_its_listing_within_the_budget(self):
@@ -442,6 +448,11 @@ class LaunchToContent(unittest.TestCase):
         shown, failures = self.check(self.report((40, 1, []), (5200, 1, ["notas.txt", "3 elementos"])))
         self.assertEqual(shown, 5200.0)
         self.assertIn("over the 1500 ms budget", failures[0])
+
+    def test_a_late_listing_by_the_clock_alone_is_measured_not_held_without_speed_budgets(self):
+        shown, failures = self.check(self.report((40, 1, []), (5200, 1, ["notas.txt", "3 elementos"])), speed=False)
+        self.assertEqual(shown, 5200.0)
+        self.assertFalse(any("budget" in failure for failure in failures))
 
     def test_a_blank_window_fails(self):
         shown, failures = self.check(self.report((40, 1, []), (2600, 1, [])))
@@ -467,6 +478,27 @@ class LaunchToContent(unittest.TestCase):
             self.check(self.report((40, 1, ["notas.txt"])), texts=())
 
 
+
+
+class LaunchToContentOnTheCpu(unittest.TestCase):
+    """`content_cpu_ms_max` (perf-dropsea-launch-signed-in.json): the host's CPU, main thread and
+    JavaScript, through the turn that presented the content, however long the clock took."""
+
+    report = [
+        {"kind": "stage", "name": "main", "t": 0},
+        {"kind": "timing", "t": int(300e6), "cpu_ms": 8.0, "js": {"cpu_ms": 120.0}},
+        {"kind": "frame", "t": int(400e6), "surface": 1, "texts": ["Facturas"]},
+        {"kind": "frame", "t": int(650e6), "surface": 1, "texts": ["Facturas", "notas.txt"]},
+        {"kind": "timing", "t": int(652e6), "cpu_ms": 30.0, "js": {"cpu_ms": 40.5}},
+        {"kind": "timing", "t": int(900e6), "cpu_ms": 99.0, "js": {"cpu_ms": 99.0}},
+    ]
+
+    def test_counted_through_the_turn_that_showed_it(self):
+        self.assertEqual(regress.content_shown_cpu_ms(self.report, ["Facturas", "notas.txt"]), 198.5)
+        self.assertEqual(regress.content_shown_ms(self.report, ["Facturas", "notas.txt"]), 650.0)
+
+    def test_never_shown(self):
+        self.assertIsNone(regress.content_shown_cpu_ms(self.report, ["Proyectos"]))
 
 
 class SpinnerFrames(unittest.TestCase):
