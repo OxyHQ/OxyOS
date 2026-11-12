@@ -2738,6 +2738,8 @@ fn start_companion(
                 .map(|r| (r.x, r.y));
             if now_at != Some(at) && now_at != placed {
                 session.compositor.scene.move_window_to(key, at);
+                // Moved is a change: shown at its place, and its tree there, before the steps.
+                last.1 = Instant::now();
                 placed = session
                     .compositor
                     .scene
