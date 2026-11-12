@@ -3332,14 +3332,25 @@ struct Wait<'a> {
 const PPOLL: &str = "271";
 #[cfg(target_arch = "aarch64")]
 const PPOLL: &str = "73";
+/// `futex`'s number, the call a Bloom host's JavaScript thread (`oxyos-js`, js-thread.cpp) waits
+/// for work in (a condition variable).
+#[cfg(target_arch = "x86_64")]
+const FUTEX: &str = "202";
+#[cfg(target_arch = "aarch64")]
+const FUTEX: &str = "98";
 
-/// Whether a Bloom host is in the middle of a turn of its loop: its main thread anywhere but
-/// asleep in `ppoll` waiting for work (running, preempted, waiting on its JavaScript thread).
-/// What it is doing then is a step's answer still to come, however long since its last frame: on
-/// a loaded machine one turn ran 350 to 830 ms (a caret's blink, a page Back opened, a row −
-/// removed), longer than the settling's stillness, and the step settled in the middle of it.
-/// A process that is not a Bloom host (a native client, Astro) is never asked: its loop sleeps in
-/// calls of its own.
+/// Whether a Bloom host is in the middle of a turn on JavaScript: its JavaScript thread (`oxyos-js`)
+/// anywhere but waiting for work in `futex` (running, preempted, in another call). What it is doing
+/// then is a step's answer still to come, however long since its last frame: on a loaded machine
+/// one such turn ran 350 to 830 ms (a caret's blink, a page Back opened, a row − removed), longer
+/// than the settling's stillness, and the step settled in the middle of it.
+///
+/// Its UI thread drawing is not asked: a spinner (an ActivityIndicator, progress-bar.h) is drawn
+/// there every refresh with JavaScript idle, and a loaded machine stretched each of those frames so
+/// that the main thread was found out of `ppoll` nearly every time it was asked, and progress's
+/// launch never settled. Those frames are no change a step waits on (progress.rs). A host with no
+/// JavaScript thread of its own is asked of its main thread, out of `ppoll`. A process that is not a
+/// Bloom host (a native client, Astro) is never asked: its loop sleeps in calls of its own.
 fn host_turning(pid: i32) -> bool {
     let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
         return false;
@@ -3347,10 +3358,26 @@ fn host_turning(pid: i32) -> bool {
     if comm.trim_end() != "oxyos-bloom-hos" {
         return false;
     }
-    // The call its main thread is blocked in ("running" when it is not blocked); gone, it is no
-    // answer to wait for.
-    std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/syscall"))
-        .is_ok_and(|call| call.split_whitespace().next() != Some(PPOLL))
+    // The call a thread is blocked in ("running" when it is not blocked); gone, it is no answer to
+    // wait for.
+    let blocked_in = |tid: &str| {
+        std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/syscall"))
+            .ok()
+            .and_then(|call| call.split_whitespace().next().map(str::to_string))
+    };
+    let javascript = std::fs::read_dir(format!("/proc/{pid}/task"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|task| task.file_name().to_string_lossy().into_owned())
+        .find(|tid| {
+            std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/comm"))
+                .is_ok_and(|name| name.trim_end() == "oxyos-js")
+        });
+    match javascript {
+        Some(tid) => blocked_in(&tid).is_some_and(|call| call != FUTEX),
+        None => blocked_in(&pid.to_string()).is_some_and(|call| call != PPOLL),
+    }
 }
 
 /// Whether the application's host, the companion's or a shell's is in the middle of a turn
