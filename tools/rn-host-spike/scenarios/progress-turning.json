@@ -1,10 +1,13 @@
 {
- "about": "React Native's ActivityIndicator turning by the clock (issue #559; progress-bar.h, scenarios/progress.json holds its phase): sample/ProgressProbe.tsx's indicator spins all along, a frame each refresh that changes nothing but its ring, and every step still settles (tools/oxyos-offscreen/src/progress.rs): the window, then Guardar pressed from the keyboard, its spinner turning for 2.5 s over its label, then the result. With the director counting those frames as changes, the window never settles: the run gives up waiting for its first frame.",
+ "about": "React Native's ActivityIndicator turning by the clock (issue #559; progress-bar.h, scenarios/progress.json holds its phase): sample/ProgressProbe.tsx's indicator spins all along, a frame each refresh that changes nothing but its ring, and every step still settles (tools/oxyos-offscreen/src/progress.rs): the window, then Guardar pressed from the keyboard, its spinner turning over its label until its work ends, then the result. With the director counting those frames as changes, the window never settles: the run gives up waiting for its first frame. The button's work is a request to the scenario's server (`http`, sample/ProgressProbe.tsx), answered once a step gives the cue `save-done`: the work ends when the scenario says, after the step that shows it (until_named \"Guardando…\"), never on a 2.5 s clock that a loaded machine's settling outran.",
  "module": "ProgressProbe",
  "window": [
   480,
   240
  ],
+ "http": {
+  "port": 18656
+ },
  "locale": "es_ES.UTF-8",
  "steps": [
   {
@@ -48,6 +51,10 @@
      57
     ]
    ],
+   "until_named": [
+    "Guardando…",
+    10000
+   ],
    "expect": {
     "keyboard_focus": {
      "target": "save",
@@ -63,10 +70,14 @@
    }
   },
   {
-   "name": "Its work done: the result, the indicator still turning",
+   "name": "Its work done (the server answers on the cue save-done): the result, the indicator still turning",
    "do": [
-    "wait",
-    3500
+    "cue",
+    "save-done"
+   ],
+   "until_named": [
+    "Guardado",
+    10000
    ],
    "allow_unchanged": true,
    "expect": {

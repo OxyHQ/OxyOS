@@ -2769,8 +2769,13 @@ def websocket_close(wfile, code, reason=""):
 
 
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes the probes of scenarios/network.json, websocket.json and file-system.json call
-    (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx, sample/FileSystemProbe.tsx)."""
+    """The routes the probes of scenarios/network.json, websocket.json, file-system.json and
+    progress.json call (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx,
+    sample/FileSystemProbe.tsx, sample/ProgressProbe.tsx)."""
+
+    # The run's cues (a `cue` step's names, in the run's output): /save answers once `save-done`
+    # is among them.
+    cues = None
 
     def log_message(self, *args):
         pass
@@ -2819,6 +2824,15 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.split("?")[0] == "/save":
+            # The progress probe's work (sample/ProgressProbe.tsx): answered once a step gave the
+            # cue `save-done`, so it ends when the scenario says, however loaded the machine.
+            given = time.monotonic() + 600
+            while not (self.cues and self.cues.exists() and "save-done" in self.cues.read_text().split()):
+                if time.monotonic() > given:
+                    return self.reply(504, "no cue")
+                time.sleep(0.02)
+            return self.reply(200, "saved")
         if self.headers.get("Upgrade", "").lower() == "websocket":
             self.websocket()
         elif self.path == "/json":
@@ -5658,6 +5672,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "progress_frames" in expect:
         # Frames that turned only spinning rings (progress-bar.h), any of the application's surfaces'.
         least, most = expect["progress_frames"]
+        # How many fit in the step is the machine's rate: all of them with --speed-budgets, else two.
+        least = frames_least(least)
         turned = sum(1 for line in report if line["kind"] == "present" and line.get("progress_only")
                      and start < line["t"] <= end)
         if not least <= turned <= most:
@@ -7217,6 +7233,8 @@ def main():
         # The probe opens every request at once; socketserver's backlog of 5 would drop the rest's
         # connections for TCP to retry a second later, longer than a step takes to settle.
         ThreadingHTTPServer.request_queue_size = 64
+        ProbeServer.cues = out / "cues"
+        ProbeServer.cues.unlink(missing_ok=True)
         server = ThreadingHTTPServer(("127.0.0.1", port), ProbeServer)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, daemon=True).start()

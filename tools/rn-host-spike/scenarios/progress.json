@@ -1,10 +1,13 @@
 {
- "about": "React Native's ActivityIndicator on OxyOS (issue #559; progress-bar.h): Android's AndroidProgressBar, drawn by the host as AOSP's indeterminate ring, on the UI thread (sample/ProgressProbe.tsx, the screen reader on in Spanish). Its rings held at 666.5 ms of their animation (`progress_phase_ms`), still drawn again every refresh: the frames that turn only a ring are no change a step waits on. A large indicator labelled Sincronizando spins all along, in its colour (#d03030): a progress indicator, busy. Bloom's Guardar button, pressed from the keyboard, works for 2.5 s: its spinner over its hidden label, in the label's colour, the button busy, the keyboard staying on it, the status line said; then the result, said, the spinner gone. The reader's cursor, moved on from the button, says the status line, then the indicator: a progress indicator, busy.",
+ "about": "React Native's ActivityIndicator on OxyOS (issue #559; progress-bar.h): Android's AndroidProgressBar, drawn by the host as AOSP's indeterminate ring, on the UI thread (sample/ProgressProbe.tsx, the screen reader on in Spanish). Its rings held at 666.5 ms of their animation (`progress_phase_ms`), still drawn again every refresh: the frames that turn only a ring are no change a step waits on. A large indicator labelled Sincronizando spins all along, in its colour (#d03030): a progress indicator, busy. Bloom's Guardar button, pressed from the keyboard, works until its request is answered: its spinner over its hidden label, in the label's colour, the button busy, the keyboard staying on it, the status line said; then the result, said, the spinner gone. The reader's cursor, moved on from the button, says the status line, then the indicator: a progress indicator, busy. The button's work is a request to the scenario's server (`http`, sample/ProgressProbe.tsx), answered once a step gives the cue `save-done`: the work ends when the scenario says, after the step that shows it (until_named \"Guardando…\"), never on a 2.5 s clock that a loaded machine's settling outran.",
  "module": "ProgressProbe",
  "window": [
   480,
   240
  ],
+ "http": {
+  "port": 18656
+ },
  "locale": "es_ES.UTF-8",
  "reader": {},
  "progress_phase_ms": 666.5,
@@ -85,6 +88,10 @@
      57
     ]
    ],
+   "until_named": [
+    "Guardando…",
+    10000
+   ],
    "expect": {
     "keyboard_focus": {
      "target": "save",
@@ -156,10 +163,14 @@
    }
   },
   {
-   "name": "Its work done: the result said, the spinner gone, the button no longer busy, the keyboard still on it",
+   "name": "Its work done (the server answers on the cue save-done): the result said, the spinner gone, the button no longer busy, the keyboard still on it",
    "do": [
-    "wait",
-    3500
+    "cue",
+    "save-done"
+   ],
+   "until_named": [
+    "Guardado",
+    10000
    ],
    "allow_unchanged": true,
    "expect": {
