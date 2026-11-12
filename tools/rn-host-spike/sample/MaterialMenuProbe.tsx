@@ -12,6 +12,7 @@
  */
 import * as React from 'react';
 import { View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BloomProvider } from '@oxy.so/bloom/provider';
 import { Button } from '@oxy.so/bloom/button';
 import { Dialog } from '@oxy.so/bloom/dialog';
@@ -29,38 +30,41 @@ export default function MaterialMenuProbe() {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   return (
-    <BloomProvider platform={oxyosSurfaces} mode="light">
-      <View testID="material-page" style={{ flex: 1, backgroundColor: '#ffffff' }}>
-        <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12 }}>
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild testID="menu-trigger">
-              <Button appearance="outline">Bands</Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="bottom" align="start" label="Bands" testID="bands-menu">
-              {['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth'].map((item) => (
-                <DropdownMenuItem key={item} testID={`band-${item}`} onPress={() => setMenuOpen(false)}>
-                  {item}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button appearance="outline" testID="dialog-trigger" onPress={() => setDialogOpen(true)}>
-            Dialog
-          </Button>
+    // Bloom's dialog reads the safe area, as an application's root gives it.
+    <SafeAreaProvider>
+      <BloomProvider platform={oxyosSurfaces} mode="light">
+        <View testID="material-page" style={{ flex: 1, backgroundColor: '#ffffff' }}>
+          <View style={{ height: 48, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12 }}>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+              <DropdownMenuTrigger asChild testID="menu-trigger">
+                <Button appearance="outline">Bands</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="bottom" align="start" label="Bands" testID="bands-menu">
+                {['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth'].map((item) => (
+                  <DropdownMenuItem key={item} testID={`band-${item}`} onPress={() => setMenuOpen(false)}>
+                    {item}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button appearance="outline" testID="dialog-trigger" onPress={() => setDialogOpen(true)}>
+              Dialog
+            </Button>
+          </View>
+          <View testID="bands" style={{ flex: 1, flexDirection: 'row' }}>
+            {BANDS.map((colour) => (
+              <View key={colour} style={{ width: 100, backgroundColor: colour }} />
+            ))}
+          </View>
+          <Dialog
+            open={dialogOpen}
+            onClose={() => setDialogOpen(false)}
+            title="Material"
+            description="Over the window's bands."
+            actions={[{ label: 'Done', color: 'default', testID: 'dialog-done' }]}
+          />
         </View>
-        <View testID="bands" style={{ flex: 1, flexDirection: 'row' }}>
-          {BANDS.map((colour) => (
-            <View key={colour} style={{ width: 100, backgroundColor: colour }} />
-          ))}
-        </View>
-        <Dialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
-          title="Material"
-          description="Over the window's bands."
-          actions={[{ label: 'Done', color: 'default', testID: 'dialog-done' }]}
-        />
-      </View>
-    </BloomProvider>
+      </BloomProvider>
+    </SafeAreaProvider>
   );
 }
