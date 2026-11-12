@@ -1,4 +1,4 @@
-// The UI thread (docs/adr/0067-the-ui-thread.mdx): the host's loop, on the process's main thread. It
+// The UI thread (docs/adr/0071-the-ui-thread.mdx): the host's loop, on the process's main thread. It
 // owns the frame clock, input, scroll physics and gesture tracking, Animated's native driver and
 // worklets' UI runtime, the view tree it mounts, drawing and presenting, accessibility and the
 // window; JavaScript runs on a thread of its own (js-thread.h) and never holds it up.

@@ -23,7 +23,8 @@ const KEY_ESCAPE: u32 = 1;
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(60);
 /// Each step's answer must settle inside this budget.
 const STEP_DEADLINE: Duration = Duration::from_secs(30);
-const CLIENT: ClientId = 1;
+/// The application's client: the first to connect.
+pub(crate) const CLIENT: ClientId = 1;
 /// The assistive technology the director plays: a client of the scene only, granted
 /// `accessibility`, reading what the compositor holds and sending actions (ADR 0003).
 const READER: ClientId = ClientId::MAX;
@@ -223,6 +224,14 @@ pub enum Step {
         count: u32,
         interval_ms: u32,
     },
+    /// A double click at a window-local point whose first click the application has taken before
+    /// the second comes: the first press and release, then the compositor serving until the
+    /// application has taken them (two Pings answered in turn, as `Settling::taken` waits), then
+    /// the second press and release, carrying the hand's time 100 ms after the first however long
+    /// the wait was, so it is a double click to the application whatever the machine's load. What
+    /// JavaScript does with the first click (a text field's focus) has then happened before the
+    /// second is read.
+    DoublePressTaken { at: (i32, i32) },
     /// A double click as a hand makes it on a window's title area, at a window-local point: the
     /// primary button held while the compositor serves the application until it begins a move
     /// with the press (as a title bar's drag region does; two seconds at most), released, then
@@ -335,6 +344,11 @@ pub enum Step {
     /// connected or taken away, a request of the person's, or a wait, the session served all
     /// along, until its state holds what is given (`Session::backup_act`).
     Backup(String),
+    /// A cue to a part of the run played beside the session (`--cue NAME`): NAME appended as a
+    /// line to `cues` in the run's output, which the played part watches (regress.py's played
+    /// Oxy API approves a QR's sign-in on the cue `qr-approve`), so what it does comes when the
+    /// scenario reaches the step, never on a clock of its own that the steps race.
+    Cue(String),
     /// The person chooses the command at this path of the window's menus in the session's bar
     /// (`View > Show Full URL`), as the shell delivers its choice (ADR 0021).
     Menu(String),
@@ -523,6 +537,9 @@ impl Step {
             Step::DoubleClick { at, hold_ms, gap_ms } => {
                 format!("double click at {at:?}, each press held {hold_ms} ms, {gap_ms} ms apart")
             }
+            Step::DoublePressTaken { at } => {
+                format!("double click at {at:?}, its first click taken before the second")
+            }
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::Strokes(chords) => format!(
                 "keys {} on the keymap",
@@ -558,6 +575,7 @@ impl Step {
             Step::Bluetooth(what) => format!("BlueZ: {what}"),
             Step::Power(what) => format!("the power services: {what}"),
             Step::Backup(what) => format!("the backup service: {what}"),
+            Step::Cue(name) => format!("the cue {name}"),
             Step::Menu(path) => format!("choosing {path:?} in the menu bar"),
         }
     }
@@ -789,6 +807,9 @@ impl Step {
             Step::DoubleClick { at, hold_ms, gap_ms } => {
                 format!("\"double_click\":[{},{},{hold_ms},{gap_ms}]", at.0, at.1)
             }
+            Step::DoublePressTaken { at } => {
+                format!("\"double_press_taken\":[{},{}]", at.0, at.1)
+            }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::Strokes(chords) => format!("\"strokes\":{chords:?}"),
             Step::KeyDown(codes) => format!("\"key_down\":{codes:?}"),
@@ -814,6 +835,7 @@ impl Step {
             Step::Bluetooth(what) => format!("\"bluetooth\":{}", json_string(what)),
             Step::Power(what) => format!("\"power\":{}", json_string(what)),
             Step::Backup(what) => format!("\"backup\":{}", json_string(what)),
+            Step::Cue(name) => format!("\"cue\":{}", json_string(name)),
             Step::Menu(path) => format!("\"menu\":{}", json_string(path)),
             Step::Clipboard(contents) => {
                 let types: Vec<String> = contents
@@ -990,10 +1012,28 @@ pub struct Settling {
     /// shown them for the step's stillness. A launched application's frames are not changes (it
     /// may draw as long as it likes), so nothing else would wait for them.
     pub until_pixels: Option<(u64, Vec<OutputPixel>)>,
+    /// `--until-pointer MS SHAPE`: its answer is the pointer's shape on the compositor's own
+    /// clock (the wait cursor two seconds after an application stopped answering, its own cursor
+    /// again once it answers): it settles only once the pointer shows SHAPE (as a step's
+    /// `pointer_shape` names it: Arrow, Wait, ...), within MS, rather than after a set wait that
+    /// the steps before it may have eaten into. The shape is the compositor's state, drawn by no
+    /// client, so it is not held for the stillness (the surfaces still are): a brief hang's wait
+    /// cursor shows for as little as what is left of the hang after its two seconds (0.63 s on a
+    /// loaded machine).
+    pub until_pointer: Option<(u64, String)>,
     /// `--until-ended`: its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
     pub ended: bool,
+    /// `--until-taken`: a paced drag (`DragPaced`) whose hand lets the application take each
+    /// motion: after each, it waits until the application holding the press, or the drag's target
+    /// once a drag has begun, has taken everything it was sent (two Pings answered in turn: the
+    /// Bloom host answers one once JavaScript ran what came before it, and starts the drags
+    /// JavaScript asked, and reads the action its answer to a motion was told, before it reads
+    /// the next), then goes on. What the drag passes over (a drop target's edge, the window it
+    /// leaves) and what each is told is then where the hand was, whatever the machine's load; a
+    /// drag that begins late is the `drag_output` steps' (ADR 0035, decision 2).
+    pub taken: bool,
 }
 
 pub struct Launch {
@@ -1188,8 +1228,8 @@ pub struct Launch {
     pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --expect-popup]... \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] [--until-pointer MS SHAPE] --press X,Y | \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-press-taken X,Y | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --cue NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -1366,11 +1406,22 @@ impl Launch {
                     settling.ended = true;
                     continue;
                 }
+                Some("--until-taken") => {
+                    settling.taken = true;
+                    continue;
+                }
                 Some("--until-named") => {
                     let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     let ms = ms.parse().map_err(|_| "--until-named MS NAME")?;
                     let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
                     settling.until_named = Some((ms, name.to_string()));
+                    continue;
+                }
+                Some("--until-pointer") => {
+                    let ms = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    let ms = ms.parse().map_err(|_| "--until-pointer MS SHAPE")?;
+                    let shape = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    settling.until_pointer = Some((ms, shape.to_string()));
                     continue;
                 }
                 Some("--until-pixels") => {
@@ -1987,6 +2038,10 @@ impl Launch {
                         gap_ms: n[3] as u32,
                     }
                 }
+                Some("--double-press-taken") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::DoublePressTaken { at: (n[0], n[1]) }
+                }
                 Some("--press-paced") => {
                     let n = numbers(args.next(), 4)?;
                     if n[2] < 1 || n[3] < 0 {
@@ -2025,6 +2080,10 @@ impl Launch {
                 Some("--network") => {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
                     Step::Network(what.to_string())
+                }
+                Some("--cue") => {
+                    let name = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
+                    Step::Cue(name.to_string())
                 }
                 Some("--bluetooth") => {
                     let what = args.next().and_then(|s| s.to_str()).ok_or(USAGE)?;
@@ -2368,6 +2427,11 @@ struct RunningShell {
 }
 
 impl Shells {
+    /// The processes of the shells running, one an output.
+    fn pids(&self) -> impl Iterator<Item = i32> + '_ {
+        self.running.values().map(|shell| shell.child.id() as i32)
+    }
+
     /// The shell of `output`, started.
     fn spawn(&mut self, session: &Session, output: OutputId) -> Result<RunningShell> {
         let command = &self.command;
@@ -2559,6 +2623,12 @@ fn start_shell(session: &mut Session, command: &[std::ffi::OsString]) -> Result<
         started: 0,
     };
     let outputs: Vec<OutputId> = session.compositor.screens.iter().map(|s| s.id).collect();
+    // A spinner of the shell's leaves a step settled too (progress.rs), when it is the one shell.
+    if outputs.len() == 1 {
+        session
+            .progress
+            .follow_shell((ClientId::MAX / 2, crate::pasteboard::PASTEBOARD));
+    }
     for output in outputs {
         let shell = shells.spawn(session, output)?;
         shells.running.insert(output, shell);
@@ -2641,6 +2711,12 @@ fn start_companion(
     children.0.push(child);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
     let mut last = (Vec::new(), Instant::now());
+    // Where moving it to `at` left it: the compositor keeps a window on its outputs, so a place
+    // partly off them (text-field-menu-scaled's companion at x 1300 on a display 1280 wide) is not
+    // where it ends. Moved again only when it is elsewhere than that (something else placed it):
+    // asking for `at` each turn moved it every turn, and the composed output was never still for
+    // SETTLE once each move reached the screen at once (the reader flushing the scene, #576).
+    let mut placed: Option<(i32, i32)> = None;
     loop {
         if Instant::now() > deadline {
             return Err("deadline exceeded waiting for the companion's window".into());
@@ -2655,16 +2731,20 @@ fn start_companion(
             });
         if let (true, Some(at), Some(client)) = (shown, at, client) {
             let key = SurfaceKey { client, id: WINDOW };
-            if session
+            let now_at = session
                 .compositor
                 .scene
                 .global_rect(key)
-                .map(|r| (r.x, r.y))
-                != Some(at)
-            {
+                .map(|r| (r.x, r.y));
+            if now_at != Some(at) && now_at != placed {
                 session.compositor.scene.move_window_to(key, at);
                 // Moved is a change: shown at its place, and its tree there, before the steps.
                 last.1 = Instant::now();
+                placed = session
+                    .compositor
+                    .scene
+                    .global_rect(key)
+                    .map(|r| (r.x, r.y));
             }
         }
         let now = composed(&session.compositor);
@@ -3239,6 +3319,7 @@ fn clear_of_minute(
             sheet: false,
             named: None,
             pixels: None,
+            pointer: None,
             ended: false,
         },
         Some(window),
@@ -3266,6 +3347,8 @@ struct Wait<'a> {
     named: Option<&'a str>,
     /// The colours the answer shows on the output (`Settling::until_pixels`).
     pixels: Option<&'a [OutputPixel]>,
+    /// The pointer's shape the answer shows (`Settling::until_pointer`).
+    pointer: Option<&'a str>,
     /// The session's end is the answer (`Settling::ended`).
     ended: bool,
 }
@@ -3273,6 +3356,75 @@ struct Wait<'a> {
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
 /// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
 /// that do not change for it also count as settled (a step whose expected answer is nothing).
+/// `ppoll`'s number, the one call a Bloom host's loop sleeps in when it has nothing to do
+/// (bloom-host.cpp: "an application doing nothing never turns").
+#[cfg(target_arch = "x86_64")]
+const PPOLL: &str = "271";
+#[cfg(target_arch = "aarch64")]
+const PPOLL: &str = "73";
+/// `futex`'s number, the call a Bloom host's JavaScript thread (`oxyos-js`, js-thread.cpp) waits
+/// for work in (a condition variable).
+#[cfg(target_arch = "x86_64")]
+const FUTEX: &str = "202";
+#[cfg(target_arch = "aarch64")]
+const FUTEX: &str = "98";
+
+/// Whether a Bloom host is in the middle of a turn on JavaScript: its JavaScript thread (`oxyos-js`)
+/// anywhere but waiting for work in `futex` (running, preempted, in another call). What it is doing
+/// then is a step's answer still to come, however long since its last frame: on a loaded machine
+/// one such turn ran 350 to 830 ms (a caret's blink, a page Back opened, a row − removed), longer
+/// than the settling's stillness, and the step settled in the middle of it.
+///
+/// Its UI thread drawing is not asked: a spinner (an ActivityIndicator, progress-bar.h) is drawn
+/// there every refresh with JavaScript idle, and a loaded machine stretched each of those frames so
+/// that the main thread was found out of `ppoll` nearly every time it was asked, and progress's
+/// launch never settled. Those frames are no change a step waits on (progress.rs). A host with no
+/// JavaScript thread of its own is asked of its main thread, out of `ppoll`. A process that is not a
+/// Bloom host (a native client, Astro) is never asked: its loop sleeps in calls of its own.
+fn host_turning(pid: i32) -> bool {
+    let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+        return false;
+    };
+    if comm.trim_end() != "oxyos-bloom-hos" {
+        return false;
+    }
+    // The call a thread is blocked in ("running" when it is not blocked); gone, it is no answer to
+    // wait for.
+    let blocked_in = |tid: &str| {
+        std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/syscall"))
+            .ok()
+            .and_then(|call| call.split_whitespace().next().map(str::to_string))
+    };
+    let javascript = std::fs::read_dir(format!("/proc/{pid}/task"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|task| task.file_name().to_string_lossy().into_owned())
+        .find(|tid| {
+            std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/comm"))
+                .is_ok_and(|name| name.trim_end() == "oxyos-js")
+        });
+    match javascript {
+        Some(tid) => blocked_in(&tid).is_some_and(|call| call != FUTEX),
+        None => blocked_in(&pid.to_string()).is_some_and(|call| call != PPOLL),
+    }
+}
+
+/// Whether the application's host, the companion's or a shell's is in the middle of a turn
+/// (`host_turning`): the step is not answered until each has gone back to waiting for work. A
+/// shell's turn can be the step's answer too: a file dropped on the dock's Trash is put there only
+/// once the shell's JavaScript has run the drop and asked (`TrashFiles`), and on a loaded machine
+/// that turn outlasted the settling's stillness (`dropsea-drag-scaled`, step 3: the drop counted,
+/// the file not yet in the Trash).
+fn hosts_turning(session: &Session) -> bool {
+    [Some(CLIENT), session.companion_client()]
+        .into_iter()
+        .flatten()
+        .filter_map(|client| session.compositor.peers.get(&client).map(|peer| peer.pid))
+        .chain(session.shells.iter().flat_map(Shells::pids))
+        .any(host_turning)
+}
+
 fn settle(
     session: &mut Session,
     children: &mut Children,
@@ -3285,14 +3437,19 @@ fn settle(
         sheet,
         named,
         pixels,
+        pointer,
         ended,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
 ) -> Result<Settled> {
     // The shell's surfaces count too: a press on a panel changes the shell, not the application.
+    // A frame that only turns a spinner is no change (progress.rs).
     let mut last = (before.to_vec(), Instant::now());
+    let application = |id| SurfaceKey { client: CLIENT, id };
+    session.progress.start(before, application);
     let mut shell_last = shell_surfaces(&session.compositor);
+    session.progress.start(&shell_last, |key| key);
     let shell_before: Vec<SurfaceKey> = shell_last.iter().map(|(key, _, _)| *key).collect();
     // The launched applications' windows count as the shell's do: a zoom of one changes neither
     // the director's application nor the shell, and would otherwise settle only on something
@@ -3353,8 +3510,12 @@ fn settle(
             pasteboard.serve(&mut session.compositor);
         }
         session.reader.absorb(&mut session.compositor);
-        let now = shown(&session.compositor);
-        let shell_now = shell_surfaces(&session.compositor);
+        let now = session
+            .progress
+            .steady(shown(&session.compositor), application);
+        let shell_now = session
+            .progress
+            .steady(shell_surfaces(&session.compositor), |key| key);
         let launched_now = launched_windows(session);
         let launched_changed = launched_now != launched_last;
         launched_last = launched_now;
@@ -3370,6 +3531,11 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
+        // A host in the middle of a turn: its stillness starts once it is back to waiting.
+        let turning = hosts_turning(session);
+        if turning {
+            last.1 = Instant::now();
+        }
         let shell_changed = shell_now != shell_last
             || launched_changed
             || companion_changed
@@ -3464,6 +3630,9 @@ fn settle(
                 pixels_since.is_some_and(|since| since.elapsed() >= still)
             }
         };
+        // The answer's pointer shape, once the compositor shows it.
+        let pointer_shown = pointer
+            .is_none_or(|shape| format!("{:?}", session.compositor.scene.pointer_shape()) == shape);
         // The session's end, once every application quit (ADR 0064).
         let ended_now = !ended
             || session
@@ -3473,10 +3642,12 @@ fn settle(
         if !changed
             && !shell_changed
             && !writing_now
+            && !turning
             && answered
             && sheet_shown
             && named_shown
             && pixels_shown
+            && pointer_shown
             && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still
@@ -4293,6 +4464,14 @@ fn named_step(session: &Session, step: &Step) -> Result<Step> {
 /// The middle of the node named `name` on the topmost shown surface that has one, as the
 /// assistive technology holds it (global coordinates), if any.
 fn named_point(session: &Session, name: &str) -> Option<(i32, i32)> {
+    // `ROLE::NAME` names the role too (`Switch::Prefer non-blinking cursor`): a row's title text
+    // shares its control's name, and comes first.
+    let (role, name) = match name.split_once("::") {
+        Some((role, rest)) if !role.is_empty() && role.chars().all(|c| c.is_ascii_alphabetic()) => {
+            (Some(role), rest)
+        }
+        _ => (None, name),
+    };
     session
         .compositor
         .scene
@@ -4301,12 +4480,9 @@ fn named_point(session: &Session, name: &str) -> Option<(i32, i32)> {
         .rev()
         .find_map(|item| match item {
             RenderItem::Surface { key, .. } => {
-                let node = session
-                    .reader
-                    .trees
-                    .get(&key)?
-                    .iter()
-                    .find(|node| node.name == name)?;
+                let node = session.reader.trees.get(&key)?.iter().find(|node| {
+                    node.name == name && role.is_none_or(|role| format!("{:?}", node.role) == role)
+                })?;
                 let (x, y, width, height) = node.rect;
                 Some((x + (width / 2) as i32, y + (height / 2) as i32))
             }
@@ -5075,6 +5251,73 @@ fn grab(
     Ok(())
 }
 
+/// How a paced drag's hand goes: its button `held` at the end (the drag goes on into the steps
+/// after it), and whether it lets the application take each motion (`Settling::taken`).
+#[derive(Clone, Copy, Debug)]
+struct Hand {
+    held: bool,
+    taken: bool,
+}
+
+/// The application the hand's motion went to has taken everything it was sent (`Settling::taken`):
+/// the one holding the press, or the drag's target once a drag has begun; two Pings answered in
+/// turn, each within a Ping's time. The Bloom host answers a Ping once JavaScript ran the events
+/// before it; the drags JavaScript asked start at the top of its next turn, and the action the
+/// compositor told for its answer to the motion arrives after the first Ping, so both are in
+/// before the second Pong (a text field's drag starts as its motion is read). An application that
+/// answers no Ping is not waited for, nor is anyone with no press held and no drag's target.
+fn taken(session: &mut Session) -> Result<()> {
+    for _ in 0..2 {
+        let scene = &mut session.compositor.scene;
+        let Some(client) = scene.drag_target().or_else(|| scene.holding_press()) else {
+            return Ok(());
+        };
+        ping_answered(session, client)?;
+    }
+    Ok(())
+}
+
+/// Pings `client` after everything it was sent and serves until it answers (five seconds at
+/// most); nothing for an application that answers no Ping.
+fn ping_answered(session: &mut Session, client: ClientId) -> Result<()> {
+    let Some(ping) = session.compositor.scene.ping_after(client) else {
+        return Ok(());
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !session.compositor.scene.answered(client, ping) && Instant::now() < deadline {
+        session.compositor.serve(&session.listener)?;
+    }
+    Ok(())
+}
+
+/// A double click whose first click the application took before the second
+/// (`Step::DoublePressTaken`).
+fn double_press_taken(session: &mut Session, window: Rect, at: (i32, i32)) -> Result<()> {
+    if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
+        return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
+    }
+    let origin = monotonic_ns();
+    let idle_wait = session.compositor.idle_wait;
+    let click = |session: &mut Session, due: Duration| -> Result<()> {
+        let scene = &mut session.compositor.scene;
+        scene.set_input_time(paced_time(origin, due));
+        scene.pointer_motion(window.x + at.0, window.y + at.1);
+        scene.pointer_button(BUTTON, true);
+        scene.pointer_button(BUTTON, false);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        session.compositor.idle_wait = idle_wait;
+        Ok(())
+    };
+    click(session, Duration::ZERO)?;
+    // Two Pings in turn: the first answered once JavaScript ran the click, the second once the
+    // host has carried out what JavaScript asked for it (a field's focus).
+    for _ in 0..2 {
+        ping_answered(session, CLIENT)?;
+    }
+    click(session, Duration::from_millis(100))
+}
+
 /// A paced drag (`Step::DragPaced`) on the scene: the press, each motion when its time comes with
 /// the compositor serving the application until then, the release, and the compositor serving it
 /// until its window shows a frame for the latest configure (or five seconds pass). Returns what
@@ -5099,7 +5342,10 @@ fn drag_paced(
     (motions, hz): (u32, u32),
     escape_after: Option<u32>,
     rest_ms: u32,
-    held: bool,
+    Hand {
+        held,
+        taken: hand_taken,
+    }: Hand,
 ) -> Result<String> {
     inside_output(&session.compositor, from)?;
     inside_output(&session.compositor, to)?;
@@ -5189,8 +5435,11 @@ fn drag_paced(
     // Each motion when its time comes: the turns before it wait at most until then, and the turn
     // the motion wakes composes its frame at once, as a device's event wakes a session's turn.
     let idle_wait = session.compositor.idle_wait;
+    // What the hand waited for the application to take its motions (`Settling::taken`): the
+    // motions after go on at its pace from there.
+    let mut waited = Duration::ZERO;
     for i in 1..=steps {
-        let due = interval * i as u32;
+        let due = interval * i as u32 + waited;
         while start.elapsed() < due {
             session.compositor.idle_wait = idle_wait.min(due.saturating_sub(start.elapsed()));
             session.compositor.serve(&session.listener)?;
@@ -5210,6 +5459,13 @@ fn drag_paced(
         session.compositor.idle_wait = Duration::ZERO;
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
+        if hand_taken {
+            let waiting = Instant::now();
+            session.compositor.idle_wait = idle_wait;
+            taken(session)?;
+            waited += waiting.elapsed();
+            observe(&session.compositor, &mut sent, &mut frames);
+        }
         // Resting at the end first, with Escape after the rest.
         if escape_after == Some(i as u32) && !(i == steps && rest_ms > 0) {
             session.compositor.scene.key(KEY_ESCAPE, true);
@@ -5220,7 +5476,7 @@ fn drag_paced(
     session.compositor.idle_wait = idle_wait;
     // The hand resting at `to` (a file held over the dock's Trash), then the Escape after its last
     // motion.
-    let rested = interval * motions + Duration::from_millis(u64::from(rest_ms));
+    let rested = interval * motions + waited + Duration::from_millis(u64::from(rest_ms));
     while start.elapsed() < rested {
         session.compositor.serve(&session.listener)?;
         observe(&session.compositor, &mut sent, &mut frames);
@@ -6144,6 +6400,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::Bluetooth(_)
         | Step::Power(_)
         | Step::Backup(_)
+        | Step::Cue(_)
         | Step::Menu(_)
         | Step::Keyboard { .. }
         | Step::ImChange { .. }
@@ -6156,6 +6413,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::TypePaced { .. }
         | Step::HoldOutput { .. }
         | Step::DoubleClick { .. }
+        | Step::DoublePressTaken { .. }
         | Step::PressPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
@@ -6920,6 +7178,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             sheet: false,
             named: None,
             pixels: None,
+            pointer: None,
             ended: false,
         },
         login.then_some(primary),
@@ -7111,6 +7370,17 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 }
                 0
             }
+            _ if matches!(step, Step::Cue(_)) => {
+                if let Step::Cue(name) = step {
+                    use std::io::Write as _;
+                    let mut cues = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(out.join("cues"))?;
+                    writeln!(cues, "{name}")?;
+                }
+                0
+            }
             _ if matches!(step, Step::Sound(_)) => {
                 if let Step::Sound(what) = step {
                     session
@@ -7194,7 +7464,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                         (*motions, *hz),
                         *escape_after,
                         *rest_ms,
-                        *held,
+                        Hand {
+                            held: *held,
+                            taken: settling.taken,
+                        },
                     )?);
                 }
                 0
@@ -7278,6 +7551,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 } = step
                 {
                     double_click(&mut session, window, *at, *hold_ms, *gap_ms)?;
+                }
+                0
+            }
+            _ if matches!(step, Step::DoublePressTaken { .. }) => {
+                if let Step::DoublePressTaken { at } = step {
+                    double_press_taken(&mut session, window, *at)?;
                 }
                 0
             }
@@ -7398,6 +7677,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     + [
                         settling.until_named.as_ref().map(|(ms, _)| *ms),
                         settling.until_pixels.as_ref().map(|(ms, _)| *ms),
+                        settling.until_pointer.as_ref().map(|(ms, _)| *ms),
                     ]
                     .into_iter()
                     .flatten()
@@ -7411,6 +7691,10 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     .until_pixels
                     .as_ref()
                     .map(|(_, pixels)| pixels.as_slice()),
+                pointer: settling
+                    .until_pointer
+                    .as_ref()
+                    .map(|(_, shape)| shape.as_str()),
                 ended: settling.ended,
             },
             Some(window),
@@ -7789,6 +8073,7 @@ mod tests {
             "--expect-popup",
             "--allow-unchanged",
             "--until-sheet",
+            "--until-taken",
             "--press-popup",
             "5,6",
             "--",
@@ -7807,6 +8092,11 @@ mod tests {
         let sheets = launch.steps.iter().filter(|(_, s)| s.sheet).count();
         assert_eq!(
             (sheets, launch.steps.last().map(|(_, s)| s.sheet)),
+            (1, Some(true))
+        );
+        let taken = launch.steps.iter().filter(|(_, s)| s.taken).count();
+        assert_eq!(
+            (taken, launch.steps.last().map(|(_, s)| s.taken)),
             (1, Some(true))
         );
         assert_eq!(
@@ -7893,6 +8183,37 @@ mod tests {
             ]
         );
         assert_eq!(launch.command, args(&["app", "--flag"]));
+    }
+
+    #[test]
+    fn until_pointer_is_the_step_after_it_alone_and_a_cue_is_a_step() {
+        let (_, launch) = Launch::parse(&args(&[
+            "--cue",
+            "qr-approve",
+            "--until-pointer",
+            "5000",
+            "Wait",
+            "--wait",
+            "0",
+            "--wait",
+            "0",
+            "--",
+            "app",
+        ]))
+        .unwrap();
+        let steps: Vec<_> = launch
+            .steps
+            .iter()
+            .map(|(step, s)| (step.describe(), s.until_pointer.clone()))
+            .collect();
+        assert_eq!(
+            steps,
+            [
+                ("the cue qr-approve".to_string(), None),
+                (Step::Wait(0).describe(), Some((5000, "Wait".to_string()))),
+                (Step::Wait(0).describe(), None),
+            ]
+        );
     }
 
     #[test]

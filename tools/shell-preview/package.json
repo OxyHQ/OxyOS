@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@oxy.so/bloom": "17.19.0",
+    "@oxy.so/bloom": "19.8.3",
     "expo": "~58.0.14",
     "expo-blur": "~58.0.4",
     "expo-file-system": "~58.0.12",

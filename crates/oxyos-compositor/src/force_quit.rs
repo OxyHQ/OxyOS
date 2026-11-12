@@ -15,7 +15,9 @@
 //!   unanswered past the wait cursor's delay) is first asked for its hang's report
 //!   (`Launcher::end_hung`: SIGQUIT, on which the Bloom host writes its JavaScript thread's stack
 //!   into its report file), then killed [`HANG_REPORT_WAIT`] later on the program's clock, never
-//!   blocking its turn. Its report is written as a crash's, saying the hang ([`ForceQuit::exited`],
+//!   blocking its turn, whatever it did with the request (one that ignores SIGQUIT ends all the
+//!   same; the launcher starts every application with its signals at their defaults, so none
+//!   inherits the session's ignoring it). Its report is written as a crash's, saying the hang ([`ForceQuit::exited`],
 //!   `Crashes::note_hang`), and the person is told nothing more: they asked.
 //! - **The dock's Force Quit** (docs/adr/0034-the-dock.mdx) ends the same way.
 
@@ -131,26 +133,43 @@ impl ForceQuit {
             .filter_map(|client| compositor.scene.unanswered_for(client))
             .max();
         match unanswered {
-            Some(unanswered) if launcher.end_hung(pid) => {
-                eprintln!(
-                    "[force quit] {pid} did not answer for {} ms: its report, then the end",
-                    unanswered.as_millis()
-                );
-                self.hung.insert(
-                    pid,
-                    Hung {
-                        unanswered,
-                        kill_at: now + HANG_REPORT_WAIT,
-                        killed: false,
-                    },
-                );
-            }
-            Some(_) => {}
+            Some(unanswered) => self.end_unanswered(launcher, pid, unanswered, now),
             None => {
                 if launcher.force_quit(pid) {
                     eprintln!("[force quit] {pid} ended");
                 }
             }
+        }
+    }
+
+    /// Ends the hung process `pid`, which has not answered for `unanswered`: asked for its report
+    /// (SIGQUIT), then killed [`HANG_REPORT_WAIT`] later by [`ForceQuit::serve`] whatever it did
+    /// with the request, so a program that ignores SIGQUIT, or blocks it, ends all the same; one
+    /// that cannot even be asked is killed at once.
+    fn end_unanswered(
+        &mut self,
+        launcher: &mut Launcher,
+        pid: u32,
+        unanswered: Duration,
+        now: Instant,
+    ) {
+        if launcher.end_hung(pid) {
+            eprintln!(
+                "[force quit] {pid} did not answer for {} ms: its report, then the end",
+                unanswered.as_millis()
+            );
+            self.hung.insert(
+                pid,
+                Hung {
+                    unanswered,
+                    kill_at: now + HANG_REPORT_WAIT,
+                    killed: false,
+                },
+            );
+        } else if launcher.force_quit(pid) {
+            eprintln!(
+                "[force quit] {pid} did not answer, and its report could not be asked: ended"
+            );
         }
     }
 
@@ -273,3 +292,6 @@ impl ForceQuit {
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

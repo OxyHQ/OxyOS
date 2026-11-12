@@ -314,6 +314,8 @@ add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-
   gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 # The UI and JavaScript threads' short slice (docs/adr/0066-quality-of-service.mdx, decision 2).
 target_sources(oxyos-bloom-host PRIVATE scheduling.cpp)
+# React Native's Android ProgressBar, ActivityIndicator's (progress-bar.h).
+target_sources(oxyos-bloom-host PRIVATE progress-bar.cpp)
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${PLATFORM_SPEC_INCLUDE})
 target_include_directories(oxyos-bloom-host SYSTEM PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)

@@ -113,6 +113,9 @@ struct Drag {
     target: Option<Target>,
     /// The action the source was last told.
     told: DragActions,
+    /// Where the person let go of it (global, logical): it stays there until it is decided,
+    /// whatever the pointer does meanwhile, and its target and the drop's point are there.
+    let_go: Option<(i32, i32)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -231,7 +234,7 @@ impl Scene {
         if self.locked || !(drag.told == DragActions::COPY || drag.told == DragActions::LINK) {
             return None;
         }
-        let (x, y) = self.pointer;
+        let (x, y) = self.drag_point();
         Some(RenderItem::DragBadge {
             rect: Rect::new(
                 x.saturating_add(DRAG_BADGE_OFFSET.0),
@@ -393,16 +396,23 @@ impl Scene {
             .pending
             .remove(&client)
             .filter(|said| said.drag == drag && !said.types.is_empty());
-        // Only from the latest press of this client on that window, its button still held, with
-        // nothing else owning the pointer.
-        let pressed = self.last_press.is_some_and(|press| {
+        // Only from the latest press of this client on that window, with nothing else owning the
+        // pointer: its button still held, or released since and nothing pressed after it. A
+        // client reads a press, its motions and its release in one turn when the machine is
+        // loaded, and asks for the drag only then: as a Mac's drag session takes the mouse's
+        // events queued after the one it began from, the drag is dropped where the press was
+        // released (ADR 0035, decision 2).
+        let press = self.last_press.filter(|press| {
             press.serial == serial
                 && press.client == client
                 && press.pointer
                 && self.root_of(press.surface) == self.root_of(surface)
         });
-        let valid = pressed
-            && self.buttons_down > 0
+        let let_go = press
+            .and_then(|press| press.released)
+            .filter(|_| self.buttons_down == 0);
+        let valid = press.is_some()
+            && (self.buttons_down > 0 || let_go.is_some())
             && self.visible(surface)
             && self.grab.is_empty()
             && self.drags.current.is_none()
@@ -443,6 +453,7 @@ impl Scene {
             offer: self.drags.offers,
             target: None,
             told: DragActions::NONE,
+            let_go: let_go.map(|(at, _)| at),
         });
         self.set_pointer_focus(None);
         if let Some(icon) = icon {
@@ -450,7 +461,38 @@ impl Scene {
             self.place_drag_icon();
         }
         self.retarget_drag();
+        // Released already: it enters the surface where it was let go and is dropped there, once
+        // that surface has answered (`Releasing`).
+        if let Some((_, release)) = let_go {
+            self.drop_drag(release);
+        }
         Ok(())
+    }
+
+    /// The client the latest pointer press was delivered to, while its button is held (a drag it
+    /// may start from it, a scenario's hand waiting for it to take the motions).
+    pub fn holding_press(&self) -> Option<ClientId> {
+        self.last_press
+            .filter(|press| press.pointer && press.released.is_none() && self.buttons_down > 0)
+            .map(|press| press.client)
+    }
+
+    /// The client of the surface the drag going on is over (its target), if any.
+    pub fn drag_target(&self) -> Option<ClientId> {
+        self.drags
+            .current
+            .as_ref()
+            .and_then(|drag| drag.target)
+            .map(|target| target.surface.client)
+    }
+
+    /// Where the drag is (global, logical): at the pointer, or where the person let go of it.
+    fn drag_point(&self) -> (i32, i32) {
+        self.drags
+            .current
+            .as_ref()
+            .and_then(|drag| drag.let_go)
+            .unwrap_or(self.pointer)
     }
 
     /// An icon not shown by another drag.
@@ -472,8 +514,9 @@ impl Scene {
         let Role::DragIcon { hotspot } = node.role else {
             return;
         };
-        let origin = icon_origin(self.pointer, hotspot);
-        let (x, y) = self.pointer;
+        let at = self.drag_point();
+        let origin = icon_origin(at, hotspot);
+        let (x, y) = at;
         let output = self.output_at(i64::from(x), i64::from(y)).map(|o| o.id);
         let node = self.nodes.get_mut(&icon).expect("present");
         node.origin = origin;
@@ -485,14 +528,15 @@ impl Scene {
         }
     }
 
-    /// The surface under the pointer becomes the drag's target, if it is not already: the one it
-    /// left is told so, the one it entered told the drag and its types. True if it changed.
+    /// The surface under the drag (`drag_point`) becomes its target, if it is not already: the
+    /// one it left is told so, the one it entered told the drag and its types. True if it changed.
     fn retarget_drag(&mut self) -> bool {
+        let at = self.drag_point();
         let Some(drag) = self.drags.current.as_ref() else {
             return false;
         };
         let hit = (!self.locked)
-            .then(|| self.hit_test(self.pointer.0, self.pointer.1))
+            .then(|| self.hit_test(at.0, at.1))
             .flatten()
             .filter(|hit| self.speaks_drags(hit.client));
         let old = drag.target.map(|target| target.surface);
@@ -527,7 +571,7 @@ impl Scene {
                 &[]
             };
             let serial = self.next_serial();
-            let (x, y) = self.local(surface, self.pointer.0, self.pointer.1);
+            let (x, y) = self.local(surface, at.0, at.1);
             self.emit(
                 surface.client,
                 Event::DragEnter {
@@ -682,6 +726,10 @@ impl Scene {
         if self.drags.releasing.is_some() {
             return;
         }
+        let pointer = self.pointer;
+        if let Some(drag) = self.drags.current.as_mut() {
+            drag.let_go.get_or_insert(pointer);
+        }
         let target = self
             .drags
             .current
@@ -746,6 +794,7 @@ impl Scene {
     /// The released drag: a drop on a target whose action is not none, else a cancel.
     fn decide_drop(&mut self, serial: u64) {
         self.drags.releasing = None;
+        let let_go = self.drag_point();
         let Some(drag) = self.drags.current.take() else {
             return;
         };
@@ -763,7 +812,7 @@ impl Scene {
         match accepted {
             Some(target) => {
                 let action = target.told;
-                let (x, y) = self.local(target.surface, self.pointer.0, self.pointer.1);
+                let (x, y) = self.local(target.surface, let_go.0, let_go.1);
                 // The drop is a user input of the target's, as a press is.
                 let inputs = self.inputs.entry(target.surface.client).or_default();
                 inputs.push_back(serial);

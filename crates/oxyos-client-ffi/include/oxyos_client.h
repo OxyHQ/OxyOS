@@ -1296,7 +1296,7 @@ int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
 /* From now on the client answers the compositor's pings itself: oxyos_client_poll gives each as
  * OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client answers
  * with oxyos_client_pong once it handled what came before it (a runtime whose events are handled on
- * another thread than the one reading them, docs/adr/0067-the-ui-thread.mdx). 0, or OXYOS_ERROR. */
+ * another thread than the one reading them, docs/adr/0071-the-ui-thread.mdx). 0, or OXYOS_ERROR. */
 int oxyos_client_answer_pings_itself(OxyOSClient* client);
 /* Answers the compositor's Ping `serial` (an OXYOS_EVENT_PING's). 0, or OXYOS_ERROR. */
 int oxyos_client_pong(OxyOSClient* client, uint64_t serial);
@@ -1335,10 +1335,10 @@ int oxyos_client_create_drag_icon(OxyOSClient* client, uint32_t surface, uint32_
                                   int32_t hotspot_x, int32_t hotspot_y);
 /* One media type of a drag, as a copy's entry. */
 typedef OxyOSClipboardEntry OxyOSDragEntry;
-/* Starts a drag from `surface`, citing `serial`, the pointer press on it still held, with the drag
- * icon `icon` (0: none), the actions it allows (OXYOS_DRAG_* bits) and `count` types (1 to 16, each
- * named once, the most faithful first), whose contents the library keeps and writes for the target
- * dropped on. Returns the drag's number (its source events' code, above 0) or OXYOS_ERROR; the
+/* Starts a drag from `surface`, citing `serial`, the latest pointer press on it (still held, or
+ * released since: the drag is then dropped where it was released), with the drag icon `icon` (0:
+ * none), the actions it allows (OXYOS_DRAG_* bits) and `count` types (1 to 16, each named once, the
+ * most faithful first), whose contents the library keeps and writes for the target dropped on. Returns the drag's number (its source events' code, above 0) or OXYOS_ERROR; the
  * compositor may still refuse it (DRAG_CANCELLED, OXYOS_DRAG_CANCEL_REFUSED). */
 int64_t oxyos_client_start_drag(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
                                 uint8_t actions, const OxyOSDragEntry* entries, size_t count);
