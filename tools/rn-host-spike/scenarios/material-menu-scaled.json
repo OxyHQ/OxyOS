@@ -1,0 +1,50 @@
+{
+ "about": "material-menu.json at 1.25 (ADR 0018): the platform's material (docs/adr/0069-the-platforms-material.mdx), the compositor's part: sample/MaterialMenuProbe.tsx, a window of four colour bands (red, green, blue, yellow, each 100 pixels wide below a white strip holding its buttons). Its menu (Bloom's DropdownMenu, a floating surface) opens in a compositor popup over the bands: the popup has nothing of its own beneath its material, so the host draws its tint alone and tells the compositor the menu's frame and corners (`material.regions`), and the compositor blurs and saturates the bands beneath it there. Under the menu the bands mix across their edges under its tint; outside it they are as sharp as they were. Its dialog (Bloom's Dialog, a floating surface drawn in the window over its content) is the host's part: the window's own bands beneath it blurred under its tint.",
+ "module": "MaterialMenuProbe",
+ "window": [
+  400,
+  300
+ ],
+ "outputs": "1600x1000@1.25",
+ "steps": [
+  {
+   "name": "the bands, sharp",
+   "do": [
+    "wait",
+    500
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the menu opens over the bands: they mix beneath it under its tint, and stay sharp outside it",
+   "do": [
+    "press_named",
+    "Bands"
+   ],
+   "expect": {
+    "popups": 1
+   }
+  },
+  {
+   "name": "the menu closed: the bands sharp again where it was",
+   "do": [
+    "key",
+    [
+     1
+    ]
+   ],
+   "expect": {
+    "popups": 0
+   }
+  },
+  {
+   "name": "the dialog opens over the bands in the window: the host blurs them beneath it under its tint",
+   "do": [
+    "press_named",
+    "Dialog"
+   ],
+   "expect": {}
+  }
+ ]
+}

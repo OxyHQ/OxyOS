@@ -321,6 +321,12 @@ class Window {
   // rectangles, docs/adr/0024-system-shortcuts.mdx, decision 10): sent, before the present they go
   // with, only when they differ from what the surface last sent. True if they were sent.
   bool setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects);
+  // A surface's material regions (docs/adr/0069-the-platforms-material.mdx, renderer.h's
+  // materialRegions: five values each in its pixels), under which the compositor blurs what it
+  // composes beneath the surface: sent, before the present they go with, only when they differ
+  // from what the surface last sent, and only to a compositor of OXYOS_MATERIAL_VERSION or later.
+  // True if they were sent.
+  bool setMaterialRegions(uint32_t id, const std::vector<int32_t>& regions);
   // Screenshots (ADR 0024, decision 10), the session's shell's: a capture of what the person chose,
   // citing the interface's serial (OXYOS_CAPTURE_*, global logical rectangle), the interface ended
   // without one, one of its shell surfaces left out of captures, and a saved screenshot opened
@@ -461,6 +467,8 @@ class Window {
   std::map<uint32_t, Surface> surfaces_;
   // The secure regions each surface last sent (setSecureRegions).
   std::map<uint32_t, std::vector<OxyOSRect>> secureRegions_;
+  // The material regions each surface last sent (setMaterialRegions).
+  std::map<uint32_t, std::vector<int32_t>> materialRegions_;
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far

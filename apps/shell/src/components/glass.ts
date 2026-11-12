@@ -13,3 +13,25 @@ export function glass(fill: string, reduced: boolean): string {
   if (rgba) return `rgb(${rgba[1]}, ${rgba[2]}, ${rgba[3]})`;
   return fill;
 }
+
+/**
+ * How much of an opaque fill the tint over the platform's material keeps: Bloom's floating
+ * surfaces' (`SURFACE_TINT_OPACITY`), the rest the blurred backdrop showing through.
+ */
+export const MATERIAL_TINT_OPACITY = 0.72;
+
+/**
+ * A glass fill as the tint over the platform's material (docs/adr/0069-the-platforms-material.mdx),
+ * as Bloom tints a floating surface: an explicit alpha is kept, and an opaque fill (the dock's
+ * shelf) keeps MATERIAL_TINT_OPACITY of itself. Only while the material is drawn, so never with
+ * Reduce transparency on.
+ */
+export function materialTint(fill: string): string {
+  if (/^#[0-9a-f]{6}$/i.test(fill)) {
+    const alpha = Math.round(MATERIAL_TINT_OPACITY * 255)
+      .toString(16)
+      .padStart(2, "0");
+    return `${fill.toLowerCase()}${alpha}`;
+  }
+  return fill;
+}

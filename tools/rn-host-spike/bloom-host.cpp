@@ -8,6 +8,7 @@
 #include "application.h"
 #include "damage.h"
 #include "expo-blur.h"
+#include "material.h"
 #include "expo-image.h"
 #include "files.h"
 #include "frame-diagnostics.h"
@@ -1114,6 +1115,8 @@ int main(int argc, char** argv) {
   providers->add(concreteComponentDescriptorProvider<oxyos::ModalHostViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoBlurTargetViewComponentDescriptor>());
+  // The platform's material, the adapter's Material (material.h, docs/adr/0069).
+  providers->add(concreteComponentDescriptorProvider<OxyOSMaterialViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<ExpoImageComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<RNCMaskedViewComponentDescriptor>());
   providers->add(concreteComponentDescriptorProvider<KeyboardControllerViewComponentDescriptor>());
@@ -1239,6 +1242,9 @@ int main(int argc, char** argv) {
       services.shellWindow = shellMode;
       // Drag and drop between applications (docs/adr/0035-drag-and-drop.mdx): protocol version 10.
       services.drag.available = window->protocolVersion() >= 10;
+      // The platform's material (docs/adr/0069-the-platforms-material.mdx): its regions need
+      // protocol version 45; on an older compositor Bloom draws its opaque fills.
+      services.materialAvailable = window->protocolVersion() >= OXYOS_MATERIAL_VERSION;
       // The system's interface sounds (docs/adr/0044-system-sounds.mdx): protocol version 23, an
       // application's window (the session plays the shell's dock's own).
       services.soundsAvailable = !shellMode && window->protocolVersion() >= 23;

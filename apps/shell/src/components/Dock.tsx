@@ -37,6 +37,7 @@ import type { MinimizeTargetProps, ScrollTargetProps, ShellKeyboard, ShellScroll
 import { CORNER, IconBody, isSvgIcon } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
+import { GlassMaterial, useGlass } from "./GlassMaterial";
 import { TRASH_ICON } from "./trash-icon";
 import { belongsTo } from "../model";
 import {
@@ -97,6 +98,10 @@ const SHELF_LAYOUT = {
   zIndex: 40,
 } as const;
 const neverCovered = () => false;
+// The shelf's material's shape (GlassMaterial.tsx): its top corners round, or square while a window
+// covers the display.
+const ROUND_SHELF = { borderTopLeftRadius: SHELF_RADIUS, borderTopRightRadius: SHELF_RADIUS } as const;
+const SQUARE_SHELF = { borderTopLeftRadius: 0, borderTopRightRadius: 0 } as const;
 
 /** The shelf's colours in the system's appearance (docs/adr/0019-settings.mdx), as a Mac's dock
     turns dark with it. */
@@ -805,16 +810,26 @@ const DockShelf = memo(function DockShelf({
     borderTopLeftRadius: radius.value,
     borderTopRightRadius: radius.value,
   }));
-  const style = useMemo(() => [SHELF_LAYOUT, { backgroundColor: color }, corners], [color, corners]);
+  // Its glass (GlassMaterial.tsx): the platform's material under its colour as a tint, where the
+  // platform has it and transparency is not reduced; else its colour, opaque, as it always was. The
+  // material's top corners are the shelf's at rest (round, or square while the display is covered),
+  // the shelf's own moving corners clipping it between the two.
+  const shelf = useGlass(color);
+  const shape = covered ? SQUARE_SHELF : ROUND_SHELF;
+  const style = useMemo(
+    () => [SHELF_LAYOUT, { backgroundColor: shelf.backgroundColor }, corners],
+    [corners, shelf.backgroundColor],
+  );
   // The same element while its style and children are: the shelf's view renders again only when
   // its colour or its contents change, never for its corners, which Reanimated moves.
   return useMemo(
     () => (
       <Animated.View testID="shell-dock" style={style}>
+        <GlassMaterial testID="shell-dock-material" fill={color} shape={shape} />
         {children}
       </Animated.View>
     ),
-    [style, children],
+    [style, children, color, shape],
   );
 });
 

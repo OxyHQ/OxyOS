@@ -1,0 +1,32 @@
+{
+ "about": "The platform's material with Reduce transparency on (docs/adr/0069-the-platforms-material.mdx, decision 5; docs/adr/0019-settings.mdx): sample/MaterialMenuProbe.tsx's menu over the window's colour bands is its tint alone, opaque, as a Mac draws its materials then: Bloom mounts no material, the host tells the compositor no region, and no band shows through it.",
+ "module": "MaterialMenuProbe",
+ "window": [
+  400,
+  300
+ ],
+ "preferences": {
+  "reduce_transparency": "true"
+ },
+ "steps": [
+  {
+   "name": "the bands, sharp",
+   "do": [
+    "wait",
+    500
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the menu opens over the bands: its tint alone, opaque, nothing of the bands beneath it",
+   "do": [
+    "press_named",
+    "Bands"
+   ],
+   "expect": {
+    "popups": 1
+   }
+  }
+ ]
+}
