@@ -25,8 +25,8 @@ const FILL = { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 } as c
 
 /**
  * The platform's material and the fill's tint over it, filling the panel within `shape` (its corner
- * radii, less any border it draws inside them); nothing where `useGlass` says the panel draws its
- * own fill.
+ * radii, less any border it draws inside them; none for a panel that clips them to its own corners,
+ * whose shape they then take); nothing where `useGlass` says the panel draws its own fill.
  */
 export const GlassMaterial = memo(function GlassMaterial({
   fill,
@@ -34,7 +34,7 @@ export const GlassMaterial = memo(function GlassMaterial({
   testID,
 }: {
   fill: string;
-  shape: ViewStyle;
+  shape?: ViewStyle;
   testID?: string;
 }) {
   const Material = usePlatformMaterial();

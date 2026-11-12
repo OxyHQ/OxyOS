@@ -209,8 +209,8 @@
           ]
         },
         "output_pixels": {
-          "220,62": "#ffffff",
-          "220,150": "#ffffff"
+          "220,62": "#bfdaff",
+          "220,150": "#c0daff"
         },
         "react": {}
       }

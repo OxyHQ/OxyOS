@@ -98,10 +98,6 @@ const SHELF_LAYOUT = {
   zIndex: 40,
 } as const;
 const neverCovered = () => false;
-// The shelf's material's shape (GlassMaterial.tsx): its top corners round, or square while a window
-// covers the display.
-const ROUND_SHELF = { borderTopLeftRadius: SHELF_RADIUS, borderTopRightRadius: SHELF_RADIUS } as const;
-const SQUARE_SHELF = { borderTopLeftRadius: 0, borderTopRightRadius: 0 } as const;
 
 /** The shelf's colours in the system's appearance (docs/adr/0019-settings.mdx), as a Mac's dock
     turns dark with it. */
@@ -812,10 +808,10 @@ const DockShelf = memo(function DockShelf({
   }));
   // Its glass (GlassMaterial.tsx): the platform's material under its colour as a tint, where the
   // platform has it and transparency is not reduced; else its colour, opaque, as it always was. The
-  // material's top corners are the shelf's at rest (round, or square while the display is covered),
-  // the shelf's own moving corners clipping it between the two.
+  // material fills the shelf, which clips it, so its shape is the shelf's as its corners move
+  // (the host gives a material filling what clips it that box's corners): nothing of it renders
+  // again for them.
   const shelf = useGlass(color);
-  const shape = covered ? SQUARE_SHELF : ROUND_SHELF;
   const style = useMemo(
     () => [SHELF_LAYOUT, { backgroundColor: shelf.backgroundColor }, corners],
     [corners, shelf.backgroundColor],
@@ -825,11 +821,11 @@ const DockShelf = memo(function DockShelf({
   return useMemo(
     () => (
       <Animated.View testID="shell-dock" style={style}>
-        <GlassMaterial testID="shell-dock-material" fill={color} shape={shape} />
+        <GlassMaterial testID="shell-dock-material" fill={color} />
         {children}
       </Animated.View>
     ),
-    [style, children, color, shape],
+    [style, children, color],
   );
 });
 
