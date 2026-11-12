@@ -375,6 +375,10 @@ pub const OXYOS_EVENT_TRASH_ITEMS: u32 = 232;
 /// The compositor's Ping (serial), given only to a client that answers pings itself
 /// (`oxyos_client_answer_pings_itself`), which answers with `oxyos_client_pong`.
 pub const OXYOS_EVENT_PING: u32 = 230;
+/// The compositor asks whether the client has handled everything it was sent before (serial),
+/// given only to a client that answers pings itself, which answers with `oxyos_client_pong` once it
+/// has, never waiting for it to be idle besides (protocol version 49).
+pub const OXYOS_EVENT_PING_HANDLED: u32 = 233;
 /// Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: the drag entered one of its
 /// surfaces (surface; serial: the entering, which oxyos_client_accept_drag cites; code: the offer;
 /// x, y: surface-local, as a POINTER's; detail: the source's actions, OXYOS_DRAG_*; width: how many
@@ -1469,7 +1473,7 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
             }
         }
         // The library answers it itself (oxyos-client), unless the client does (oxyos_client_poll).
-        Event::Ping { .. } => return None,
+        Event::Ping { .. } | Event::PingHandled { .. } => return None,
         Event::TrashItems { items } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_TRASH_ITEMS,
@@ -5126,6 +5130,14 @@ pub unsafe extern "C" fn oxyos_client_poll(
             Ok(Poll::Event(Event::Ping { serial })) if client.answers_pings_itself() => {
                 *out = OxyOSEvent {
                     kind: OXYOS_EVENT_PING,
+                    serial: serial.into(),
+                    ..OxyOSEvent::default()
+                };
+                return OXYOS_POLL_EVENT;
+            }
+            Ok(Poll::Event(Event::PingHandled { serial })) if client.answers_pings_itself() => {
+                *out = OxyOSEvent {
+                    kind: OXYOS_EVENT_PING_HANDLED,
                     serial: serial.into(),
                     ..OxyOSEvent::default()
                 };

@@ -6561,6 +6561,14 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
 fn a_client_that_answers_pings_itself_is_given_them_and_answers_when_it_says() {
     assert_eq!(define("OXYOS_EVENT_PING"), i64::from(OXYOS_EVENT_PING));
     assert_eq!(
+        define("OXYOS_EVENT_PING_HANDLED"),
+        i64::from(OXYOS_EVENT_PING_HANDLED)
+    );
+    assert_eq!(
+        u32::from(Event::PingHandled { serial: 1 }.opcode()),
+        OXYOS_EVENT_PING_HANDLED
+    );
+    assert_eq!(
         u32::from(Event::Ping { serial: 1 }.opcode()),
         OXYOS_EVENT_PING
     );

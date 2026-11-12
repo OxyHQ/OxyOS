@@ -382,6 +382,35 @@ fn drag_points(from: (i32, i32), to: (i32, i32)) -> impl Iterator<Item = (i32, i
 }
 
 impl Step {
+    /// Whether the step gives the applications a person's input (a press, a key, text, a scroll,
+    /// an assistive technology's action, a menu chosen), which settling waits for them to take; a
+    /// wait, the machine's or the session's own change (a network, a display's scale, a window
+    /// moved by the compositor), a cue and a part of the session signalled give none.
+    fn gives_input(&self) -> bool {
+        !matches!(
+            self,
+            Step::MoveWindow { .. }
+                | Step::ResizeWindow { .. }
+                | Step::MinimizeWindow
+                | Step::Scale(_)
+                | Step::ExpectPopup
+                | Step::SwitchTerminal(_)
+                | Step::Idle(_)
+                | Step::Signal { .. }
+                | Step::Wait(_)
+                | Step::TransitionClock(_)
+                | Step::WaitNamed { .. }
+                | Step::WaitSheetKeyboard(_)
+                | Step::Clipboard(_)
+                | Step::Network(_)
+                | Step::Sound(_)
+                | Step::Bluetooth(_)
+                | Step::Power(_)
+                | Step::Backup(_)
+                | Step::Cue(_)
+        )
+    }
+
     fn describe(&self) -> String {
         match self {
             Step::Press { x, y } => format!("press at ({x}, {y})"),
@@ -3392,6 +3421,7 @@ fn clear_of_minute(
             pixels: None,
             pointer: None,
             ended: false,
+            input: false,
         },
         Some(window),
     )?;
@@ -3422,69 +3452,26 @@ struct Wait<'a> {
     pointer: Option<&'a str>,
     /// The session's end is the answer (`Settling::ended`).
     ended: bool,
+    /// The step gave the applications input (`Step::gives_input`): it is answered only once each
+    /// has taken it (`PingHandled`).
+    input: bool,
 }
 
-/// How long a host found in the middle of turns may hold back a step that is otherwise still. A turn
-/// is a step's answer still to come: on a loaded machine one ran 350 to 830 ms (a caret's blink, a
-/// page Back opened, a row − removed, a shell's drop on the Trash), longer than the settling's
-/// stillness, and the step settled in the middle of it. But an application can also work all along
-/// on its own (held-frames' timer every 50 ms, the displays off), and a loaded machine stretches
-/// each of those turns until the host is found in one at nearly every sample: waited for without
-/// end, its step never settled. Nothing of the thread tells the two apart (a timer's turn preempted
-/// 600 ms for 5 ms of CPU, a press's 170 ms for 2), so the wait is bounded, far above any turn's
-/// (a page's render starved 13.5 s on seldon, 32 busy loops at its own priority) and within the
-/// step's deadline (STEP_DEADLINE): a step otherwise still waits this long at most for its hosts'
-/// turns to end. A step that would have run to its deadline settles; any other is as before.
-const TURNS_WAITED_AT_MOST: Duration = Duration::from_secs(20);
-
-/// Whether a Bloom host is in the middle of a turn: its JavaScript thread (`oxyos-js`) anywhere but
-/// waiting for work in `futex`, or, for a host with no JavaScript thread of its own, its main thread
-/// out of `ppoll`. A spinner drawn on the UI thread (progress, JavaScript idle) is no turn. A process
-/// that is not a Bloom host (a native client, Astro) is never asked: its loop sleeps in calls of its
-/// own.
-fn host_turning(pid: i32) -> bool {
-    let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
-        return false;
-    };
-    if comm.trim_end() != "oxyos-bloom-hos" {
-        return false;
-    }
-    #[cfg(target_arch = "x86_64")]
-    let (futex, ppoll) = ("202", "271");
-    #[cfg(target_arch = "aarch64")]
-    let (futex, ppoll) = ("98", "73");
-    // The call a thread is blocked in ("running" when it is not blocked); gone, it is no answer to
-    // wait for.
-    let blocked_in = |tid: &str| {
-        std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/syscall"))
-            .ok()
-            .and_then(|call| call.split_whitespace().next().map(str::to_string))
-    };
-    let javascript = std::fs::read_dir(format!("/proc/{pid}/task"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|task| task.file_name().to_string_lossy().into_owned())
-        .find(|tid| {
-            std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/comm"))
-                .is_ok_and(|name| name.trim_end() == "oxyos-js")
-        });
-    match javascript {
-        Some(tid) => blocked_in(&tid).is_some_and(|call| call != futex),
-        None => blocked_in(&pid.to_string()).is_some_and(|call| call != ppoll),
-    }
-}
-
-/// Whether the application's host, the companion's or a shell's is in the middle of a turn
-/// (`host_turning`). A shell's turn can be the step's answer too: a file dropped on the dock's Trash
-/// is put there only once the shell's JavaScript has run the drop and asked (`TrashFiles`).
-fn hosts_turning(session: &Session) -> bool {
-    [Some(CLIENT), session.companion_client()]
-        .into_iter()
-        .flatten()
-        .filter_map(|client| session.compositor.peers.get(&client).map(|peer| peer.pid))
-        .chain(session.shells.iter().flat_map(Shells::pids))
-        .any(host_turning)
+/// The clients that take a step's input: the application, the companion and the shells. A step
+/// that gave input is answered only once each has taken everything it was sent (`settle`).
+fn input_takers(session: &Session) -> Vec<ClientId> {
+    let shells: Vec<i32> = session.shells.iter().flat_map(Shells::pids).collect();
+    let mut clients = vec![CLIENT];
+    clients.extend(session.companion_client());
+    clients.extend(
+        session
+            .compositor
+            .peers
+            .iter()
+            .filter(|(_, peer)| shells.contains(&peer.pid))
+            .map(|(client, _)| *client),
+    );
+    clients
 }
 
 /// Serves the session until the application's surfaces differ from `before` (a new frame, a
@@ -3504,6 +3491,7 @@ fn settle(
         pixels,
         pointer,
         ended,
+        input,
     }: Wait,
     // Where the window was: a step may leave it off the screen (minimized), never the first frame.
     window_before: Option<Rect>,
@@ -3550,13 +3538,45 @@ fn settle(
             .is_some_and(|writer| writer.writing())
     };
     let mut was_writing = writing(session);
-    // When a host was last found in the middle of a turn, and since when its turns alone have held
-    // back a step otherwise still (`TURNS_WAITED_AT_MOST`).
-    let mut turned_at: Option<Instant> = None;
-    let mut held_by_turns: Option<Instant> = None;
+    // A step that gave input is answered only once each client that takes input (`input_takers`)
+    // has taken it, as Espresso waits for the main looper to be idle before it checks: each is asked
+    // `PingHandled` after everything it was sent, the device input not yet read taken in first, and
+    // the step waits for each answer, which a Bloom host gives once JavaScript ran what came before
+    // it, however busy JavaScript is besides (a timer every 50 ms, an animation). A client the
+    // compositor finds not responding (a hang, ADR 0067) is not waited for. Steps once settled
+    // before their input reached React (transform, step 1); sampling whether a host was busy instead
+    // could not tell a step's answer from an application's work all along (held-frames' timer),
+    // and kept steps from ever settling on a loaded machine.
+    let mut untaken: Vec<(ClientId, u32)> = Vec::new();
+    if input {
+        session.compositor.read_input();
+        for client in input_takers(session) {
+            if let Some(serial) = session.compositor.scene.ping_handled(client) {
+                untaken.push((client, serial));
+            }
+        }
+    }
     loop {
         if Instant::now() > deadline {
-            return Err(format!("deadline exceeded waiting for {waiting_for}").into());
+            // Who had not taken the step's input, when that is what it waited for.
+            let untaken: Vec<String> = untaken
+                .iter()
+                .map(|(client, _)| {
+                    session
+                        .compositor
+                        .peers
+                        .get(client)
+                        .map_or(format!("client {client}"), |peer| {
+                            format!("process {}", peer.pid)
+                        })
+                })
+                .collect();
+            let held = if untaken.is_empty() {
+                String::new()
+            } else {
+                format!(" ({} had not taken its input)", untaken.join(", "))
+            };
+            return Err(format!("deadline exceeded waiting for {waiting_for}{held}").into());
         }
         // Asked to quit as the session ends (ADR 0064), its exit is its answer.
         if let Some(status) = children
@@ -3600,10 +3620,15 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
-        // A host in the middle of a turn: the step is still once it has ended it, for the stillness,
-        // or once its turns have held it back for TURNS_WAITED_AT_MOST.
-        if hosts_turning(session) {
-            turned_at = Some(Instant::now());
+        // The step's input taken by each application: its stillness starts once the last answered.
+        let waited = !untaken.is_empty();
+        untaken.retain(|(client, serial)| {
+            !session.compositor.scene.answered(*client, *serial)
+                && session.compositor.scene.responding(*client)
+        });
+        let taken = untaken.is_empty();
+        if waited && taken {
+            last.1 = Instant::now();
         }
         let shell_changed = shell_now != shell_last
             || launched_changed
@@ -3711,6 +3736,7 @@ fn settle(
         let quiet = !changed
             && !shell_changed
             && !writing_now
+            && taken
             && answered
             && sheet_shown
             && named_shown
@@ -3719,15 +3745,7 @@ fn settle(
             && ended_now
             && (last.0 != before || first_frame_ns.is_some() || may_stay)
             && last.1.elapsed() >= still;
-        let turns_ended = turned_at.is_none_or(|at| at.elapsed() >= still);
-        held_by_turns = if quiet && !turns_ended {
-            held_by_turns.or(Some(Instant::now()))
-        } else {
-            None
-        };
-        let turns_waited = turns_ended
-            || held_by_turns.is_some_and(|since| since.elapsed() >= TURNS_WAITED_AT_MOST);
-        if quiet && turns_waited {
+        if quiet {
             if let Some(window) = session
                 .compositor
                 .surface_rect(CLIENT, WINDOW)
@@ -7265,6 +7283,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             pixels: None,
             pointer: None,
             ended: false,
+            input: false,
         },
         login.then_some(primary),
     ) {
@@ -7320,6 +7339,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 pixels: None,
                 pointer: None,
                 ended: false,
+                input: false,
             },
             login.then_some(primary),
         )?
@@ -7828,6 +7848,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                     .as_ref()
                     .map(|(_, shape)| shape.as_str()),
                 ended: settling.ended,
+                input: step.gives_input(),
             },
             Some(window),
         )?;

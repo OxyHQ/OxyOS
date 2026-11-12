@@ -1031,6 +1031,7 @@ fn events() -> Vec<Event> {
             text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
         },
         Event::Ping { serial: 9 },
+        Event::PingHandled { serial: 10 },
         Event::TrashItems { items: 3 },
         Event::DragEnter {
             surface: 1,
@@ -1916,6 +1917,10 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
     let mut nothing = Vec::new();
     assert!(!write_event_for(&mut nothing, &ping, 7).unwrap());
     assert_eq!(event_since(&ping), 8);
+    // A Ping answered once the client handled what came before it is version 49's.
+    let handled = Event::PingHandled { serial: 4 };
+    assert!(!write_event_for(&mut nothing, &handled, 48).unwrap());
+    assert_eq!(event_since(&handled), 49);
     assert_eq!(
         request_since(&Request::ForceQuitApplication { window: 1 }),
         8
