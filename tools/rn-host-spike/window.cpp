@@ -75,6 +75,15 @@ void Window::abandonPainter() {
   painterReady_ = -1;
 }
 
+void Window::answerPingsItself() {
+  if (oxyos_client_answer_pings_itself(client_) != 0) failed("answering pings");
+}
+
+void Window::pong(uint64_t serial) {
+  // A connection the compositor closed meanwhile is dispatch's to notice.
+  oxyos_client_pong(client_, serial);
+}
+
 Window::Surface* Window::surface(uint32_t id) {
   auto it = surfaces_.find(id);
   return it == surfaces_.end() ? nullptr : &it->second;
@@ -97,6 +106,10 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         break;
       default:
         failed("compositor connection");
+    }
+    if (event.kind == OXYOS_EVENT_PING) {
+      pings_.push_back(event.serial);
+      continue;
     }
     // The person's input, as received, and handled as the cause of what it delivers to React.
     Report::get().received(event);
@@ -359,7 +372,7 @@ bool Window::disconnected() const {
   return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
 }
 
-void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
+void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage, bool onlyTurning) {
   Surface& target = surfaces_.at(id);
   FrameDiagnostics::Scope presenting(FrameDiagnostics::Part::Present);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
@@ -403,6 +416,9 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   // The frame's sequence, the client's for every surface's frames, which the compositor's
   // feedback names (regress.py: each answered once, in order, none skipped).
   parts["sequence"] = sequence;
+  // A frame that changed nothing but spinning rings, which a scenario's step does not wait on
+  // (tools/oxyos-offscreen/src/progress.rs).
+  if (onlyTurning) parts["progress_only"] = true;
   Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height

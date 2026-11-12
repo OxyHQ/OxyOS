@@ -2645,6 +2645,7 @@ dependencies = [
 name = "oxyos-apps"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "oxyos-install",
  "oxyos-package",
  "rustix",
@@ -2679,6 +2680,7 @@ dependencies = [
  "jiff",
  "oxyos-account",
  "oxyos-install",
+ "oxyos-seat",
  "rustix",
  "serde",
  "serde_json",
@@ -3091,7 +3093,7 @@ dependencies = [
  "oxyos-apps",
  "oxyos-audio",
  "oxyos-auth",
- "oxyos-backupd",
+ "oxyos-backup",
  "oxyos-bluetooth",
  "oxyos-client",
  "oxyos-compositor",

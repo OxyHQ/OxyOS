@@ -99,18 +99,19 @@ if [ -d config/includes.chroot_after_packages/usr/share/oxyos/wallpapers ]; then
   [ -d config/includes.chroot_after_packages/usr/share/doc/oxyos-wallpapers ] && cp -a config/includes.chroot_after_packages/usr/share/doc/oxyos-wallpapers $D/wallpapers-doc
 fi
 system="so.oxy.settings so.oxy.shell so.oxy.login"; [ -d $M/packages/so.oxy.dropsea ] && system="$system so.oxy.dropsea"
+[ -d $M/packages/so.oxy.aboutthiscomputer ] && system="$system so.oxy.aboutthiscomputer"
 [ -d $M/packages/so.oxy.atlas ] && system="$system so.oxy.atlas"
 [ -d $M/packages/so.oxy.activitymonitor ] && system="$system so.oxy.activitymonitor"
 for id in $system; do cp -a $M/packages/$id $D/apps/$id; done
 for id in so.oxy.inbox so.oxy.allo; do cp -a $M/packages/$id $D/packages/$id; done
 # The system applications' entries: their name, icon and module, and the package they run (the
 # policy names the same host and bundle, and holds the grants).
-entry() { # id name name-es module [pinned]
+entry() { # id name name-es module [pinned | nodisplay]
   { echo "# OxyOS's $2, a system application (docs/adr/0030-installing-applications.mdx, decision 13)."
     echo "[Desktop Entry]"; echo "Type=Application"; echo "Name=$2"; [ -n "$3" ] && echo "Name[es]=$3"
     echo "Icon=/usr/lib/oxyos/apps/$1/icon.png"; echo "X-OxyOS-Bloom-Module=$4"
     echo "X-OxyOS-Bloom-Bundle=/usr/lib/oxyos/apps/$1/index.hbc"; echo "X-OxyOS-Runtime=1"
-    [ -n "${5:-}" ] && echo "X-OxyOS-Pinned=$5"
+    case "${5:-}" in "") ;; nodisplay) echo "NoDisplay=true" ;; *) echo "X-OxyOS-Pinned=$5" ;; esac
     # What the package declares it opens (its URL schemes, ADR 0034's OpenUrl) and the size its
     # window opens at, as its own entry says.
     grep "^MimeType=\|^X-OxyOS-Window-Size=" $M/packages/applications/$1.desktop 2>/dev/null || true; } > $D/entries/$1.desktop
@@ -123,6 +124,12 @@ grants='"settings", "updates", "privacy"'; grep -q '"network" => &mut grants.net
 # Bluetooth (ADR 0055, 7 November 2026): Settings' Bluetooth page, only in a tree that has the grant.
 grep -q '"bluetooth" => &mut grants.bluetooth' crates/oxyos-apps/src/lib.rs && grants="$grants, \"bluetooth\""
 policy='"so.oxy.settings": { "entry": "/usr/share/oxyos/applications/so.oxy.settings.desktop", "bloom": { "host": "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/apps/so.oxy.settings/index.hbc" }, "grants": ['"$grants"'] }'
+if [ -d $D/apps/so.oxy.aboutthiscomputer ]; then
+  # About This Computer, the Oxy menu's first row: never listed (NoDisplay), with no grant; it reads
+  # the facts Settings › About shows, which need none.
+  entry so.oxy.aboutthiscomputer "About This Computer" "Acerca de este ordenador" OxyOSAboutThisComputer nodisplay
+  policy="$policy,"' "so.oxy.aboutthiscomputer": { "entry": "/usr/share/oxyos/applications/so.oxy.aboutthiscomputer.desktop", "bloom": { "host": "/usr/lib/oxyos/runtimes/1/oxyos-bloom-host", "bundle": "/usr/lib/oxyos/apps/so.oxy.aboutthiscomputer/index.hbc" }, "grants": [] }'
+fi
 if [ -d $D/apps/so.oxy.dropsea ]; then
   # Dropsea first in the dock, as the development registry places it.
   entry so.oxy.dropsea Dropsea "" Dropsea 1

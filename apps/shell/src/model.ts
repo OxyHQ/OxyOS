@@ -22,6 +22,11 @@ export type ShellApplication = {
   /** The media types it opens (its entry's MimeType, docs/adr/0028-file-access.mdx): files of
       them dropped on its dock icon open in it (docs/adr/0034-the-dock.mdx, decision 11). */
   opens?: readonly string[];
+  /** Its version as people read it (its package's `version`, the entry's X-OxyOS-Version) and
+      its build (an installed package's version code), where the registry says: the standard
+      About panel's (docs/adr/0021-menu-bar.mdx). */
+  version?: string;
+  build?: number;
 };
 export type ShellFolder = {
   id: string;
@@ -74,14 +79,19 @@ export type ShellMenuItem =
     }
   | { kind: "separator"; id: string };
 /** A menu of the top bar. The first is drawn in bold: the active application's own menu (its
-    name, About, Hide, Quit), or the shell's when no application is active
-    (docs/adr/0021-menu-bar.mdx). */
+    name, About, Settings…, Hide, Hide Others, Show All, Quit), or the desktop's when no window is
+    active (docs/adr/0021-menu-bar.mdx, app-menu.ts). */
 export type ShellMenu = {
   label: string;
   items: readonly ShellMenuItem[];
 };
 export type ShellSnapshot = {
   applications: readonly ShellApplication[];
+  /** The registry's applications no list shows (an entry with `NoDisplay`: About This Computer),
+      which are never in Launchpad, Spotlight, the dock or the switcher, but whose windows the bar's
+      application menu names and whose icon and version the standard About panel shows
+      (docs/adr/0021-menu-bar.mdx). Absent where the platform tells none. */
+  unlisted?: readonly ShellApplication[];
   folders: readonly ShellFolder[];
   windows: readonly ShellWindow[];
   workspaces: readonly ShellWorkspace[];
@@ -149,6 +159,8 @@ export type ShellPowerActions = {
   sleep: () => void;
   /** `confirm` false: Option's alternate, at once and with no question. */
   endSession: (action: "restart" | "shutDown" | "logOut", confirm: boolean) => void;
+  /** Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session shows it. */
+  forceQuit?: () => void;
 };
 /**
  * The session's lock (docs/adr/0010-lock-screen.mdx), owned by the platform: whether it is

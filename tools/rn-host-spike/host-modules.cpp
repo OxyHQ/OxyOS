@@ -516,6 +516,16 @@ class ExpoImageRefHandle : public jsi::HostObject {
 }  // namespace
 
 // A promise resolved with `value`.
+jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method) {
+  if (!method.isObject() || !method.getObject(rt).isFunction(rt)) return method;
+  auto inner = std::make_shared<jsi::Function>(method.getObject(rt).getFunction(rt));
+  return jsi::Function::createFromHostFunction(
+      rt, name, 0, [inner](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+        HostCall call;
+        return inner->call(rt, args, count);
+      });
+}
+
 jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
   return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
 }
@@ -726,6 +736,10 @@ std::shared_ptr<TurboModule> createHostModule(
              // The window's application (docs/adr/0024-system-shortcuts.mdx).
              {"hideApplication", OXYOS_MANAGE_HIDE_APPLICATION, true},
              {"quitApplication", OXYOS_MANAGE_QUIT_APPLICATION, true},
+             // Hide Others (every application but the window's; 0: every one) and Show All
+             // (docs/adr/0021-menu-bar.mdx).
+             {"hideOtherApplications", OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS, true},
+             {"showAllApplications", OXYOS_MANAGE_SHOW_ALL_APPLICATIONS, false},
              {"moveWindowToWorkspace", OXYOS_MANAGE_MOVE, true},
              {"activateWorkspace", OXYOS_MANAGE_ACTIVATE_WORKSPACE, false},
              {"addWorkspace", OXYOS_MANAGE_ADD_WORKSPACE, false},
@@ -1141,7 +1155,8 @@ std::shared_ptr<TurboModule> createHostModule(
         json.resize(static_cast<size_t>(length));
         try {
           for (const auto& app : folly::parseJson(json)) {
-            if (app.isObject() && app.count("id") && app.count("name")) {
+            // An application never listed (NoDisplay) is in none of Settings' lists either.
+            if (app.isObject() && app.count("id") && app.count("name") && app.getDefault("shown", true) != false) {
               applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"]));
             }
           }
@@ -1262,7 +1277,7 @@ std::shared_ptr<TurboModule> createHostModule(
     module->listeners();
   } else if (name == "OxyOSMenuBar") {
     // The application window's menus (sample/oxyos/platform-surface.js, docs/adr/0021-menu-bar.mdx):
-    // `setMenus([{ parent, kind, flags, label, shortcut }])` sends them as a new commit and returns
+    // `setMenus([{ parent, kind, flags, role, label, shortcut }])` sends them as a new commit and returns
     // its serial; `OxyOSMenuActivated` ({ serial, index }) is a choice in the shell's bar. The
     // adapter keeps Bloom's ids for each commit's indices: the compositor never sees them.
     module->constants(folly::dynamic::object("available", services.applicationWindow));
@@ -1279,6 +1294,10 @@ std::shared_ptr<TurboModule> createHostModule(
                                                                     : OXYOS_NO_MENU_PARENT;
         entry.kind = static_cast<uint8_t>(item.getDefault("kind", 0).asInt());
         entry.flags = static_cast<uint8_t>(item.getDefault("flags", 0).asInt());
+        // The application's About or Settings… (OXYOS_MENU_ROLE_*), which the shell shows in its
+        // own menu.
+        auto role = item.getDefault("role", 0);
+        entry.role = role.isNumber() ? static_cast<uint8_t>(role.asInt()) : OXYOS_MENU_ROLE_NONE;
         auto label = item.getDefault("label", "");
         auto shortcut = item.getDefault("shortcut", "");
         if (label.isString()) entry.label = label.getString();
@@ -1318,7 +1337,6 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
         throw jsi::JSError(rt, "OxyOSKeyboard.setListener: a function");
       }
-      services.keyboard.runtime = &rt;
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });

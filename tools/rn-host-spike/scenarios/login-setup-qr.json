@@ -27,8 +27,7 @@
         "deviceSecret": "played-device-secret-1"
       },
       "qr": {
-        "approve": "socket",
-        "approve_after_ms": 7500
+        "approve": "cue"
       }
     },
     "enroll": {
@@ -104,8 +103,12 @@
     {
       "name": "a phone approves the QR: the session claimed once, the PIN page at once, its field focused, step 2 of 4; no password asked or offered",
       "do": [
-        "wait",
-        4000
+        "cue",
+        "qr-approve"
+      ],
+      "until_named": [
+        "Create a PIN",
+        20000
       ],
       "allow_unchanged": true,
       "expect": {

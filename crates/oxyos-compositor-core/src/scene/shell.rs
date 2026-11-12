@@ -49,6 +49,8 @@ pub struct ShellWindowState {
     pub minimized: bool,
     pub hidden: bool,
     pub focused: bool,
+    /// Its application answers the compositor's pings (docs/adr/0067-hangs-and-force-quit.mdx).
+    pub responding: bool,
 }
 
 #[derive(Debug, Default)]
@@ -278,6 +280,15 @@ impl Scene {
                     self.quit_application(key);
                 }
             }
+            // Hide Others and Show All (ADR 0021): every application but a window's, or every
+            // one for window 0; a window that has gone since is ignored, as for Hide.
+            Request::HideOtherApplications { window: 0 } => self.hide_other_applications(None),
+            Request::HideOtherApplications { window: number } => {
+                if let Some(key) = window(self, number) {
+                    self.hide_other_applications(Some(key));
+                }
+            }
+            Request::ShowAllApplications {} => self.show_all_applications(),
             Request::ForceQuitApplication { window: number } => {
                 if let Some(key) = window(self, number) {
                     self.force_quit_application(key)?;
@@ -321,6 +332,7 @@ impl Scene {
                 minimized: window.minimized,
                 hidden: window.hidden,
                 focused: window.focused,
+                responding: window.responding,
             })
             .collect()
     }

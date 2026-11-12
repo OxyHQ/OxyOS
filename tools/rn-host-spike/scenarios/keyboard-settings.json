@@ -1,5 +1,5 @@
 {
- "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on System Settings and Return opens Settings; Settings opens at its own size, its sidebar beside the page; Tab reaches its search field, then the sidebar's selected row, and ↓ goes down the sidebar's one list to Accessibility, each row chosen, its page shown and said once with its ring; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1 (1280 × 720).",
+ "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on About This Computer, Down moves to System Settings… and Return opens Settings; Settings opens at its own size, its sidebar beside the page; Tab reaches its search field, then the sidebar's selected row, and ↓ goes down the sidebar's one list to Accessibility, each row chosen, its page shown and said once with its ring; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1 (1280 × 720).",
  "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -81,7 +81,7 @@
      "shell": [
       {
        "role": "MenuItem",
-       "name": "Ajustes del Sistema",
+       "name": "Acerca de este ordenador",
        "state": [
         "focused"
        ]
@@ -94,8 +94,39 @@
       "interrupting": true
      },
      {
-      "text": "Ajustes del Sistema, elemento de menú",
+      "text": "Acerca de este ordenador, elemento de menú",
       "interrupting": false
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "Down: System Settings…, past the separator, said once",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "at": {
+     "shell": [
+      {
+       "role": "MenuItem",
+       "name": "Ajustes del Sistema…",
+       "state": [
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Ajustes del Sistema…, elemento de menú",
+      "interrupting": true
      }
     ],
     "announcements": []
@@ -189,7 +220,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, seleccionado, 1 de 19",
+      "text": "Apariencia, seleccionado, 1 de 20",
       "interrupting": true
      }
     ],
@@ -227,7 +258,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, seleccionado, 2 de 19",
+      "text": "Fondo de pantalla, seleccionado, 2 de 20",
       "interrupting": true
      }
     ],
@@ -265,7 +296,7 @@
     },
     "spoken": [
      {
-      "text": "Notificaciones, seleccionado, 3 de 19",
+      "text": "Notificaciones, seleccionado, 3 de 20",
       "interrupting": true
      }
     ],
@@ -303,7 +334,7 @@
     },
     "spoken": [
      {
-      "text": "Sonido, seleccionado, 4 de 19",
+      "text": "Sonido, seleccionado, 4 de 20",
       "interrupting": true
      }
     ],
@@ -341,7 +372,45 @@
     },
     "spoken": [
      {
-      "text": "Pantalla de bloqueo, seleccionado, 5 de 19",
+      "text": "Pantalla de bloqueo, seleccionado, 5 de 20",
+      "interrupting": true
+     }
+    ],
+    "announcements": []
+   }
+  },
+  {
+   "name": "↓: Escritorio y Dock, the next row, chosen and its page shown, the keyboard with it, said once",
+   "do": [
+    "key",
+    [
+     108
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-nav-desktop-dock",
+      "ring": true
+     }
+    },
+    "at": {
+     "launched": [
+      {
+       "role": "ListItem",
+       "name": "Escritorio y Dock",
+       "state": [
+        "selected",
+        "focused"
+       ]
+      }
+     ]
+    },
+    "spoken": [
+     {
+      "text": "Escritorio y Dock, seleccionado, 6 de 20",
       "interrupting": true
      }
     ],
@@ -379,7 +448,7 @@
     },
     "spoken": [
      {
-      "text": "Pantallas, seleccionado, 6 de 19",
+      "text": "Pantallas, seleccionado, 7 de 20",
       "interrupting": true
      }
     ],
@@ -420,7 +489,7 @@
     },
     "spoken": [
      {
-      "text": "Accesibilidad, seleccionado, 7 de 19",
+      "text": "Accesibilidad, seleccionado, 8 de 20",
       "interrupting": true
      }
     ],

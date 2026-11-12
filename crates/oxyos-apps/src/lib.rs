@@ -377,6 +377,16 @@ pub struct Application {
     pub origin: Origin,
     /// The media types it opens (`MimeType`, docs/adr/0028-file-access.mdx, decision 6).
     pub opens: Vec<String>,
+    /// Its version as people read it (`X-OxyOS-Version`, its package's `version`: "1.2.0") and
+    /// its build (`X-OxyOS-Package-Version`, the package's version code), which the standard About
+    /// panel shows (docs/adr/0021-menu-bar.mdx); none where its entry does not say.
+    pub version: Option<String>,
+    pub build: Option<u64>,
+    /// Whether the places that list applications for the person show it (Launchpad, Spotlight,
+    /// the dock, the switcher, Settings' lists): false for an entry with `NoDisplay`, which, as
+    /// the Desktop Entry Specification has it, exists and is started (by its id, by a type or a
+    /// scheme it opens) but is never listed. About This Computer is one: the Oxy menu opens it.
+    pub shown: bool,
 }
 
 /// Where an application's entry comes from (docs/adr/0030-installing-applications.mdx,
@@ -591,7 +601,8 @@ fn exec(value: &str) -> Result<Vec<String>, Error> {
 /// The application an entry describes: `id`, the entry's `text`, in `directory`, named in
 /// `languages` (the most wanted first, as `es_ES`, `es`). An entry grants nothing: an
 /// `X-OxyOS-Grants` in it is not read (system grants are the policy's, [`Policy`]). None for an
-/// entry not to list (`NoDisplay`, `Hidden`, not an application).
+/// entry that is no application (`Hidden`, which the specification makes a deleted one, or not an
+/// application); one with `NoDisplay` is an application never listed ([`Application::shown`]).
 pub fn parse(
     id: &str,
     text: &str,
@@ -616,7 +627,7 @@ pub fn parse(
     if keys.get("Type").map(String::as_str) != Some("Application") {
         return Ok(None);
     }
-    if flag("NoDisplay") || flag("Hidden") {
+    if flag("Hidden") {
         return Ok(None);
     }
     let name = languages
@@ -685,6 +696,15 @@ pub fn parse(
         launch,
         pinned,
         origin: Origin::Development,
+        version: keys
+            .get("X-OxyOS-Version")
+            .map(|version| version.trim())
+            .filter(|version| !version.is_empty())
+            .map(str::to_owned),
+        build: keys
+            .get("X-OxyOS-Package-Version")
+            .and_then(|code| code.parse::<u64>().ok())
+            .filter(|&code| code > 0),
         opens: keys
             .get("MimeType")
             .map(|types| {
@@ -696,6 +716,7 @@ pub fn parse(
                     .collect()
             })
             .unwrap_or_default(),
+        shown: !flag("NoDisplay"),
     }))
 }
 
@@ -1265,7 +1286,7 @@ pub fn script_url(bundle: &Path) -> PathBuf {
 
 /// How `application` is started in `runtime`: the program, its arguments and its environment:
 /// the compositor's socket, its id and name (its window's, until launch records give them), never
-/// another display's.
+/// another display's; and every signal at its default, none blocked ([`default_signals`]).
 pub fn command(
     application: &Application,
     runtime: &Runtime,
@@ -1322,7 +1343,43 @@ pub fn command(
         .env("OXYOS_APP_TITLE", &application.name)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY");
+    default_signals(&mut command);
     Ok(command)
+}
+
+/// The process `command` starts begins with every signal's disposition at its default and none
+/// blocked, whatever the session's own (docs/adr/0067-hangs-and-force-quit.mdx), as
+/// `posix_spawn`'s `POSIX_SPAWN_SETSIGDEF` and `POSIX_SPAWN_SETSIGMASK` would have it. An ignored
+/// signal survives `exec` (POSIX), so a session started by something that ignores SIGQUIT (a
+/// shell's background job, a service manager told to) would hand that on, and Force Quit's request
+/// for a hung application's report (`Launcher::end_hung`) would do nothing to a program without a
+/// handler of its own. A handler never survives `exec`, so resetting each disposition to the
+/// default here leaves nothing of the session's.
+#[allow(unsafe_code)]
+fn default_signals(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // Read before the fork: glibc's SIGRTMAX is a call, the child's hook makes only system calls.
+    let last = libc::SIGRTMAX();
+    // SAFETY: the hook runs in the child between fork and exec, where only async-signal-safe
+    // functions may be called: it calls sigaction(2), sigemptyset(3) and sigprocmask(2), all
+    // async-signal-safe (signal-safety(7)), on values on its own stack and `last`, copied into the
+    // closure before the fork; it allocates nothing and takes no lock. Signals the kernel refuses
+    // (SIGKILL, SIGSTOP, those glibc keeps for itself) are skipped or fail harmlessly.
+    unsafe {
+        command.pre_exec(move || {
+            let mut default: libc::sigaction = std::mem::zeroed();
+            default.sa_sigaction = libc::SIG_DFL;
+            for signal in 1..=last {
+                if signal != libc::SIGKILL && signal != libc::SIGSTOP {
+                    libc::sigaction(signal, &default, std::ptr::null_mut());
+                }
+            }
+            let mut none: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut none);
+            libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+            Ok(())
+        });
+    }
 }
 
 /// A process a session started, while it runs: its application's id and what it may do.
@@ -1863,6 +1920,16 @@ impl Launcher {
     /// A process it did not start is never ended: false. It is reaped once it exits.
     pub fn force_quit(&mut self, pid: u32) -> bool {
         self.signal(pid, rustix::process::Signal::KILL)
+    }
+
+    /// Asks a process it started that stopped answering for its hang's report (SIGQUIT,
+    /// docs/adr/0067-hangs-and-force-quit.mdx, decision 4): the Bloom host writes its JavaScript
+    /// thread's stack into its report file and goes on; a program without a handler ends with a
+    /// core, its backtrace systemd-coredump's. The session asked it to end: its end is no
+    /// unexpected quit. The caller kills it ([`Launcher::kill`]) once the host has had its moment
+    /// to write. False for a process it did not start.
+    pub fn end_hung(&mut self, pid: u32) -> bool {
+        self.signal(pid, rustix::process::Signal::QUIT)
     }
 
     /// Asks every process it started for the application `id` to end (SIGTERM), as the session

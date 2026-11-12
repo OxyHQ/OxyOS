@@ -1,0 +1,11 @@
+# About This Computer (apps/settings/src/AboutThisComputer.tsx), the Oxy menu's first row, as a Mac's
+# About This Mac: a window with the computer's name, processor, memory and OxyOS's version, the facts
+# Settings › About shows, and More Info…, which opens Settings there. An application never listed
+# (NoDisplay): the Oxy menu starts it; Launchpad, Spotlight, the dock and the switcher never show it.
+[Desktop Entry]
+Type=Application
+Name=About This Computer
+Name[es]=Acerca de este ordenador
+Icon=../../../../../config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png
+X-OxyOS-Bloom-Module=OxyOSAboutThisComputer
+NoDisplay=true

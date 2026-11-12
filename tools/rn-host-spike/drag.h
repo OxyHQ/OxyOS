@@ -2,7 +2,7 @@
 // `OxyOSDropTargetView` host component (sample/oxyos/platform-surface.js renders it as the OxyOS
 // adapter's DropTarget, Bloom's DropZone) and the drags the compositor passes over this client's
 // surfaces; and the application's own drags (OxyOSDrag.start, Bloom's usePlatformDrag), offered
-// from the press it holds, with a view's image as the drag's icon.
+// from its latest press, with a view's image as the drag's icon.
 //
 // The host answers the compositor from its own tree, never waiting on JavaScript: on each entering
 // and motion it finds the innermost drop target under the point that takes a type offered, and
@@ -125,6 +125,12 @@ class DragDrop {
   // JavaScript ran the events queued before it (the loop's beat and drain): a drop it was given is
   // delivered, and the window's drag that ended with it can be told.
   void ranJavaScript();
+  // The batch of JavaScript's that asked for drags ran, with all it set off, and what it committed
+  // is mounted (bloom-host.cpp): the drags it asked start (`start` from JavaScript), each from the
+  // tree as it is now. Whether any was asked.
+  bool startAsked();
+  // Drags JavaScript asked for that have not started yet.
+  bool asking() const { return !asked_.empty(); }
   // Who is given the files dropped on a target of the application's (`file://` URIs): the person
   // gave them to it (docs/adr/0030-installing-applications.mdx, decision 8), before its onDrop.
   void givesFiles(std::function<void(const std::string& uri)> give) { giveFiles_ = std::move(give); }
@@ -137,11 +143,16 @@ class DragDrop {
   // the motions it sent meanwhile reach the drag, not the view that let go of them.
   void takesPress(std::function<void()> take) { takePress_ = std::move(take); }
 
-  // The application drags `data` (Bloom's DragData) from the press it holds, allowing `actions`:
+  // The application drags `data` (Bloom's DragData) from its latest press, allowing `actions`:
   // `count` items, the view `preview` (-1: none) being the one pressed, its image (dragStack: as
   // it looks, stacked and badged for several) under the pointer where it was pressed. `done`
-  // receives the action the drop took, or nothing when it was cancelled or refused (no press held,
-  // nothing to offer). False if it was not started; `done` is then called at once.
+  // receives the action the drop took, or nothing when it was cancelled or refused (no press,
+  // nothing to offer). A press released by the time it starts is the compositor's to drop where it
+  // was released, as a Mac's drag session takes the mouse-up queued after the drag began. False if it was not started; `done` is then called at once.
+  // Asked from JavaScript, it starts once the batch of JavaScript's that asked has run and its
+  // commits are mounted (`startAsked`): its image is the view as the press left it (selected), never
+  // the tree from before the press, which a press and a motion handed to JavaScript together (on a
+  // loaded machine) gave it.
   // `vanish`: dropped on nothing, its image vanishes in a poof where it is (version 26). A drag of
   // files says their types (dragFileTypes).
   // `cancelled`, if given, is told why a drag ended without a drop before `done` is ("escape",
@@ -240,7 +251,10 @@ class DragDrop {
   Surfaces surfaces_;
   std::optional<Offer> offer_;
   std::vector<Receiving> receiving_;
-  // The pointer press held, if any: its serial, its surface and where it was (root coordinates).
+  // The latest pointer press, held or released since (none once the compositor cancelled it): its
+  // serial, its surface and where it was (root coordinates). A drag asked after its release (a
+  // loaded machine reads a press, its motions and its release in one turn) is the compositor's to
+  // drop where the press was released (docs/adr/0035-drag-and-drop.mdx, decision 2).
   uint64_t pressSerial_ = 0;
   uint32_t pressSurface_ = 0;
   facebook::react::Point pressPoint_{};
@@ -264,6 +278,12 @@ class DragDrop {
   Presence presence_ = Presence::Outside;
   std::function<void(const folly::dynamic&)> tellWindow_;
   std::function<void(const std::string& uri)> giveFiles_;
+  // A drag of JavaScript's, started from the tree as it is (`start`'s work).
+  bool startFrom(const folly::dynamic& data, const std::vector<std::string>& actions, facebook::react::Tag preview,
+                 int count, bool vanish, std::function<void(std::optional<std::string>)> done,
+                 std::function<void(const std::string&)> cancelled);
+  // Drags JavaScript asked for, started once what it committed is mounted.
+  std::vector<std::function<void()>> asked_;
   std::function<void()> takePress_;
 };
 

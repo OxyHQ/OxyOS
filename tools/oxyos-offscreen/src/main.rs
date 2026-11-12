@@ -21,6 +21,7 @@ mod passkeys;
 mod pasteboard;
 mod played_network;
 mod png;
+mod progress;
 mod reader;
 mod uinput;
 
@@ -74,6 +75,17 @@ impl Drop for TempDir {
 }
 
 struct Children(Vec<Child>);
+
+impl Children {
+    /// The application's exit, if it ended: the first child, when there is one (a login screen
+    /// has none).
+    fn application_exited(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self.0.first_mut() {
+            Some(application) => application.try_wait(),
+            None => Ok(None),
+        }
+    }
+}
 
 impl Drop for Children {
     fn drop(&mut self) {
@@ -134,6 +146,8 @@ struct Session {
     pasteboard: Option<pasteboard::Pasteboard>,
     /// With `--launch`: the assistive technology the session plays (reader.rs).
     reader: reader::Reader,
+    /// The frames that only turn a spinner, which a step's settling leaves aside (progress.rs).
+    progress: progress::ProgressFrames,
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
     /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
     launcher: Option<oxyos_apps::Launcher>,
@@ -146,6 +160,9 @@ struct Session {
     /// At a login screen (`--login`): whether the login program said the last session ended
     /// because of a problem (`OXYOS_LAST_SESSION_ENDED`), which the login screen asks.
     pub last_session_problem: Option<bool>,
+    /// Force Quit Applications and hung applications' reports, as the session has them
+    /// (docs/adr/0067-hangs-and-force-quit.mdx).
+    pub force_quit: oxyos_compositor::force_quit::ForceQuit,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -163,6 +180,9 @@ struct Session {
     /// With `--launch --shell`: the applications' login items and background activity, as the
     /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
     pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// With `--shell`: the session's shells, watched and started again as the session keeps its
+    /// own (docs/adr/0061, decision 6).
+    pub shells: Option<launch::Shells>,
     /// The processes the session ended for their background activity since a step last took them
     /// (each its application's id).
     pub background_ended: Vec<String>,
@@ -356,6 +376,7 @@ impl Session {
             ime: None,
             pasteboard: None,
             reader: reader::Reader::default(),
+            progress: progress::ProgressFrames::new(launch::CLIENT),
             launcher: None,
             crashes: oxyos_compositor::crashes::Crashes::new(
                 oxyos_compositor::crashes::Reports::of_user(),
@@ -363,12 +384,14 @@ impl Session {
             ),
             resume: None,
             last_session_problem: None,
+            force_quit: Default::default(),
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
             grants: Vec::new(),
             installs: None,
             background: None,
+            shells: None,
             background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
@@ -1115,9 +1138,20 @@ impl Session {
             .map(|(client, _)| *client)
     }
 
+    /// The shells' turn: watched, one that ended noticed and started again after its wait.
+    fn serve_shells(&mut self) {
+        if let Some(mut shells) = self.shells.take() {
+            if let Err(error) = shells.serve(self) {
+                eprintln!("[shell] {error}");
+            }
+            self.shells = Some(shells);
+        }
+    }
+
     /// Starts the applications the shell asked for that the registry lists, and answers it;
     /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {
+        self.serve_shells();
         self.serve_choosers();
         let (launcher, app) = (&self.launcher, &self.app);
         let companion = self.companion.zip(self.companion_app.clone());
@@ -1181,6 +1215,8 @@ impl Session {
         }
         // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
         self.crashes.exited(&mut self.compositor.scene, &exits);
+        // Those force-quit while hung: their reports (docs/adr/0067).
+        self.force_quit.exited(&mut self.crashes, &exits);
         // Resume follows what runs, and takes the person's answer to reopening again (ADR 0065).
         if let Some(resume) = self.resume.as_mut() {
             resume.serve(
@@ -1260,11 +1296,11 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, opened);
         }
-        for pid in self.compositor.take_force_quits() {
-            if launcher.force_quit(pid) {
-                eprintln!("[launch] force quit {pid}");
-            }
-        }
+        // The person's force quits, as the session ends them (docs/adr/0067-hangs-and-force-
+        // quit.mdx): the dock's, Super+Alt+Escape's and the Oxy menu's; a hung one asked for its
+        // report first.
+        self.force_quit
+            .serve(&mut self.compositor, launcher, std::time::Instant::now());
         // Files dropped on an application's icon in the dock (ADR 0034), opened with it as the
         // session opens them: from the run's own home.
         let requests = self.compositor.scene.take_open_files();
@@ -1772,7 +1808,7 @@ fn main() -> Result<()> {
         [flag, state, volumes, socket, cache, sources @ ..]
             if flag == "--play-backup" && !sources.is_empty() =>
         {
-            oxyos_backupd::run(oxyos_backupd::Arguments {
+            oxyos_backup::daemon::run(oxyos_backup::daemon::Arguments {
                 development: true,
                 state: state.into(),
                 socket: Some(socket.into()),

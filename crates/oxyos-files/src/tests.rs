@@ -495,61 +495,122 @@ fn emptying_the_trash_deletes_what_it_holds_even_read_only_folders() {
     assert_eq!(infos.count(), 0);
 }
 
-/// An item put in the home's Trash `days` ago, as another file manager would have put it: its
-/// info's deletion date in local time.
-fn trashed_days_ago(place: &Place, name: &str, days: i64, contents: &str) -> PathBuf {
-    let deleted = jiff::Zoned::now()
-        .checked_sub(jiff::SignedDuration::from_hours(days * 24))
-        .expect("a date");
+/// A time zone whose clocks change inside the tests' windows of days: America/Chicago's rules,
+/// as a POSIX TZ string (no zone database needed), daylight saving time from the second Sunday of
+/// March to the first Sunday of November.
+fn chicago() -> jiff::tz::TimeZone {
+    jiff::tz::TimeZone::posix("CST6CDT,M3.2.0,M11.1.0").expect("a POSIX time zone")
+}
+
+/// An item put in the home's Trash at `deleted`, as another file manager in `zone` would have put
+/// it: its info's deletion date that instant's wall time there, without an offset; the instant the
+/// info says, as the Trash reads it back.
+fn trashed_at(
+    place: &Place,
+    name: &str,
+    deleted: jiff::Timestamp,
+    zone: &jiff::tz::TimeZone,
+    contents: &str,
+) -> (PathBuf, i64) {
+    let date = deleted
+        .to_zoned(zone.clone())
+        .strftime("%Y-%m-%dT%H:%M:%S")
+        .to_string();
     place.file(
         &format!("home/ada/.local/share/Trash/info/{name}.trashinfo"),
-        &format!(
-            "[Trash Info]\nPath=/home/ada/{name}\nDeletionDate={}\n",
-            deleted.strftime("%Y-%m-%dT%H:%M:%S")
-        ),
+        &format!("[Trash Info]\nPath=/home/ada/{name}\nDeletionDate={date}\n"),
     );
-    place.file(
+    let path = place.file(
         &format!("home/ada/.local/share/Trash/files/{name}"),
         contents,
-    )
+    );
+    (path, trash::deletion_instant(&date, zone).expect("a date"))
+}
+
+#[test]
+fn a_deletion_date_is_read_with_its_zones_rules_for_that_date_and_never_as_older_than_it_is() {
+    let at = |date: &str, zone: &jiff::tz::TimeZone| {
+        jiff::Timestamp::from_millisecond(trash::deletion_instant(date, zone).expect("a date"))
+            .expect("an instant")
+    };
+    let utc = jiff::tz::TimeZone::UTC;
+    let instant = |text: &str| text.parse::<jiff::Timestamp>().expect("an instant");
+    // In daylight saving time and out of it, with the offset that date had.
+    assert_eq!(
+        at("2026-10-20T12:00:00", &chicago()),
+        instant("2026-10-20T17:00:00Z")
+    );
+    assert_eq!(
+        at("2026-11-20T12:00:00", &chicago()),
+        instant("2026-11-20T18:00:00Z")
+    );
+    assert_eq!(
+        at("2026-10-20T12:00:00", &utc),
+        instant("2026-10-20T12:00:00Z")
+    );
+    // The hour the clocks repeat (1 November 2026, 01:00 to 02:00 twice): the later of its two
+    // instants, so an item is never taken for an hour older than it is.
+    assert_eq!(
+        at("2026-11-01T01:30:00", &chicago()),
+        instant("2026-11-01T07:30:00Z")
+    );
+    // A wall time the clocks skipped (8 March 2026, 02:00 to 03:00): after the change.
+    assert_eq!(
+        at("2026-03-08T02:30:00", &chicago()),
+        instant("2026-03-08T08:30:00Z")
+    );
+    // No date, or not a date: none.
+    assert_eq!(trash::deletion_instant("", &utc), None);
+    assert_eq!(trash::deletion_instant("yesterday", &utc), None);
 }
 
 #[test]
 fn only_what_has_been_in_the_trash_longer_than_its_time_is_erased_and_the_next_is_said() {
-    let place = Place::new("sweep");
-    let scope = scope_in(&place);
-    let old = trashed_days_ago(&place, "old.txt", 40, "old");
-    let recent = trashed_days_ago(&place, "recent.txt", 10, "recent");
-    let newer = trashed_days_ago(&place, "newer.txt", 2, "newer");
-    // An item whose info gives no date is kept: nothing says how long it has been there.
-    let undated = place.file("home/ada/.local/share/Trash/files/undated.txt", "?");
-    let now = jiff::Timestamp::now().as_millisecond();
-    let swept = trash::erase_older(&scope, now - trash::KEPT_FOR_MS).expect("sweep");
-    assert_eq!(swept.erased, 1);
-    assert!(!old.exists());
-    assert!(!place
-        .path("home/ada/.local/share/Trash/info/old.txt.trashinfo")
-        .exists());
-    assert!(recent.exists() && newer.exists() && undated.exists());
-    // The next due is the earliest left: the one put in ten days ago, to the second.
-    let ten_days = 10 * 24 * 60 * 60 * 1000;
-    let next = swept.next.expect("a next");
-    assert!((next - (now - ten_days)).abs() < 2_000, "{next} vs {now}");
-    // Nothing older: nothing erased, the same next.
-    let again = trash::erase_older(&scope, now - trash::KEPT_FOR_MS).expect("sweep");
-    assert_eq!(
-        again,
-        trash::Swept {
-            erased: 0,
-            next: Some(next)
-        }
-    );
-    // An empty Trash has no next.
-    trash::empty(&scope).expect("empty");
-    assert_eq!(
-        trash::erase_older(&scope, now).expect("sweep"),
-        trash::Swept::default()
-    );
+    // Its time is elapsed time: in Chicago, the 30 days of an item put in on 20 October cross the
+    // change of 1 November, and end at 11:00 on 19 November by the wall clock, 720 hours on.
+    for zone in [jiff::tz::TimeZone::UTC, chicago()] {
+        let place = Place::new("sweep");
+        let scope = scope_in(&place);
+        let put = jiff::civil::date(2026, 10, 20)
+            .at(12, 0, 0, 0)
+            .to_zoned(zone.clone())
+            .expect("a date")
+            .timestamp();
+        let days = |n: i64| jiff::SignedDuration::from_hours(n * 24);
+        let (old, _) = trashed_at(&place, "old.txt", put - days(10), &zone, "old");
+        let (recent, recent_at) = trashed_at(&place, "recent.txt", put, &zone, "recent");
+        let (newer, _) = trashed_at(&place, "newer.txt", put + days(8), &zone, "newer");
+        // An item whose info gives no date is kept: nothing says how long it has been there.
+        let undated = place.file("home/ada/.local/share/Trash/files/undated.txt", "?");
+        assert_eq!(recent_at, put.as_millisecond());
+        // Thirty days after `recent` was put in, to the millisecond: it stays; `old` goes.
+        let now = (put + days(30)).as_millisecond();
+        let swept = trash::erase_older_in(&scope, now - trash::KEPT_FOR_MS, &zone).expect("sweep");
+        assert_eq!(
+            swept,
+            trash::Swept {
+                erased: 1,
+                next: Some(recent_at)
+            }
+        );
+        assert!(!old.exists());
+        assert!(!place
+            .path("home/ada/.local/share/Trash/info/old.txt.trashinfo")
+            .exists());
+        assert!(recent.exists() && newer.exists() && undated.exists());
+        // A millisecond on, it has been there longer than its time: it goes; `newer` is next.
+        let swept =
+            trash::erase_older_in(&scope, now + 1 - trash::KEPT_FOR_MS, &zone).expect("sweep");
+        assert_eq!(swept.erased, 1);
+        assert!(!recent.exists() && newer.exists());
+        assert_eq!(swept.next, Some((put + days(8)).as_millisecond()));
+        // An empty Trash has no next.
+        trash::empty(&scope).expect("empty");
+        assert_eq!(
+            trash::erase_older_in(&scope, now, &zone).expect("sweep"),
+            trash::Swept::default()
+        );
+    }
 }
 
 #[test]

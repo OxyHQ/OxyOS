@@ -218,6 +218,8 @@ pub struct Writer {
     pub language: Language,
     next: u32,
     paths: BTreeMap<u32, PathBuf>,
+    /// The screenshots given to its thread and not yet taken as written (`finished`).
+    writing: usize,
 }
 
 impl Writer {
@@ -264,6 +266,7 @@ impl Writer {
             language,
             next: 1,
             paths: BTreeMap::new(),
+            writing: 0,
         })
     }
 
@@ -287,6 +290,7 @@ impl Writer {
             .collect();
         let numbers = captures.iter().map(|(screenshot, _)| *screenshot).collect();
         if let (false, Some(jobs)) = (captures.is_empty(), &self.jobs) {
+            self.writing += captures.len();
             let _ = jobs.send(Job {
                 folder,
                 at,
@@ -312,12 +316,19 @@ impl Writer {
             .expect("not poisoned")
             .drain(..)
             .collect();
+        self.writing = self.writing.saturating_sub(saved.len());
         for saved in &saved {
             if let Ok(path) = &saved.path {
                 self.paths.insert(saved.screenshot, path.clone());
             }
         }
         saved
+    }
+
+    /// Whether a screenshot it was given is still being written, or written and not yet taken
+    /// (`finished`).
+    pub fn writing(&self) -> bool {
+        self.writing > 0
     }
 
     /// Where a screenshot it wrote is.
@@ -466,6 +477,8 @@ mod tests {
             at(),
         );
         assert_eq!(numbers, [1, 2]);
+        // Being written until both are taken.
+        assert!(writer.writing());
         let mut saved = Vec::new();
         for _ in 0..500 {
             saved.extend(writer.finished());
@@ -487,6 +500,7 @@ mod tests {
             (2, 4, 2)
         );
         assert_eq!(writer.path(2), Some(paths[1].as_path()));
+        assert!(!writer.writing());
         assert!(!documents.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }

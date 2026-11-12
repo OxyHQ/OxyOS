@@ -39,6 +39,7 @@ import {
   RiTranslate2,
   RiVolumeUpLine,
   RiWifiLine,
+  RiWindowLine,
 } from "@oxy.so/bloom/icons";
 import { resolveBloomLanguage, useBloomLocale } from "@oxy.so/bloom/locale";
 import { Loading } from "@oxy.so/bloom/loading";
@@ -1475,6 +1476,25 @@ function LanguageRegionPage({ snapshot, actions, strings }: PageProps) {
   );
 }
 
+/** Desktop & Dock, as a Mac's (docs/adr/0034-the-dock.mdx, 10 November 2026): *Automatically
+    hide and show the Dock*, the preference Super+Alt+D turns over too, the switch following it. */
+function DesktopDockPage({ snapshot, actions, strings }: PageProps) {
+  const words = strings.desktopDock;
+  return (
+    <View style={PAGE}>
+      <GroupedSection title={words.dock}>
+        <ToggleItem
+          title={words.autohide}
+          description={words.autohideDescription}
+          value={snapshot.preferences.dockAutohide}
+          onChange={(on) => actions.setPreference("dockAutohide", on)}
+          testID="dock-autohide"
+        />
+      </GroupedSection>
+    </View>
+  );
+}
+
 /** Accessibility, as a Mac's: Vision (the screen reader) and Display (reduce motion, reduce
     transparency and the steady caret, as a Mac's Display pane holds them). */
 function AccessibilityPage({ snapshot, actions, strings }: PageProps) {
@@ -2344,6 +2364,7 @@ export function Settings({
           // After Lock Screen, as a Mac lists Passwords after Touch ID & Password: where the
           // platform has an account session to keep them (docs/adr/0050-keychain-autofill-and-passkeys.mdx).
           ...(keychain ? [{ key: "passwords", label: words.passwords, icon: RiKey2Line, page: "passwords" }] : []),
+          { key: "desktop-dock", label: words.desktopDock, icon: RiWindowLine, page: "desktop-dock" },
           { key: "displays", label: words.displays, icon: RiComputerLine, page: "displays" },
           { key: "accessibility", label: words.accessibility, icon: RiAccessibilityLine, page: "accessibility" },
         ],
@@ -2387,6 +2408,7 @@ export function Settings({
       sound: { title: words.sound, content: <WithPageProps render={SoundPage} /> },
       "lock-screen": { title: words.lockScreen, content: <WithPageProps render={LockScreenPage} /> },
       ...(keychain ? { passwords: { title: words.passwords, content: <WithPageProps render={PasswordsPage} /> } } : {}),
+      "desktop-dock": { title: words.desktopDock, content: <WithPageProps render={DesktopDockPage} /> },
       displays: { title: words.displays, content: <WithPageProps render={DisplaysPage} /> },
       accessibility: { title: words.accessibility, content: <WithPageProps render={AccessibilityPage} /> },
       keyboard: { title: words.keyboard, content: <WithPageProps render={KeyboardPage} /> },

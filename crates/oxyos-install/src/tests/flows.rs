@@ -67,6 +67,8 @@ fn an_application_is_installed_whole_and_the_entry_asks_for_nothing() {
     assert!(
         entry.contains("X-OxyOS-Runtime=1\n") && entry.contains("X-OxyOS-Package-Version=12\n")
     );
+    // Its version as people read it, for the standard About panel (ADR 0021).
+    assert!(entry.contains("X-OxyOS-Version=1.12.0\n"), "{entry}");
     assert!(entry.contains(&format!("Icon={}\n", version.join("icon.svg").display())));
     assert!(
         !entry.contains("X-OxyOS-Grants"),

@@ -389,10 +389,14 @@
    }
   },
   {
-   "name": "Move to Trash: in the Trash, out of the list, the largest left chosen",
+   "name": "Move to Trash: in the Trash, out of the list, the largest left chosen, once the file service has moved it",
    "do": [
     "press_named",
     "Move to Trash"
+   ],
+   "until_named": [
+    "Show trip.mp4 in Dropsea",
+    10000
    ],
    "expect": {
     "texts": [

@@ -1,5 +1,5 @@
 {
- "about": "The session's language and region (docs/adr/0040-language-and-region.mdx) in a Spanish session (es_ES.UTF-8): Settings with the shell and the screen reader. Everything starts in Spanish: Settings' pages, the shell's Oxy menu and View menu, the top bar's clock as Spain writes it (24 hours), the reader's speech with eSpeak's Spanish voice. General › Idioma y región shows the system's choices and a sample formatted for Spain. Choosing English changes Settings, the shell, its clock (en-ES: Spain's date order, 24 hours) and the reader's words and voice at once, with no restart; 12-hour then changes the sample and the clock. The preferences file keeps the choices. At 1.25 (1600 × 1000).",
+ "about": "The session's language and region (docs/adr/0040-language-and-region.mdx) in a Spanish session (es_ES.UTF-8): Settings with the shell and the screen reader. Everything starts in Spanish: Settings' pages, the shell's Oxy menu and Settings' own menu in the bar (its name in the session's language), the top bar's clock as Spain writes it (24 hours), the reader's speech with eSpeak's Spanish voice. General › Idioma y región shows the system's choices and a sample formatted for Spain. Choosing English changes Settings, the shell, its clock (en-ES: Spain's date order, 24 hours) and the reader's words and voice at once, with no restart; 12-hour then changes the sample and the clock. The preferences file keeps the choices. At 1.25 (1600 × 1000).",
  "locale": "es_ES.UTF-8",
  "module": "OxyOSSettings",
  "window": [
@@ -49,7 +49,7 @@
     },
     "in_shell": {
      "texts": [
-      "Visualización"
+      "Ajustes"
      ],
      "texts_matching": [
       "^(lun|mar|mié|jue|vie|sáb|dom), \\d{1,2} (ene|feb|mar|abr|may|jun|jul|ago|sept?|oct|nov|dic) \\d{2}:\\d{2}$"
@@ -192,10 +192,10 @@
     },
     "in_shell": {
      "texts": [
-      "View"
+      "Settings"
      ],
      "absent": [
-      "Visualización"
+      "Ajustes"
      ],
      "texts_matching": [
       "^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) \\d{2}:\\d{2}$"

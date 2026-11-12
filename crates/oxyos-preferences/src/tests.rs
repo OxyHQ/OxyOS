@@ -28,6 +28,8 @@ fn the_defaults_are_what_nothing_says() {
     // Notifications show as banners, and the lock screen says only whose they are.
     assert!(!defaults.do_not_disturb);
     assert_eq!(defaults.notification_previews, Previews::Unlocked);
+    // The dock is shown, as a Mac's is until the person hides it.
+    assert!(!defaults.dock_autohide);
 }
 
 #[test]
@@ -39,6 +41,10 @@ fn notifications_previews_are_always_or_once_unlocked() {
     );
     assert_eq!(
         preferences.set("do_not_disturb", "on"),
+        Err(Refused::BadValue)
+    );
+    assert_eq!(
+        preferences.set("dock_autohide", "yes"),
         Err(Refused::BadValue)
     );
     assert_eq!(preferences, Preferences::default());
@@ -207,6 +213,7 @@ fn what_is_written_reads_back_the_same() {
         ("region", "MX"),
         ("hour_cycle", "h12"),
         ("do_not_disturb", "true"),
+        ("dock_autohide", "true"),
         ("notification_previews", "always"),
         ("empty_trash_automatically", "true"),
     ] {
@@ -389,7 +396,10 @@ fn the_persons_lists_of_applications_are_kept_whole_and_read_back() {
     let mut preferences = Preferences::default();
     // Until the person changes it, the dock is the registry's: no list.
     assert_eq!(preferences.dock, None);
-    assert!(!preferences.to_text().contains("dock"));
+    assert!(!preferences
+        .to_text()
+        .lines()
+        .any(|line| line.starts_with("dock=")));
     let ids = |list: &[&str]| list.iter().map(|id| id.to_string()).collect::<Vec<_>>();
     preferences
         .set_list(

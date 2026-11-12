@@ -46,6 +46,12 @@ export interface ShellIntents {
   hideApplication(window: number): void;
   /** Quits the application of the window `window`. */
   quitApplication(window: number): void;
+  /** Hides every application but the one of the window `window` (0: every one), as a Mac's
+      Hide Others (docs/adr/0021-menu-bar.mdx). */
+  hideOtherApplications(window: number): void;
+  /** Shows every hidden application again, the active window staying the active one, as a
+      Mac's Show All. */
+  showAllApplications(): void;
   /** Has the session end the application of the window `window` (ADR 0034). */
   forceQuitApplication(window: number): boolean;
   /** Moves the window `window` to the workspace `workspace`. */
@@ -127,6 +133,8 @@ const INTENTS: readonly (keyof ShellIntents)[] = [
   'minimizeWindow',
   'hideApplication',
   'quitApplication',
+  'hideOtherApplications',
+  'showAllApplications',
   'forceQuitApplication',
   'moveWindowToWorkspace',
   'activateWorkspace',
@@ -296,6 +304,13 @@ export function createShell(
       ask({ endSession: { action, confirm } }, options),
     /** Sleeps the computer at once (`{sleeping}`). */
     sleep: (options?: CallOptions) => ask({ sleep: {} }, options),
+    /** Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session shows its
+        sheet, citing the press or key that asked. */
+    forceQuit: (options?: CallOptions) => ask({ forceQuit: {} }, options),
+    /** Force Quit Applications' answer: the application chosen in the sheet `sheet`, which the
+        session ends (a hung one after its report), citing the press or key. */
+    forceQuitApplication: (sheet: number, id: string, options?: CallOptions) =>
+      ask({ forceQuitApplication: { sheet, id } }, options),
   };
 }
 

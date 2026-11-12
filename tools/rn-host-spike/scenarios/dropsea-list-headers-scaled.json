@@ -467,7 +467,7 @@
    }
   },
   {
-   "name": "Tab: the Tags section's Purple, said once, in view already (Bloom's 13px rows leave room for it; Grey and All Tags still scroll)",
+   "name": "Tab: the Tags section's Purple, said once, already in the sidebar's view (Bloom 17.36's flush sidebar leaves it room): no scroll",
    "do": [
     "key",
     [

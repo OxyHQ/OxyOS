@@ -8423,6 +8423,8 @@ mod choosers;
 mod controls;
 mod displays;
 mod dock;
+/// The dock hiding automatically (ADR 0034, 10 November 2026).
+mod dock_hiding;
 mod drag;
 /// Mission Control and App Exposé (ADR 0045).
 mod expose;
@@ -8430,6 +8432,8 @@ mod expose;
 mod input_sources;
 /// Key repeat (ADR 0036).
 mod key_repeat;
+/// A surface's material regions (docs/adr/0069-the-platforms-material.mdx).
+mod material;
 /// The menu bar (ADR 0021).
 mod menus;
 /// Where each window minimizes into (ADR 0011's genie).

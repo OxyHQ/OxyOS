@@ -11,7 +11,7 @@ import { RiBatteryLine } from "@oxy.so/bloom/icons/RiBatteryLine";
 import { RiNotificationOffFill } from "@oxy.so/bloom/icons/RiNotificationOffFill";
 import { RiArrowRightSLine } from "@oxy.so/bloom/icons/RiArrowRightSLine";
 import { Box, PressArea } from "../primitives";
-import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
+import { FACE, INK, QUIET, card } from "./control-style";
 import { batteryLabel, bluetoothLabel, wifiLabel, wifiOn } from "../controls";
 import type { ShellControl, ShellControls, ShellLevel } from "../model";
 import { hasWifiView } from "../network";
@@ -22,7 +22,8 @@ import { SoundPanel } from "./SoundPanel";
 import { BluetoothPanel } from "./BluetoothPanel";
 import { LevelSlider, type Icon } from "./LevelSlider";
 import { useShellMessages } from "../useShellMessages";
-import { useReducedTransparency } from "@oxy.so/bloom/theme";
+import { BloomColorScope, useReducedTransparency, useTheme } from "@oxy.so/bloom/theme";
+import { useAccent } from "./accent";
 import { glass } from "./glass";
 
 /** What the Control Center shows: its modules, or Wi-Fi's (docs/adr/0038-networks.mdx), Sound's
@@ -59,10 +60,11 @@ const Module = memo(function Module({
   testID: string;
 }) {
   const Glyph = icon;
+  const accent = useTheme().colors.primary;
   const face = (
     <Box
       className="items-center justify-center rounded-full"
-      style={{ width: 32, height: 32, backgroundColor: on ? ACCENT : FACE }}
+      style={{ width: 32, height: 32, backgroundColor: on ? accent : FACE }}
     >
       <Glyph width={17} height={17} fill={on ? "#ffffff" : INK} />
     </Box>
@@ -221,6 +223,7 @@ export const ControlCenter = memo(function ControlCenter({
   doNotDisturb?: { on: boolean; set: (enabled: boolean) => void };
 }) {
   const reduced = useReducedTransparency();
+  const accentPreset = useAccent();
   // Opened, it looks at the machine again: what another program changed shows.
   useEffect(() => {
     controls.refresh?.();
@@ -265,7 +268,9 @@ export const ControlCenter = memo(function ControlCenter({
       soundView ? { label: words.outputDevices, value: outputName, open: () => showPage?.("sound") } : undefined,
     [soundView, words, outputName, showPage],
   );
+  // In the person's accent, as a Mac's Control Center draws a control that is on.
   return (
+    <BloomColorScope colorPreset={accentPreset} asChild>
     <Box className="absolute inset-0">
       <PressArea
         testID="control-center-outside"
@@ -406,5 +411,6 @@ export const ControlCenter = memo(function ControlCenter({
         )}
       </Box>
     </Box>
+    </BloomColorScope>
   );
 });

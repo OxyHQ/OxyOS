@@ -507,9 +507,11 @@ impl Search {
         };
         let languages = oxyos_apps::languages_of_tag(self.locale.as_deref().unwrap_or("en"));
         let listed: Vec<Value> = self.listing.as_ref().map_or_else(Vec::new, |listing| {
+            // An application never listed (`NoDisplay`, About This Computer) is never found.
             listing
                 .applications(&languages)
                 .iter()
+                .filter(|application| application.shown)
                 .map(application_json)
                 .collect()
         });

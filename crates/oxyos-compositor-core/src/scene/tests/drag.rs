@@ -179,7 +179,7 @@ fn a_drag_reaches_the_window_under_the_pointer_with_its_types_and_no_other() {
 }
 
 #[test]
-fn only_a_held_press_of_the_source_on_that_window_starts_a_drag() {
+fn only_the_latest_press_of_the_source_on_that_window_starts_a_drag() {
     let refused = |events: &[(ClientId, Event)]| {
         to(events, APP).contains(&Event::DragCancelled {
             drag: 7,
@@ -210,10 +210,13 @@ fn only_a_held_press_of_the_source_on_that_window_starts_a_drag() {
     )
     .unwrap();
     assert!(refused(&logged(&mut d.h)) && !d.h.scene.dragging());
-    // A press released already.
+    // A press released, and another pressed since (the target's, released too).
     let mut d = desk();
     let (x, y) = center(&d.h, d.source);
     let serial = d.h.press(x, y);
+    d.h.scene.pointer_button(BUTTON, false);
+    let (x, y) = center(&d.h, d.target);
+    d.h.press(x, y);
     d.h.scene.pointer_button(BUTTON, false);
     d.h.request(
         APP,
@@ -275,6 +278,92 @@ fn only_a_held_press_of_the_source_on_that_window_starts_a_drag() {
     )
     .unwrap();
     assert!(refused(&logged(&mut d.h)) && !d.h.scene.dragging());
+}
+
+#[test]
+fn a_drag_asked_after_its_press_was_released_is_dropped_where_it_was_let_go() {
+    // A loaded client reads a press, its motions and its release in one turn and asks for the drag
+    // only then: as a Mac's drag session takes the events queued after the one it began from, the
+    // drag enters the surface where the press was released, wherever the pointer went since, and
+    // is dropped there once that surface answered.
+    let mut d = desk();
+    d.h.scene.set_version(OTHER, crate::scene::DRAG_VERSION);
+    let (x, y) = center(&d.h, d.source);
+    let serial = d.h.press(x, y);
+    let (tx, ty) = center(&d.h, d.target);
+    d.h.scene.pointer_motion(tx - 20, ty);
+    d.h.scene.pointer_motion(tx, ty);
+    d.h.scene.pointer_button(BUTTON, false);
+    let (ox, oy) = center(&d.h, d.third);
+    d.h.scene.pointer_motion(ox, oy);
+    d.h.clear_log();
+    d.h.request(
+        APP,
+        Request::DragType {
+            drag: 7,
+            mime: mime(URIS),
+        },
+    )
+    .unwrap();
+    d.h.request(
+        APP,
+        Request::StartDrag {
+            drag: 7,
+            surface: d.source.id,
+            icon: 0,
+            serial,
+            actions: DragActions::COPY.union(DragActions::MOVE),
+        },
+    )
+    .unwrap();
+    let events = logged(&mut d.h);
+    let let_go = d.h.scene.local(d.target, tx, ty);
+    let target = to(&events, OTHER);
+    let Some(&Event::DragEnter {
+        offer,
+        serial: entered,
+        x,
+        y,
+        ..
+    }) = target
+        .iter()
+        .find(|event| matches!(event, Event::DragEnter { .. }))
+    else {
+        panic!("{events:?}");
+    };
+    assert_eq!((x, y), let_go);
+    let Some(ping) = target.iter().find_map(|event| match event {
+        Event::Ping { serial } => Some(*serial),
+        _ => None,
+    }) else {
+        panic!("{events:?}");
+    };
+    // The window the pointer is over now learns nothing; nothing is decided before the answer.
+    assert!(drag_events(&to(&events, LOCKER)).is_empty(), "{events:?}");
+    assert!(!drag_events(&to(&events, APP)).iter().any(|event| matches!(
+        event,
+        Event::DragDropped { .. } | Event::DragCancelled { .. }
+    )));
+    accept(&mut d.h, OTHER, offer, entered, URIS);
+    d.h.request(OTHER, Request::Pong { serial: ping }).unwrap();
+    let events = logged(&mut d.h);
+    assert!(
+        drag_events(&to(&events, OTHER))
+            .iter()
+            .any(|event| matches!(
+                event,
+                Event::DragDrop { offer: o, x, y, action: DragActions::MOVE, .. }
+                    if *o == offer && (*x, *y) == let_go
+            )),
+        "{events:?}"
+    );
+    assert!(
+        drag_events(&to(&events, APP)).contains(&Event::DragDropped {
+            drag: 7,
+            action: DragActions::MOVE
+        })
+    );
+    assert!(!d.h.scene.dragging());
 }
 
 #[test]
