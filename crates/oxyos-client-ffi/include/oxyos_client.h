@@ -188,6 +188,10 @@ typedef struct OxyOSClient OxyOSClient;
 /* The compositor's Ping (serial), given only to a client that answers pings itself
  * (oxyos_client_answer_pings_itself), which answers with oxyos_client_pong. */
 #define OXYOS_EVENT_PING 230
+/* The compositor asks whether the client has handled everything it was sent before (serial), given
+ * only to a client that answers pings itself, which answers with oxyos_client_pong once it has,
+ * never waiting for it to be idle besides (protocol version 49). */
+#define OXYOS_EVENT_PING_HANDLED 233
 /* Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: DRAG_ENTER (surface; serial: the
  * entering, which oxyos_client_accept_drag cites; code: the offer; x, y: surface-local, as a
  * POINTER's; detail: the source's actions, OXYOS_DRAG_* bits; width: how many DRAG_OFFER_TYPE

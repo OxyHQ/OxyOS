@@ -94,7 +94,8 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// version 45, a surface's material regions (`MaterialRegion`, docs/adr/0069-the-platforms-material.mdx);
 /// versions 46 and 47 are other changes' in flight (OxyOS #553, #545);
 /// version 48, the shell laying out a window (`LayOutWindow`, ADR 0016, decision 12: the Window
-/// menu's tiling and Zoom).
+/// menu's tiling and Zoom); version 49, a Ping answered once the client has handled what came
+/// before it, never waiting for it to be idle besides (`PingHandled`).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -119,6 +120,7 @@ const EVENTS_ADDED: Added = &[
     (37, 167..=167),
     (38, 168..=169),
     (43, 75..=75),
+    (49, 233..=233),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),

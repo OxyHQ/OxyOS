@@ -588,7 +588,7 @@
       }
     },
     {
-      "name": "with no window, the desktop's Ventana menu is there and offers nothing",
+      "name": "with no window, the desktop's Ventana menu is there and offers nothing: its rows reach the assistive technology as disabled",
       "do": [
         "press_named",
         "Ventana"
@@ -604,7 +604,25 @@
             "Mover y redimensionar"
           ]
         },
-        "react": {}
+        "react": {},
+        "at": {
+          "shell": [
+            {
+              "role": "MenuItem",
+              "name": "Zoom",
+              "state": [
+                "disabled"
+              ]
+            },
+            {
+              "role": "MenuItem",
+              "name": "Rellenar",
+              "state": [
+                "disabled"
+              ]
+            }
+          ]
+        }
       }
     },
     {

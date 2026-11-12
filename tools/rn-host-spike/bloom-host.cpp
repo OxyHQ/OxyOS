@@ -4104,6 +4104,12 @@ int main(int argc, char** argv) {
           bool staging = js->staging();
           pingsWaiting.push_back({serial, staging ? js->batch() : js->running(), !staging});
         }
+        // PingHandled (protocol version 49) asks only whether JavaScript ran what came before it:
+        // answered once it has, however busy JavaScript is besides (a timer every 50 ms, an
+        // animation), so a director waiting for a step's input to be taken is answered.
+        for (uint64_t serial : window->takeHandledPings()) {
+          pingsWaiting.push_back({serial, js->staging() ? js->batch() : js->running(), false});
+        }
         // What the turn queued for JavaScript runs, together, once JavaScript is idle.
         toJavaScript.handOver();
         if (!offeredKey) {

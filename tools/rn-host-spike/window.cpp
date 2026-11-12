@@ -111,6 +111,10 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       pings_.push_back(event.serial);
       continue;
     }
+    if (event.kind == OXYOS_EVENT_PING_HANDLED) {
+      handledPings_.push_back(event.serial);
+      continue;
+    }
     // The person's input, as received, and handled as the cause of what it delivers to React.
     Report::get().received(event);
     Report::Handling handling(event);
