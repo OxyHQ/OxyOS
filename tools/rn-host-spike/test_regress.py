@@ -501,6 +501,20 @@ class LaunchToContentOnTheCpu(unittest.TestCase):
         self.assertIsNone(regress.content_shown_cpu_ms(self.report, ["Proyectos"]))
 
 
+
+class PlayedServicesEnd(unittest.TestCase):
+    """What regress plays beside the session (`played`): ended as it exits whatever ended the run,
+    never left running (a run failing at once left its played power services)."""
+
+    def test_a_service_still_running_is_ended_and_one_ended_is_left_be(self):
+        running = regress.played(subprocess.Popen(["sleep", "60"]))
+        ended = regress.played(subprocess.Popen(["true"]))
+        ended.wait()
+        regress.end_played()
+        self.assertIsNotNone(running.poll())
+        self.assertEqual(ended.returncode, 0)
+        self.assertEqual(regress.PLAYED, [])
+
 class SpinnerFrames(unittest.TestCase):
     """`progress_frames`: the frames the application presented in the step that turned only spinning
     rings (its report's `present` lines with `progress_only`), from the step before's end on."""
