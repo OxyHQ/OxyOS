@@ -91,7 +91,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040), or
   "typed", the echo of text typed at once, said as the field took it: whole, or in the pieces it
   took one after another, which join to it (each matching the other keys): a field takes a key
-  once JavaScript has answered it (docs/adr/0067-the-ui-thread.mdx, decision 6); in a
+  once JavaScript has answered it (docs/adr/0071-the-ui-thread.mdx, decision 6); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
   minute it was said or the one before); spoken_any_order: the same, each said once, in either
@@ -312,7 +312,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   that changed nothing but spinning rings (progress-bar.h; its report's `present` lines with
   `progress_only`): an ActivityIndicator turning on the UI thread, each refresh, while the step
   settled around it (a step's settling leaves those frames aside, tools/oxyos-offscreen/src/progress.rs);
-- stall: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx): the step's longest
+- stall: JavaScript held while something moves (docs/adr/0071-the-ui-thread.mdx): the step's longest
   stretch of JavaScript's work on its thread (`js_timing`, at least "block_ms_min", 450 by default)
   is the block, and what moves ("motion": "animated:TARGET", the props Animated's native driver
   set on it; "committed:TARGET", Reanimated's commits mounted; "frames", the window's frames, a
@@ -3617,7 +3617,7 @@ def stall_held(measured, strict):
 
 
 def check_stall(wanted, report, start, end, fail, refresh_hz):
-    """The step's `stall`: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx).
+    """The step's `stall`: JavaScript held while something moves (docs/adr/0071-the-ui-thread.mdx).
     The block is the step's longest stretch of JavaScript's work on its thread (`js_timing`), at least
     "block_ms_min" long; what moves is drawn throughout it, by the UI thread: the window's frames
     presented in it (with the last before it and the first after), and the lines of what moves
@@ -5335,7 +5335,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # through at least `frames_min` places between them (`frames_max`: at most). A change at
         # once (`frames_max` 0) may be the step's first frame composed, the application having
         # answered the input with its whole change before the compositor composed anything else
-        # (docs/adr/0067-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
+        # (docs/adr/0071-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
         wanted = expect["menu_morph"]
         composed_menus = result.get("menu_frames", [])
         surfaces = {(menu[0], menu[1]) for menus in composed_menus for menu in menus}

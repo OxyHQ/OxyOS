@@ -681,7 +681,7 @@ class GlidesMeetInput(unittest.TestCase):
 
 
 class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
-    """A step's `stall` (docs/adr/0067-the-ui-thread.mdx): what moves is drawn through a block of
+    """A step's `stall` (docs/adr/0071-the-ui-thread.mdx): what moves is drawn through a block of
     JavaScript's, every run half the block's refreshes, with --speed-budgets each refresh."""
 
     @staticmethod
@@ -728,7 +728,7 @@ class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
 
 class TypedTextEchoedAsTheFieldTookIt(unittest.TestCase):
     """`spoken`'s "typed": text typed at once is echoed whole or in pieces, as the field took each key
-    (a field takes a key once JavaScript answered it, docs/adr/0067-the-ui-thread.mdx)."""
+    (a field takes a key once JavaScript answered it, docs/adr/0071-the-ui-thread.mdx)."""
 
     wanted = [{"typed": "ada", "interrupting": True}, {"text": "Ese nombre ya está en uso", "interrupting": True}]
 

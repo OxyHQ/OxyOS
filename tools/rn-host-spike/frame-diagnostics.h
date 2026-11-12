@@ -3,7 +3,7 @@
 // cheap enough to leave on in every session, so that a machine that feels slow says why without
 // anyone running a profiler on it (docs/performance.mdx, "Reading the session's log").
 //
-// The host has two threads (docs/adr/0067-the-ui-thread.mdx), each measured on its own clocks
+// The host has two threads (docs/adr/0071-the-ui-thread.mdx), each measured on its own clocks
 // (thread-clock.h): by the wall clock, what a person waits for, and by the thread's own CPU clock,
 // what the work cost however loaded the machine, with the rest of its wall time told apart as the
 // thread blocked (waiting for another thread, a lock, a file: never hidden) or preempted (runnable

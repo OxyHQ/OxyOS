@@ -1,5 +1,5 @@
 {
- "about": "The timing phase's check of stall.json (docs/adr/0067-the-ui-thread.mdx; docs/performance.mdx): the same steps alone on the gate's reserved cores, where --speed-budgets holds each motion to a frame each refresh while JavaScript is held 500 ms: the gaps between the window's frames through the block within 1.5 refreshes at the 95th percentile and none over 2, 90 % of the block's refreshes drawn, and of the motion's own lines. ",
+ "about": "The timing phase's check of stall.json (docs/adr/0071-the-ui-thread.mdx; docs/performance.mdx): the same steps alone on the gate's reserved cores, where --speed-budgets holds each motion to a frame each refresh while JavaScript is held 500 ms: the gaps between the window's frames through the block within 1.5 refreshes at the 95th percentile and none over 2, 90 % of the block's refreshes drawn, and of the motion's own lines. ",
  "module": "StallProbe",
  "window": [
   480,

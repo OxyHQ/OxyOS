@@ -5105,7 +5105,7 @@ pub unsafe extern "C" fn oxyos_client_poll(
 /// From now on the client answers the compositor's pings itself: `oxyos_client_poll` gives each
 /// as OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client
 /// answers with `oxyos_client_pong` once it handled what came before it (a runtime whose events
-/// are handled on another thread than the one reading them, docs/adr/0067-the-ui-thread.mdx).
+/// are handled on another thread than the one reading them, docs/adr/0071-the-ui-thread.mdx).
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.
