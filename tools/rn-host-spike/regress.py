@@ -902,7 +902,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_press_taken", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "cue", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
@@ -1367,6 +1367,10 @@ def director_args(step, out):
     if kind == "hold_output":
         # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
         return args + ["--hold-output", ",".join(map(str, value))]
+    if kind == "double_press_taken":
+        # A double click whose first click the application took before the second, the second
+        # carrying the hand's time 100 ms after the first: [x, y].
+        return args + ["--double-press-taken", ",".join(map(str, value))]
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]

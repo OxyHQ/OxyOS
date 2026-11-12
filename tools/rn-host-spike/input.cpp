@@ -484,6 +484,11 @@ void PointerInput::handle(const OxyOSEvent& event) {
         if (!responderCancelled_) dispatch(Phase::End, x, y);
         if (gestures_) gestures_(2, content_, x, y);
         down_ = false;
+        // Released on the text input it was pressed on: it takes focus now (focusesTextInputs).
+        if (!responderCancelled_ && focusText_ && isTextInput(tree_, target_) &&
+            hitTest(tree_, content_, x, y) == target_) {
+          focusText_(target_);
+        }
       }
       break;
     case OXYOS_POINTER_LEAVE:

@@ -1503,6 +1503,8 @@ int main(int argc, char** argv) {
     pointer.opensTextMenus([&editing](facebook::react::Tag view, uint32_t surface, float x, float y) {
       editing.contextMenu(view, surface, x, y);
     });
+    // A click on an unfocused text input focuses it at its release, in the order of the input.
+    pointer.focusesTextInputs([&editing](facebook::react::Tag view) { editing.focusFromPress(view); });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
       return it == tree.views().end() ? std::string() : oxyos::Report::name(it->second.view);

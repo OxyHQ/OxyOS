@@ -105,6 +105,14 @@ class PointerInput {
   void opensTextMenus(std::function<void(facebook::react::Tag, uint32_t surface, float x, float y)> open) {
     textMenu_ = std::move(open);
   }
+  // A primary press released on the text input it began on, its touch not cancelled (a gesture
+  // handler took it), focuses that input there and then, in the order of the input, as Android's
+  // View.onTouchEvent requests focus at ACTION_UP for a view focusable in touch mode: `focus` with
+  // the input, after its touchEnd. React Native's TextInput also focuses on that press (its
+  // `onPress`), but only once JavaScript has run it: a second click read before then would be
+  // counted on an input still unfocused, and how many selection changes a double click made would
+  // depend on the machine's load.
+  void focusesTextInputs(std::function<void(facebook::react::Tag)> focus) { focusText_ = std::move(focus); }
   // The touch's start, moves, end and cancel (0 to 3) also go to gesture handlers
   // (gesture-handler.h), after React Native, as Android's root view passes them on.
   void feedsGestures(std::function<void(int phase, const SurfaceContent& content, float x, float y)> feed) {
@@ -285,6 +293,7 @@ class PointerInput {
   // fingers lift.
   facebook::react::Tag fingerTarget_ = -1;
   std::function<void(facebook::react::Tag, uint32_t, float, float)> textMenu_;
+  std::function<void(facebook::react::Tag)> focusText_;
   // The primary button is held as a Control-click on a text input: its press and release are the
   // secondary button's.
   bool controlClick_ = false;
