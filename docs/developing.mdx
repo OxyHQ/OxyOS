@@ -160,8 +160,9 @@ the backup service's program (`/usr/libexec/oxyos-backupd`, where its units star
 be left out of a deploy. What is deployed is a commit: a tree, or a checkout named in `local.conf`, with changes not committed
 is refused. The deploy runs the gate (in the gate's slice where the machine has one), then the
 `astro*` scenarios against `ASTRO_PACKAGE` when it is set, stages what passed as the image installs
-it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there,
-installs the runtime, the system applications, their entries and policy, the input methods, the
+it, sends it, and `tools/deploy/remote.sh` runs on the test machine: it builds the session there
+(the builds and unpacking in an idle scope of `user.slice`, background work beside the person at the
+seat, [ADR 0066](./adr/0066-quality-of-service), decision 6), installs the runtime, the system applications, their entries and policy, the input methods, the
 sounds and wallpapers root-owned under `/usr/lib/oxyos` and `/usr/share`, each tree swapped in whole
 (the one before kept as `.old`), the login, accounts and PIN stack (every file of
 `tools/deploy/system-files`: the session, the login program, `oxyos-accountd`, `oxyos-pin-check`, their

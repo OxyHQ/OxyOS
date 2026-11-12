@@ -10,10 +10,21 @@
 set -e
 V=$HOME/oxyos-validation
 cd "$V"
+# What a deploy builds and unpacks here is background work on a machine someone may be using
+# (docs/adr/0066-quality-of-service.mdx, decision 6): it runs in a scope of its own in user.slice,
+# idle beside every user's slice (CPUWeight=idle: the group's cpu.idle, as SCHED_IDLE), with
+# IOWeight=10 and the idle I/O class (honoured once the disk's scheduler is mq-deadline, decision 6's
+# udev rule; `none`, the ThinkPad's today, orders no I/O). Not nice alone: nice orders threads only
+# within one control group, and the person at the seat is most often another user, whose slice
+# weighs as much as this ssh session's.
+background() {
+  sudo -n -E systemd-run --scope --quiet --collect --slice=user.slice -p CPUWeight=idle -p IOWeight=10 \
+    --uid="$(id -u)" --gid="$(id -g)" env PATH="$PATH" nice -n 19 ionice -c3 "$@"
+}
 # The source is replaced whole (only its build output kept), so a file the tree no longer has (an
 # old build.rs) is not built.
 mkdir -p oxyos-try && find oxyos-try -mindepth 1 -maxdepth 1 ! -name target -exec rm -rf {} +
-(cd oxyos-try && tar xzf ../try-src.tgz)
+(cd oxyos-try && background tar xzf ../try-src.tgz)
 # The system sounds play through PipeWire (docs/adr/0044-system-sounds.mdx): the session links
 # libpipewire through its Rust bindings, built with its headers and libclang. Only in a tree that has it.
 if [ -d oxyos-try/crates/oxyos-sound ]; then
@@ -21,7 +32,7 @@ if [ -d oxyos-try/crates/oxyos-sound ]; then
   [ -z "$missing" ] || sudo -n apt-get install -y -q --no-install-recommends $missing > /dev/null
 fi
 # The session, the screen reader, and the login, accounts and PIN stack, built here.
-(cd oxyos-try && ~/.cargo/bin/cargo build -q --release --locked -p oxyos-reader $(cat ../build-packages) 2>&1 | tail -3)
+(cd oxyos-try && background ~/.cargo/bin/cargo build -q --release --locked -p oxyos-reader $(cat ../build-packages) 2>&1 | tail -3)
 # Signing in with an Oxy account and a PIN (ADR 0020, ADR 0010): every file of tools/deploy/system-files
 # (checked against the tree by the deploy) root-owned at its path, then the users, directories and
 # Yama ptrace scope 1 its files make (no application can read the token of another).
@@ -111,7 +122,7 @@ echo "backups: $(restic version | cut -d' ' -f1-2), $(rclone version | head -1),
 # DRM node of a GPU that drives no display (a laptop's sleeping discrete GPU, for one), any NVK
 # library, or a nouveau line in the kernel log stops the deploy. Only in a tree that has it.
 if [ -d oxyos-try/crates/oxyos-gpu-device ]; then
-  (cd oxyos-try && ~/.cargo/bin/cargo build -q --release --locked --example compositors-gpu -p oxyos-paint 2>&1 | tail -3)
+  (cd oxyos-try && background ~/.cargo/bin/cargo build -q --release --locked --example compositors-gpu -p oxyos-paint 2>&1 | tail -3)
   # strace as a package (a development tool, like the compilers: an unpacked copy breaks when the
   # libraries it needs are not on the machine, as after the conversion of 7 November 2026).
   command -v strace >/dev/null || sudo -n apt-get install -y -q --no-install-recommends strace >/dev/null
@@ -126,7 +137,7 @@ if [ -d oxyos-try/crates/oxyos-gpu-device ]; then
   [ "$before" = "$after" ] || { echo "nouveau logged $((after - before)) lines"; exit 1; }
   echo "one GPU: only $(echo $allowed | tr "\n" " ")opened"
 fi
-rm -rf $V/.unpack && mkdir -p $V/.unpack && tar xzf deploy.tgz -C $V/.unpack
+rm -rf $V/.unpack && mkdir -p $V/.unpack && background tar xzf deploy.tgz -C $V/.unpack
 # The runtime and the system applications, root-owned and read-only to everyone else, each tree
 # swapped in whole (the one before kept as .old until the next deploy).
 for tree in runtimes/1 apps; do
