@@ -301,6 +301,19 @@ type Registered = {
   /** False for an entry never listed (`NoDisplay`): About This Computer, which the Oxy menu opens. */
   shown?: boolean;
 };
+/** An application of the registry as the shell's model has it (one with an icon). */
+function modelled(app: Registered, pinned: boolean) {
+  return {
+    id: app.id,
+    name: app.name,
+    icon: app.icon!,
+    iconBody: app.iconBody ?? undefined,
+    pinned,
+    opens: app.opens,
+    version: app.version ?? undefined,
+    build: app.build ?? undefined,
+  };
+}
 type Controls = NonNullable<React.ComponentProps<typeof Shell>['controls']>;
 type Level = { level: number; muted: boolean; available: boolean } | null;
 type ToldControls = Record<'output' | 'input' | 'display' | 'keyboard', Level> & {
@@ -501,17 +514,14 @@ function SessionShell() {
       .filter((app) => app.icon !== null && app.shown !== false)
       .map((app, order) => ({ app, order, place: place(app) }))
       .sort((a, b) => (a.place ?? Infinity) - (b.place ?? Infinity) || a.order - b.order)
-      .map(({ app, place }) => ({
-        id: app.id,
-        name: app.name,
-        icon: app.icon!,
-        iconBody: app.iconBody ?? undefined,
-        pinned: place !== null,
-        opens: app.opens,
-        version: app.version ?? undefined,
-        build: app.build ?? undefined,
-      }));
+      .map(({ app, place }) => modelled(app, place !== null));
   }, [registry, kept]);
+  // The applications no list shows: the bar names their windows and the standard About panel
+  // shows their icon and version (ADR 0021).
+  const unlisted = React.useMemo(
+    () => registry.filter((app) => app.icon !== null && app.shown === false).map((app) => modelled(app, false)),
+    [registry],
+  );
   // Who opens at login and what the Trash holds, once the session told them (ADR 0034).
   const openAtLogin = lists?.openAtLogin ?? undefined;
   const trashItems: number | null = state?.trashItems ?? null;
@@ -527,18 +537,21 @@ function SessionShell() {
   const menuName = applicationName(active, registry);
   const activeAppId = toldWindows.find((window) => window.focused)?.appId;
   const { others, hidden } = applicationsShown(windows, active?.appId);
+  const workspaceId = String(state?.active ?? 0);
+  // The Window menu moves the active window to each other desktop (ADR 0016, decision 12).
+  const activeDesktop = active ? String(active.workspace) : undefined;
   const menus = React.useMemo(
     () =>
       bar && bar.window !== 0
-        ? applicationMenus(bar, menuName, messages, { others, hidden })
+        ? applicationMenus(bar, menuName, messages, { others, hidden }, { desktops: workspaces, current: activeDesktop })
         : desktopMenus(messages, { trashItems: trashItems ?? undefined, shown: { others, hidden } }),
-    [bar, menuName, messages, others, hidden, trashItems],
+    [bar, menuName, messages, others, hidden, trashItems, workspaces, activeDesktop],
   );
-  const workspaceId = String(state?.active ?? 0);
   const shown: ShellSnapshot = React.useMemo(
     () => ({
       ...snapshot,
       applications,
+      unlisted,
       folders: NO_FOLDERS,
       windows,
       workspaces,
@@ -549,7 +562,7 @@ function SessionShell() {
       trash,
       safeMode,
     }),
-    [applications, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash, safeMode],
+    [applications, unlisted, windows, workspaces, workspaceId, activeAppId, menus, openAtLogin, trash, safeMode],
   );
   // The actions read the state when they act, so they are made once (and again once the session
   // told the person's lists, which a session of an older protocol never does).
@@ -663,6 +676,20 @@ function SessionShell() {
             break;
           case 'emptyTrash':
             shell.emptyTrash();
+            break;
+          // The Window menu's, the compositor's (ADR 0016, decision 12): minimized into the dock,
+          // or moved to another desktop, as the shell's own minimize and move are.
+          case 'minimize':
+            shell.minimizeWindow(command.window);
+            break;
+          case 'zoom':
+            shell.layOutWindow(command.window, 'zoom');
+            break;
+          case 'layout':
+            shell.layOutWindow(command.window, command.layout);
+            break;
+          case 'moveToDesktop':
+            shell.moveWindowToWorkspace(command.window, Number(command.desktop));
             break;
           default:
             break;

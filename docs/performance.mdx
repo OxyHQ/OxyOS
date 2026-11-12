@@ -93,7 +93,7 @@ main one, and its JavaScript thread, `oxyos-js`, too).
 
 **Each Bloom host** (an application, the shell, the login screen) writes, named by the
 application's id (else its module), lines of six kinds (`tools/rn-host-spike/frame-diagnostics.h`),
-each of its two threads measured on its own ([ADR 0067](./adr/0067-the-ui-thread)): the UI thread's
+each of its two threads measured on its own ([ADR 0071](./adr/0071-the-ui-thread)): the UI thread's
 frames, and JavaScript's work on its thread:
 
 ```text
@@ -279,9 +279,14 @@ resized renders the overview when it is open and nothing while it is closed); th
 the dock's first icon renders the icon and its button (`DockIcon`, `ButtonComponent`) and the
 tooltip (`PopupSurface`, its text `CssInterop.DisplayFaceText`), 37 components; moving over it,
 none; leaving it, the icon and its button again, 16. Each step also has a backstop on its
-JavaScript by the wall clock, two refreshes at 60 Hz (`js_work.js_wall_ms_max`: 33 ms), for a gross
-regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window change's,
-twice the most the heaviest load measured made of it (16.9 ms).
+JavaScript's time on its thread's CPU, two refreshes at 60 Hz (`js_work.js_ms_backstop`: 33 ms), for
+a gross regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window
+change's, twice the most the heaviest load measured made of it (16.9 ms). It was by the wall clock
+until 11 November 2026, when JavaScript ran on a thread of its own (docs/adr/0071-the-ui-thread.mdx)
+and a merge queue's runner at load 30–40 timed 57.6 ms of it for 4.8 ms on its CPU, once 2.8 s for
+4 ms: the rest was the thread preempted and blocked, the machine's time, not JavaScript's. Blocked
+and preempted time are said with a backstop's failure, and `js_blocked_ms_max` holds blocked time
+on the ThinkPad (`perf.py`).
 
 Counting is done only where it is checked: a host walks React's commits when its environment has
 `OXYOS_HOST_REPORT_RENDERS=1` beside `OXYOS_HOST_REPORT`, which `regress.py` sets for a scenario
@@ -594,8 +599,11 @@ until it knew the account's language, which waited for the boot token from the a
 api.oxy.so, a third of first connections lost) its home's listing came 1.4 to 9 s after launch
 signed in, about 0.3 s signed out. A step's `content_ms_max` (`regress.py`) holds launch to content:
 the first frame showing every one of the step's texts at most so many ms after the host's `main`,
-by the wall clock, held as `latency_ms` is (by every run but `--collect`'s, which `perf.py` judges
-at the median of its runs). The account's languages in the platform's snapshot (`oxy` ADR 0058
+by the wall clock. That is a speed budget: `--speed-budgets` holds it in one run, and `perf.py`
+judges it at the median of its runs; the gate does not, as a loaded machine stretches the clock
+(652 ms at load 70 for a 500 ms budget). Every run holds `content_cpu_ms_max` instead: the CPU the
+host's main thread and JavaScript spent before that frame, which load does not stretch (184 to
+214 ms on seldon unloaded, held to 600). The account's languages in the platform's snapshot (`oxy` ADR 0058
 R10) did not reach the owner's account, which names none (the accounts' service keeps them only
 after a profile read): its listing still came 6.1 s after launch (8.3, 9.1 and 15.5 s on other
 launches), the window blank, black in the dark appearance, until then. The platform's language is

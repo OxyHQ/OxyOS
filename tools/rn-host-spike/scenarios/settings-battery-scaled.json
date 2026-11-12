@@ -163,11 +163,11 @@
     {
       "name": "Limit charge to 80 %: UPower writes the thresholds to the battery's sysfs, with no password asked",
       "do": [
-        "press_output",
-        [
-          822,
-          240
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Limit charge to 80%"
+        }
       ],
       "expect": {
         "power": {
@@ -199,11 +199,11 @@
     {
       "name": "Off again: it charges full, 0 and 100",
       "do": [
-        "press_output",
-        [
-          822,
-          240
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Limit charge to 80%"
+        }
       ],
       "expect": {
         "power": {
@@ -220,11 +220,11 @@
     {
       "name": "The display's timer on battery",
       "do": [
-        "press_output",
-        [
-          790,
-          353
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Turn display off on battery when inactive"
+        }
       ],
       "expect": {
         "texts": [

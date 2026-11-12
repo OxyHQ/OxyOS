@@ -60,6 +60,8 @@ pub struct Resume {
     started: Instant,
     /// The person asked whether to reopen again: the sheet's number and what it would open.
     question: Option<(u32, Vec<String>)>,
+    /// What it opened again and the session has not taken yet ([`Resume::take_opened`]).
+    opened: Vec<String>,
 }
 
 /// The session's record in the person's state folder, from the environment.
@@ -168,6 +170,7 @@ impl Resume {
             state: State::default(),
             started: now,
             question: None,
+            opened: Vec::new(),
         };
         resume.write();
         (resume, at_login)
@@ -240,7 +243,15 @@ impl Resume {
     /// runs still counts as a crash of its reopening.
     pub fn reopened(&mut self, ids: &[String]) {
         self.state.reopened = once_each(ids.iter().cloned());
+        self.opened.extend(ids.iter().cloned());
         self.write();
+    }
+
+    /// What it opened again since the session last asked, at login or on the person's *Reopen*:
+    /// those the session opens at login, whose windows come back whole where they were
+    /// (docs/adr/0070-windows-come-back-where-they-were.mdx), as its login items' do.
+    pub fn take_opened(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.opened)
     }
 
     /// The session's turn: what runs now (by id, in launch order), at `now`. Written only when it
@@ -362,6 +373,9 @@ mod tests {
             panic!("{at:?}")
         };
         second.reopened(&reopened);
+        // What it opened again is the session's to take, once.
+        assert_eq!(second.take_opened(), ids(&[ALLO, INBOX]));
+        assert_eq!(second.take_opened(), Vec::<String>::new());
         // It ends before anything ran: the reopening ended it.
         let (mut third, at) = Resume::start(home.record(), Some(&home.reopen()), true, now);
         assert_eq!(at, AtLogin::Ask(ids(&[ALLO, INBOX])));

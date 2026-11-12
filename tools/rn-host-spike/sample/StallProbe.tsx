@@ -1,5 +1,5 @@
 /**
- * JavaScript held for 500 ms while something moves (docs/adr/0067-the-ui-thread.mdx), for
+ * JavaScript held for 500 ms while something moves (docs/adr/0071-the-ui-thread.mdx), for
  * scenarios/stall.json and perf-stall.json: what moves on the UI thread goes on being drawn, a frame
  * each refresh, however long JavaScript's thread is busy, as a slow render holds it.
  * - "Native": a 3 s linear Animated.timing of the box `native` on Animated's native driver; 1 s in,

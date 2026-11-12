@@ -84,10 +84,10 @@
           "frames_min": 5
         },
         "output_pixels": {
-          "0,0": "#f1dde9",
-          "1279,0": "#f7ebf0",
-          "0,719": "#f1dde9",
-          "1279,719": "#f7ebf0"
+          "0,0": "#e2e2e2",
+          "1279,0": "#eeeeee",
+          "0,719": "#e2e2e2",
+          "1279,719": "#eeeeee"
         }
       },
       "allow_unchanged": true
@@ -124,7 +124,7 @@
         },
         "output_pixels": {
           "90,20": "#0e1216",
-          "100,30": "#f1dde9"
+          "100,30": "#e2e2e2"
         }
       },
       "allow_unchanged": true

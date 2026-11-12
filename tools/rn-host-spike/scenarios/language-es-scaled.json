@@ -284,7 +284,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Search Applications, button",
+      "text": "Window, collapsed, button",
       "interrupting": true,
       "voice": "en"
      }

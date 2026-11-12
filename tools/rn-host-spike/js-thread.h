@@ -1,4 +1,4 @@
-// The JavaScript thread (docs/adr/0067-the-ui-thread.mdx): React Native's runtime (Hermes), React and
+// The JavaScript thread (docs/adr/0071-the-ui-thread.mdx): React Native's runtime (Hermes), React and
 // Fabric's commits run on a thread of their own, `oxyos-js`, as React Native's Android and iOS hosts
 // run them on theirs; the host's loop, on the process's main thread, is the UI thread (ui-thread.h).
 // The runtime is made on this thread (Hermes' sampling profiler and its stack's guard are the thread

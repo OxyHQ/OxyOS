@@ -1,5 +1,5 @@
 {
- "about": "An application that hangs briefly (docs/adr/0067-hangs-and-force-quit.mdx): Hang Probe's other button runs its JavaScript thread for 4.5 s. The pointer over it shows the compositor's wait cursor after 2 s, and the application's own cursor again as soon as it answers; it is never not responding, and nothing is written.",
+ "about": "An application that hangs briefly (docs/adr/0067-hangs-and-force-quit.mdx): Hang Probe's other button runs its JavaScript thread for 4.5 s. The pointer over it shows the compositor's wait cursor after 2 s, and the application's own cursor again as soon as it answers; it is never not responding, and nothing is written. Each cursor is waited for as it comes (`until_pointer`), not after a set time: the steps before eat into the 4.5 s by however long they take to settle, and a set 2.2 s wait ended after the application had answered.",
  "locale": "en_US.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -61,10 +61,14 @@
    }
   },
   {
-   "name": "2 s unanswered: the wait cursor",
+   "name": "2 s unanswered: the wait cursor, as soon as the compositor shows it",
    "do": [
     "wait",
-    2200
+    0
+   ],
+   "until_pointer": [
+    "Wait",
+    8000
    ],
    "allow_unchanged": true,
    "expect": {
@@ -72,10 +76,14 @@
    }
   },
   {
-   "name": "it answers: its own cursor again, never not responding, nothing written",
+   "name": "it answers: its own cursor again as soon as it does, never not responding, nothing written",
    "do": [
     "wait",
-    2000
+    0
+   ],
+   "until_pointer": [
+    "Arrow",
+    10000
    ],
    "allow_unchanged": true,
    "expect": {

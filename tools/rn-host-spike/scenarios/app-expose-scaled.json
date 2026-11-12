@@ -246,7 +246,7 @@
         },
         "in_shell": {
           "renders": {
-            "components_max": 156,
+            "components_max": 182,
             "each_minute": [
               "SessionShell"
             ]

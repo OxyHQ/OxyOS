@@ -91,7 +91,10 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// About and its Settings… (`MenuItemRole`, `MenuBarItemRole`), both ways, the shell told them
 /// with the menus, and the shell hiding the other applications and showing every one
 /// (`HideOtherApplications`, `ShowAllApplications`);
-/// version 45, a surface's material regions (`MaterialRegion`, docs/adr/0069-the-platforms-material.mdx).
+/// version 45, a surface's material regions (`MaterialRegion`, docs/adr/0069-the-platforms-material.mdx);
+/// versions 46 and 47 are other changes' in flight (OxyOS #553, #545);
+/// version 48, the shell laying out a window (`LayOutWindow`, ADR 0016, decision 12: the Window
+/// menu's tiling and Zoom).
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -144,6 +147,7 @@ const REQUESTS_ADDED: Added = &[
     (43, 85..=85),
     (43, 113..=114),
     (45, 71..=71),
+    (48, 115..=115),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

@@ -44,7 +44,7 @@ class Window {
   // connection; throws on a protocol error.
   bool dispatch(const std::function<void(const OxyOSEvent&)>& input);
   // The compositor's pings are answered by the host (`pong`), not as dispatch reads them: its
-  // events are handled on JavaScript's thread too (docs/adr/0067-the-ui-thread.mdx), and an
+  // events are handled on JavaScript's thread too (docs/adr/0071-the-ui-thread.mdx), and an
   // application is responding once that thread took what came before the ping (bloom-host.cpp), so
   // JavaScript stuck in its work is a hang (docs/adr/0067-hangs-and-force-quit.mdx). The pings
   // dispatch read since the last call, by serial.
@@ -95,8 +95,10 @@ class Window {
   std::optional<std::pair<float, float>> extent(uint32_t id) const;
   // Presents a canvas drawn at the surface's configured size and scale. Popups use premultiplied
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
-  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
-  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
+  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx). `onlyTurning`:
+  // nothing changed but spinning rings (progress-bar.h), as the report says of the frame.
+  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {},
+               bool onlyTurning = false);
   // Frees the GPU buffers of its surfaces that the compositor released but the one each shows
   // (oxyos_paint_trim; memory.h, once the window is idle): the bytes freed.
   uint64_t trimBuffers();
@@ -276,6 +278,9 @@ class Window {
   bool setApplicationList(uint32_t serial, uint32_t list, const std::string& ids);
   bool openUrl(uint32_t serial, uint64_t input, const std::string& url);
   bool forceQuitApplication(uint32_t window);
+  // Lays out the window `window` as `layout` (OXYOS_WINDOW_LAYOUT_*: the Window menu, ADR 0016,
+  // decision 12). False if not sent (a compositor before version 48, an unknown layout).
+  bool layOutWindow(uint32_t window, uint8_t layout);
   // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
   bool emptyTrash(uint64_t input);
   // One of the system's interface sounds (OXYOS_SYSTEM_SOUND_*), citing `input`

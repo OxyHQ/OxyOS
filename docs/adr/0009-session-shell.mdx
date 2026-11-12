@@ -8,6 +8,8 @@ order: 18
 
 Status: **accepted** (decisions 1 and 2, chosen with the shell's author); steps 1 to 3 implemented; menus, thumbnails and launching are left to their own decisions (decision 3). Builds on [ADR 0001](./0001-native-platform-boundaries) (roles, grants, isolation), [ADR 0002](./0002-bloom-platform-surface-api) (Bloom's platform adapter) and the shell surfaces of the protocol (`CreateShellSurface`).
 
+**10 November 2026 ([ADR 0070](./0070-windows-come-back-where-they-were)):** the desktops (workspaces) are the person's: a session starts with as many as they had as their last one ended, as a Mac's Spaces stay.
+
 ## Problem
 
 The OxyOS shell (`apps/shell`) is one React tree: the wallpaper, the top bar, the dock, and the overview and launcher that open over everything. It renders from a `ShellSnapshot` (applications, folders, windows, workspaces, the active workspace and application, the active application's menus) and sends `ShellActions` (activate an application, focus or close a window, switch, add and move to workspaces, a menu command). Its browser preview fakes both.

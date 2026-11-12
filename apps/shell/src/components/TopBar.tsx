@@ -890,6 +890,10 @@ const BarMenus = memo(function BarMenus({
   return (
     <Menubar
       label={messages.topBar.menuBar}
+      // The bar's rows run no chords of their own (each shows the chord the application or the
+      // compositor runs), so a closed menu mounts nothing but its title, as a Mac's bar builds a
+      // menu as it opens: the Window menu's rows cost nothing while it is closed (Bloom 19.8.0).
+      declareClosedMenus={false}
       value={open}
       onValueChange={setOpen}
       focusValue={focused}

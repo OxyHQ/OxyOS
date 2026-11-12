@@ -2645,6 +2645,7 @@ dependencies = [
 name = "oxyos-apps"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "oxyos-install",
  "oxyos-package",
  "rustix",

@@ -11,7 +11,7 @@
  * menu.
  */
 import { chordLabel } from "./chord.ts";
-import type { ShellApplication, ShellMenu, ShellMenuItem, ShellWindow } from "./model";
+import type { ShellApplication, ShellMenu, ShellMenuItem, ShellWindow, ShellWorkspace } from "./model";
 import type { ShellMessages } from "./messages";
 
 /** One entry of the active window's menus, as the platform told it. */
@@ -49,9 +49,58 @@ export type AppMenuCommand =
   | { kind: "showAll" }
   | { kind: "quit"; window: number }
   /** The desktop's Empty Trash…, which the platform asks the person about first. */
-  | { kind: "emptyTrash" };
+  | { kind: "emptyTrash" }
+  /** The Window menu's: the compositor minimizes, zooms or lays out the window, or moves it to
+      another desktop (by the desktop's id as the snapshot has it). */
+  | { kind: "minimize"; window: number }
+  | { kind: "zoom"; window: number }
+  | { kind: "layout"; window: number; layout: WindowLayout }
+  | { kind: "moveToDesktop"; window: number; desktop: string };
+
+/** Where the Window menu asks the compositor to put the window (scene/tiling.rs's `Layout`):
+    the whole work area within its margins, its middle at the window's size, a half or quarter,
+    an arrangement with the windows behind it, or the frame it had before it was first tiled. */
+export type WindowLayout =
+  | "fill"
+  | "center"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom"
+  | "topLeft"
+  | "topRight"
+  | "bottomLeft"
+  | "bottomRight"
+  | "leftAndRight"
+  | "rightAndLeft"
+  | "topAndBottom"
+  | "bottomAndTop"
+  | "quarters"
+  | "returnToPreviousSize";
+
+const LAYOUTS: readonly WindowLayout[] = [
+  "fill",
+  "center",
+  "left",
+  "right",
+  "top",
+  "bottom",
+  "topLeft",
+  "topRight",
+  "bottomLeft",
+  "bottomRight",
+  "leftAndRight",
+  "rightAndLeft",
+  "topAndBottom",
+  "bottomAndTop",
+  "quarters",
+  "returnToPreviousSize",
+];
 
 const DECLARED = /^window-menu:(\d+):(\d+):(\d+)$/;
+const WINDOW = /^window-command:(minimize|zoom):(\d+)$/;
+const LAYOUT = /^window-command:layout:([a-zA-Z]+):(\d+)$/;
+const MOVE = /^window-command:move:([^:]+):(\d+)$/;
 const OWN = /^app-menu:(about|settings|hide|hide-others|quit):(\d+)$/;
 
 /** The command a row's id asks, or null when it is none of these menus'. */
@@ -65,6 +114,14 @@ export function appMenuCommand(id: string): AppMenuCommand | null {
       index: Number(declared[3]),
     };
   }
+  const windowCommand = WINDOW.exec(id);
+  if (windowCommand) return { kind: windowCommand[1] as "minimize" | "zoom", window: Number(windowCommand[2]) };
+  const layout = LAYOUT.exec(id);
+  if (layout && (LAYOUTS as readonly string[]).includes(layout[1])) {
+    return { kind: "layout", window: Number(layout[2]), layout: layout[1] as WindowLayout };
+  }
+  const move = MOVE.exec(id);
+  if (move) return { kind: "moveToDesktop", window: Number(move[2]), desktop: move[1] };
   if (id === "app-menu:show-all") return { kind: "showAll" };
   if (id === "app-menu:empty-trash") return { kind: "emptyTrash" };
   const own = OWN.exec(id);
@@ -110,6 +167,103 @@ export function applicationName(
   return registered?.name || window.title || window.appId || "";
 }
 
+/** The desktops the Window menu can move the window to: every desktop, and the one it is on. */
+export type WindowDesktops = { desktops: readonly ShellWorkspace[]; current?: string };
+
+/**
+ * The system's Window menu (docs/adr/0016-windows.mdx, decision 12), as AppKit adds to every
+ * application's: Minimize and Zoom, Fill and Center, Move & Resize with the halves, the quarters,
+ * the arrangements and Return to Previous Size, then Move to each other desktop. Each is the
+ * compositor's, by the window's number, with the chord the compositor itself takes for it (ADR
+ * 0024: Super+M, Super+Alt with F, C, R and the arrows, and with Shift the arrangements). With no
+ * window (window 0, the desktop's bar), every row is there and none is offered, as a Mac's Finder
+ * shows its Window menu with no window open.
+ */
+export function windowMenuRows(window: number, messages: ShellMessages, where?: WindowDesktops): ShellMenuItem[] {
+  const words = messages.menus;
+  const enabled = window !== 0;
+  const chord = (keys: readonly string[]) => chordLabel(keys, messages);
+  const layout = (name: WindowLayout, label: string, keys?: readonly string[]): ShellMenuItem => ({
+    id: `window-command:layout:${name}:${window}`,
+    label,
+    enabled,
+    shortcut: keys ? chord(keys) : undefined,
+  });
+  const separator = (name: string): ShellMenuItem => ({ kind: "separator", id: `window-command:${name}-separator` });
+  const others = (where?.desktops ?? []).filter((desktop) => desktop.id !== where?.current);
+  return [
+    { id: `window-command:minimize:${window}`, label: words.minimize, enabled, shortcut: chord(["Super", "M"]) },
+    { id: `window-command:zoom:${window}`, label: words.zoom, enabled },
+    separator("zoom"),
+    layout("fill", words.fill, ["Alt", "Super", "F"]),
+    layout("center", words.center, ["Alt", "Super", "C"]),
+    {
+      kind: "submenu",
+      id: "window-command:move-and-resize",
+      label: words.moveAndResize,
+      enabled,
+      items: [
+        layout("left", words.leftHalf, ["Alt", "Super", "ArrowLeft"]),
+        layout("right", words.rightHalf, ["Alt", "Super", "ArrowRight"]),
+        layout("top", words.topHalf, ["Alt", "Super", "ArrowUp"]),
+        layout("bottom", words.bottomHalf, ["Alt", "Super", "ArrowDown"]),
+        separator("halves"),
+        layout("topLeft", words.topLeftQuarter),
+        layout("topRight", words.topRightQuarter),
+        layout("bottomLeft", words.bottomLeftQuarter),
+        layout("bottomRight", words.bottomRightQuarter),
+        separator("quarters"),
+        layout("leftAndRight", words.leftAndRight, ["Alt", "Shift", "Super", "ArrowLeft"]),
+        layout("rightAndLeft", words.rightAndLeft, ["Alt", "Shift", "Super", "ArrowRight"]),
+        layout("topAndBottom", words.topAndBottom, ["Alt", "Shift", "Super", "ArrowUp"]),
+        layout("bottomAndTop", words.bottomAndTop, ["Alt", "Shift", "Super", "ArrowDown"]),
+        layout("quarters", words.quarters),
+        separator("arrange"),
+        layout("returnToPreviousSize", words.returnToPreviousSize, ["Alt", "Super", "R"]),
+      ],
+    },
+    ...(others.length > 0
+      ? [
+          separator("desktops"),
+          ...others.map(
+            (desktop): ShellMenuItem => ({
+              id: `window-command:move:${desktop.id}:${window}`,
+              label: words.moveTo(desktop.name),
+              enabled,
+            }),
+          ),
+        ]
+      : []),
+  ];
+}
+
+/** The menus with the system's Window menu: its rows first in a Window menu the application
+    declared (as AppKit merges them), else a Window menu of its own after the others. */
+function withWindowMenu(menus: ShellMenu[], rows: ShellMenuItem[], messages: ShellMessages): ShellMenu[] {
+  const label = messages.menus.window;
+  const at = menus.findIndex((menu, index) => index > 0 && menu.label === label);
+  if (at < 0) return [...menus, { label, items: rows }];
+  const declared = menus[at].items;
+  const merged: ShellMenuItem[] =
+    declared.length > 0 ? [...rows, { kind: "separator", id: "window-command:declared-separator" }, ...declared] : rows;
+  return menus.map((menu, index) => (index === at ? { label, items: merged } : menu));
+}
+
+/** What the standard About panel shows for a window's application: its name as the bar says it
+    (else the catalogue's word for an application nothing names) and, for one the session started,
+    its registry entry, looked up among every application the registry has, those no list shows
+    (`unlisted`, About This Computer) as well as the listed ones. */
+export function aboutApplication(
+  window: Pick<ShellWindow, "appId" | "title" | "launched"> | undefined,
+  applications: readonly ShellApplication[],
+  unlisted: readonly ShellApplication[] | undefined,
+  messages: ShellMessages,
+): { name: string; application?: ShellApplication } {
+  const every = unlisted?.length ? [...applications, ...unlisted] : applications;
+  const application = window?.launched ? every.find((app) => app.id === window.appId) : undefined;
+  return { name: applicationName(window, every) || messages.menus.unnamedApp, application };
+}
+
 /** The rows of the declared entries in `parent`, without those hoisted into the application's
     own menu, and without the separators their going left at an end or doubled. */
 function declaredRows(bar: ToldMenuBar, parent: number, messages: ShellMessages): ShellMenuItem[] {
@@ -151,6 +305,7 @@ export function applicationMenus(
   given: string,
   messages: ShellMessages,
   shown: ApplicationsShown,
+  where?: WindowDesktops,
 ): ShellMenu[] {
   const words = messages.menus;
   // An application nothing names still has its own menu, under a word of the catalogue: a menu
@@ -196,7 +351,7 @@ export function applicationMenus(
     const hoisted = bar.items.some((entry) => entry.parent === index && entry.role);
     return items.length === 0 && hoisted ? [] : [{ label: item.label, items }];
   });
-  return [own, ...declared];
+  return withWindowMenu([own, ...declared], windowMenuRows(bar.window, messages, where), messages);
 }
 
 /**
@@ -238,5 +393,6 @@ export function desktopMenus(
         { id: "view.launcher", label: words.showApplications },
       ],
     },
+    { label: words.window, items: windowMenuRows(0, messages) },
   ];
 }

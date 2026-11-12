@@ -10,7 +10,7 @@ use crate::wire::{
     PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
     ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size,
     SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind,
-    WifiState, Wire,
+    WifiState, WindowLayout, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -290,6 +290,9 @@ messages! {
         // Show All, without changing the active window.
         113 => HideOtherApplications { window: u32 },
         114 => ShowAllApplications {},
+        // Version 48 (ADR 0016, decision 12): the Window menu's tiling, Center, Return to Previous
+        // Size and Zoom for `window`, as Super+Alt's keys and its green bubble ask them.
+        115 => LayOutWindow { window: u32, layout: WindowLayout },
         // The session's shell gives the keyboard focus to one of its own panels or overlays (the
         // launcher's search), citing the serial of an input it received: a press, a key or a
         // SystemShortcut. One it did not receive lately is ignored.
@@ -444,7 +447,7 @@ messages! {
         // claiming an id) is never ended.
         230 => ForceQuitApplication { window: u32 },
         // Any client answers Ping `serial`, as its library does while it reads events (or the
-        // client, once it handled what came before, docs/adr/0067-the-ui-thread.mdx): an
+        // client, once it handled what came before, docs/adr/0071-the-ui-thread.mdx): an
         // application that does not answer in time is not responding (WindowState).
         231 => Pong { serial: u32 },
         // The session's shell (its `shell` grant) replaces one of the person's lists of
@@ -486,9 +489,10 @@ messages! {
         // most faithful first; at most MAX_DRAG_TYPES. A type for another number begins another.
         241 => DragType { drag: u32, mime: TextChunk },
         // Starts the drag `drag` from `surface`, citing `serial`, the latest pointer press of this
-        // client on that window, its button still held, with the drag icon `icon` (0: none) and
-        // the actions it allows. The compositor owns the pointer until the drag ends; refused, the
-        // source is told DragCancelled (Refused).
+        // client on that window, its button still held (or released since, nothing pressed after
+        // it: the drag is then dropped where it was released), with the drag icon `icon` (0:
+        // none) and the actions it allows. The compositor owns the pointer until the drag ends;
+        // refused, the source is told DragCancelled (Refused).
         242 => StartDrag { drag: u32, surface: u32, icon: u32, serial: u64, actions: DragActions },
         // The source ends its drag (going on, or dropped and not yet finished).
         243 => CancelDrag { drag: u32 },

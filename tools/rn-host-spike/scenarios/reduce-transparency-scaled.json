@@ -138,11 +138,11 @@
   {
    "name": "Reduce transparency turned on in Settings: the session keeps it and tells every application at once",
    "do": [
-    "press_output",
-    [
-     598,
-     421
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Reduce transparency"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
@@ -251,11 +251,11 @@
   {
    "name": "Reduce transparency off again, Settings' switch pressed",
    "do": [
-    "press_output",
-    [
-     598,
-     421
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Reduce transparency"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

@@ -842,6 +842,29 @@ int oxyos_client_name_window(OxyOSClient* client, uint32_t surface, uint8_t app_
  * (docs/adr/0021-menu-bar.mdx). Refused to a compositor of a version before 43. */
 #define OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS 11
 #define OXYOS_MANAGE_SHOW_ALL_APPLICATIONS 12
+/* Where the session's shell asks the compositor to put a window (docs/adr/0016-windows.mdx,
+ * decision 12: the Window menu): Fill, Center, the halves, the quarters, the arrangements with the
+ * windows behind it, Return to Previous Size, and Zoom (and back). */
+#define OXYOS_WINDOW_LAYOUT_FILL 1
+#define OXYOS_WINDOW_LAYOUT_CENTER 2
+#define OXYOS_WINDOW_LAYOUT_LEFT 3
+#define OXYOS_WINDOW_LAYOUT_RIGHT 4
+#define OXYOS_WINDOW_LAYOUT_TOP 5
+#define OXYOS_WINDOW_LAYOUT_BOTTOM 6
+#define OXYOS_WINDOW_LAYOUT_TOP_LEFT 7
+#define OXYOS_WINDOW_LAYOUT_TOP_RIGHT 8
+#define OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT 9
+#define OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT 10
+#define OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT 11
+#define OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT 12
+#define OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM 13
+#define OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP 14
+#define OXYOS_WINDOW_LAYOUT_QUARTERS 15
+#define OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE 16
+#define OXYOS_WINDOW_LAYOUT_ZOOM 17
+/* Lays out the window `window` (its number) as `layout` (OXYOS_WINDOW_LAYOUT_*); a window gone, full
+ * screen or hidden is left as it is. Refused to a compositor of a version before 48. */
+int oxyos_client_lay_out_window(OxyOSClient* client, uint32_t window, uint8_t layout);
 /* The shell gives the keyboard focus to one of its own panels or overlays, citing `serial`, an input
  * it received (a press, a key, a SYSTEM_SHORTCUT); one it did not receive lately is ignored. */
 int oxyos_client_focus_shell_surface(OxyOSClient* client, uint32_t surface, uint64_t serial);
@@ -1296,7 +1319,7 @@ int oxyos_client_poll(OxyOSClient* client, OxyOSEvent* out);
 /* From now on the client answers the compositor's pings itself: oxyos_client_poll gives each as
  * OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client answers
  * with oxyos_client_pong once it handled what came before it (a runtime whose events are handled on
- * another thread than the one reading them, docs/adr/0067-the-ui-thread.mdx). 0, or OXYOS_ERROR. */
+ * another thread than the one reading them, docs/adr/0071-the-ui-thread.mdx). 0, or OXYOS_ERROR. */
 int oxyos_client_answer_pings_itself(OxyOSClient* client);
 /* Answers the compositor's Ping `serial` (an OXYOS_EVENT_PING's). 0, or OXYOS_ERROR. */
 int oxyos_client_pong(OxyOSClient* client, uint64_t serial);
@@ -1335,10 +1358,10 @@ int oxyos_client_create_drag_icon(OxyOSClient* client, uint32_t surface, uint32_
                                   int32_t hotspot_x, int32_t hotspot_y);
 /* One media type of a drag, as a copy's entry. */
 typedef OxyOSClipboardEntry OxyOSDragEntry;
-/* Starts a drag from `surface`, citing `serial`, the pointer press on it still held, with the drag
- * icon `icon` (0: none), the actions it allows (OXYOS_DRAG_* bits) and `count` types (1 to 16, each
- * named once, the most faithful first), whose contents the library keeps and writes for the target
- * dropped on. Returns the drag's number (its source events' code, above 0) or OXYOS_ERROR; the
+/* Starts a drag from `surface`, citing `serial`, the latest pointer press on it (still held, or
+ * released since: the drag is then dropped where it was released), with the drag icon `icon` (0:
+ * none), the actions it allows (OXYOS_DRAG_* bits) and `count` types (1 to 16, each named once, the
+ * most faithful first), whose contents the library keeps and writes for the target dropped on. Returns the drag's number (its source events' code, above 0) or OXYOS_ERROR; the
  * compositor may still refuse it (DRAG_CANCELLED, OXYOS_DRAG_CANCEL_REFUSED). */
 int64_t oxyos_client_start_drag(OxyOSClient* client, uint32_t surface, uint32_t icon, uint64_t serial,
                                 uint8_t actions, const OxyOSDragEntry* entries, size_t count);

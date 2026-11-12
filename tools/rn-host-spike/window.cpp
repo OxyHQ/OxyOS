@@ -372,7 +372,7 @@ bool Window::disconnected() const {
   return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
 }
 
-void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
+void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage, bool onlyTurning) {
   Surface& target = surfaces_.at(id);
   FrameDiagnostics::Scope presenting(FrameDiagnostics::Part::Present);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
@@ -416,6 +416,9 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   // The frame's sequence, the client's for every surface's frames, which the compositor's
   // feedback names (regress.py: each answered once, in order, none skipped).
   parts["sequence"] = sequence;
+  // A frame that changed nothing but spinning rings, which a scenario's step does not wait on
+  // (tools/oxyos-offscreen/src/progress.rs).
+  if (onlyTurning) parts["progress_only"] = true;
   Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
@@ -513,6 +516,10 @@ bool Window::setApplicationList(uint32_t serial, uint32_t list, const std::strin
 
 bool Window::openUrl(uint32_t serial, uint64_t input, const std::string& url) {
   return oxyos_client_open_url(client_, serial, input, url.data(), url.size()) == 0;
+}
+
+bool Window::layOutWindow(uint32_t window, uint8_t layout) {
+  return oxyos_client_lay_out_window(client_, window, layout) == 0;
 }
 
 bool Window::forceQuitApplication(uint32_t window) {
