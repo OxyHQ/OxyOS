@@ -165,6 +165,12 @@ struct Draw {
   bool placesWindows = true;
   Affine toSurface;
   Clip surfaceClip = kUnclipped;
+  // The innermost view clipping what is drawn now (overflow hidden), in the current coordinates:
+  // its padding box and that box's corners' radii, the smaller of its top two and of its bottom
+  // two. A material filling it whole takes its shape (a menu's panel clips its paint, which
+  // reaches a pixel beyond it under the panel's edge).
+  Clip clipBox = kUnclipped;
+  float clipTop = 0, clipBottom = 0;
 };
 
 // Whether a rectangle of the current coordinates has any pixel the canvas paints (its clip, the
@@ -946,8 +952,17 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
         const auto& radii = border.borderRadii;
         float top = std::min(radii.topLeft.horizontal, radii.topRight.horizontal);
         float bottom = std::min(radii.bottomLeft.horizontal, radii.bottomRight.horizontal);
+        Rect own{{x, y}, {w, h}};
+        // Filling what clips it whole, its shape is that box's.
+        auto near = [](float a, float b) { return std::abs(a - b) < 0.01f; };
+        const Clip& box = draw.clipBox;
+        if (near(inside.x0, box.x0) && near(inside.y0, box.y0) && near(inside.x1, box.x1) && near(inside.y1, box.y1)) {
+          own = Rect{{box.x0, box.y0}, {box.x1 - box.x0, box.y1 - box.y0}};
+          top = draw.clipTop;
+          bottom = draw.clipBottom;
+        }
         const Affine& toSurface = draw.toSurface;
-        Rect rect = toSurface.bounds(Rect{{x, y}, {w, h}});
+        Rect rect = toSurface.bounds(own);
         Rect cut = toSurface.bounds(Rect{{inside.x0, inside.y0}, {inside.x1 - inside.x0, inside.y1 - inside.y0}});
         Clip kept = draw.surfaceClip.intersect(Clip{cut.origin.x, cut.origin.y, cut.getMaxX(), cut.getMaxY()});
         if (!kept.empty()) {
@@ -1093,9 +1108,23 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     }
   }
   if (clips && props) clipToPaddingBox(canvas, *props, view.layoutMetrics, x, y, w, h);
+  // What clips its children, for a material filling it (Draw::clipBox).
+  const Clip clipBox = draw.clipBox;
+  const float clipTop = draw.clipTop, clipBottom = draw.clipBottom;
+  if (clips && props) {
+    auto border = props->resolveBorderMetrics(view.layoutMetrics);
+    const auto& r = border.borderRadii;
+    const auto& widths = border.borderWidths;
+    draw.clipBox = paddingBox;
+    draw.clipTop = std::max(0.0f, std::min(r.topLeft.horizontal, r.topRight.horizontal) - widths.top);
+    draw.clipBottom = std::max(0.0f, std::min(r.bottomLeft.horizontal, r.bottomRight.horizontal) - widths.bottom);
+  }
   for (Tag child : it->second.children) {
     drawChild(tree, child, childOx, childOy, childClip, opacity, draw, stretch ? &*stretch : nullptr);
   }
+  draw.clipBox = clipBox;
+  draw.clipTop = clipTop;
+  draw.clipBottom = clipBottom;
   // Its overlay scrollbars (scrollbars.h), over its content, unscrolled and unstretched, within
   // its padding box.
   if (name == "ScrollView" && view.state && touches(draw, x, y, w, h)) {

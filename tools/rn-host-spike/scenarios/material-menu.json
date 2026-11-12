@@ -13,7 +13,13 @@
     500
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "pixels": {
+     "40,128": "#ff0000",
+     "100,128": "#00c000",
+     "120,128": "#00c000"
+    }
+   }
   },
   {
    "name": "the menu opens over the bands: they mix beneath it under its tint, and stay sharp outside it",
@@ -22,7 +28,15 @@
     "Bands"
    ],
    "expect": {
-    "popups": 1
+    "popups": 1,
+    "pixels": {
+     "40,128": "#fbb4b4",
+     "100,128": "#ddcfb4",
+     "120,128": "#b4eab4",
+     "5,128": "#ff0000",
+     "160,128": "#00c000",
+     "40,200": "#ff0000"
+    }
    }
   },
   {
@@ -34,16 +48,29 @@
     ]
    ],
    "expect": {
-    "popups": 0
+    "popups": 0,
+    "pixels": {
+     "40,128": "#ff0000",
+     "100,128": "#00c000",
+     "120,128": "#00c000"
+    }
    }
   },
   {
-   "name": "the dialog opens over the bands in the window: the host blurs them beneath it under its tint",
+   "name": "the dialog opens over the bands in the window, dimmed behind it: the host blurs them beneath it under its tint (the dimmed bands mix across their edges), and they stay sharp around it",
    "do": [
     "press_named",
     "Dialog"
    ],
-   "expect": {}
+   "expect": {
+    "pixels": {
+     "20,180": "#ceacac",
+     "100,180": "#b8b4ac",
+     "240,180": "#acacd0",
+     "20,60": "#4c0000",
+     "150,60": "#003900"
+    }
+   }
   }
  ]
 }

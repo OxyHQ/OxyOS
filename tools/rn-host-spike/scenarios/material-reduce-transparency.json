@@ -16,7 +16,12 @@
     500
    ],
    "allow_unchanged": true,
-   "expect": {}
+   "expect": {
+    "pixels": {
+     "40,128": "#ff0000",
+     "100,128": "#00c000"
+    }
+   }
   },
   {
    "name": "the menu opens over the bands: its tint alone, opaque, nothing of the bands beneath it",
@@ -25,7 +30,13 @@
     "Bands"
    ],
    "expect": {
-    "popups": 1
+    "popups": 1,
+    "pixels": {
+     "40,128": "#f9f9f9",
+     "100,128": "#f9f9f9",
+     "5,128": "#ff0000",
+     "160,128": "#00c000"
+    }
    }
   }
  ]
