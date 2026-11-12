@@ -341,7 +341,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "stopped_by" "hold" and "press". With "kept_by" (the same kinds of input on another surface of
   the application while it glides, a popup's), the glide goes on to its end as without it;
 - scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
-  the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
+  the momentum's) carries as its `timestamp` when the host dispatched it (after it received the
+  input behind it, a glide's frame the last before it, and before it reported the event), as React
   Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
   device's time of the input behind it, nor nothing;
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
@@ -425,9 +426,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
   JavaScript (waiting for another thread, a lock, a file), both budgets on speed held only with
   --speed-budgets; "presented", [least, most] frames presented (0: the step changed nothing
-  the host draws, from the `timing` lines); "js_wall_ms_max", the most JavaScript any one of them ran
-  by the wall clock, a
-  backstop for a gross regression set far above what the work takes. In `in_shell`, the shell's;
+  the host draws, from the `timing` lines); "js_ms_backstop", the most JavaScript any one of them ran
+  on its thread's CPU, a backstop for a gross regression held on every run, set far above what the
+  work takes (its time by the clock, blocked and preempted, is said with it, never held: the
+  machine's load makes it). In `in_shell`, the shell's;
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
   count of work the machine's load cannot change: "tops", exactly the components the step's
@@ -453,6 +455,13 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
+two seconds after an application stopped answering, its own cursor once it answers): it settles only
+once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
+wait that the steps before it may have eaten into; the shape is not held for the stillness (no client
+draws it), the surfaces still are. A `cue` step (a name) tells a part played beside
+the session to act now: the director appends the name to `cues` in the run's output (`qr-approve`:
+the played phone approves the QR, `login.oxy.qr.approve` "cue").
 A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a
 thread of its own after the frame that laid it out, in a window the shell launched, whose frames
 are not a step's changes): it settles only once the output shows its `output_pixels`, within `ms`.
@@ -772,9 +781,11 @@ accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's AP
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
 code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks
-(true) or `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
+(true), `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
 namespace over a WebSocket, which tells the screen at once ("socket"; its frames logged as `WS ...`
-requests with status 101),
+requests with status 101), or, told the same way, once a step gives the cue `qr-approve` ("cue": a
+`cue` step, after the screen joined), so the approval lands when the scenario reaches that step and
+never on a clock the steps before it race,
 for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
@@ -890,7 +901,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_press_taken", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
+             "expect_popup", "cue", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -1261,11 +1272,16 @@ def director_args(step, out):
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
+    if step.get("until_pointer"):
+        shape, ms = step["until_pointer"]
+        args += ["--until-pointer", str(ms), shape]
     if step.get("until_output_pixels"):
         # Its answer is drawn on the application's own clock: it settles once the output shows the
         # step's `output_pixels` (those it expects of a colour, not "!" those it must not show).
         shown = {at: colour for at, colour in step["expect"]["output_pixels"].items() if not colour.startswith("!")}
         args += ["--until-pixels", str(step["until_output_pixels"]), ";".join(f"{at}={colour}" for at, colour in shown.items())]
+    if kind == "cue":
+        return args + ["--cue", value]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
@@ -2316,6 +2332,9 @@ def played_oxy(spec, log):
     state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
              "on_device": False, "revision": 0, "qr_claims": 0, "stalled_until": 0}
     lock = threading.Lock()
+    # The cues the run's steps give (`cue`), beside the log in the run's output: none yet.
+    cues = pathlib.Path(log).parent / "cues"
+    cues.unlink(missing_ok=True)
 
     class Oxy(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2462,12 +2481,18 @@ def played_oxy(spec, log):
                     if event[:1] != ["join"] or len(event) < 2:
                         continue
                     self.log("WS /auth-session join {token}")
-                    if spec.get("qr", {}).get("approve") == "socket":
+                    if spec.get("qr", {}).get("approve") in ("socket", "cue"):
                         threading.Thread(target=self.approve, args=(event[1], writing), daemon=True).start()
 
         def approve(self, token, writing):
-            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, told
-            on the socket at once."""
+            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, or
+            once a step gave the cue `qr-approve` ("cue"), told on the socket at once."""
+            if spec.get("qr", {}).get("approve") == "cue":
+                given = time.monotonic() + 600
+                while not (cues.exists() and "qr-approve" in cues.read_text().split()):
+                    if time.monotonic() > given:
+                        return
+                    time.sleep(0.02)
             time.sleep(spec.get("qr", {}).get("approve_after_ms", 0) / 1000)
             with lock:
                 request = state["requests"].get(token)
@@ -3404,6 +3429,39 @@ def android_fling_distance(velocity, friction):
     return math.copysign(distance, velocity)
 
 
+def android_spline_positions(samples=100):
+    """SplineOverScroller's SPLINE_POSITION, computed as its static initializer computes it (as
+    scroll-physics.h does): the share of a fling's distance gone at each hundredth of its time."""
+    start_tension, end_tension, inflexion = 0.5, 1.0, 0.35
+    p1, p2 = start_tension * inflexion, 1.0 - end_tension * (1.0 - inflexion)
+    positions, x_min = [], 0.0
+    for i in range(samples):
+        alpha, x_max = i / samples, 1.0
+        while True:
+            x = x_min + (x_max - x_min) / 2.0
+            coefficient = 3.0 * x * (1.0 - x)
+            tx = coefficient * ((1.0 - x) * p1 + x * p2) + x * x * x
+            if abs(tx - alpha) < 1e-5:
+                break
+            if tx > alpha:
+                x_max = x
+            else:
+                x_min = x
+        positions.append(coefficient * ((1.0 - x) * start_tension + x) + x * x * x)
+    return positions + [1.0]
+
+
+def android_fling_time(share):
+    """When a fling has gone `share` of its distance, as a share of its time (its spline, as
+    SplineOverScroller.update steps it, inverted)."""
+    positions = android_spline_positions()
+    samples = len(positions) - 1
+    for i in range(samples):
+        if positions[i + 1] >= share:
+            return (i + (share - positions[i]) / (positions[i + 1] - positions[i])) / samples
+    return 1.0
+
+
 def edge_stretch(distance):
     """EdgeEffect's dampStretchVector: the stretch drawn for a pull of `distance` (a share of the
     view's size)."""
@@ -3617,8 +3675,18 @@ def check_glide(wanted, report, start, end, fail):
     speeding = glide_speeding(after[0:1] + after[2:-1], axis)
     if speeding:
         fail(f"{view} sped up as it glided: {speeding}")
-    if len(steps) < wanted.get("frames_min", 0):
-        fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
+    # The glide is drawn a frame at a time (never a jump), but where it is is its clock's, as
+    # Android's: a glide that met the end was there when its spline had gone that far, and a first
+    # frame drawn after that (late, on a loaded machine) rightly shows it there, in one frame.
+    def late_first():
+        if not steps or not distance or not wanted.get("to_end"):
+            return False
+        met_end_by = fling["ms"] * android_fling_time(abs(offsets[-1] - offsets[0]) / abs(distance))
+        return (after[2]["t"] - fling["t"]) / 1e6 >= met_end_by
+    # How many frames fit in the glide is the machine's rate (frames_least: all of them with
+    # --speed-budgets, else two).
+    if len(steps) < frames_least(wanted.get("frames_min", 0)) and not late_first():
+        fail(f"{view} glided in {len(steps)} frames, expected at least {frames_least(wanted['frames_min'])}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get(axis)
     reached_end = wanted.get("to_end", False)
     meets = stopped_by or kept_by
@@ -4851,14 +4919,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms (waiting for another "
                  f"thread, a lock or a file; {js(waited, 'cpu'):.2f} on the CPU), expected at most "
                  f"{wanted['js_blocked_ms_max']}")
-        # A backstop by the wall clock, for a gross regression only (docs/performance.mdx, "What a
-        # step re-renders"): set far above what the work takes, so that a loaded machine never
-        # reaches it.
-        slowest = max(work, key=lambda line: js(line, "parts"), default=None)
-        if not COLLECT and slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
-            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock "
-                 f"({js(slowest, 'cpu'):.2f} on the CPU), expected at most {wanted['js_wall_ms_max']} (a backstop "
-                 f"for a gross regression)")
+        # A backstop on its thread's CPU, for a gross regression only (docs/performance.mdx, "What a
+        # step re-renders"), held on every run: set far above what the work takes. Its time by the
+        # clock is the machine's as much as its own (preempted, the thread waits for a CPU another
+        # process has; blocked, for a page another reads in), so the clock is said, never held.
+        if not COLLECT and costly and most > wanted.get("js_ms_backstop", float("inf")):
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on its thread's CPU, expected at most "
+                 f"{wanted['js_ms_backstop']} (a backstop for a gross regression); by the clock "
+                 f"{js(costly, 'parts'):.2f}: {js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} "
+                 f"preempted")
         presented = len(presented_frames)
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
@@ -5645,11 +5714,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                  and line.get("event") in kinds]
         if not lines:
             fail("no scroll event was delivered")
+        # Dispatched after the host received the input behind it (its `received` line; a glide's
+        # frame has none: the last input received before it) and before the host reported it:
+        # never the device's time, which comes before the host received it. Bounds of the host's
+        # own, not a gap in time, which a loaded machine stretched past 2 ms between stamping an
+        # event and writing its line.
+        received = {line["seq"]: line["t"] for line in report if line["kind"] == "received" and "seq" in line}
+        inputs = sorted(received.values())
         for line in lines:
             stamp = line.get("timestamp")
-            if stamp is None or abs(stamp - line["t"] / 1e6) > 2:
+            behind = received.get(line.get("input_seq"))
+            if behind is None:
+                behind = max((t for t in inputs if t <= line["t"]), default=None)
+            if (stamp is None or stamp > line["t"] / 1e6 + 0.01
+                    or (behind is not None and stamp < behind / 1e6 - 0.01)):
                 fail(f"{line['event']}@{line.get('target')} carried timestamp {stamp}, dispatched at "
-                     f"{line['t'] / 1e6:.1f} ms")
+                     f"{line['t'] / 1e6:.1f} ms, after the input behind it at "
+                     f"{'none' if behind is None else f'{behind / 1e6:.1f} ms'}")
                 break
     if "stretch" in expect:
         check_stretch(expect["stretch"], report, start, end, fail)
