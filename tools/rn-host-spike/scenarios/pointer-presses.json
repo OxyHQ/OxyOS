@@ -117,20 +117,20 @@
         },
         "pixels": {
           "148,100": "#dfe7f5",
-          "156,100": "#fff7f9",
+          "156,100": "#f9f9f9",
           "170,74": "#dfe7f5",
-          "170,82": "#fff7f9"
+          "170,82": "#f9f9f9"
         }
       }
     },
     {
       "name": "Rename chosen in the popup",
       "do": [
-        "press-popup",
-        [
-          40,
-          30
-        ]
+        "press_named",
+        {
+          "role": "MenuItem",
+          "name": "Rename"
+        }
       ],
       "expect": {
         "popups": 0,

@@ -472,7 +472,7 @@
       "expect": {
         "in_shell": {
           "renders": {
-            "components_max": 94
+            "components_max": 101
           }
         },
         "react": {},

@@ -1,5 +1,5 @@
 {
-  "about": "A window's popups as it moves to a display of another scale (ADR 0018; the audit in docs/react-native-android-adaptation.mdx, \"Popups following their window\"): PopupWindowProbe (sample/PopupWindowProbe.tsx) on a 1280x720 display at 1 with, right of it, a 1600x1000 display at 1.25. With its menu open, the shell moves the window onto the second display: the window is asked for frames at 1.25 and the menu goes with it, at the same place against its trigger (334 and 172 logical pixels from the window's corner on both), and is drawn at 1.25 (265 logical pixels wide, the least whose 1.25 pixels hold its content, 332 by 90 device pixels), keeping the keyboard; its rows take their presses there. Moved back, the menu is drawn at 1 again. A tooltip goes across with its window the same way. popup-window-displays-scaled.json is the same with the displays the other way round (the primary at 1.25). Each step checks the popups' rectangles and their frames' pixels, the window's, the compositor's focus, what each surface was delivered and exactly what React heard.",
+  "about": "A window's popups as it moves to a display of another scale (ADR 0018; the audit in docs/react-native-android-adaptation.mdx, \"Popups following their window\"): PopupWindowProbe (sample/PopupWindowProbe.tsx) on a 1280x720 display at 1 with, right of it, a 1600x1000 display at 1.25. With its menu open, the shell moves the window onto the second display: the window is asked for frames at 1.25 and the menu goes with it, at the same place against its trigger (334 and 172 logical pixels from the window's corner on both), and is drawn at 1.25 (120 logical pixels wide, its content's width as its own layout root lays it out, 150 by 70 device pixels; the same size on both, so the compositor places it again without asking it to resize), keeping the keyboard; its rows take their presses there. Moved back, the menu is drawn at 1 again. A tooltip goes across with its window the same way. popup-window-displays-scaled.json is the same with the displays the other way round (the primary at 1.25). Each step checks the popups' rectangles and their frames' pixels, the window's, the compositor's focus, what each surface was delivered and exactly what React heard.",
   "module": "PopupWindowProbe",
   "window": [900, 600],
   "outputs": "1280x720,1600x1000@1.25",
@@ -15,7 +15,7 @@
       "name": "the menu opens under its trigger, drawn at 1",
       "do": ["press_named", "Actions"],
       "expect": {
-        "popup_rects": [[524, 232, 266, 72]], "focus_surface": 2, "frame_px": {"popup": [266, 72]},
+        "popup_rects": [[524, 232, 120, 56]], "focus_surface": 2, "frame_px": {"popup": [120, 56]},
         "react": {"touchStart@menu-trigger": 1, "touchEnd@menu-trigger": 1}, "popup_events": {"open@actions": 1},
         "delivered": {"1": {"focus.out": 1, "leave": 1, "press": 1, "release": 1}, "2": {"focus.in": 1}},
         "texts": ["menu opened 1, closed 0"]
@@ -25,9 +25,9 @@
       "name": "the shell moves the window onto the second display: the menu goes with it, at its trigger, drawn at 1.25, the keyboard still its",
       "do": ["move-window", [1200, 0]],
       "expect": {
-        "window_rect": [1390, 60, 900, 600], "popup_rects": [[1724, 232, 265, 72]], "focus_surface": 2,
-        "frame_px": {"window": [1125, 750], "popup": [332, 90]},
-        "react": {}, "popup_events": {"reposition@actions": 1}, "delivered": {},
+        "window_rect": [1390, 60, 900, 600], "popup_rects": [[1724, 232, 120, 56]], "focus_surface": 2,
+        "frame_px": {"window": [1125, 750], "popup": [150, 70]},
+        "react": {}, "popup_events": {}, "delivered": {},
         "texts": ["menu opened 1, closed 0"]
       }
     },
@@ -43,7 +43,7 @@
       "name": "the menu opens again on the second display, drawn at 1.25",
       "do": ["press_named", "Actions"],
       "expect": {
-        "popup_rects": [[1724, 232, 265, 72]], "focus_surface": 3, "frame_px": {"popup": [332, 90]},
+        "popup_rects": [[1724, 232, 120, 56]], "focus_surface": 3, "frame_px": {"popup": [150, 70]},
         "react": {"touchStart@menu-trigger": 1, "touchEnd@menu-trigger": 1}, "popup_events": {"open@actions": 1},
         "texts": ["menu opened 2, closed 1"]
       }
@@ -52,9 +52,9 @@
       "name": "moved back onto the first display: the menu goes with it and is drawn at 1 again",
       "do": ["move-window", [-1200, 0]],
       "expect": {
-        "window_rect": [190, 60, 900, 600], "popup_rects": [[524, 232, 266, 72]], "focus_surface": 3,
-        "frame_px": {"window": [900, 600], "popup": [266, 72]},
-        "react": {}, "popup_events": {"reposition@actions": 1}, "delivered": {},
+        "window_rect": [190, 60, 900, 600], "popup_rects": [[524, 232, 120, 56]], "focus_surface": 3,
+        "frame_px": {"window": [900, 600], "popup": [120, 56]},
+        "react": {}, "popup_events": {}, "delivered": {},
         "texts": ["menu opened 2, closed 1"]
       }
     },
@@ -67,7 +67,7 @@
       "name": "the tooltip shows under its button",
       "do": ["press_named", "Help"],
       "expect": {
-        "popup_rects": [[605, 231, 240, 37]], "focus_surface": 1,
+        "popup_rects": [[596, 231, 240, 37]], "focus_surface": 1,
         "react": {"touchStart@tip-trigger": 1, "touchEnd@tip-trigger": 1}, "popup_events": {"open@Explains the page": 1},
         "texts": ["tooltip opened 1, closed 0"]
       }
@@ -76,7 +76,7 @@
       "name": "the window goes onto the second display: the tooltip goes with it",
       "do": ["move-window", [1200, 0]],
       "expect": {
-        "window_rect": [1390, 60, 900, 600], "popup_rects": [[1805, 231, 240, 37]], "focus_surface": 1,
+        "window_rect": [1390, 60, 900, 600], "popup_rects": [[1796, 231, 240, 37]], "focus_surface": 1,
         "frame_px": {"window": [1125, 750], "popup": [300, 47]},
         "react": {}, "popup_events": {}, "texts": ["tooltip opened 1, closed 0"]
       }

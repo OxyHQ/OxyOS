@@ -1321,10 +1321,13 @@ int main(int argc, char** argv) {
     }
   }
 
-  // What React Native's runtime holds, read on its thread (memory.h).
+  // What React Native's runtime holds, read on its thread (memory.h). Queued for JavaScript's
+  // thread at once, never staged with the loop's work: the trim comes at the end of an idle turn,
+  // after the loop has handed its staged work over, and a staged account waited until something
+  // next woke the loop (memory-idle: the account written at the host's exit, 4.8 s after the trim).
   oxyos::Memory::get().addRuntime(
       "hermes", [&hermesRuntime] { return hermesRuntime.load(); },
-      [thread = js.get()](std::function<void()> task) { thread->runOnQueue(std::move(task)); });
+      [thread = js.get()](std::function<void()> task) { thread->runOnQueueFirst(std::move(task)); });
   stage("load script");
   // The framework and the application's bundle are mapped from their files, never copied: the
   // framework's pages are the same for every application running on this runtime. The framework

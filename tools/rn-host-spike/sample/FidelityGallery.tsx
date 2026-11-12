@@ -632,7 +632,7 @@ function OverlaysPage() {
           </View>
         </PopoverContent>
       </Popover>
-      <Tooltip visible onVisibleChange={noop} position="bottom">
+      <Tooltip visible onVisibleChange={noop} position="bottom" delay={0}>
         <TooltipTrigger><Text variant="body-medium">Copy link</Text></TooltipTrigger>
         <TooltipTextBubble>Copies the link to your clipboard</TooltipTextBubble>
       </Tooltip>

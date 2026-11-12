@@ -803,5 +803,35 @@ class SignalSteps(unittest.TestCase):
                              ["--signal", signal, "shell"])
 
 
+
+class RendersHowEverBatched(unittest.TestCase):
+    """`renders` (app-expose-keys.json, step 8): what re-rendered, however JavaScript batched the
+    step's updates into commits."""
+
+    def check(self, commits):
+        report = [{"kind": "react_render", "t": int((i + 1) * 1e6), "renders": renders} for i, renders in enumerate(commits)]
+        step = {"name": "minimize", "do": ["wait", 0],
+                "expect": {"renders": {"tops": ["SessionShell"], "components_max": 140}}}
+        failures = []
+        held = regress.RENDER_COUNTS
+        regress.RENDER_COUNTS = True
+        try:
+            regress.check_step(0, step, {"t_settled": int(100e6)}, report, 0, failures)
+        finally:
+            regress.RENDER_COUNTS = held
+        return failures
+
+    small = ["SessionShell", 29, {"View": 8, "Surface": 5, "Dock": 1, "SessionShell": 15}]
+    large = ["SessionShell", 111, {"View": 19, "Surface": 5, "MenubarItem": 15, "SessionShell": 72}]
+
+    def test_the_same_render_in_two_batches_counts_once(self):
+        # 29 + 111 in two commits unloaded, 29 + 29 + 111 when a loaded machine split a batch.
+        self.assertEqual(self.check([[self.small], [self.large]]), [])
+        self.assertEqual(self.check([[self.small], [self.small], [self.large]]), [])
+
+    def test_more_than_the_step_renders_still_fails(self):
+        wider = ["SessionShell", 150, {"View": 60, "Surface": 5, "MenubarItem": 15, "SessionShell": 70}]
+        self.assertTrue(any("expected at most 140" in f for f in self.check([[self.small], [wider]])))
+
 if __name__ == "__main__":
     unittest.main()

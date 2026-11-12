@@ -432,9 +432,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   machine's load makes it). In `in_shell`, the shell's;
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
-  count of work the machine's load cannot change: "tops", exactly the components the step's
-  re-renders began at, in any order ([] for none: nothing re-rendered); "components_max", the most
-  components they may render in all; "each_minute", what the wall clock's minute turning renders
+  count of work neither the machine's load nor how JavaScript batches the step's updates into
+  commits can change (since #554 a loaded machine may commit one step's updates in two batches,
+  rendering the same components twice): "tops", the components the step's re-renders began at, as a
+  set ([] for none: nothing re-rendered); "components_max", the most components they may render,
+  each component counted at the most any one of the step's commits rendered of it; "each_minute", what the wall clock's minute turning renders
   (the shell's clock), not counted when a commit of exactly that comes in the two seconds after a
   minute began. In `in_shell`, the shell's;
 
@@ -455,6 +457,13 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
+two seconds after an application stopped answering, its own cursor once it answers): it settles only
+once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
+wait that the steps before it may have eaten into; the shape is not held for the stillness (no client
+draws it), the surfaces still are. A `cue` step (a name) tells a part played beside
+the session to act now: the director appends the name to `cues` in the run's output (`qr-approve`:
+the played phone approves the QR, `login.oxy.qr.approve` "cue").
 A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a
 thread of its own after the frame that laid it out, in a window the shell launched, whose frames
 are not a step's changes): it settles only once the output shows its `output_pixels`, within `ms`.
@@ -521,7 +530,8 @@ or [x, y, dy, events]) at a point of the output.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
 `press_secondary_named`, `double_press_named` (an icon on the shell's desktop opened, ADR 0047) and
-`move_named` (a name) and `hold_named` ([name, ms]) are the output's
+`move_named` (a name, or {"role", "name"} when a node of another role shares the name: a Settings
+row's title text and its switch) and `hold_named` ([name, ms]) are the output's
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
@@ -774,9 +784,11 @@ accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's AP
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
 code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks
-(true) or `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
+(true), `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
 namespace over a WebSocket, which tells the screen at once ("socket"; its frames logged as `WS ...`
-requests with status 101),
+requests with status 101), or, told the same way, once a step gives the cue `qr-approve` ("cue": a
+`cue` step, after the screen joined), so the approval lands when the scenario reaches that step and
+never on a clock the steps before it race,
 for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
@@ -892,7 +904,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
              "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
+             "expect_popup", "cue", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -1263,11 +1275,16 @@ def director_args(step, out):
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
+    if step.get("until_pointer"):
+        shape, ms = step["until_pointer"]
+        args += ["--until-pointer", str(ms), shape]
     if step.get("until_output_pixels"):
         # Its answer is drawn on the application's own clock: it settles once the output shows the
         # step's `output_pixels` (those it expects of a colour, not "!" those it must not show).
         shown = {at: colour for at, colour in step["expect"]["output_pixels"].items() if not colour.startswith("!")}
         args += ["--until-pixels", str(step["until_output_pixels"]), ";".join(f"{at}={colour}" for at, colour in shown.items())]
+    if kind == "cue":
+        return args + ["--cue", value]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
@@ -1339,14 +1356,14 @@ def director_args(step, out):
         # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
         # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
         # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
-        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
+        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), named(value[0]), named(value[1])]
     if kind in ("press_named", "press_secondary_named", "double_press_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
         # its label, an icon on the desktop by its name), wherever it is when the step runs.
-        return args + ["--" + kind.replace("_", "-"), value]
+        return args + ["--" + kind.replace("_", "-"), named(value)]
     if kind == "hold_named":
         # A long press on the node of this name: [name, ms].
-        return args + ["--hold-named", str(value[1]), value[0]]
+        return args + ["--hold-named", str(value[1]), named(value[0])]
     if kind == "hold_output":
         # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
         return args + ["--hold-output", ",".join(map(str, value))]
@@ -2314,6 +2331,9 @@ def played_oxy(spec, log):
     state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
              "on_device": False, "revision": 0, "qr_claims": 0, "stalled_until": 0}
     lock = threading.Lock()
+    # The cues the run's steps give (`cue`), beside the log in the run's output: none yet.
+    cues = pathlib.Path(log).parent / "cues"
+    cues.unlink(missing_ok=True)
 
     class Oxy(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2460,12 +2480,18 @@ def played_oxy(spec, log):
                     if event[:1] != ["join"] or len(event) < 2:
                         continue
                     self.log("WS /auth-session join {token}")
-                    if spec.get("qr", {}).get("approve") == "socket":
+                    if spec.get("qr", {}).get("approve") in ("socket", "cue"):
                         threading.Thread(target=self.approve, args=(event[1], writing), daemon=True).start()
 
         def approve(self, token, writing):
-            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, told
-            on the socket at once."""
+            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, or
+            once a step gave the cue `qr-approve` ("cue"), told on the socket at once."""
+            if spec.get("qr", {}).get("approve") == "cue":
+                given = time.monotonic() + 600
+                while not (cues.exists() and "qr-approve" in cues.read_text().split()):
+                    if time.monotonic() > given:
+                        return
+                    time.sleep(0.02)
             time.sleep(spec.get("qr", {}).get("approve_after_ms", 0) / 1000)
             with lock:
                 request = state["requests"].get(token)
@@ -2746,8 +2772,13 @@ def websocket_close(wfile, code, reason=""):
 
 
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes the probes of scenarios/network.json, websocket.json and file-system.json call
-    (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx, sample/FileSystemProbe.tsx)."""
+    """The routes the probes of scenarios/network.json, websocket.json, file-system.json and
+    progress.json call (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx,
+    sample/FileSystemProbe.tsx, sample/ProgressProbe.tsx)."""
+
+    # The run's cues (a `cue` step's names, in the run's output): /save answers once `save-done`
+    # is among them.
+    cues = None
 
     def log_message(self, *args):
         pass
@@ -2796,6 +2827,15 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.split("?")[0] == "/save":
+            # The progress probe's work (sample/ProgressProbe.tsx): answered once a step gave the
+            # cue `save-done`, so it ends when the scenario says, however loaded the machine.
+            given = time.monotonic() + 600
+            while not (self.cues and self.cues.exists() and "save-done" in self.cues.read_text().split()):
+                if time.monotonic() > given:
+                    return self.reply(504, "no cue")
+                time.sleep(0.02)
+            return self.reply(200, "saved")
         if self.headers.get("Upgrade", "").lower() == "websocket":
             self.websocket()
         elif self.path == "/json":
@@ -3246,6 +3286,14 @@ def content_shown_ms(report, texts):
             if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
                 return round((line["t"] - main) / 1e6, 1)
     return None
+
+
+def named(value):
+    """A named step's node for oxyos-offscreen: a name, or {"role", "name"} when a node of
+    another role shares the name (a Settings row's title and its switch): `ROLE::NAME`."""
+    if isinstance(value, dict):
+        return f"{value['role']}::{value['name']}"
+    return value
 
 
 def png_pixel_reader(path):
@@ -4934,15 +4982,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             since = (line["t"] + WALL_OFFSET_NS) % 60_000_000_000
             return bool(minute) and sorted(render[0] for render in line["renders"]) == minute and since < 2_000_000_000
         counted = [line for line in commits if not on_the_minute(line)]
-        tops = sorted(render[0] for line in counted for render in line["renders"])
-        components = sum(render[1] for line in counted for render in line["renders"])
+        # What re-rendered, however JavaScript batched the step's updates into commits (#554: a
+        # loaded machine may commit them in two batches, the second rendering again what the first
+        # did; Super+M's shell rendered 29 + 29 + 111 components where unloaded it renders
+        # 29 + 111): where re-renders began, as a set, and each component counted at the most one
+        # commit rendered of it.
+        tops = sorted({render[0] for line in counted for render in line["renders"]})
+        most = collections.Counter()
+        for line in counted:
+            commit = collections.Counter()
+            for render in line["renders"]:
+                commit.update(render[2])
+            for name, n in commit.items():
+                most[name] = max(most[name], n)
+        components = sum(most.values())
         def rendered(render):
             names = sorted(render[2].items(), key=lambda item: (-item[1], item[0]))
             return f"{render[0]} ({render[1]}: " + ", ".join(f"{name} {n}" for name, n in names[:12]) + (", …" if len(names) > 12 else "") + ")"
         said = "; ".join(rendered(render) for line in counted for render in line["renders"]) or "nothing"
-        if "tops" in wanted and tops != sorted(wanted["tops"]):
+        if "tops" in wanted and tops != sorted(set(wanted["tops"])):
             fail(f"React re-rendered {said} (where each re-render began, with the components it rendered), "
-                 f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
+                 f"expected re-renders beginning at exactly {sorted(set(wanted['tops']))}")
         if components > wanted.get("components_max", float("inf")):
             fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
     if "accounts_asked" in expect:
@@ -5635,6 +5695,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "progress_frames" in expect:
         # Frames that turned only spinning rings (progress-bar.h), any of the application's surfaces'.
         least, most = expect["progress_frames"]
+        # How many fit in the step is the machine's rate: all of them with --speed-budgets, else two.
+        least = frames_least(least)
         turned = sum(1 for line in report if line["kind"] == "present" and line.get("progress_only")
                      and start < line["t"] <= end)
         if not least <= turned <= most:
@@ -7194,6 +7256,8 @@ def main():
         # The probe opens every request at once; socketserver's backlog of 5 would drop the rest's
         # connections for TCP to retry a second later, longer than a step takes to settle.
         ThreadingHTTPServer.request_queue_size = 64
+        ProbeServer.cues = out / "cues"
+        ProbeServer.cues.unlink(missing_ok=True)
         server = ThreadingHTTPServer(("127.0.0.1", port), ProbeServer)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, daemon=True).start()
