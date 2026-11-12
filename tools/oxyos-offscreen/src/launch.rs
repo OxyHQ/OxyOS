@@ -3558,7 +3558,25 @@ fn settle(
     }
     loop {
         if Instant::now() > deadline {
-            return Err(format!("deadline exceeded waiting for {waiting_for}").into());
+            // Who had not taken the step's input, when that is what it waited for.
+            let untaken: Vec<String> = untaken
+                .iter()
+                .map(|(client, _)| {
+                    session
+                        .compositor
+                        .peers
+                        .get(client)
+                        .map_or(format!("client {client}"), |peer| {
+                            format!("process {}", peer.pid)
+                        })
+                })
+                .collect();
+            let held = if untaken.is_empty() {
+                String::new()
+            } else {
+                format!(" ({} had not taken its input)", untaken.join(", "))
+            };
+            return Err(format!("deadline exceeded waiting for {waiting_for}{held}").into());
         }
         // Asked to quit as the session ends (ADR 0064), its exit is its answer.
         if let Some(status) = children
