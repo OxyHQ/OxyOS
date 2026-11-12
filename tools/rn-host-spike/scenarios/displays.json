@@ -234,11 +234,11 @@
     {
       "name": "The monitor's resolutions",
       "do": [
-        "press",
-        [
-          850,
-          512
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Resolution"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -303,11 +303,11 @@
     {
       "name": "The monitor's resolutions again",
       "do": [
-        "press",
-        [
-          850,
-          512
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Resolution"
+        }
       ],
       "allow_unchanged": true,
       "expect": {
@@ -379,11 +379,11 @@
     {
       "name": "The monitor's resolutions once more",
       "do": [
-        "press",
-        [
-          850,
-          512
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Resolution"
+        }
       ],
       "allow_unchanged": true,
       "expect": {

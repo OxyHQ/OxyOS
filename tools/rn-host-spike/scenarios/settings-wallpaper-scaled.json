@@ -381,11 +381,11 @@
   {
    "name": "its menu opened: Automatic, then each of its variants",
    "do": [
-    "press",
-    [
-     910,
-     211
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Fondo dinámico"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

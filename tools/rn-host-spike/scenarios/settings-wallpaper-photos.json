@@ -197,11 +197,11 @@
   {
    "name": "the fit's menu",
    "do": [
-    "press",
-    [
-     905,
-     211
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Ajuste"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

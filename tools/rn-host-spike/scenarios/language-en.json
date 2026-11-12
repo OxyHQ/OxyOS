@@ -139,11 +139,11 @@
   {
    "name": "The language's menu, said",
    "do": [
-    "press",
-    [
-     750,
-     88
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Language"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
@@ -228,11 +228,11 @@
   {
    "name": "The time format's menu, said in Spanish",
    "do": [
-    "press",
-    [
-     750,
-     186
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Formato de hora"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
