@@ -842,6 +842,13 @@ fn main() -> Result<()> {
     let mut shell_restarts = oxyos_seat::restarts::Restarts::default();
     // The shells watched (docs/adr/0061, decision 6): one that stops answering is ended.
     let mut shell_watch = oxyos_compositor::shell_watch::ShellWatch::default();
+    // Windows coming back where they were (docs/adr/0070-windows-come-back-where-they-were.mdx): the
+    // person's record, and the desktops they had, before any window opens; none at the login
+    // screen, whose user is no one.
+    let mut places = (!greeter).then(oxyos_compositor::places::Places::of_user);
+    if let Some(places) = places.as_ref() {
+        places.start(&mut compositor.scene);
+    }
     // What an erasure a crash interrupted left aside (docs/adr/0061, decision 5), deleted off the
     // turn; never at the login screen, whose user is no one.
     if !greeter {
@@ -864,7 +871,12 @@ fn main() -> Result<()> {
     if !greeter && !safe_mode {
         for id in &settings.preferences().open_at_login {
             match launcher.launch(id) {
-                Ok(pid) => eprintln!("[session] opened {id} at login ({pid})"),
+                Ok(pid) => {
+                    eprintln!("[session] opened {id} at login ({pid})");
+                    if let Some(places) = places.as_mut() {
+                        places.opened_at_login(id);
+                    }
+                }
                 Err(error) => eprintln!("[session] {id} not opened at login: {error}"),
             }
         }
@@ -886,6 +898,12 @@ fn main() -> Result<()> {
             reopened_any = reopened;
             resume
         });
+    // What Resume opened again comes back whole where it was, as the login items do (docs/adr/0070).
+    if let (Some(resume), Some(places)) = (resume.as_mut(), places.as_mut()) {
+        for id in resume.take_opened() {
+            places.opened_at_login(&id);
+        }
+    }
     // The last session ended because of a problem: its report, and the person told.
     if let Some(ended) = session_ended.as_ref().filter(|_| !greeter) {
         crashes.session_ended(&mut compositor.scene, ended, reopened_any);
@@ -1080,6 +1098,12 @@ fn main() -> Result<()> {
         if let Some(search) = search.as_mut() {
             for id in &served.reset {
                 search.forget_application(id);
+            }
+        }
+        // Where its windows were is its own state too (docs/adr/0070).
+        if let Some(places) = places.as_mut() {
+            for id in &served.reset {
+                places.forget(id, Instant::now());
             }
         }
         for id in served.open {
@@ -1438,6 +1462,11 @@ fn main() -> Result<()> {
                 },
             })
         });
+        // A window of what it started opens where its application's was, and the record follows
+        // the windows (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        if let Some(places) = places.as_mut() {
+            places.serve(&mut compositor.scene, Instant::now());
+        }
         // Login items and background activity (docs/adr/0060-login-items-and-background-activity.mdx),
         // after Settings' changes of Open at Login: each application's asks, and its process in the
         // background ended when it loses the right.
@@ -1596,6 +1625,10 @@ fn main() -> Result<()> {
         if let Some(deadline) = force_quit.deadline() {
             wait = wait.min(deadline.saturating_duration_since(Instant::now()));
         }
+        // Where the windows are, written a second after they changed (docs/adr/0070).
+        if let Some(deadline) = places.as_ref().and_then(|places| places.deadline()) {
+            wait = wait.min(deadline.saturating_duration_since(Instant::now()));
+        }
         if let Some(crossing) = settings.next_crossing() {
             let seconds = u64::try_from(crossing.saturating_sub(settings::now())).unwrap_or(0);
             wait = wait.min(Duration::from_secs(seconds));
@@ -1609,6 +1642,12 @@ fn main() -> Result<()> {
                 settings.preferences(),
                 Instant::now(),
             );
+            // Reopened on the person's answer: back whole where it was (docs/adr/0070).
+            if let Some(places) = places.as_mut() {
+                for id in resume.take_opened() {
+                    places.opened_at_login(&id);
+                }
+            }
         }
         // The worker's heartbeat (docs/adr/0065, decision 1): said as each turn ends, and a turn
         // waits at most `heartbeat::WAIT`, so a session that runs says it; one that stops is ended.
@@ -1621,6 +1660,10 @@ fn main() -> Result<()> {
             break Err(error);
         }
     };
+    // Where the windows were as it ended, written now (docs/adr/0070).
+    if let Some(places) = places.as_mut() {
+        places.flush();
+    }
     // Ending in order: the worker gives its applications their time to quit.
     if let Some(heartbeat) = heartbeat.as_mut() {
         heartbeat.ending();

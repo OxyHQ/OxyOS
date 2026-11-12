@@ -228,9 +228,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ending exactly where its window is (its last frame the one that ended it, at its end, whatever
   frames were dropped before);
 - window_states: every window as the shell is told of it once the step settled, by its number,
-  exactly those: each key given of "app", "workspace", "minimized", "hidden", "focused" and
-  "responding" (whether its application answers, docs/adr/0067-hangs-and-force-quit.mdx) matching
-  (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+  exactly those: each key given of "app", "workspace", "minimized", "hidden", "focused",
+  "responding" (whether its application answers, docs/adr/0067-hangs-and-force-quit.mdx), "frame"
+  ([x, y, width, height] as displayed, global and logical) and "zoomed" matching (the dock's
+  press, docs/adr/0034-the-dock.mdx, decision 9; windows coming back where they were,
+  docs/adr/0070-windows-come-back-where-they-were.mdx);
+- windows_of: {APP: {KEY: VALUE}}: the application APP has one window as the shell is told of it,
+  whatever its number, each key given (as in window_states) matching (docs/adr/0070);
+- frame_as: {"WINDOW": [N, "THEN"]}: window WINDOW's frame (window_states) exactly window THEN's
+  once step N settled (1-based): a window reopened where its application's was (docs/adr/0070);
 - tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
   (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
   exactly how many configures the director's window was sent in the step (a window tiled is told
@@ -4625,6 +4631,15 @@ def check_views(index, step, result, results, failures):
             # were dropped.
             if end is not None and last != end:
                 fail(f"{who} ended at {last}, not at {end}")
+    if "frame_as" in expect:
+        # A window where another was once an earlier step settled, exactly: a window reopened
+        # where its application's was (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        states = result.get("window_states") or {}
+        for number, (earlier, then_number) in expect["frame_as"].items():
+            now = (states.get(number) or {}).get("frame")
+            then = ((results[earlier - 1].get("window_states") or {}).get(then_number) or {}).get("frame")
+            if now is None or now != then:
+                fail(f"window {number} is at {now}, not where window {then_number} was after step {earlier}: {then}")
     if "windows_placed_as" in expect:
         then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})
         if placed != then:
@@ -5961,15 +5976,28 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
     if "window_states" in expect:
         # Every window as the shell is told of it once the step settled, by its number, exactly:
-        # each given key ("app", "workspace", "minimized", "hidden", "focused", "responding")
-        # matching, and no
-        # window more or fewer (the dock's press, ADR 0034's decision 9).
+        # each given key ("app", "workspace", "minimized", "hidden", "focused", "responding",
+        # "frame", "zoomed") matching, and no window more or fewer (the dock's press, ADR 0034's
+        # decision 9; ADR 0067; ADR 0070).
         got = result.get("window_states") or {}
         wanted = expect["window_states"]
         if set(got) != set(wanted) or any(
             got[number].get(key) != value for number, state in wanted.items() for key, value in state.items()
         ):
             fail(f"the windows are {got}, expected {wanted}")
+    if "windows_of" in expect:
+        # Each application's one window as the shell is told of it once the step settled, by its
+        # application whatever its number, each given key matching: windows opened at login, in
+        # whatever order they are ready (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        states = result.get("window_states") or {}
+        for app, wanted in expect["windows_of"].items():
+            windows = [state for state in states.values() if state.get("app") == app]
+            if len(windows) != 1:
+                fail(f"{app} has {len(windows)} windows, expected one: {states}")
+                continue
+            for key, value in wanted.items():
+                if windows[0].get(key) != value:
+                    fail(f"{app}'s window: {key} = {windows[0].get(key)!r}, expected {value!r}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]

@@ -183,6 +183,9 @@ struct Session {
     /// With `--shell`: the session's shells, watched and started again as the session keeps its
     /// own (docs/adr/0061, decision 6).
     pub shells: Option<launch::Shells>,
+    /// With `--launch --shell`: windows coming back where they were, the record in the run's own
+    /// state folder (docs/adr/0070-windows-come-back-where-they-were.mdx).
+    pub places: Option<oxyos_compositor::places::Places>,
     /// The processes the session ended for their background activity since a step last took them
     /// (each its application's id).
     pub background_ended: Vec<String>,
@@ -392,6 +395,7 @@ impl Session {
             installs: None,
             background: None,
             shells: None,
+            places: None,
             background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
@@ -918,6 +922,12 @@ impl Session {
                     search.forget_application(id);
                 }
             }
+            // Where its windows were goes with it (docs/adr/0070).
+            if let Some(places) = self.places.as_mut() {
+                for id in &served.reset {
+                    places.forget(id, std::time::Instant::now());
+                }
+            }
             for id in served.open {
                 match launcher.launch(&id) {
                     Ok(pid) => {
@@ -1190,6 +1200,11 @@ impl Session {
                 application: id,
             })
         });
+        // A window of what it started opens where its application's was, and the record follows
+        // the windows, as the session does (docs/adr/0070).
+        if let Some(places) = self.places.as_mut() {
+            places.serve(&mut self.compositor.scene, std::time::Instant::now());
+        }
         for client in self.compositor.peers.keys() {
             // The director's own application is client 1 (launch.rs's CLIENT).
             if *client != 1 && self.compositor.scene.application(*client).is_some() {
@@ -1225,6 +1240,12 @@ impl Session {
                 self.settings.preferences(),
                 std::time::Instant::now(),
             );
+            // Reopened on the person's answer: back whole where it was (docs/adr/0070).
+            if let Some(places) = self.places.as_mut() {
+                for id in resume.take_opened() {
+                    places.opened_at_login(&id);
+                }
+            }
         }
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
@@ -1375,6 +1396,10 @@ impl Session {
     /// Closes every connection, waits for the clients to exit, and checks that no scene
     /// resource or descriptor remains.
     fn finish(mut self, children: &mut Children) -> Result<()> {
+        // Where the windows were as it ends, written now, as the session writes it (docs/adr/0070).
+        if let Some(places) = self.places.as_mut() {
+            places.flush();
+        }
         let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
         for client in clients {
             self.compositor.disconnect(client);

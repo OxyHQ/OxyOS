@@ -560,6 +560,8 @@ pub struct Scene {
     input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
+    /// Windows coming back where they were (docs/adr/0070-windows-come-back-where-they-were.mdx).
+    places: places::Places,
     shell_windows: shell::ShellWindows,
     /// The lock's password, given and checked (ADR 0010).
     authentication: lock::Authentication,
@@ -1441,6 +1443,7 @@ impl Scene {
                 let origin = self.placed(size, output);
                 self.insert(key(surface), Role::Toplevel, None, origin, size, output);
                 self.number_window(key(surface));
+                self.window_made(key(surface));
                 Ok(())
             }
             Request::CreateDialog {
@@ -3448,6 +3451,7 @@ impl Scene {
         self.forget_secrets(Some(key));
         self.forget_window(key);
         self.forget_application_window(key);
+        self.forget_place(key);
         self.forget_menus(key);
         self.forget_window_views(key);
         self.forget_minimize_targets(key);
@@ -5041,6 +5045,7 @@ impl Scene {
         let mut started = 0;
         let mut arriving = Vec::new();
         let mut presenting = Vec::new();
+        let active = self.workspaces.active;
         for (key, node) in self.nodes.iter_mut() {
             if frame.is_some_and(|output| node.output != output) {
                 continue;
@@ -5056,8 +5061,14 @@ impl Scene {
                 // Relative to the frame displayed now: everything the client drew since.
                 node.presenting_damage = node.unshown.take().unwrap_or(SurfaceDamage::Whole);
                 started += 1;
-                // Its first frame: it arrives in the frame being composed.
-                if !node.mapped && !node.dismissed {
+                // Its first frame: it arrives in the frame being composed, unless it is not
+                // shown (a window reopened minimized or on another desktop at login, docs/adr/
+                // 0069-windows-come-back-where-they-were.mdx).
+                if !node.mapped
+                    && !node.dismissed
+                    && !node.hidden
+                    && (node.parent.is_some() || node.workspace == active)
+                {
                     arriving.push(*key);
                 }
             }
@@ -5203,6 +5214,11 @@ impl Scene {
                 if self.locked && layer_of(&node.role) == Layer::Lock && self.focus.is_none() {
                     self.set_focus(Some(key));
                 } else if matches!(node.role, Role::Toplevel | Role::Dialog) {
+                    // Opened at login, it takes its place in the order kept (docs/adr/0070-
+                    // windows-come-back-where-they-were.mdx).
+                    if self.arrive_in_order(key) {
+                        continue;
+                    }
                     // Focus-stealing prevention: a window mapped after the user interacted with
                     // another client stays behind the focused window and gets no keyboard focus.
                     let activated = self
@@ -5323,6 +5339,8 @@ pub use autofill::{
 pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
+mod places;
+pub use places::{LaunchedWindow, Placing, WindowPlace};
 mod shell;
 pub use shell::{ShellWindowState, MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
 mod material;
