@@ -37,6 +37,7 @@ import type { MinimizeTargetProps, ScrollTargetProps, ShellKeyboard, ShellScroll
 import { CORNER, IconBody, isSvgIcon } from "../apps";
 import type { ShellActions, ShellApplication, ShellSnapshot, ShellWindow } from "../model";
 import { OxyLogo } from "./OxyLogo";
+import { GlassMaterial, useGlass } from "./GlassMaterial";
 import { TRASH_ICON } from "./trash-icon";
 import { belongsTo } from "../model";
 import {
@@ -805,16 +806,26 @@ const DockShelf = memo(function DockShelf({
     borderTopLeftRadius: radius.value,
     borderTopRightRadius: radius.value,
   }));
-  const style = useMemo(() => [SHELF_LAYOUT, { backgroundColor: color }, corners], [color, corners]);
+  // Its glass (GlassMaterial.tsx): the platform's material under its colour as a tint, where the
+  // platform has it and transparency is not reduced; else its colour, opaque, as it always was. The
+  // material fills the shelf, which clips it, so its shape is the shelf's as its corners move
+  // (the host gives a material filling what clips it that box's corners): nothing of it renders
+  // again for them.
+  const shelf = useGlass(color);
+  const style = useMemo(
+    () => [SHELF_LAYOUT, { backgroundColor: shelf.backgroundColor }, corners],
+    [corners, shelf.backgroundColor],
+  );
   // The same element while its style and children are: the shelf's view renders again only when
   // its colour or its contents change, never for its corners, which Reanimated moves.
   return useMemo(
     () => (
       <Animated.View testID="shell-dock" style={style}>
+        <GlassMaterial testID="shell-dock-material" fill={color} />
         {children}
       </Animated.View>
     ),
-    [style, children],
+    [style, children, color],
   );
 });
 

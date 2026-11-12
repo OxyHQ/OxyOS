@@ -25,7 +25,7 @@
       "expect": {
         "focus_input": "line",
         "output_pixels": {
-          "767,716": "#f7f9fc"
+          "767,716": "#e2e6fd"
         }
       }
     },

@@ -1,4 +1,5 @@
 #include "popup.h"
+#include "material.h"
 #include "trace.h"
 
 #include "accessibility.h"
@@ -340,6 +341,12 @@ void PopupHost::present(const TextInputEdit& edit, const std::string& focus) {
     // Its secure fields go with the frame (docs/adr/0024-system-shortcuts.mdx, decision 10).
     if (auto secure = secureFields(tree_, tag); window_.setSecureRegions(popup.surface, secure)) {
       Report::get().input("secure.regions", popup.surface, folly::dynamic::object("rects", toDynamic(secure)));
+    }
+    // Its material regions go with the frame (material.h, docs/adr/0069-the-platforms-material.mdx):
+    // the compositor blurs what is beneath the menu there.
+    auto materials = materialRegions(stats.materials, surface->scale, canvas.width, canvas.height);
+    if (window_.setMaterialRegions(popup.surface, materials)) {
+      Report::get().input("material.regions", popup.surface, folly::dynamic::object("regions", materialReport(materials)));
     }
     // Drawn for its configure as the frame before was, with nothing but its rings to turn.
     bool onlyTurning = popup.onlyTurning && surface->configure == popup.drawnFor;

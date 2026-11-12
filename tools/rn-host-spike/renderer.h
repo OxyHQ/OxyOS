@@ -234,7 +234,30 @@ struct RenderStats {
     bool operator==(const MinimizeTarget&) const = default;
   };
   std::vector<MinimizeTarget> minimizeTargets;
+  // The platform's material in what was drawn (material.h, docs/adr/0069-the-platforms-material.mdx),
+  // in drawing order: each OxyOSMaterialView's frame, the part of it its ancestors leave visible
+  // (in the canvas's logical pixels) and its corners' radii, the smaller of its top two and of its
+  // bottom two, which its surface tells the compositor as its material regions. Views under a
+  // transform that turns or skews them, a mask or a blur, or fully transparent, and every one while
+  // transparency is reduced, are not among them.
+  struct Material {
+    facebook::react::Rect rect, clip;
+    float top = 0, bottom = 0;
+    bool operator==(const Material&) const = default;
+  };
+  std::vector<Material> materials;
 };
+
+// The material regions of `materials` (RenderStats) on a surface `width` × `height` pixels at
+// `scale`, as `oxyos_client_set_material_regions` takes them: five values each (x, y, width,
+// height, radius) in the surface's pixels, each within the surface and its visible part, its
+// radius at most half its shorter side. A region has one radius: a material rounded at its top
+// alone (the dock's shelf) or at its bottom alone is told as two, a rounded rectangle at that end
+// two radii tall and a rectangle from a radius in to the other end with the other end's corners,
+// which together are its shape (where they overlap each is the same blur). One cut by what clips
+// it is square. At most OXYOS_MAX_MATERIAL_REGIONS, the first drawn.
+std::vector<int32_t> materialRegions(const std::vector<RenderStats::Material>& materials, float scale, int width,
+                                     int height);
 
 // A canvas drawn on the GPU (docs/adr/0031-gpu-buffers.mdx, decision 12): a Skia surface on the
 // device the compositor shares, freed with the last canvas holding it.

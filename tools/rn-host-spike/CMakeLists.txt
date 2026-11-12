@@ -311,7 +311,7 @@ add_custom_command(OUTPUT ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h
 
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-gpu.cpp android-view-props.cpp damage.cpp host-modules.cpp application.cpp account-session.cpp migration.cpp files.cpp clipboard.cpp images.cpp svg-image.cpp network.cpp websocket.cpp worklets-host.cpp intl.cpp
   reanimated-host.cpp native-animated.cpp animation-frames.cpp js-thread.cpp ui-thread.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp platform-modules.cpp ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
-  gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  gesture-handler.cpp modal.cpp expo-blur.cpp material.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 # The UI and JavaScript threads' short slice (docs/adr/0066-quality-of-service.mdx, decision 2).
 target_sources(oxyos-bloom-host PRIVATE scheduling.cpp)
 # React Native's Android ProgressBar, ActivityIndicator's (progress-bar.h).

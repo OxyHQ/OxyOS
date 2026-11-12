@@ -1,5 +1,5 @@
 //! A surface's material regions (docs/adr/0069-the-platforms-material.mdx): told in order before
-//! the Submit they belong to, held from when that frame is displayed, replaced by a later list's
+//! the Submit they belong to, held from when that frame is composed, replaced by a later list's
 //! frame, refused past their limits.
 
 use super::*;
@@ -82,6 +82,35 @@ fn a_list_waits_for_its_frame_while_an_older_one_shows() {
         &[MaterialRegion {
             rect: TIP,
             radius: 6
+        }]
+    );
+}
+
+#[test]
+fn a_frame_composes_with_its_own_list() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.request(APP, region(1, 0, true, MENU, 12)).unwrap();
+    h.present(window);
+    h.request(APP, region(1, 0, true, MENU, 0)).unwrap();
+    h.submit(window);
+    h.pump();
+    // While the frame it was told for composes, its list is the one drawn: its pixels are composed
+    // with it, never with the list of the frame they replace.
+    h.scene.begin_frame();
+    assert_eq!(
+        h.scene.material_regions(window),
+        &[MaterialRegion {
+            rect: MENU,
+            radius: 0
+        }]
+    );
+    h.scene.end_frame(1, Clock::Synthetic);
+    assert_eq!(
+        h.scene.material_regions(window),
+        &[MaterialRegion {
+            rect: MENU,
+            radius: 0
         }]
     );
 }

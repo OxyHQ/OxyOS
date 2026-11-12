@@ -399,6 +399,8 @@ struct HostServices {
   // docs/adr/0044-system-sounds.mdx), citing the latest input: whether it was asked for.
   std::function<bool(const std::string& sound)> playSystemSound;
   bool soundsAvailable = false;
+  // Whether the compositor takes material regions (protocol version 45, OxyOSMaterial).
+  bool materialAvailable = false;
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

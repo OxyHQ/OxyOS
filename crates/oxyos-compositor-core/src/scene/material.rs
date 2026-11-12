@@ -104,10 +104,13 @@ impl Scene {
         Ok(())
     }
 
-    /// The material regions of the frame `key` displays, in its buffer pixels: none for a surface
-    /// unknown, without a frame displayed or that never told any, and none at all while the user
-    /// reduces transparency (docs/adr/0019-settings.mdx), when every material is drawn opaque.
-    /// What lies outside the frame's extent is the compositor's to clip.
+    /// The material regions of the frame of `key` composed now, in its buffer pixels: the one
+    /// presenting while a frame composes it (as `frame_list` draws it), else the one displayed;
+    /// none for a surface unknown, without a frame or that never told any, and none at all while
+    /// the user reduces transparency (docs/adr/0019-settings.mdx), when every material is drawn
+    /// opaque. What lies outside the frame's extent is the compositor's to clip. The regions go
+    /// with the pixels they were drawn with: a frame never composes with its predecessor's list,
+    /// which a frame left on screen would keep (a dock's corners rounded in one frame).
     pub fn material_regions(&self, key: SurfaceKey) -> &[MaterialRegion] {
         if self
             .preferences
@@ -119,7 +122,11 @@ impl Scene {
         let Some(node) = self.nodes.get(&key) else {
             return &[];
         };
-        match node.presentation.displayed() {
+        match node
+            .presentation
+            .presenting()
+            .or(node.presentation.displayed())
+        {
             Some(frame) => node.material.for_frame(frame.sequence),
             None => &[],
         }

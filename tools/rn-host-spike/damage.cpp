@@ -1,6 +1,7 @@
 #include "damage.h"
 
 #include "expo-blur.h"
+#include "material.h"
 #include "progress-bar.h"
 #include "scrollbars.h"
 #include "svg.h"
@@ -325,6 +326,43 @@ std::optional<std::vector<Rect>> WindowDamage::compare(const ViewTree& tree, con
       }
     }
     damage.insert(damage.end(), blurred.begin(), blurred.end());
+    // A material view (material.h) blurs what the canvas holds beneath it within its reach: a
+    // change there changes all of it. It is drawn again with everything it reads, in one rectangle
+    // drawn before it, so that it reads only what is drawn afresh, never its own last frame (which
+    // a rectangle of its own beside another would leave around it).
+    if (!reducedTransparency()) {
+      std::vector<Rect> materials;
+      for (const auto& [tag, seen] : now) {
+        if (!isMaterialView(seen.view.componentName)) continue;
+        materials.push_back(Rect{{seen.at.origin.x - kMaterialReach, seen.at.origin.y - kMaterialReach},
+                                 {seen.at.size.width + 2 * kMaterialReach, seen.at.size.height + 2 * kMaterialReach}});
+      }
+      auto meets = [](const Rect& a, const Rect& b) {
+        Rect common = Rect::intersect(a, b);
+        return common.size.width > 0 && common.size.height > 0;
+      };
+      for (bool merged = true; merged;) {
+        merged = false;
+        for (const auto& around : materials) {
+          Rect whole = around;
+          std::vector<Rect> rest;
+          std::vector<Rect> met;
+          for (const auto& rect : damage) {
+            if (meets(rect, around)) {
+              whole = bounding({whole, rect});
+              met.push_back(rect);
+            } else {
+              rest.push_back(rect);
+            }
+          }
+          // Untouched, or already one rectangle holding all it reads.
+          if (met.empty() || (met.size() == 1 && met[0] == whole)) continue;
+          rest.push_back(whole);
+          damage = std::move(rest);
+          merged = true;
+        }
+      }
+    }
   }
   spinningOnly_ = same && !resized && !others && !spinning.empty();
   seen_ = std::move(now);

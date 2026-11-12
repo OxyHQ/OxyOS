@@ -1368,6 +1368,11 @@ std::shared_ptr<TurboModule> createHostModule(
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });
+  } else if (name == "OxyOSMaterial") {
+    // The platform's material (sample/oxyos/platform-surface.js, Bloom's `material` capability;
+    // docs/adr/0069-the-platforms-material.mdx): whether the compositor blurs beneath a surface's
+    // material regions, which the host's OxyOSMaterialView tells it.
+    module->constants(folly::dynamic::object("available", services.materialAvailable));
   } else if (name == "OxyOSDrag") {
     // Dragging the application's content to another application (sample/oxyos/platform-surface.js,
     // Bloom's usePlatformDrag; docs/adr/0035-drag-and-drop.mdx): from the press it holds, the
