@@ -432,9 +432,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   machine's load makes it). In `in_shell`, the shell's;
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
-  count of work the machine's load cannot change: "tops", exactly the components the step's
-  re-renders began at, in any order ([] for none: nothing re-rendered); "components_max", the most
-  components they may render in all; "each_minute", what the wall clock's minute turning renders
+  count of work neither the machine's load nor how JavaScript batches the step's updates into
+  commits can change (since #554 a loaded machine may commit one step's updates in two batches,
+  rendering the same components twice): "tops", the components the step's re-renders began at, as a
+  set ([] for none: nothing re-rendered); "components_max", the most components they may render,
+  each component counted at the most any one of the step's commits rendered of it; "each_minute", what the wall clock's minute turning renders
   (the shell's clock), not counted when a commit of exactly that comes in the two seconds after a
   minute began. In `in_shell`, the shell's;
 
@@ -4957,15 +4959,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             since = (line["t"] + WALL_OFFSET_NS) % 60_000_000_000
             return bool(minute) and sorted(render[0] for render in line["renders"]) == minute and since < 2_000_000_000
         counted = [line for line in commits if not on_the_minute(line)]
-        tops = sorted(render[0] for line in counted for render in line["renders"])
-        components = sum(render[1] for line in counted for render in line["renders"])
+        # What re-rendered, however JavaScript batched the step's updates into commits (#554: a
+        # loaded machine may commit them in two batches, the second rendering again what the first
+        # did; Super+M's shell rendered 29 + 29 + 111 components where unloaded it renders
+        # 29 + 111): where re-renders began, as a set, and each component counted at the most one
+        # commit rendered of it.
+        tops = sorted({render[0] for line in counted for render in line["renders"]})
+        most = collections.Counter()
+        for line in counted:
+            commit = collections.Counter()
+            for render in line["renders"]:
+                commit.update(render[2])
+            for name, n in commit.items():
+                most[name] = max(most[name], n)
+        components = sum(most.values())
         def rendered(render):
             names = sorted(render[2].items(), key=lambda item: (-item[1], item[0]))
             return f"{render[0]} ({render[1]}: " + ", ".join(f"{name} {n}" for name, n in names[:12]) + (", …" if len(names) > 12 else "") + ")"
         said = "; ".join(rendered(render) for line in counted for render in line["renders"]) or "nothing"
-        if "tops" in wanted and tops != sorted(wanted["tops"]):
+        if "tops" in wanted and tops != sorted(set(wanted["tops"])):
             fail(f"React re-rendered {said} (where each re-render began, with the components it rendered), "
-                 f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
+                 f"expected re-renders beginning at exactly {sorted(set(wanted['tops']))}")
         if components > wanted.get("components_max", float("inf")):
             fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
     if "accounts_asked" in expect:
