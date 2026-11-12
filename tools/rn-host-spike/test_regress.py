@@ -489,6 +489,28 @@ class SpinnerFrames(unittest.TestCase):
         self.assertEqual(failures, ["step 1 (wait): 1 frames turned only a spinner in the step, expected 2 to 100"])
 
 
+class ClosedAfterLeave(unittest.TestCase):
+    """`closed_after_leave` (notifications-reader.json): how long the banner stayed after the pointer
+    left it, on the shell's clock, wherever the steps' bounds fell."""
+
+    def check(self, close_ms, end_ms=20000):
+        report = [{"kind": "frame", "t": int(4.4e9), "surface": 5, "texts": ["¿Comemos juntos?"]},
+                  {"kind": "received", "t": int(14.509e9), "surface": 5, "event": "pointer.leave"},
+                  {"kind": "popup", "t": int(close_ms * 1e6), "surface": 5, "event": "shell.close"}]
+        step = {"name": "goes", "do": ["wait", 0],
+                "expect": {"closed_after_leave": {"text": "¿Comemos juntos?", "ms": [5000, 8000]}}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(end_ms * 1e6)}, report, int(18e9), failures)
+        return failures
+
+    def test_five_seconds_after_even_when_it_closed_before_the_step(self):
+        self.assertEqual(self.check(19513), [])
+        self.assertEqual(self.check(19513, end_ms=30000), [])
+
+    def test_closing_sooner_fails(self):
+        self.assertEqual(len(self.check(17000)), 1)
+
+
 class GlidesOnlySlow(unittest.TestCase):
     """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
 
@@ -511,6 +533,61 @@ class GlidesOnlySlow(unittest.TestCase):
     def test_upwards_too(self):
         self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
                          [(2, -1875, -3125)])
+
+    def test_a_frame_timed_by_its_sample_not_its_late_line(self):
+        # touchpad-scroll step 1 on seldon (load 81): the second frame's line came 2.1 ms after its
+        # spline was sampled (its commit waited for JavaScript's), which by the lines alone reads as
+        # 480 then 617 px/s; by the samples, 534 then 543, within the rounding's slack.
+        lines = [(316.58, 316.44, 90.95), (336.14, 334.04, 100.35), (350.51, 350.36, 109.21), (397.24, 397.04, 128.01)]
+        frames = [{"t": int(t * 1e6), "sampled": int(sampled * 1e6), "y": y} for t, sampled, y in lines]
+        self.assertEqual(regress.glide_speeding(frames), [])
+        by_lines = [{"t": f["t"], "y": f["y"]} for f in frames]
+        self.assertEqual(regress.glide_speeding(by_lines), [(1, 481, 617)])
+
+
+class AGlidesClockIsItsOwn(unittest.TestCase):
+    """`glide`'s frames_min (touchpad-scroll-scaled.json, step 2): a glide to the end is drawn in
+    frames, unless its first frame came after its spline had already reached the end."""
+
+    def check(self, first_ms):
+        # Flung at 1200 px/s from 280, 45.6 px short of the end, its spline 634.9 ms long.
+        fling = {"kind": "fling", "t": 0, "target": "inbox", "friction": 0.015, "vy": 1200.0, "vx": 0.0,
+                 "dy": regress.android_fling_distance(1200.0, 0.015), "dx": 0.0, "ms": 634.9}
+        line = lambda ms, event, y: {"kind": "deliver", "t": int(ms * 1e6), "event": event, "target": "inbox",
+                                     "surface": 1, "y": y, "x": 0}
+        report = [line(0, "scrollEndDrag", 280.0), line(0.1, "momentumScrollBegin", 280.0), fling,
+                  line(first_ms, "scroll", 325.6), line(first_ms + 0.1, "momentumScrollEnd", 325.6)]
+        failures = []
+        regress.check_glide({"view": "inbox", "velocity": [900, 1800], "to_end": True, "frames_min": 2},
+                            report, 0, int(10e9), failures.append)
+        return failures
+
+    def test_a_first_frame_after_the_spline_met_the_end_shows_it_there(self):
+        self.assertAlmostEqual(regress.android_fling_time(45.6 / 266.7) * 634.9, 38.6, places=1)
+        self.assertEqual(self.check(101), [])
+
+    def test_a_jump_to_the_end_the_clock_did_not_make_fails(self):
+        self.assertEqual(self.check(16), ["inbox glided in 1 frames, expected at least 2"])
+
+
+class ScrollsStampedAtDispatch(unittest.TestCase):
+    """`scroll_times: "dispatch"` (touchpad-hold-scaled.json): between the host receiving the input
+    behind it and its line, however long the host was preempted between the two."""
+
+    def check(self, stamp_ms):
+        report = [{"kind": "received", "t": int(100e6), "seq": 7, "event": "scroll"},
+                  dict(deliver(int(102.6e6), "scroll", "ScrollView#3", "list"), input_seq=7, timestamp=stamp_ms)]
+        step = {"name": "flick", "do": ["wait", 0], "expect": {"scroll_times": "dispatch"}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(200e6)}, report, 0, failures)
+        return [f for f in failures if "timestamp" in f]
+
+    def test_stamped_when_dispatched_however_late_its_line(self):
+        self.assertEqual(self.check(100.1), [])
+
+    def test_the_devices_time_or_a_later_one_fails(self):
+        self.assertEqual(len(self.check(98.0)), 1)
+        self.assertEqual(len(self.check(103.0)), 1)
 
 
 class GlidesMeetInput(unittest.TestCase):
@@ -626,7 +703,7 @@ class GlidesMeetInput(unittest.TestCase):
 
 
 class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
-    """A step's `stall` (docs/adr/0067-the-ui-thread.mdx): what moves is drawn through a block of
+    """A step's `stall` (docs/adr/0071-the-ui-thread.mdx): what moves is drawn through a block of
     JavaScript's, every run half the block's refreshes, with --speed-budgets each refresh."""
 
     @staticmethod
@@ -673,7 +750,7 @@ class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
 
 class TypedTextEchoedAsTheFieldTookIt(unittest.TestCase):
     """`spoken`'s "typed": text typed at once is echoed whole or in pieces, as the field took each key
-    (a field takes a key once JavaScript answered it, docs/adr/0067-the-ui-thread.mdx)."""
+    (a field takes a key once JavaScript answered it, docs/adr/0071-the-ui-thread.mdx)."""
 
     wanted = [{"typed": "ada", "interrupting": True}, {"text": "Ese nombre ya está en uso", "interrupting": True}]
 
@@ -757,6 +834,36 @@ class SignalSteps(unittest.TestCase):
             self.assertEqual(regress.director_args({"do": ["signal", [signal, "shell"]]}, None),
                              ["--signal", signal, "shell"])
 
+
+
+class RendersHowEverBatched(unittest.TestCase):
+    """`renders` (app-expose-keys.json, step 8): what re-rendered, however JavaScript batched the
+    step's updates into commits."""
+
+    def check(self, commits):
+        report = [{"kind": "react_render", "t": int((i + 1) * 1e6), "renders": renders} for i, renders in enumerate(commits)]
+        step = {"name": "minimize", "do": ["wait", 0],
+                "expect": {"renders": {"tops": ["SessionShell"], "components_max": 140}}}
+        failures = []
+        held = regress.RENDER_COUNTS
+        regress.RENDER_COUNTS = True
+        try:
+            regress.check_step(0, step, {"t_settled": int(100e6)}, report, 0, failures)
+        finally:
+            regress.RENDER_COUNTS = held
+        return failures
+
+    small = ["SessionShell", 29, {"View": 8, "Surface": 5, "Dock": 1, "SessionShell": 15}]
+    large = ["SessionShell", 111, {"View": 19, "Surface": 5, "MenubarItem": 15, "SessionShell": 72}]
+
+    def test_the_same_render_in_two_batches_counts_once(self):
+        # 29 + 111 in two commits unloaded, 29 + 29 + 111 when a loaded machine split a batch.
+        self.assertEqual(self.check([[self.small], [self.large]]), [])
+        self.assertEqual(self.check([[self.small], [self.small], [self.large]]), [])
+
+    def test_more_than_the_step_renders_still_fails(self):
+        wider = ["SessionShell", 150, {"View": 60, "Surface": 5, "MenubarItem": 15, "SessionShell": 70}]
+        self.assertTrue(any("expected at most 140" in f for f in self.check([[self.small], [wider]])))
 
 if __name__ == "__main__":
     unittest.main()

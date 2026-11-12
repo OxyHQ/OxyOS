@@ -48,6 +48,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -208,7 +209,10 @@ class Report {
   void modalPresented(const char* event, const std::string& within, float offset, float alpha, float height);
   // Props Animated's native driver set on `view` between commits (native-animated.h), as computed
   // for a frame: what the view is drawn with next.
-  void animated(const facebook::react::ShadowView& view, const folly::dynamic& props);
+  // `sampledNs`: when the frame that set them was sampled (CLOCK_MONOTONIC), when known: the line
+  // can come later (the thread preempted between the frame's values and their props).
+  void animated(const facebook::react::ShadowView& view, const folly::dynamic& props,
+                std::optional<int64_t> sampledNs = std::nullopt);
   // Views with a testID whose opacity, translation or top corners' radii a mounted transaction
   // changed, as committed (React's commits, a JavaScript-driven Animated's and Reanimated's among
   // them): `props` as the native driver's lines have them, the radii as drawn.

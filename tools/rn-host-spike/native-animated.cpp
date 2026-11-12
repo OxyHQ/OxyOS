@@ -71,6 +71,12 @@ std::shared_ptr<TurboModule> NativeAnimatedHost::module(const std::shared_ptr<Ca
   return std::make_shared<Module>(invoker, provider_);
 }
 
+namespace {
+// When the native driver's frame being rendered was sampled (NativeAnimatedHost::tick), for the
+// report's `animated` lines (updateViewProps).
+thread_local std::optional<int64_t> tFrameSampledNs;
+}  // namespace
+
 bool NativeAnimatedHost::tick() {
   double now = nowMs();
   std::shared_ptr<std::function<void()>> render;
@@ -81,7 +87,9 @@ bool NativeAnimatedHost::tick() {
     // The frame may stop the frames (the last animation ended), which drops `render`: held here.
     render = frames_->render;
   }
+  tFrameSampledNs = static_cast<int64_t>(now * 1e6);
   (*render)();
+  tFrameSampledNs.reset();
   return true;
 }
 
@@ -104,7 +112,7 @@ bool updateViewProps(ViewTree& tree, const Scheduler& scheduler, Tag tag, const 
   }
   PropsParserContext context{view.surfaceId, *scheduler.getContextContainer()};
   auto updated = descriptor->cloneProps(context, view.props, RawProps(props));
-  Report::get().animated(view, props);
+  Report::get().animated(view, props, tFrameSampledNs);
   tree.setProps(tag, std::move(updated));
   return true;
 }

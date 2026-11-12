@@ -1,5 +1,5 @@
 {
- "about": "Notifications with the screen reader on in Spanish and from the keyboard (docs/adr/0039-keyboard-access.mdx, docs/adr/0026-notifications.mdx): Allo (sample/NotificationProbe.tsx) posts; its banner is said politely once, its close named by the notification it closes (\"Cerrar la notificación de Allo: Ana\", not a bare verb). The banner stays while the pointer is on it and five seconds after it leaves, as a Mac's; while a reply is typed in it, it stays, Tab reaching its Enviar. Super+N, as a Mac's Fn-N, opens the Notification Center: a dialog said by its title, the keyboard on its first control said after it; Tab through a notification and its close, each said once; Escape closes it and gives Allo the keyboard back; Super+N again closes it. At 1 (1280 × 720).",
+ "about": "Notifications with the screen reader on in Spanish and from the keyboard (docs/adr/0039-keyboard-access.mdx, docs/adr/0026-notifications.mdx): Allo (sample/NotificationProbe.tsx) posts; its banner is said politely once, its close named by the notification it closes (\"Cerrar la notificación de Allo: Ana\", not a bare verb). The banner stays while the pointer is on it and five seconds after it leaves, as a Mac's; while a reply is typed in it, it stays, Tab reaching its Enviar. Super+N, as a Mac's Fn-N, opens the Notification Center: a dialog said by its title, the keyboard on its first control said after it; Tab through a notification and its close, each said once; Escape closes it and gives Allo the keyboard back; Super+N again closes it. At 1 (1280 × 720). How long the banner stays after the pointer leaves is measured on the shell's own clock (`closed_after_leave`: its pointer.leave to its close), not against a set wait: a loaded machine's settling of the step before ate into the 2.5 s and the banner, rightly gone five seconds after the pointer left, was missed.",
  "locale": "es_ES.UTF-8",
  "module": "NotificationProbe",
  "window": [
@@ -209,46 +209,10 @@
    "allow_unchanged": true
   },
   {
-   "name": "two and a half seconds after: still there, its five seconds counting from the release",
+   "name": "it goes five seconds after the pointer left it, not before (on the shell's clock: its pointer.leave to its close), saying nothing",
    "do": [
     "wait",
-    2500
-   ],
-   "expect": {
-    "react": {},
-    "in_shell": {
-     "texts": [
-      "¿Comemos juntos?"
-     ],
-     "keyboard_focus": null
-    },
-    "keyboard_focus": null,
-    "at": {
-     "shell": [
-      {
-       "role": "Button",
-       "name": "Allo. Ana. ¿Comemos juntos?"
-      },
-      {
-       "role": "Button",
-       "name": "Cerrar la notificación de Allo: Ana"
-      },
-      {
-       "role": "Button",
-       "name": "Responder"
-      }
-     ]
-    },
-    "spoken": [],
-    "announcements": []
-   },
-   "allow_unchanged": true
-  },
-  {
-   "name": "four more: it has gone, saying nothing",
-   "do": [
-    "wait",
-    4000
+    8000
    ],
    "expect": {
     "react": {},
@@ -256,7 +220,14 @@
      "absent": [
       "¿Comemos juntos?"
      ],
-     "keyboard_focus": null
+     "keyboard_focus": null,
+     "closed_after_leave": {
+      "text": "¿Comemos juntos?",
+      "ms": [
+       5000,
+       8000
+      ]
+     }
     },
     "keyboard_focus": null,
     "at_absent": {

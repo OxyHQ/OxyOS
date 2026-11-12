@@ -44,7 +44,7 @@ class Window {
   // connection; throws on a protocol error.
   bool dispatch(const std::function<void(const OxyOSEvent&)>& input);
   // The compositor's pings are answered by the host (`pong`), not as dispatch reads them: its
-  // events are handled on JavaScript's thread too (docs/adr/0067-the-ui-thread.mdx), and an
+  // events are handled on JavaScript's thread too (docs/adr/0071-the-ui-thread.mdx), and an
   // application is responding once that thread took what came before the ping (bloom-host.cpp), so
   // JavaScript stuck in its work is a hang (docs/adr/0067-hangs-and-force-quit.mdx). The pings
   // dispatch read since the last call, by serial.
