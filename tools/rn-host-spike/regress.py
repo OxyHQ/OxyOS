@@ -91,7 +91,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040), or
   "typed", the echo of text typed at once, said as the field took it: whole, or in the pieces it
   took one after another, which join to it (each matching the other keys): a field takes a key
-  once JavaScript has answered it (docs/adr/0067-the-ui-thread.mdx, decision 6); in a
+  once JavaScript has answered it (docs/adr/0071-the-ui-thread.mdx, decision 6); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
   minute it was said or the one before); spoken_any_order: the same, each said once, in either
@@ -312,7 +312,7 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   that changed nothing but spinning rings (progress-bar.h; its report's `present` lines with
   `progress_only`): an ActivityIndicator turning on the UI thread, each refresh, while the step
   settled around it (a step's settling leaves those frames aside, tools/oxyos-offscreen/src/progress.rs);
-- stall: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx): the step's longest
+- stall: JavaScript held while something moves (docs/adr/0071-the-ui-thread.mdx): the step's longest
   stretch of JavaScript's work on its thread (`js_timing`, at least "block_ms_min", 450 by default)
   is the block, and what moves ("motion": "animated:TARGET", the props Animated's native driver
   set on it; "committed:TARGET", Reanimated's commits mounted; "frames", the window's frames, a
@@ -430,6 +430,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   on its thread's CPU, a backstop for a gross regression held on every run, set far above what the
   work takes (its time by the clock, blocked and preempted, is said with it, never held: the
   machine's load makes it). In `in_shell`, the shell's;
+- closed_after_leave: {"text", "ms": [least, most]}: the surface that showed `text` (a shell's
+  banner, in `in_shell`) closed least to most ms after the pointer last left it, as its host's
+  report has them (its `pointer.leave` received, its `popup` close), wherever in the run they fell:
+  how long a surface stays after the pointer leaves, measured on its own clock, never against the
+  steps' (a loaded machine's settling ate into a set wait, and the banner had gone at its end);
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
   count of work neither the machine's load nor how JavaScript batches the step's updates into
@@ -902,7 +907,7 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_press_taken", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
              "expect_popup", "cue", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
@@ -1367,6 +1372,10 @@ def director_args(step, out):
     if kind == "hold_output":
         # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
         return args + ["--hold-output", ",".join(map(str, value))]
+    if kind == "double_press_taken":
+        # A double click whose first click the application took before the second, the second
+        # carrying the hand's time 100 ms after the first: [x, y].
+        return args + ["--double-press-taken", ",".join(map(str, value))]
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]
@@ -3545,12 +3554,14 @@ def offset_before(report, view, start):
 def glide_speeding(scrolls, axis="y"):
     """Where a glide sped up: its offsets come from a spline that only slows, sampled at each frame,
     so each frame's average speed is at most the one before (a concave curve's secants only fall),
-    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end) and the
-    microseconds between a frame's clock and its report. A glide begun again, or a frame's offset
-    taken from another clock, goes faster. Each (frame, px/s before, px/s then) that did, along
-    `axis` ("x" across, "y" down)."""
+    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end). Each
+    frame is timed by when its spline was sampled (`sampled`, the host's), not by its report's line,
+    which a loaded machine can write milliseconds later (the scroll's commit waiting for one of
+    JavaScript's, the thread preempted); a line without it, by the line. A glide begun again, or a
+    frame's offset taken from another clock, goes faster. Each (frame, px/s before, px/s then) that
+    did, along `axis` ("x" across, "y" down)."""
     speeding = []
-    times = [line["t"] / 1e9 for line in scrolls]
+    times = [line.get("sampled", line["t"]) / 1e9 for line in scrolls]
     offsets = [line[axis] for line in scrolls]
     speeds = [(b - a) / max(u - t, 1e-6) for a, b, t, u in zip(offsets, offsets[1:], times, times[1:])]
     for i in range(1, len(speeds)):
@@ -3615,7 +3626,7 @@ def stall_held(measured, strict):
 
 
 def check_stall(wanted, report, start, end, fail, refresh_hz):
-    """The step's `stall`: JavaScript held while something moves (docs/adr/0067-the-ui-thread.mdx).
+    """The step's `stall`: JavaScript held while something moves (docs/adr/0071-the-ui-thread.mdx).
     The block is the step's longest stretch of JavaScript's work on its thread (`js_timing`), at least
     "block_ms_min" long; what moves is drawn throughout it, by the UI thread: the window's frames
     presented in it (with the last before it and the first after), and the lines of what moves
@@ -3913,7 +3924,9 @@ def animated_values(report, start, end, kind="animated"):
             for key, v in entries:
                 channels = [(v & 0xffffffff) >> shift & 0xff for shift in (16, 8, 0)] if "Color" in key or key == "color" \
                     else [v]
-                values.setdefault(line["target"], {}).setdefault(key, []).append((line["t"], channels))
+                # When the frame was sampled (the native driver's `sampled`), else its line: a loaded
+                # machine wrote a line 160 ms after its frame's values (native-animated, step 4).
+                values.setdefault(line["target"], {}).setdefault(key, []).append((line.get("sampled", line["t"]), channels))
     return values
 
 
@@ -4970,6 +4983,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if account.get("skia_gpu_purgeable", 0) > wanted.get("skia_purgeable_max", float("inf")):
                 fail(f"Skia kept {account['skia_gpu_purgeable']} MiB it could purge, expected at most "
                      f"{wanted['skia_purgeable_max']}")
+    if "closed_after_leave" in expect:
+        # How long the surface that showed the text stayed after the pointer left it, on its host's
+        # clock (its report): its last close by the step's end, and the pointer's last leave
+        # before that close.
+        wanted = expect["closed_after_leave"]
+        text, (least, most) = wanted["text"], wanted["ms"]
+        showing = {line["surface"] for line in report if line["kind"] == "frame" and line["t"] <= end
+                   and any(text in got for got in line.get("texts", []))}
+        closes = [line for line in report if line["kind"] == "popup" and line["t"] <= end
+                  and line.get("event") in ("close", "dismissed", "shell.close") and line.get("surface") in showing]
+        if not closes:
+            fail(f"what showed {text!r} did not close by the step's end")
+        else:
+            close = closes[-1]
+            leaves = [line["t"] for line in report if line["kind"] == "received" and line.get("event") == "pointer.leave"
+                      and line.get("surface") == close["surface"] and line["t"] <= close["t"]]
+            if not leaves:
+                fail(f"what showed {text!r} closed without the pointer having left it")
+            elif not least <= (close["t"] - leaves[-1]) / 1e6 <= most:
+                fail(f"what showed {text!r} closed {(close['t'] - leaves[-1]) / 1e6:.0f} ms after the pointer left it, "
+                     f"expected {least} to {most}")
     if "renders" in expect and RENDER_COUNTS:
         # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
         # the components each re-render began at, exactly, the same on any machine however loaded.
@@ -5333,7 +5367,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # through at least `frames_min` places between them (`frames_max`: at most). A change at
         # once (`frames_max` 0) may be the step's first frame composed, the application having
         # answered the input with its whole change before the compositor composed anything else
-        # (docs/adr/0067-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
+        # (docs/adr/0071-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
         wanted = expect["menu_morph"]
         composed_menus = result.get("menu_frames", [])
         surfaces = {(menu[0], menu[1]) for menus in composed_menus for menu in menus}

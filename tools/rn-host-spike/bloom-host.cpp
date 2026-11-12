@@ -179,7 +179,7 @@ class Beat : public EventBeat {
   }
 };
 
-// Fabric's mounting layer (docs/adr/0067-the-ui-thread.mdx), as Android's: a commit's transaction is
+// Fabric's mounting layer (docs/adr/0071-the-ui-thread.mdx), as Android's: a commit's transaction is
 // pulled on the thread that made it, once it is to be rendered (on JavaScript's thread at the end of
 // the task that committed, so a layout effect's commit is shown with the commit before it; on the UI
 // thread at once, for a commit made there: a window laid out at a new size, Reanimated's frame, a
@@ -324,7 +324,7 @@ class Mounter : public SchedulerDelegate {
   std::function<void(const std::string&)> onAnnouncement;
   void announce(const std::string& text) { queue(Item{.kind = Item::Kind::Announcement, .name = text}); }
   // Whether the queue holds what JavaScript did in a batch before `batch` (js-thread.h's): work the
-  // loop has not applied yet, handing JavaScript what came for it first (decision 2 of ADR 0067).
+  // loop has not applied yet, handing JavaScript what came for it first (decision 2 of ADR 0071).
   bool holdsEarlierThan(uint64_t batch) {
     std::lock_guard lock(mutex_);
     return std::any_of(queue_.begin(), queue_.end(),
@@ -432,13 +432,13 @@ class Mounter : public SchedulerDelegate {
   std::map<SurfaceId, std::shared_ptr<const MountingCoordinator>> coordinators_;
 };
 
-// What the UI thread hands JavaScript (docs/adr/0067-the-ui-thread.mdx, decision 5): device events,
+// What the UI thread hands JavaScript (docs/adr/0071-the-ui-thread.mdx, decision 5): device events,
 // a frame's callbacks, a key to answer, a module's answer, Fabric's beat. Each is a task of the loop's
 // turn on JavaScript's thread (JsThread::runOnQueue), which reaches React Native's scheduler there:
 // what came while JavaScript worked is handed over together once it is idle, and React batches what
 // it changes into one render, as when the loop and JavaScript took turns. From any other thread (a
 // worklet's runOnJS on JavaScript's own, a decoder's) it goes to React Native at once.
-// Keys typed together answered back to back (docs/adr/0067-the-ui-thread.mdx, decision 6): an offer's
+// Keys typed together answered back to back (docs/adr/0071-the-ui-thread.mdx, decision 6): an offer's
 // task, once its key is answered, waits for the loop to offer the next key of the same burst (the
 // events held behind it) or to find none, so that JavaScript renders what the keys changed once,
 // after the last, as when the loop asked JavaScript for each key's answer in its turn. Bounded: a
@@ -529,7 +529,7 @@ class ToJavaScript {
   // A key offered (Bloom's PlatformKeyboard listener, its answer awaited by the loop's input behind
   // it): run as soon as JavaScript's thread is free, before anything queued there (React's render
   // of what the key before changed among it), as the loop asked JavaScript for each key's answer in
-  // its turn (docs/adr/0067-the-ui-thread.mdx, decision 6).
+  // its turn (docs/adr/0071-the-ui-thread.mdx, decision 6).
   void offerKey(std::function<void()> task) {
     handed_ = true;
     thread_.runOnQueueFirst(std::move(task));
@@ -1509,6 +1509,8 @@ int main(int argc, char** argv) {
     pointer.opensTextMenus([&editing](facebook::react::Tag view, uint32_t surface, float x, float y) {
       editing.contextMenu(view, surface, x, y);
     });
+    // A click on an unfocused text input focuses it at its release, in the order of the input.
+    pointer.focusesTextInputs([&editing](facebook::react::Tag view) { editing.focusFromPress(view); });
     auto focusName = [&]() -> std::string {
       auto it = tree.views().find(editing.focused());
       return it == tree.views().end() ? std::string() : oxyos::Report::name(it->second.view);
@@ -2598,7 +2600,7 @@ int main(int argc, char** argv) {
     // 0021) is answered on JavaScript's thread, which may be busy: the key, and every event of the
     // compositor's after it, wait for the answer in the order they came, as a browser holds key
     // events behind the one its page has not answered, while the loop goes on animating, scrolling
-    // and drawing (docs/adr/0067-the-ui-thread.mdx). `answer` is -1 until it comes, then whether
+    // and drawing (docs/adr/0071-the-ui-thread.mdx). `answer` is -1 until it comes, then whether
     // JavaScript took the key.
     // Each with the number the report received it as (Report::received), the cause of what its handling
     // delivers.
@@ -2778,7 +2780,7 @@ int main(int argc, char** argv) {
         diagnostics.beginTurn();
         // What JavaScript handed over since the last turn (Mounter): its commits mounted, its view
         // commands and accessibility events handled, in order. JavaScript itself runs on its thread
-        // and never holds the loop up (docs/adr/0067-the-ui-thread.mdx).
+        // and never holds the loop up (docs/adr/0071-the-ui-thread.mdx).
         // What JavaScript handed over is applied as one transaction once JavaScript is idle, after all
         // it ran with its commits (a layout effect's, an effect's, what a press set off), as Core
         // Animation commits what a run loop's turn changed at its end: a frame shows the whole of what

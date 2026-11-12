@@ -98,9 +98,12 @@ void Report::accessibility(uint32_t surface, const folly::dynamic& nodes) {
   write(folly::dynamic::object("kind", "a11y")("surface", surface)("nodes", nodes));
 }
 
-void Report::animated(const facebook::react::ShadowView& view, const folly::dynamic& props) {
+void Report::animated(const facebook::react::ShadowView& view, const folly::dynamic& props,
+                      std::optional<int64_t> sampledNs) {
   if (!file_) return;
-  write(folly::dynamic::object("kind", "animated")("target", name(view))("props", props));
+  folly::dynamic line = folly::dynamic::object("kind", "animated")("target", name(view))("props", props);
+  if (sampledNs) line["sampled"] = *sampledNs;
+  write(std::move(line));
 }
 
 void Report::committed(const ShadowViewMutationList& mutations) {

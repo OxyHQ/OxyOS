@@ -31,6 +31,12 @@ jobs:
     timeout-minutes: 30
     env:
       APT_PACKAGES: libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
+      # The workspace's tests, then clippy's check of every target, fill the runner's disk with
+      # debug information and incremental state: on 11 November 2026 an x86-64 run stopped in clippy
+      # with 1 MB left. A run builds once, so incremental state is never reused, and a failing test's
+      # backtrace needs only lines, not variables.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       # The TypeScript and JavaScript (apps/, the sample's platform and probes, shell-preview, the
@@ -166,6 +172,10 @@ jobs:
       # The gate watchdog's choice of superseded merge queue runs, on GitHub's recorded answers.
       - run: python3 tools/gate/test_watchdog.py
       - run: cargo run --locked -p oxyos-platform-probe
+      # How much of the runner's disk the build left, so a run nearing the limit says so before one fails.
+      - name: Disk left
+        if: always()
+        run: df -h / && du -sh target
 
   # The tests that run the system's useradd, chpasswd and userdel on a root of their own need
   # Debian trixie's (shadow 4.17), the tools OxyOS uses; ubuntu-latest's (shadow 4.13) cannot, and
