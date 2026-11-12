@@ -410,7 +410,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
-  the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
+  the longest input to present of a frame presented in the step (a speed budget: with
+  --speed-budgets), and "timed_inputs_min", the fewest
   frames presented in it that timed an input, and "latency_min_ms", the least such input to present
   (an answer JavaScript took that long to give). Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
@@ -4940,7 +4941,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if waited > wanted.get("wait_max_ms", float("inf")):
             fail(f"a frame waited {waited:.2f} ms for the compositor, expected at most {wanted['wait_max_ms']}: {logs}")
         timed = [line["latency_ms"] for line in timings if line["presented"] and line["latency_ms"] is not None]
-        if max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
+        # How long an input waited for its frame is the machine's speed (a loaded one's preempted the
+        # press's JavaScript 1.9 s in held-frames): a speed budget, held with --speed-budgets.
+        if SPEED_BUDGETS and max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
             fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
         if len(timed) < wanted.get("timed_inputs_min", 0):
             fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
