@@ -3351,70 +3351,44 @@ struct Wait<'a> {
     ended: bool,
 }
 
-/// Serves the session until the application's surfaces differ from `before` (a new frame, a
-/// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
-/// that do not change for it also count as settled (a step whose expected answer is nothing).
-/// `ppoll`'s number, the one call a Bloom host's loop sleeps in when it has nothing to do
-/// (bloom-host.cpp: "an application doing nothing never turns").
-#[cfg(target_arch = "x86_64")]
-const PPOLL: &str = "271";
-#[cfg(target_arch = "aarch64")]
-const PPOLL: &str = "73";
-/// `futex`'s number, the call a Bloom host's JavaScript thread (`oxyos-js`, js-thread.cpp) waits
-/// for work in (a condition variable).
-#[cfg(target_arch = "x86_64")]
-const FUTEX: &str = "202";
-#[cfg(target_arch = "aarch64")]
-const FUTEX: &str = "98";
+/// How much of a CPU a host's thread that runs its turns must have used over the last
+/// `TURN_WINDOW` for the host to be in the middle of a turn: a step's answer still to come. On a
+/// loaded machine one turn on JavaScript ran 350 to 830 ms (a caret's blink, a page Back opened, a
+/// row − removed, a shell's drop on the Trash), longer than the settling's stillness, and the step
+/// settled in the middle of it; such a turn keeps its thread on the CPU (a page's render: nearly all
+/// of one unloaded, a third of one at load 90). Work an application does on its own all along uses
+/// little of it: a timer's every 50 ms (held-frames, the displays off: a few ms in each 100), a
+/// spinner drawn on the UI thread (progress: JavaScript idle). Asked as "found working", either
+/// kept the step from ever settling on a loaded machine; asked as "one stretch with no wait of its
+/// own", a page's render, whose JavaScript waits briefly on locks and on the UI thread, went unseen.
+const TURN_SHARE: f64 = 0.2;
+const TURN_WINDOW: Duration = Duration::from_millis(100);
 
-/// A stretch of work this long or longer is a step's answer still to come: on a loaded machine one
-/// turn on JavaScript ran 350 to 830 ms (a caret's blink, a page Back opened, a row − removed, a
-/// shell's drop on the Trash), longer than the settling's stillness, and the step settled in the
-/// middle of it. A shorter one is work an application does on its own, all along: a timer's every
-/// 50 ms (held-frames, the displays off: found working at nearly every sample of a loaded machine,
-/// its step never settled), a spinner's frame drawn each refresh (progress).
-const LONG_TURN: Duration = Duration::from_millis(100);
-
-/// What a Bloom host's thread that runs its turns is doing, if it is working: its JavaScript thread
-/// (`oxyos-js`) anywhere but waiting for work in `futex`, or, for a host with no JavaScript thread
-/// of its own, its main thread out of `ppoll`. The answer is the thread and how many times it has
-/// waited of its own accord (`voluntary_ctxt_switches`): the same count at two samples is one
-/// stretch of work, preempted maybe (involuntary) but never ended. A process that is not a Bloom
-/// host (a native client, Astro) is never asked: its loop sleeps in calls of its own.
-fn host_working(pid: i32) -> Option<(String, u64)> {
+/// The thread that runs a Bloom host's turns, and the CPU time it has used (`schedstat`'s first
+/// field, ns): its JavaScript thread (`oxyos-js`), or, for a host with no JavaScript thread of its
+/// own, its main thread. None for a process that is not a Bloom host (a native client, Astro: its
+/// loop is not asked) or one that is gone.
+fn host_cpu(pid: i32) -> Option<(String, u64)> {
     let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
     if comm.trim_end() != "oxyos-bloom-hos" {
         return None;
     }
-    // The call a thread is blocked in ("running" when it is not blocked); gone, it is no answer to
-    // wait for.
-    let blocked_in = |tid: &str| {
-        std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/syscall"))
-            .ok()
-            .and_then(|call| call.split_whitespace().next().map(str::to_string))
-    };
-    let javascript = std::fs::read_dir(format!("/proc/{pid}/task"))
-        .into_iter()
-        .flatten()
+    let tid = std::fs::read_dir(format!("/proc/{pid}/task"))
+        .ok()?
         .flatten()
         .map(|task| task.file_name().to_string_lossy().into_owned())
         .find(|tid| {
             std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/comm"))
                 .is_ok_and(|name| name.trim_end() == "oxyos-js")
-        });
-    let (tid, idle) = match javascript {
-        Some(tid) => (tid, FUTEX),
-        None => (pid.to_string(), PPOLL),
-    };
-    if blocked_in(&tid).is_none_or(|call| call == idle) {
-        return None;
-    }
-    let status = std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/status")).ok()?;
-    let waited = status
-        .lines()
-        .find_map(|line| line.strip_prefix("voluntary_ctxt_switches:"))
-        .and_then(|n| n.trim().parse().ok())?;
-    Some((tid, waited))
+        })
+        .unwrap_or_else(|| pid.to_string());
+    let used = std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/schedstat"))
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    Some((tid, used))
 }
 
 /// The hosts that take the step's input (the application's, the companion's, the shells'), by
@@ -3428,40 +3402,54 @@ fn host_pids(session: &Session) -> Vec<i32> {
         .collect()
 }
 
-/// Whether the application's host, the companion's or a shell's is in the middle of a long turn
-/// (one stretch of work `LONG_TURN` or longer, `host_working`): the step is not answered until each
-/// has ended it. A shell's turn can be the step's answer too: a file dropped on the dock's Trash is
-/// put there only once the shell's JavaScript has run the drop and asked (`TrashFiles`). `stretches`
-/// keeps, from sample to sample, when each host's current stretch was first seen.
+/// Whether the application's host, the companion's or a shell's is in the middle of a turn: its
+/// thread that runs turns used `TURN_SHARE` of a CPU or more over the last `TURN_WINDOW`
+/// (`host_cpu`, sampled each time this is asked; `samples` keeps them). The step is not answered
+/// until each has gone back to waiting for work.
 fn hosts_turning(
     session: &Session,
-    stretches: &mut std::collections::HashMap<i32, (String, u64, Instant)>,
+    samples: &mut std::collections::HashMap<
+        i32,
+        std::collections::VecDeque<(String, Instant, u64)>,
+    >,
 ) -> bool {
     let now = Instant::now();
     let pids = host_pids(session);
-    stretches.retain(|pid, _| pids.contains(pid));
-    let mut long = false;
+    samples.retain(|pid, _| pids.contains(pid));
+    let mut turning = false;
     for pid in pids {
-        match host_working(pid) {
-            None => {
-                stretches.remove(&pid);
-            }
-            Some((tid, waited)) => {
-                let same = stretches
-                    .get(&pid)
-                    .is_some_and(|(seen, count, _)| *seen == tid && *count == waited);
-                if !same {
-                    stretches.insert(pid, (tid, waited, now));
-                }
-                long |= stretches
-                    .get(&pid)
-                    .is_some_and(|(_, _, since)| now.duration_since(*since) >= LONG_TURN);
+        let Some((tid, used)) = host_cpu(pid) else {
+            samples.remove(&pid);
+            continue;
+        };
+        let kept = samples.entry(pid).or_default();
+        // Another thread (the host started again): its samples start afresh.
+        if kept.back().is_some_and(|(seen, _, _)| *seen != tid) {
+            kept.clear();
+        }
+        kept.push_back((tid, now, used));
+        // The oldest sample within the window, and none older than the one just before it.
+        while kept.len() > 2
+            && kept
+                .get(1)
+                .is_some_and(|(_, at, _)| now.duration_since(*at) >= TURN_WINDOW)
+        {
+            kept.pop_front();
+        }
+        if let Some((_, since, before)) = kept.front() {
+            let span = now.duration_since(*since);
+            if span >= TURN_WINDOW / 2 {
+                let share = used.saturating_sub(*before) as f64 / span.as_nanos() as f64;
+                turning |= share >= TURN_SHARE;
             }
         }
     }
-    long
+    turning
 }
 
+/// Serves the session until the application's surfaces differ from `before` (a new frame, a
+/// popup opened or closed) and then stay unchanged for the wait's `still`. With `may_stay`, surfaces
+/// that do not change for it also count as settled (a step whose expected answer is nothing).
 fn settle(
     session: &mut Session,
     children: &mut Children,
@@ -3522,8 +3510,8 @@ fn settle(
             .is_some_and(|writer| writer.writing())
     };
     let mut was_writing = writing(session);
-    // Each host's current stretch of work, as `hosts_turning` follows it from sample to sample.
-    let mut stretches = std::collections::HashMap::new();
+    // Each host's thread's CPU time, sampled as `hosts_turning` asks.
+    let mut samples = std::collections::HashMap::new();
     loop {
         if Instant::now() > deadline {
             return Err(format!("deadline exceeded waiting for {waiting_for}").into());
@@ -3570,8 +3558,8 @@ fn settle(
         let writing_now = writing(session);
         let written = was_writing && !writing_now;
         was_writing = writing_now;
-        // A host in the middle of a long turn: its stillness starts once it has ended it.
-        let turning = hosts_turning(session, &mut stretches);
+        // A host in the middle of a turn: its stillness starts once it has ended it.
+        let turning = hosts_turning(session, &mut samples);
         if turning {
             last.1 = Instant::now();
         }
