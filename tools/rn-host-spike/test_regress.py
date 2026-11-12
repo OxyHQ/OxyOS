@@ -480,6 +480,26 @@ class LaunchToContent(unittest.TestCase):
 
 
 
+class LaunchToContentOnTheCpu(unittest.TestCase):
+    """`content_cpu_ms_max` (perf-dropsea-launch-signed-in.json): the host's CPU, main thread and
+    JavaScript, through the turn that presented the content, however long the clock took."""
+
+    report = [
+        {"kind": "stage", "name": "main", "t": 0},
+        {"kind": "timing", "t": int(300e6), "cpu_ms": 8.0, "js": {"cpu_ms": 120.0}},
+        {"kind": "frame", "t": int(400e6), "surface": 1, "texts": ["Facturas"]},
+        {"kind": "frame", "t": int(650e6), "surface": 1, "texts": ["Facturas", "notas.txt"]},
+        {"kind": "timing", "t": int(652e6), "cpu_ms": 30.0, "js": {"cpu_ms": 40.5}},
+        {"kind": "timing", "t": int(900e6), "cpu_ms": 99.0, "js": {"cpu_ms": 99.0}},
+    ]
+
+    def test_counted_through_the_turn_that_showed_it(self):
+        self.assertEqual(regress.content_shown_cpu_ms(self.report, ["Facturas", "notas.txt"]), 198.5)
+        self.assertEqual(regress.content_shown_ms(self.report, ["Facturas", "notas.txt"]), 650.0)
+
+    def test_never_shown(self):
+        self.assertIsNone(regress.content_shown_cpu_ms(self.report, ["Proyectos"]))
+
 class SpinnerFrames(unittest.TestCase):
     """`progress_frames`: the frames the application presented in the step that turned only spinning
     rings (its report's `present` lines with `progress_only`), from the step before's end on."""
@@ -814,26 +834,6 @@ class SignalSteps(unittest.TestCase):
                              ["--signal", signal, "shell"])
 
 
-
-class LaunchToContentOnTheCpu(unittest.TestCase):
-    """`content_cpu_ms_max` (perf-dropsea-launch-signed-in.json): the host's CPU, main thread and
-    JavaScript, through the turn that presented the content, however long the clock took."""
-
-    report = [
-        {"kind": "stage", "name": "main", "t": 0},
-        {"kind": "timing", "t": int(300e6), "cpu_ms": 8.0, "js": {"cpu_ms": 120.0}},
-        {"kind": "frame", "t": int(400e6), "surface": 1, "texts": ["Facturas"]},
-        {"kind": "frame", "t": int(650e6), "surface": 1, "texts": ["Facturas", "notas.txt"]},
-        {"kind": "timing", "t": int(652e6), "cpu_ms": 30.0, "js": {"cpu_ms": 40.5}},
-        {"kind": "timing", "t": int(900e6), "cpu_ms": 99.0, "js": {"cpu_ms": 99.0}},
-    ]
-
-    def test_counted_through_the_turn_that_showed_it(self):
-        self.assertEqual(regress.content_shown_cpu_ms(self.report, ["Facturas", "notas.txt"]), 198.5)
-        self.assertEqual(regress.content_shown_ms(self.report, ["Facturas", "notas.txt"]), 650.0)
-
-    def test_never_shown(self):
-        self.assertIsNone(regress.content_shown_cpu_ms(self.report, ["Proyectos"]))
 
 if __name__ == "__main__":
     unittest.main()
