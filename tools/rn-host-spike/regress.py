@@ -462,6 +462,9 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `cue_before` (a name) gives that cue as it begins, before its input, so that what the cue
+starts goes on through the step (held-frames' loop, begun as the displays go off); the scenario's
+`http` server answers `/cue/NAME` once it is given.
 A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
 two seconds after an application stopped answering, its own cursor once it answers): it settles only
 once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
@@ -1268,6 +1271,9 @@ def director_args(step, out):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if step.get("until_sheet"):
         args.append("--until-sheet")
+    if step.get("cue_before"):
+        # A cue given as the step begins, before its input (a probe's loop, on through the step).
+        args += ["--cue-before", step["cue_before"]]
     if step.get("until_ended"):
         # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         # logged out, or logind asked, once every application quit on its own clock.
@@ -2836,6 +2842,16 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.startswith("/cue/"):
+            # Answered once a step gave the cue named (a `cue` step, or a step's `cue_before`):
+            # what a probe waits for begins when the scenario says (sample/FrameProbe.tsx's loop).
+            name = self.path.split("?")[0][len("/cue/"):]
+            given = time.monotonic() + 600
+            while not (self.cues and self.cues.exists() and name in self.cues.read_text().split()):
+                if time.monotonic() > given:
+                    return self.reply(504, "no cue")
+                time.sleep(0.02)
+            return self.reply(200, name)
         if self.path.split("?")[0] == "/save":
             # The progress probe's work (sample/ProgressProbe.tsx): answered once a step gave the
             # cue `save-done`, so it ends when the scenario says, however loaded the machine.

@@ -1,10 +1,13 @@
 {
-  "about": "A frame the compositor holds is not a slow frame (frame-diagnostics.h; issue #477). FrameProbe's Loop button, two seconds after its press (so that the press's step settles), changes what it draws every 50 ms on a timer until it is pressed again, as a clock or data arriving would, so its window always has a frame to draw. With the displays off for want of input (ADR 0057, decision 6; the battery's timers as battery-idle's, the display off after two minutes), the compositor answers none of its frames, and the frame waiting for the answer waits as long as the displays stay off, here two and a half seconds of real time. The press that brings them back stops the loop, and says so: the frame showing JavaScript's answer. The host's diagnostics say the hold once, in a line of its own with the work it did meanwhile. They charge its wait to no frame: no frame in that step waited for the compositor more than half a second, rather than seconds, and none is said to be slow for it. And they time the press, which is newer than the hold, from its device time to the frame that shows JavaScript's answer (\"Loop off\").",
+  "about": "A frame the compositor holds is not a slow frame (frame-diagnostics.h; issue #477). FrameProbe's Loop button, once the scenario cues it (`cue_before` on the idle step, answered by its `http` server: never a clock of its own, which a loaded machine's settling of the press outran), changes what it draws every 50 ms on a timer until it is pressed again, as a clock or data arriving would, so its window always has a frame to draw. With the displays off for want of input (ADR 0057, decision 6; the battery's timers as battery-idle's, the display off after two minutes), the compositor answers none of its frames, and the frame waiting for the answer waits as long as the displays stay off, here two and a half seconds of real time. The press that brings them back stops the loop, and says so: the frame showing JavaScript's answer. The host's diagnostics say the hold once, in a line of its own with the work it did meanwhile. They charge its wait to no frame: no frame in that step waited for the compositor more than half a second, rather than seconds, and none is said to be slow for it. And they time the press, which is newer than the hold, from its device time to the frame that shows JavaScript's answer (\"Loop off\").",
   "module": "FrameProbe",
   "window": [
     480,
     360
   ],
+  "http": {
+    "port": 18660
+  },
   "shell": "OxyOSShell",
   "app": {
     "id": "so.oxy.frameprobe",
@@ -36,13 +39,17 @@
   },
   "steps": [
     {
-      "name": "Loop: two seconds later, the window draws something new every 50 ms",
+      "name": "Loop: on, waiting for the scenario's cue to begin drawing something new every 50 ms",
       "do": [
         "press",
         [
           116,
           310
         ]
+      ],
+      "until_named": [
+        "Loop on",
+        10000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -53,11 +60,12 @@
       }
     },
     {
-      "name": "Two minutes with no input: the displays turn off, and the compositor answers no frame",
+      "name": "Two minutes with no input, the loop begun as they start: the displays turn off, and the compositor answers no frame",
       "do": [
         "idle",
         120
       ],
+      "cue_before": "loop",
       "allow_unchanged": true,
       "expect": {
         "displays_off": true

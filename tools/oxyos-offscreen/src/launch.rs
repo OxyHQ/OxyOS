@@ -1025,6 +1025,10 @@ pub struct Settling {
     /// log-out.mdx): logged out, or logind asked to restart or shut down, once every application
     /// has quit on its own clock; it settles only once the session's ending part has ended.
     pub ended: bool,
+    /// `--cue-before NAME`: a cue (`Step::Cue`) given as the step begins, before its input: what
+    /// it starts goes on through the step, where a cue step of its own would have to settle first
+    /// (held-frames' loop, drawing every 50 ms, begun as the displays go off).
+    pub cue_before: Option<String>,
     /// `--until-taken`: a paced drag (`DragPaced`) whose hand lets the application take each
     /// motion: after each, it waits until the application holding the press, or the drag's target
     /// once a drag has begun, has taken everything it was sent (two Pings answered in turn: the
@@ -1228,7 +1232,7 @@ pub struct Launch {
     pub also_launch_lead: Duration,
 }
 
-const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] [--until-pointer MS SHAPE] --press X,Y | \
+const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] [--until-pointer MS SHAPE] [--cue-before NAME] --press X,Y | \
                      --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-press-taken X,Y | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --cue NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
@@ -1404,6 +1408,11 @@ impl Launch {
                 }
                 Some("--until-ended") => {
                     settling.ended = true;
+                    continue;
+                }
+                Some("--cue-before") => {
+                    let name = args.next().and_then(|v| v.to_str()).ok_or(USAGE)?;
+                    settling.cue_before = Some(name.to_string());
                     continue;
                 }
                 Some("--until-taken") => {
@@ -3352,7 +3361,8 @@ struct Wait<'a> {
 }
 
 /// How much of a CPU a host's thread that runs its turns must have used over the last
-/// `TURN_WINDOW` for the host to be in the middle of a turn: a step's answer still to come. On a
+/// `TURN_WINDOW` for the host to be in the middle of a turn (a tenth): a step's answer still to
+/// come. On a
 /// loaded machine one turn on JavaScript ran 350 to 830 ms (a caret's blink, a page Back opened, a
 /// row − removed, a shell's drop on the Trash), longer than the settling's stillness, and the step
 /// settled in the middle of it; such a turn keeps its thread on the CPU (a page's render: nearly all
@@ -3361,7 +3371,7 @@ struct Wait<'a> {
 /// spinner drawn on the UI thread (progress: JavaScript idle). Asked as "found working", either
 /// kept the step from ever settling on a loaded machine; asked as "one stretch with no wait of its
 /// own", a page's render, whose JavaScript waits briefly on locks and on the UI thread, went unseen.
-const TURN_SHARE: f64 = 0.2;
+const TURN_SHARE: f64 = 0.1;
 const TURN_WINDOW: Duration = Duration::from_millis(100);
 
 /// The thread that runs a Bloom host's turns, and the CPU time it has used (`schedstat`'s first
@@ -6452,6 +6462,18 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
     Ok(())
 }
 
+/// A cue to a part of the run played beside the session (`Step::Cue`, `Settling::cue_before`):
+/// NAME appended as a line to `cues` in the run's output.
+fn cue(out: &Path, name: &str) -> Result<()> {
+    use std::io::Write as _;
+    let mut cues = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(out.join("cues"))?;
+    writeln!(cues, "{name}")?;
+    Ok(())
+}
+
 pub fn run(out: &Path, launch: &Launch) -> Result<()> {
     fs::create_dir_all(out)?;
     // The turn above the applications as a session's is (docs/adr/0066-quality-of-service.mdx,
@@ -7261,6 +7283,9 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
         if let Some(guard) = launch.clear_of_minute {
             clear_of_minute(&mut session, &mut children, guard, window)?;
         }
+        if let Some(name) = &settling.cue_before {
+            cue(out, name)?;
+        }
         // A step aimed at a node by its name, at where that node is now.
         session.reader.absorb(&mut session.compositor);
         let resolved = named_step(&session, step)?;
@@ -7399,12 +7424,7 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
             }
             _ if matches!(step, Step::Cue(_)) => {
                 if let Step::Cue(name) = step {
-                    use std::io::Write as _;
-                    let mut cues = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(out.join("cues"))?;
-                    writeln!(cues, "{name}")?;
+                    cue(out, name)?;
                 }
                 0
             }
