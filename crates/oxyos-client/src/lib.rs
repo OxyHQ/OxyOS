@@ -1563,7 +1563,7 @@ impl Client {
             // Still responding (docs/adr/0034-the-dock.mdx): answered as the client reads its
             // events, so a process stuck in its own work does not answer; or by the caller, once
             // it handled what came before (`answer_pings_itself`).
-            Event::Ping { serial } => {
+            Event::Ping { serial } | Event::PingHandled { serial } => {
                 if !self.pings_are_callers {
                     self.send(&Request::Pong { serial })?;
                 }

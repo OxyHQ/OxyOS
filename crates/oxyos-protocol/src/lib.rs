@@ -31,7 +31,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 48;
+pub const VERSION: u16 = 49;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -74,6 +74,10 @@ pub const MAX_MATERIAL_REGIONS: usize = 16;
 /// the Window menu's tiling and Zoom): an older one closes the connection for it, so the shell
 /// asks it only of this version or newer.
 pub const LAYOUT_WINDOW_VERSION: u16 = 48;
+/// The first version a client is sent `PingHandled`: a Ping it answers once it has handled
+/// everything it was sent before it (a runtime whose events are handled on another thread, once
+/// that thread has run them), never waiting for it to be idle besides. An older one is sent `Ping`.
+pub const PING_HANDLED_VERSION: u16 = 49;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";

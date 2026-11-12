@@ -635,3 +635,31 @@ fn activity_monitor_quits_an_application_by_its_id_as_the_dock_does() {
     );
     assert_eq!(h.scene.take_force_quits(), [vec![APP]]);
 }
+
+#[test]
+fn a_ping_handled_is_answered_by_pong_and_an_older_client_is_pinged_instead() {
+    let mut h = Harness::new();
+    h.scene
+        .set_version(APP, oxyos_protocol::PING_HANDLED_VERSION);
+    h.toplevel(APP, 1, 400, 300);
+    // The ordinary Pings its window's activation brought, answered.
+    answer_pings(&mut h);
+    let serial = h.scene.ping_handled(APP).unwrap();
+    let events = logged(&mut h);
+    assert!(events
+        .iter()
+        .any(|(client, event)| *client == APP && *event == Event::PingHandled { serial }));
+    assert!(pings_to(&events, APP).is_empty());
+    assert!(!h.scene.answered(APP, serial));
+    h.request(APP, Request::Pong { serial }).unwrap();
+    assert!(h.scene.answered(APP, serial));
+    // Nothing waits on it to say whether the client is responding.
+    h.scene.set_clock(Duration::from_secs(3600));
+    h.scene.check_responding();
+    assert!(h.scene.responding(APP));
+    // A client of version 48 is asked with a Ping.
+    h.scene
+        .set_version(APP, oxyos_protocol::PING_HANDLED_VERSION - 1);
+    let serial = h.scene.ping_handled(APP).unwrap();
+    assert_eq!(pings_to(&logged(&mut h), APP), [serial]);
+}

@@ -165,6 +165,28 @@ impl Scene {
         self.ping_after_events(client)
     }
 
+    /// Asks `client` whether it has handled everything it was sent (`PingHandled`, version 49): its
+    /// Pong comes once it has, never waiting for it to be idle besides, so an application working
+    /// all along (a timer, a spinner) still answers. An older version is sent a `Ping`
+    /// (`ping_after`). The serial sent, or none for a version that answers no Ping.
+    pub fn ping_handled(&mut self, client: ClientId) -> Option<u32> {
+        if !self.clients.contains_key(&client) {
+            return None;
+        }
+        if self
+            .dock
+            .versions
+            .get(&client)
+            .is_none_or(|v| *v < oxyos_protocol::PING_HANDLED_VERSION)
+        {
+            return self.ping_after_events(client);
+        }
+        self.dock.next_ping = self.dock.next_ping.wrapping_add(1).max(1);
+        let serial = self.dock.next_ping;
+        self.events.push((client, Event::PingHandled { serial }));
+        Some(serial)
+    }
+
     /// Whether `client` answered the Ping `serial` (or one sent after it).
     pub fn answered(&self, client: ClientId, serial: u32) -> bool {
         self.dock

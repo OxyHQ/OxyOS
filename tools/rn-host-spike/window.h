@@ -50,6 +50,9 @@ class Window {
   // dispatch read since the last call, by serial.
   void answerPingsItself();
   std::vector<uint64_t> takePings() { return std::exchange(pings_, {}); }
+  // The compositor's PingHandled (protocol version 49) read since the last call, by serial: answered
+  // once JavaScript ran what came before it, never waiting for it to be idle besides.
+  std::vector<uint64_t> takeHandledPings() { return std::exchange(handledPings_, {}); }
   void pong(uint64_t serial);
 
   struct Surface {
@@ -485,6 +488,7 @@ class Window {
   // The window went, the application running on in the background (closeToplevel).
   bool toplevelClosed_ = false;
   std::vector<uint64_t> pings_;  // read and not yet taken (answerPingsItself)
+  std::vector<uint64_t> handledPings_;  // likewise, PingHandled's
   std::chrono::steady_clock::time_point resizedAt_{};
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;
