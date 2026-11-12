@@ -6338,14 +6338,14 @@ def install_service(spec, machine, offscreen):
     me = pwd.getpwuid(os.getuid())
     (base / "passwd").write_text(f"{me.pw_name}:x:{me.pw_uid}:{me.pw_gid}::{me.pw_dir}:/bin/sh\n")
     logs = open(base / "installd.log", "w")
-    processes = [subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
+    processes = [played(subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
                                    f"file://{repository}", "--socket", str(base / "f")],
-                                  stdout=logs, stderr=logs)]
+                                  stdout=logs, stderr=logs))]
     wait_for(base / "f")
     service = [str(installd), "--development", "--state", str(state), "--anchor",
                str(repository / "metadata/1.root.json"), "--runtimes", str(machine.runtimes), "--socket",
                str(base / "i"), "--fetcher", str(base / "f"), "--passwd", str(base / "passwd")]
-    processes.append(subprocess.Popen(service, stdout=logs, stderr=logs))
+    processes.append(played(subprocess.Popen(service, stdout=logs, stderr=logs)))
     wait_for(base / "i")
     # Installed before the run, as an account that installed it earlier has it.
     for id in spec.get("installed", []):
@@ -6365,8 +6365,8 @@ def install_service(spec, machine, offscreen):
         first.terminate()
         first.wait(timeout=5)
         (base / "i").unlink(missing_ok=True)
-        processes.append(subprocess.Popen(service + ["--available", str(spec["available"])],
-                                          stdout=logs, stderr=logs))
+        processes.append(played(subprocess.Popen(service + ["--available", str(spec["available"])],
+                                          stdout=logs, stderr=logs)))
         wait_for(base / "i")
     # Versions the store publishes afterwards: the same package's files, its manifest's
     # versionCode, version and capabilities changed, packed and signed with the same key.
@@ -6417,10 +6417,10 @@ def backup_service(spec, home_root, out, offscreen):
     disk.mkdir(parents=True)
     (disk / ".oxyos-label").write_text(spec.get("disk", "Backup Disk"))
     log = open(out / "backupd.log", "w")
-    process = subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
+    process = played(subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
                                 "--volumes", str(base / "volumes"), "--cache", str(base / "cache"),
                                 "--source", str(home_root), "--socket", str(base / "s")],
-                               stdout=log, stderr=log)
+                               stdout=log, stderr=log))
 
     def stop():
         process.terminate()
@@ -6746,6 +6746,33 @@ def check_installd(wanted, failures):
             failures.append(f"the install service read the store {got} times, expected {wanted['store_reads']}")
 
 
+# The processes played beside the session for a run (a bus, a played daemon or service): each run's
+# own stop ends them once the director has run, and whatever is still running when regress exits
+# (a run failing at once, before the director, raised past those stops and left its played power
+# services running) is ended then.
+PLAYED = []
+
+
+def played(process):
+    """`process`, a service played beside the session, ended as regress exits if still running."""
+    PLAYED.append(process)
+    return process
+
+
+@atexit.register
+def end_played():
+    """Ends what is still running of the services played for runs (`played`)."""
+    running = [process for process in PLAYED if process.poll() is None]
+    for process in running:
+        process.terminate()
+    for process in running:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    PLAYED.clear()
+
+
 def wait_for(path, seconds=10):
     deadline = time.monotonic() + seconds
     while not path.exists():
@@ -6793,14 +6820,14 @@ def network_daemon(spec, out, offscreen):
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
     # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-networkmanager"
     log = open(base / "daemon.log", "w")
-    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
-                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    daemon = played(subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log))
     wait_for(base / "state.json")
 
     def stop():
@@ -6822,14 +6849,14 @@ def bluetooth_daemon(spec, out, offscreen):
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
     # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-bluez"
     log = open(base / "bluez.log", "w")
-    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
-                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    daemon = played(subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log))
     wait_for(base / "state.json")
 
     def stop():
@@ -6884,9 +6911,9 @@ def played_backup_service(spec, out, offscreen, home):
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-backup-"))
     socket = sockets / "socket"
     log = open(base / "service.log", "w")
-    service = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
+    service = played(subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
                                 str(volumes), str(socket), str(base / "cache"), str(home)],
-                               env=env, stdout=log, stderr=log)
+                               env=env, stdout=log, stderr=log))
     wait_for(socket)
 
     def stop():
@@ -6915,12 +6942,12 @@ def power_services(spec, out, offscreen):
     machine = dict(spec)
     machine.setdefault("sysfs", str(sysfs))
     (base / "machine.json").write_text(json.dumps(machine))
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     log = open(base / "services.log", "w")
-    services = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
-                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log)
+    services = played(subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
+                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log))
     wait_for(base / "ready")
 
     def stop():
