@@ -17,7 +17,8 @@ bool isMaterialView(const char* name) {
 folly::dynamic materialReport(const std::vector<int32_t>& regions) {
   folly::dynamic list = folly::dynamic::array;
   for (size_t at = 0; at + 5 <= regions.size(); at += 5) {
-    list.push_back(folly::dynamic::array(regions[at], regions[at + 1], regions[at + 2], regions[at + 3], regions[at + 4]));
+    list.push_back(
+        folly::dynamic::array(regions[at], regions[at + 1], regions[at + 2], regions[at + 3], regions[at + 4]));
   }
   return list;
 }
