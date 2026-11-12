@@ -226,7 +226,12 @@ impl Scene {
     }
 
     pub(super) fn pong(&mut self, client: ClientId, serial: u32) {
-        self.dock.answered.insert(client, serial);
+        // Pongs can come out of order (a PingHandled is answered without waiting for idle, a Ping
+        // only once idle): the newest answered stays, an older one arriving after it says nothing.
+        let latest = self.dock.answered.entry(client).or_insert(serial);
+        if serial.wrapping_sub(*latest) < u32::MAX / 2 {
+            *latest = serial;
+        }
         if self
             .dock
             .pings

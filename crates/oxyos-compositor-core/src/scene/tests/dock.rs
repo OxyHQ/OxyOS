@@ -663,3 +663,20 @@ fn a_ping_handled_is_answered_by_pong_and_an_older_client_is_pinged_instead() {
     let serial = h.scene.ping_handled(APP).unwrap();
     assert_eq!(pings_to(&logged(&mut h), APP), [serial]);
 }
+
+#[test]
+fn an_older_pong_after_a_newer_one_leaves_the_newer_answered() {
+    let mut h = Harness::new();
+    h.scene
+        .set_version(APP, oxyos_protocol::PING_HANDLED_VERSION);
+    h.toplevel(APP, 1, 400, 300);
+    answer_pings(&mut h);
+    // A Ping waits for the client to be idle; the PingHandled sent after it is answered first.
+    let ping = h.scene.ping_after(APP).unwrap();
+    let handled = h.scene.ping_handled(APP).unwrap();
+    logged(&mut h);
+    h.request(APP, Request::Pong { serial: handled }).unwrap();
+    h.request(APP, Request::Pong { serial: ping }).unwrap();
+    assert!(h.scene.answered(APP, ping));
+    assert!(h.scene.answered(APP, handled));
+}
