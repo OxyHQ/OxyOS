@@ -187,13 +187,14 @@
       }
     },
     {
-      "name": "Mute: muted, the level kept",
+      "name": "Mute: muted, the level kept (the step settles once the bar shows it muted: the sound service's answer reaches the shell on its own clock)",
       "do": [
         "key",
         [
           113
         ]
       ],
+      "until_output_pixels": 10000,
       "expect": {
         "react": {},
         "delivered": {},

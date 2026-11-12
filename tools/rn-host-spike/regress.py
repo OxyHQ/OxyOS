@@ -430,6 +430,11 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   on its thread's CPU, a backstop for a gross regression held on every run, set far above what the
   work takes (its time by the clock, blocked and preempted, is said with it, never held: the
   machine's load makes it). In `in_shell`, the shell's;
+- closed_after_leave: {"text", "ms": [least, most]}: the surface that showed `text` (a shell's
+  banner, in `in_shell`) closed least to most ms after the pointer last left it, as its host's
+  report has them (its `pointer.leave` received, its `popup` close), wherever in the run they fell:
+  how long a surface stays after the pointer leaves, measured on its own clock, never against the
+  steps' (a loaded machine's settling ate into a set wait, and the banner had gone at its end);
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
   count of work neither the machine's load nor how JavaScript batches the step's updates into
@@ -3919,7 +3924,9 @@ def animated_values(report, start, end, kind="animated"):
             for key, v in entries:
                 channels = [(v & 0xffffffff) >> shift & 0xff for shift in (16, 8, 0)] if "Color" in key or key == "color" \
                     else [v]
-                values.setdefault(line["target"], {}).setdefault(key, []).append((line["t"], channels))
+                # When the frame was sampled (the native driver's `sampled`), else its line: a loaded
+                # machine wrote a line 160 ms after its frame's values (native-animated, step 4).
+                values.setdefault(line["target"], {}).setdefault(key, []).append((line.get("sampled", line["t"]), channels))
     return values
 
 
@@ -4976,6 +4983,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if account.get("skia_gpu_purgeable", 0) > wanted.get("skia_purgeable_max", float("inf")):
                 fail(f"Skia kept {account['skia_gpu_purgeable']} MiB it could purge, expected at most "
                      f"{wanted['skia_purgeable_max']}")
+    if "closed_after_leave" in expect:
+        # How long the surface that showed the text stayed after the pointer left it, on its host's
+        # clock (its report): its last close by the step's end, and the pointer's last leave
+        # before that close.
+        wanted = expect["closed_after_leave"]
+        text, (least, most) = wanted["text"], wanted["ms"]
+        showing = {line["surface"] for line in report if line["kind"] == "frame" and line["t"] <= end
+                   and any(text in got for got in line.get("texts", []))}
+        closes = [line for line in report if line["kind"] == "popup" and line["t"] <= end
+                  and line.get("event") in ("close", "dismissed", "shell.close") and line.get("surface") in showing]
+        if not closes:
+            fail(f"what showed {text!r} did not close by the step's end")
+        else:
+            close = closes[-1]
+            leaves = [line["t"] for line in report if line["kind"] == "received" and line.get("event") == "pointer.leave"
+                      and line.get("surface") == close["surface"] and line["t"] <= close["t"]]
+            if not leaves:
+                fail(f"what showed {text!r} closed without the pointer having left it")
+            elif not least <= (close["t"] - leaves[-1]) / 1e6 <= most:
+                fail(f"what showed {text!r} closed {(close['t'] - leaves[-1]) / 1e6:.0f} ms after the pointer left it, "
+                     f"expected {least} to {most}")
     if "renders" in expect and RENDER_COUNTS:
         # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
         # the components each re-render began at, exactly, the same on any machine however loaded.
