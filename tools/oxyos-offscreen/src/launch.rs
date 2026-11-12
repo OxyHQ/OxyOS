@@ -2693,6 +2693,12 @@ fn start_companion(
     children.0.push(child);
     let deadline = Instant::now() + LAUNCH_DEADLINE;
     let mut last = (Vec::new(), Instant::now());
+    // Where moving it to `at` left it: the compositor keeps a window on its outputs, so a place
+    // partly off them (text-field-menu-scaled's companion at x 1300 on a display 1280 wide) is not
+    // where it ends. Moved again only when it is elsewhere than that (something else placed it):
+    // asking for `at` each turn moved it every turn, and the composed output was never still for
+    // SETTLE once each move reached the screen at once (the reader flushing the scene, #576).
+    let mut placed: Option<(i32, i32)> = None;
     loop {
         if Instant::now() > deadline {
             return Err("deadline exceeded waiting for the companion's window".into());
@@ -2707,14 +2713,18 @@ fn start_companion(
             });
         if let (true, Some(at), Some(client)) = (shown, at, client) {
             let key = SurfaceKey { client, id: WINDOW };
-            if session
+            let now_at = session
                 .compositor
                 .scene
                 .global_rect(key)
-                .map(|r| (r.x, r.y))
-                != Some(at)
-            {
+                .map(|r| (r.x, r.y));
+            if now_at != Some(at) && now_at != placed {
                 session.compositor.scene.move_window_to(key, at);
+                placed = session
+                    .compositor
+                    .scene
+                    .global_rect(key)
+                    .map(|r| (r.x, r.y));
             }
         }
         let now = composed(&session.compositor);
