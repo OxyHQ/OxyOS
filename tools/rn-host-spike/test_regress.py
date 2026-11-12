@@ -489,6 +489,28 @@ class SpinnerFrames(unittest.TestCase):
         self.assertEqual(failures, ["step 1 (wait): 1 frames turned only a spinner in the step, expected 2 to 100"])
 
 
+class ClosedAfterLeave(unittest.TestCase):
+    """`closed_after_leave` (notifications-reader.json): how long the banner stayed after the pointer
+    left it, on the shell's clock, wherever the steps' bounds fell."""
+
+    def check(self, close_ms, end_ms=20000):
+        report = [{"kind": "frame", "t": int(4.4e9), "surface": 5, "texts": ["¿Comemos juntos?"]},
+                  {"kind": "received", "t": int(14.509e9), "surface": 5, "event": "pointer.leave"},
+                  {"kind": "popup", "t": int(close_ms * 1e6), "surface": 5, "event": "shell.close"}]
+        step = {"name": "goes", "do": ["wait", 0],
+                "expect": {"closed_after_leave": {"text": "¿Comemos juntos?", "ms": [5000, 8000]}}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(end_ms * 1e6)}, report, int(18e9), failures)
+        return failures
+
+    def test_five_seconds_after_even_when_it_closed_before_the_step(self):
+        self.assertEqual(self.check(19513), [])
+        self.assertEqual(self.check(19513, end_ms=30000), [])
+
+    def test_closing_sooner_fails(self):
+        self.assertEqual(len(self.check(17000)), 1)
+
+
 class GlidesOnlySlow(unittest.TestCase):
     """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
 
@@ -802,28 +824,6 @@ class SignalSteps(unittest.TestCase):
             self.assertEqual(regress.director_args({"do": ["signal", [signal, "shell"]]}, None),
                              ["--signal", signal, "shell"])
 
-
-
-class ClosedAfterLeave(unittest.TestCase):
-    """`closed_after_leave` (notifications-reader.json): how long the banner stayed after the pointer
-    left it, on the shell's clock, wherever the steps' bounds fell."""
-
-    def check(self, close_ms, end_ms=20000):
-        report = [{"kind": "frame", "t": int(4.4e9), "surface": 5, "texts": ["¿Comemos juntos?"]},
-                  {"kind": "received", "t": int(14.509e9), "surface": 5, "event": "pointer.leave"},
-                  {"kind": "popup", "t": int(close_ms * 1e6), "surface": 5, "event": "shell.close"}]
-        step = {"name": "goes", "do": ["wait", 0],
-                "expect": {"closed_after_leave": {"text": "¿Comemos juntos?", "ms": [5000, 8000]}}}
-        failures = []
-        regress.check_step(0, step, {"t_settled": int(end_ms * 1e6)}, report, int(18e9), failures)
-        return failures
-
-    def test_five_seconds_after_even_when_it_closed_before_the_step(self):
-        self.assertEqual(self.check(19513), [])
-        self.assertEqual(self.check(19513, end_ms=30000), [])
-
-    def test_closing_sooner_fails(self):
-        self.assertEqual(len(self.check(17000)), 1)
 
 if __name__ == "__main__":
     unittest.main()
