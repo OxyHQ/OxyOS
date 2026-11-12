@@ -3888,7 +3888,9 @@ def animated_values(report, start, end, kind="animated"):
             for key, v in entries:
                 channels = [(v & 0xffffffff) >> shift & 0xff for shift in (16, 8, 0)] if "Color" in key or key == "color" \
                     else [v]
-                values.setdefault(line["target"], {}).setdefault(key, []).append((line["t"], channels))
+                # When the frame was sampled (the native driver's `sampled`), else its line: a loaded
+                # machine wrote a line 160 ms after its frame's values (native-animated, step 4).
+                values.setdefault(line["target"], {}).setdefault(key, []).append((line.get("sampled", line["t"]), channels))
     return values
 
 
