@@ -466,3 +466,100 @@ fn a_shared_edge_is_crossed_and_each_display_tiles_on_its_own_at_its_scale() {
     assert_eq!(h.rect(window), Tile::Right.rect(SCREEN));
     assert_eq!(h.configures[&window].2, 120);
 }
+
+#[test]
+fn the_shells_window_menu_lays_out_and_zooms_a_window_by_its_number() {
+    use oxyos_protocol::WindowLayout;
+    let mut h = Harness::new();
+    bars(&mut h);
+    let back = h.toplevel(OTHER, 1, 500, 400);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.click(h.rect(window).x + 10, h.rect(window).y + 10);
+    h.scene.move_window_to(window, (100, 100));
+    let before = h.rect(window);
+    let number = h.scene.window_number(window).unwrap();
+    let ask = |h: &mut Harness, layout| {
+        h.request(
+            SHELL,
+            Request::LayOutWindow {
+                window: number,
+                layout,
+            },
+        )
+    };
+    h.clear_log();
+    // Each tile as Super+Alt's keys give it, and the quarters, which no key gives.
+    for (layout, tile) in [
+        (WindowLayout::Left, Tile::Left),
+        (WindowLayout::Right, Tile::Right),
+        (WindowLayout::Top, Tile::Top),
+        (WindowLayout::Bottom, Tile::Bottom),
+        (WindowLayout::TopLeft, Tile::TopLeft),
+        (WindowLayout::TopRight, Tile::TopRight),
+        (WindowLayout::BottomLeft, Tile::BottomLeft),
+        (WindowLayout::BottomRight, Tile::BottomRight),
+        (WindowLayout::Fill, Tile::Fill),
+    ] {
+        ask(&mut h, layout).unwrap();
+        h.present(window);
+        assert_eq!(h.rect(window), tile.rect(AREA), "{layout:?}");
+        assert_eq!(h.scene.tile_of(window), Some(Some(tile)), "{layout:?}");
+    }
+    // Return to Previous Size: the frame before the first tile; Center: the middle at its size.
+    ask(&mut h, WindowLayout::ReturnToPreviousSize).unwrap();
+    h.present(window);
+    assert_eq!(h.rect(window), before);
+    ask(&mut h, WindowLayout::Center).unwrap();
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(760, 382, 400, 300));
+    ask(&mut h, WindowLayout::ReturnToPreviousSize).unwrap();
+    h.present(window);
+    assert_eq!(h.rect(window), before);
+    // An arrangement: the window and the one behind it, the window kept in front with the
+    // keyboard.
+    ask(&mut h, WindowLayout::LeftAndRight).unwrap();
+    h.present(window);
+    h.present(back);
+    assert_eq!(h.rect(window), Tile::Left.rect(AREA));
+    assert_eq!(h.rect(back), Tile::Right.rect(AREA));
+    assert_eq!(h.scene.focus, Some(window));
+    ask(&mut h, WindowLayout::ReturnToPreviousSize).unwrap();
+    h.present(window);
+    // Zoom, as the green bubble: zoomed, and back to where it was.
+    ask(&mut h, WindowLayout::Zoom).unwrap();
+    h.present(window);
+    assert!(h.scene.is_maximized(window));
+    ask(&mut h, WindowLayout::Zoom).unwrap();
+    h.present(window);
+    assert!(!h.scene.is_maximized(window));
+    assert_eq!(h.rect(window), before);
+    // Nothing of it reached the application as a key.
+    assert_eq!(keys_to(&h, APP), 0);
+    // Only the shell; a window gone is ignored; nothing while locked.
+    assert_eq!(
+        h.request(
+            APP,
+            Request::LayOutWindow {
+                window: number,
+                layout: WindowLayout::Fill,
+            }
+        ),
+        Err(ErrorCode::Unauthorized)
+    );
+    assert_eq!(
+        h.request(
+            SHELL,
+            Request::LayOutWindow {
+                window: 999,
+                layout: WindowLayout::Fill,
+            }
+        ),
+        Ok(())
+    );
+    h.scene.lock();
+    ask(&mut h, WindowLayout::Fill).unwrap();
+    h.scene.unlock();
+    h.present(window);
+    assert_eq!(h.rect(window), before);
+    assert_eq!(h.scene.tile_of(window), None);
+}

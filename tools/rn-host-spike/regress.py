@@ -228,9 +228,15 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ending exactly where its window is (its last frame the one that ended it, at its end, whatever
   frames were dropped before);
 - window_states: every window as the shell is told of it once the step settled, by its number,
-  exactly those: each key given of "app", "workspace", "minimized", "hidden", "focused" and
-  "responding" (whether its application answers, docs/adr/0067-hangs-and-force-quit.mdx) matching
-  (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+  exactly those: each key given of "app", "workspace", "minimized", "hidden", "focused",
+  "responding" (whether its application answers, docs/adr/0067-hangs-and-force-quit.mdx), "frame"
+  ([x, y, width, height] as displayed, global and logical) and "zoomed" matching (the dock's
+  press, docs/adr/0034-the-dock.mdx, decision 9; windows coming back where they were,
+  docs/adr/0070-windows-come-back-where-they-were.mdx);
+- windows_of: {APP: {KEY: VALUE}}: the application APP has one window as the shell is told of it,
+  whatever its number, each key given (as in window_states) matching (docs/adr/0070);
+- frame_as: {"WINDOW": [N, "THEN"]}: window WINDOW's frame (window_states) exactly window THEN's
+  once step N settled (1-based): a window reopened where its application's was (docs/adr/0070);
 - tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
   (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
   exactly how many configures the director's window was sent in the step (a window tiled is told
@@ -382,9 +388,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
   after the host's start (its report's first `stage` "main"), by the wall clock: what a person
   waits for from launching an application to seeing what they opened, an application that renders
-  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
-  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
-  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
+  nothing until the network answers among it. A speed budget: held with --speed-budgets (how long
+  the launch takes by the clock is the machine's speed, which a loaded one does not hold), and
+  judged by perf.py over its runs; set far above what the launch takes unloaded and far below what
+  waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
+- content_cpu_ms_max: launch to content on the CPU, with `texts`: the CPU the host's threads (its
+  main thread's and JavaScript's, as each frame's `timing` line reports them) spent from its start
+  through the frame that first showed every one of the step's `texts`, at most so many ms. Held on
+  every run (not under --collect): the work a launch does before its content does not grow with the
+  machine's load, as its time by the clock does. Each measured value is in the run's metrics
+  (`content_cpu_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -410,7 +423,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
-  the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
+  the longest input to present of a frame presented in the step (a speed budget: with
+  --speed-budgets), and "timed_inputs_min", the fewest
   frames presented in it that timed an input, and "latency_min_ms", the least such input to present
   (an answer JavaScript took that long to give). Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
@@ -462,6 +476,9 @@ A step with `until_named` ([name, ms]) is answered on the application's own cloc
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `cue_before` (a name) gives that cue as it begins, before its input, so that what the cue
+starts goes on through the step (held-frames' loop, begun as the displays go off); the scenario's
+`http` server answers `/cue/NAME` once it is given.
 A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
 two seconds after an application stopped answering, its own cursor once it answers): it settles only
 once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
@@ -1268,6 +1285,9 @@ def director_args(step, out):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if step.get("until_sheet"):
         args.append("--until-sheet")
+    if step.get("cue_before"):
+        # A cue given as the step begins, before its input (a probe's loop, on through the step).
+        args += ["--cue-before", step["cue_before"]]
     if step.get("until_ended"):
         # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         # logged out, or logind asked, once every application quit on its own clock.
@@ -2836,6 +2856,16 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.startswith("/cue/"):
+            # Answered once a step gave the cue named (a `cue` step, or a step's `cue_before`):
+            # what a probe waits for begins when the scenario says (sample/FrameProbe.tsx's loop).
+            name = self.path.split("?")[0][len("/cue/"):]
+            given = time.monotonic() + 600
+            while not (self.cues and self.cues.exists() and name in self.cues.read_text().split()):
+                if time.monotonic() > given:
+                    return self.reply(504, "no cue")
+                time.sleep(0.02)
+            return self.reply(200, name)
         if self.path.split("?")[0] == "/save":
             # The progress probe's work (sample/ProgressProbe.tsx): answered once a step gave the
             # cue `save-done`, so it ends when the scenario says, however loaded the machine.
@@ -3276,6 +3306,26 @@ def latest_frames(report, until, closed_before):
         if line["kind"] == "frame" and line["t"] <= until:
             frames[line["surface"]] = line
     return {s: f for s, f in frames.items() if s not in closed_before}
+
+
+def content_shown_cpu_ms(report, texts):
+    """Launch to content on the CPU (`content_cpu_ms_max`): ms of CPU the host's main thread and its
+    JavaScript spent (each frame's `timing` line: `cpu_ms`, and `js`'s for the stretches since the
+    one before) through the frame that first showed every one of `texts`, read as
+    `content_shown_ms` reads them; None when they never all were."""
+    shown, cpu, content = {}, 0.0, False
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True) and not content:
+            shown[line["surface"]] = line.get("texts", [])
+            content = all(any(text in got for surface in shown.values() for got in surface) for text in texts)
+        elif line["kind"] == "timing":
+            cpu += line.get("cpu_ms", 0) + line.get("js", {}).get("cpu_ms", 0)
+            # The turn that presented the content frame reports its timing after it.
+            if content:
+                return round(cpu, 1)
+    return None
 
 
 def content_shown_ms(report, texts):
@@ -4625,6 +4675,15 @@ def check_views(index, step, result, results, failures):
             # were dropped.
             if end is not None and last != end:
                 fail(f"{who} ended at {last}, not at {end}")
+    if "frame_as" in expect:
+        # A window where another was once an earlier step settled, exactly: a window reopened
+        # where its application's was (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        states = result.get("window_states") or {}
+        for number, (earlier, then_number) in expect["frame_as"].items():
+            now = (states.get(number) or {}).get("frame")
+            then = ((results[earlier - 1].get("window_states") or {}).get(then_number) or {}).get("frame")
+            if now is None or now != then:
+                fail(f"window {number} is at {now}, not where window {then_number} was after step {earlier}: {then}")
     if "windows_placed_as" in expect:
         then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})
         if placed != then:
@@ -4924,7 +4983,9 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if waited > wanted.get("wait_max_ms", float("inf")):
             fail(f"a frame waited {waited:.2f} ms for the compositor, expected at most {wanted['wait_max_ms']}: {logs}")
         timed = [line["latency_ms"] for line in timings if line["presented"] and line["latency_ms"] is not None]
-        if max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
+        # How long an input waited for its frame is the machine's speed (a loaded one's preempted the
+        # press's JavaScript 1.9 s in held-frames): a speed budget, held with --speed-budgets.
+        if SPEED_BUDGETS and max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
             fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
         if len(timed) < wanted.get("timed_inputs_min", 0):
             fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
@@ -5961,15 +6022,28 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
     if "window_states" in expect:
         # Every window as the shell is told of it once the step settled, by its number, exactly:
-        # each given key ("app", "workspace", "minimized", "hidden", "focused", "responding")
-        # matching, and no
-        # window more or fewer (the dock's press, ADR 0034's decision 9).
+        # each given key ("app", "workspace", "minimized", "hidden", "focused", "responding",
+        # "frame", "zoomed") matching, and no window more or fewer (the dock's press, ADR 0034's
+        # decision 9; ADR 0067; ADR 0070).
         got = result.get("window_states") or {}
         wanted = expect["window_states"]
         if set(got) != set(wanted) or any(
             got[number].get(key) != value for number, state in wanted.items() for key, value in state.items()
         ):
             fail(f"the windows are {got}, expected {wanted}")
+    if "windows_of" in expect:
+        # Each application's one window as the shell is told of it once the step settled, by its
+        # application whatever its number, each given key matching: windows opened at login, in
+        # whatever order they are ready (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        states = result.get("window_states") or {}
+        for app, wanted in expect["windows_of"].items():
+            windows = [state for state in states.values() if state.get("app") == app]
+            if len(windows) != 1:
+                fail(f"{app} has {len(windows)} windows, expected one: {states}")
+                continue
+            for key, value in wanted.items():
+                if windows[0].get(key) != value:
+                    fail(f"{app}'s window: {key} = {windows[0].get(key)!r}, expected {value!r}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]
@@ -6123,13 +6197,24 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if not expect.get("texts"):
             raise ValueError(f"{name}: content_ms_max needs the step's texts")
         result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
-        if not COLLECT:
+        if SPEED_BUDGETS and not COLLECT:
             if shown_ms is None:
                 fail(f"launch to content: {expect['texts']} never all shown in the run "
                      f"(the {expect['content_ms_max']} ms budget from the host's start)")
             elif shown_ms > expect["content_ms_max"]:
                 fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
                      f"start, over the {expect['content_ms_max']} ms budget")
+    if "content_cpu_ms_max" in expect:
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_cpu_ms_max needs the step's texts")
+        result["content_cpu_ms"] = cpu_ms = content_shown_cpu_ms(report, expect["texts"])
+        if not COLLECT:
+            if cpu_ms is None:
+                fail(f"launch to content on the CPU: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_cpu_ms_max']} ms budget)")
+            elif cpu_ms > expect["content_cpu_ms_max"]:
+                fail(f"launch to content on the CPU: the host spent {cpu_ms} ms of CPU before {expect['texts']} "
+                     f"were first all shown, over the {expect['content_cpu_ms_max']} ms budget")
     return end
 
 
@@ -6253,14 +6338,14 @@ def install_service(spec, machine, offscreen):
     me = pwd.getpwuid(os.getuid())
     (base / "passwd").write_text(f"{me.pw_name}:x:{me.pw_uid}:{me.pw_gid}::{me.pw_dir}:/bin/sh\n")
     logs = open(base / "installd.log", "w")
-    processes = [subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
+    processes = [played(subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
                                    f"file://{repository}", "--socket", str(base / "f")],
-                                  stdout=logs, stderr=logs)]
+                                  stdout=logs, stderr=logs))]
     wait_for(base / "f")
     service = [str(installd), "--development", "--state", str(state), "--anchor",
                str(repository / "metadata/1.root.json"), "--runtimes", str(machine.runtimes), "--socket",
                str(base / "i"), "--fetcher", str(base / "f"), "--passwd", str(base / "passwd")]
-    processes.append(subprocess.Popen(service, stdout=logs, stderr=logs))
+    processes.append(played(subprocess.Popen(service, stdout=logs, stderr=logs)))
     wait_for(base / "i")
     # Installed before the run, as an account that installed it earlier has it.
     for id in spec.get("installed", []):
@@ -6280,8 +6365,8 @@ def install_service(spec, machine, offscreen):
         first.terminate()
         first.wait(timeout=5)
         (base / "i").unlink(missing_ok=True)
-        processes.append(subprocess.Popen(service + ["--available", str(spec["available"])],
-                                          stdout=logs, stderr=logs))
+        processes.append(played(subprocess.Popen(service + ["--available", str(spec["available"])],
+                                          stdout=logs, stderr=logs)))
         wait_for(base / "i")
     # Versions the store publishes afterwards: the same package's files, its manifest's
     # versionCode, version and capabilities changed, packed and signed with the same key.
@@ -6332,10 +6417,10 @@ def backup_service(spec, home_root, out, offscreen):
     disk.mkdir(parents=True)
     (disk / ".oxyos-label").write_text(spec.get("disk", "Backup Disk"))
     log = open(out / "backupd.log", "w")
-    process = subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
+    process = played(subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
                                 "--volumes", str(base / "volumes"), "--cache", str(base / "cache"),
                                 "--source", str(home_root), "--socket", str(base / "s")],
-                               stdout=log, stderr=log)
+                               stdout=log, stderr=log))
 
     def stop():
         process.terminate()
@@ -6661,6 +6746,33 @@ def check_installd(wanted, failures):
             failures.append(f"the install service read the store {got} times, expected {wanted['store_reads']}")
 
 
+# The processes played beside the session for a run (a bus, a played daemon or service): each run's
+# own stop ends them once the director has run, and whatever is still running when regress exits
+# (a run failing at once, before the director, raised past those stops and left its played power
+# services running) is ended then.
+PLAYED = []
+
+
+def played(process):
+    """`process`, a service played beside the session, ended as regress exits if still running."""
+    PLAYED.append(process)
+    return process
+
+
+@atexit.register
+def end_played():
+    """Ends what is still running of the services played for runs (`played`)."""
+    running = [process for process in PLAYED if process.poll() is None]
+    for process in running:
+        process.terminate()
+    for process in running:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    PLAYED.clear()
+
+
 def wait_for(path, seconds=10):
     deadline = time.monotonic() + seconds
     while not path.exists():
@@ -6708,14 +6820,14 @@ def network_daemon(spec, out, offscreen):
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
     # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-networkmanager"
     log = open(base / "daemon.log", "w")
-    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
-                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    daemon = played(subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log))
     wait_for(base / "state.json")
 
     def stop():
@@ -6737,14 +6849,14 @@ def bluetooth_daemon(spec, out, offscreen):
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
     # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-bluez"
     log = open(base / "bluez.log", "w")
-    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
-                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    daemon = played(subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log))
     wait_for(base / "state.json")
 
     def stop():
@@ -6799,9 +6911,9 @@ def played_backup_service(spec, out, offscreen, home):
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-backup-"))
     socket = sockets / "socket"
     log = open(base / "service.log", "w")
-    service = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
+    service = played(subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
                                 str(volumes), str(socket), str(base / "cache"), str(home)],
-                               env=env, stdout=log, stderr=log)
+                               env=env, stdout=log, stderr=log))
     wait_for(socket)
 
     def stop():
@@ -6830,12 +6942,12 @@ def power_services(spec, out, offscreen):
     machine = dict(spec)
     machine.setdefault("sysfs", str(sysfs))
     (base / "machine.json").write_text(json.dumps(machine))
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     log = open(base / "services.log", "w")
-    services = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
-                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log)
+    services = played(subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
+                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log))
     wait_for(base / "ready")
 
     def stop():
@@ -6946,10 +7058,10 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, content_cpu_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
-                        help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
+                        help="hold the steps' budgets on how fast the work runs too (`content_ms_max`, `js_work`'s js_ms_max and "
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
@@ -7591,6 +7703,9 @@ def main():
         # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
         "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
                        if "content_ms" in s},
+        # And on the CPU (`content_cpu_ms_max`): its number -> ms (None: never shown).
+        "content_cpu_ms": {str(index + 1): s["content_cpu_ms"] for index, s in enumerate(summary["steps"])
+                           if "content_cpu_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }

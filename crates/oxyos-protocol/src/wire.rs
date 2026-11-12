@@ -324,6 +324,31 @@ wire_enum! {
     MenuRole: u8 { About = 1, Settings = 2 }
 }
 wire_enum! {
+    /// Where the shell asks the compositor to put a window (ADR 0016, decision 12, the Window
+    /// menu): the work area within its margins (Fill), its middle at the window's size, a half or a
+    /// quarter, an arrangement with the windows behind it, the frame it had before it was first
+    /// tiled, or zoomed (and back, as its green bubble).
+    WindowLayout: u8 {
+        Fill = 1,
+        Center = 2,
+        Left = 3,
+        Right = 4,
+        Top = 5,
+        Bottom = 6,
+        TopLeft = 7,
+        TopRight = 8,
+        BottomLeft = 9,
+        BottomRight = 10,
+        LeftAndRight = 11,
+        RightAndLeft = 12,
+        TopAndBottom = 13,
+        BottomAndTop = 14,
+        Quarters = 15,
+        ReturnToPreviousSize = 16,
+        Zoom = 17,
+    }
+}
+wire_enum! {
     /// Which text of a menu entry a chunk belongs to: its label, or a command's shortcut as a key
     /// chord (`Mod+N`, `Mod+Shift+Z`; `Mod` is Ctrl on OxyOS), which the bar shows and never runs.
     MenuField: u8 { Label = 1, Shortcut = 2 }

@@ -1875,6 +1875,12 @@ int main(int argc, char** argv) {
                                        folly::dynamic::object("window", target)("sent", sent));
             return sent;
           },
+          .layOutWindow = [&window](uint32_t target, uint8_t layout) {
+            bool sent = window->layOutWindow(target, layout);
+            oxyos::Report::get().input("window.lay_out", 0,
+                                       folly::dynamic::object("window", target)("layout", layout)("sent", sent));
+            return sent;
+          },
           .setApplicationList = [&window, &controlSerial](uint32_t list, const std::vector<std::string>& ids) {
             std::string text;
             for (const auto& id : ids) text += (text.empty() ? "" : "\n") + id;

@@ -518,6 +518,10 @@ bool Window::openUrl(uint32_t serial, uint64_t input, const std::string& url) {
   return oxyos_client_open_url(client_, serial, input, url.data(), url.size()) == 0;
 }
 
+bool Window::layOutWindow(uint32_t window, uint8_t layout) {
+  return oxyos_client_lay_out_window(client_, window, layout) == 0;
+}
+
 bool Window::forceQuitApplication(uint32_t window) {
   return oxyos_client_manage(client_, OXYOS_MANAGE_FORCE_QUIT_APPLICATION, window, 0) == 0;
 }

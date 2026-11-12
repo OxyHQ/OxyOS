@@ -133,8 +133,15 @@ impl Reader {
         std::mem::take(&mut self.announcements)
     }
 
-    /// Takes in what the compositor sent the reader since the last call.
+    /// Takes in what the compositor sent the reader since the last call: everything the scene
+    /// emitted up to now, routed first. The development compositor acts on its scene itself (a
+    /// window moved to its place, as `--companion-at` puts the companion), and what the scene
+    /// sent the reader for it (the tree again, at the window's new place) waited in the scene's
+    /// queue until the next turn routed it: a step resolved its node by name in between found the
+    /// tree at the window's old place, and pressed there (settings-caret-blink-scaled's press on
+    /// the companion's field landed on Settings, where the companion had first been placed).
     pub fn absorb(&mut self, compositor: &mut Compositor) {
+        compositor.flush();
         let (mine, others): (Vec<_>, Vec<_>) = std::mem::take(&mut compositor.local_events)
             .into_iter()
             .partition(|(client, _)| *client == self.client);
@@ -336,5 +343,118 @@ impl Reader {
                 None => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxyos_compositor_core::{Grants, Output, Scene};
+    use oxyos_protocol::{
+        AccessibleRole, AccessibleState, Clock, Format, Rect, Request, Size, NO_ACCESSIBLE_PARENT,
+    };
+
+    const APP: ClientId = 1;
+    const READER: ClientId = ClientId::MAX;
+
+    /// A window of `APP`'s, shown, with one node at (10, 20) in it; the reader local.
+    fn session() -> (Compositor, SurfaceKey) {
+        let mut scene = Scene::new();
+        scene
+            .add_output(Output {
+                id: 1,
+                rect: Rect::new(0, 0, 1280, 800),
+                scale_120: 120,
+                refresh_mhz: 60_000,
+            })
+            .unwrap();
+        scene.connect(APP, Grants::default()).unwrap();
+        scene
+            .connect(
+                READER,
+                Grants {
+                    accessibility: true,
+                    ..Grants::default()
+                },
+            )
+            .unwrap();
+        let mut compositor = Compositor::new(scene, 1000);
+        compositor.local_clients.insert(READER);
+        let scene = &mut compositor.scene;
+        scene
+            .handle(
+                APP,
+                Request::CreateToplevel {
+                    surface: 1,
+                    size: Size::new(400, 300),
+                },
+            )
+            .unwrap();
+        let (serial, extent) = scene
+            .drain_events()
+            .into_iter()
+            .find_map(|(client, event)| match event {
+                oxyos_protocol::Event::Configure { serial, rect, .. } if client == APP => {
+                    Some((serial, Size::new(rect.width, rect.height)))
+                }
+                _ => None,
+            })
+            .unwrap();
+        for request in [
+            Request::AttachBuffer {
+                buffer: 1,
+                format: Format::Xrgb8888,
+                extent,
+                stride: extent.width * 4,
+                offset: 0,
+            },
+            Request::Submit {
+                surface: 1,
+                sequence: 1,
+                buffer: 1,
+                configure: serial,
+                extent,
+            },
+        ] {
+            scene.handle(APP, request).unwrap();
+        }
+        scene.begin_frame();
+        scene.end_frame(1, Clock::Synthetic);
+        for request in [
+            Request::AccessibilityBegin {
+                surface: 1,
+                nodes: 1,
+            },
+            Request::AccessibleNode {
+                surface: 1,
+                index: 0,
+                parent: NO_ACCESSIBLE_PARENT,
+                role: AccessibleRole::Button,
+                state: AccessibleState::new(0).unwrap(),
+                actions: Default::default(),
+                rect: Rect::new(10, 20, 100, 30),
+            },
+            Request::AccessibilityCommit { surface: 1 },
+        ] {
+            scene.handle(APP, request).unwrap();
+        }
+        (compositor, SurfaceKey { client: APP, id: 1 })
+    }
+
+    #[test]
+    fn a_window_the_session_moves_is_held_at_its_new_place_at_once() {
+        let (mut compositor, window) = session();
+        let mut reader = Reader::new(READER);
+        reader.absorb(&mut compositor);
+        let at = compositor.scene.global_rect(window).unwrap();
+        let node = |reader: &Reader| reader.trees[&window][0].rect;
+        assert_eq!(node(&reader), (at.x + 10, at.y + 20, 100, 30));
+        // Moved by the session itself, with no turn of the compositor in between: what the reader
+        // holds is the window where it is now.
+        compositor
+            .scene
+            .move_window_to(window, (at.x + 300, at.y + 40));
+        reader.absorb(&mut compositor);
+        assert_eq!(node(&reader), (at.x + 310, at.y + 60, 100, 30));
     }
 }

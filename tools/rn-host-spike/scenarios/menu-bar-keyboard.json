@@ -395,7 +395,30 @@
       }
     },
     {
-      "name": "Left goes round the end, to the window's last menu",
+      "name": "Left goes round the end, to the bar's last menu, the system's Ventana (docs/adr/0016-windows.mdx, decision 12)",
+      "do": [
+        "key",
+        105
+      ],
+      "expect": {
+        "react": {},
+        "delivered": {},
+        "at": {
+          "shell": [
+            {
+              "role": "Button",
+              "name": "Ventana",
+              "state": [
+                "collapsed",
+                "focused"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Left again: the window's last menu, Edit",
       "do": [
         "key",
         105
