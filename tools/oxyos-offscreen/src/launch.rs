@@ -224,6 +224,14 @@ pub enum Step {
         count: u32,
         interval_ms: u32,
     },
+    /// A double click at a window-local point whose first click the application has taken before
+    /// the second comes: the first press and release, then the compositor serving until the
+    /// application has taken them (two Pings answered in turn, as `Settling::taken` waits), then
+    /// the second press and release, carrying the hand's time 100 ms after the first however long
+    /// the wait was, so it is a double click to the application whatever the machine's load. What
+    /// JavaScript does with the first click (a text field's focus) has then happened before the
+    /// second is read.
+    DoublePressTaken { at: (i32, i32) },
     /// A double click as a hand makes it on a window's title area, at a window-local point: the
     /// primary button held while the compositor serves the application until it begins a move
     /// with the press (as a title bar's drag region does; two seconds at most), released, then
@@ -529,6 +537,9 @@ impl Step {
             Step::DoubleClick { at, hold_ms, gap_ms } => {
                 format!("double click at {at:?}, each press held {hold_ms} ms, {gap_ms} ms apart")
             }
+            Step::DoublePressTaken { at } => {
+                format!("double click at {at:?}, its first click taken before the second")
+            }
             Step::Key(codes) => format!("key {}", chord(codes)),
             Step::Strokes(chords) => format!(
                 "keys {} on the keymap",
@@ -795,6 +806,9 @@ impl Step {
             } => format!("\"press_paced\":[{},{},{count},{interval_ms}]", at.0, at.1),
             Step::DoubleClick { at, hold_ms, gap_ms } => {
                 format!("\"double_click\":[{},{},{hold_ms},{gap_ms}]", at.0, at.1)
+            }
+            Step::DoublePressTaken { at } => {
+                format!("\"double_press_taken\":[{},{}]", at.0, at.1)
             }
             Step::Key(codes) => format!("\"key\":{codes:?}"),
             Step::Strokes(chords) => format!("\"strokes\":{chords:?}"),
@@ -1215,7 +1229,7 @@ pub struct Launch {
 }
 
 const USAGE: &str = "usage: oxyos-offscreen --launch [--out DIR] [--outputs WxH[@SCALE][:HZ],... | --displays FILE] [--gpu | --gpu-only] [--dump-frames DIR] [--kms CARD] [--input | --uinput] [--seat] [--layout LAYOUT] [--launch-settle MS] [--clear-of-minute MS] [--input-method [--im-candidates horizontal|vertical]] [--autofill-fixture ID [--autofill-saves]] [--shell PROGRAM,ARG...] [--file-chooser PROGRAM,ARG...] [--companion PROGRAM,ARG... [--companion-at X,Y] [--companion-app ID]] [--lock-password PASSWORD [--lock-pin PIN]] [--login SOCKET] [--reader PROGRAM [--reader-locale LOCALE] [--reader-off]] [--preferences FILE] [--grant-settings ID] [--grant ID=GRANT,...] [--installd SOCKET] [--trash] [--safe-mode] [--storage FILE] [--runtimes DIR] [--installed-fixture ROOT] [--controls FILE] [--network-bus ADDRESS] [--bluetooth-bus ADDRESS] [--power-bus ADDRESS] [--backup SOCKET VOLUMES] [--sound FILE] [--input-methods PREFIX] [--input-sources-available METHOD,...] [--also-launch ID[:minimized],... [--also-launch-lead MS]] [[--allow-unchanged] [--until-sheet] [--until-ended] [--until-taken] [--until-named MS NAME] [--until-pixels MS X,Y=#RRGGBB;...] [--until-pointer MS SHAPE] --press X,Y | \
-                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --cue NAME | --expect-popup]... \
+                     --press-popup X,Y | --press-output X,Y | --press-secondary-output X,Y | --hold-output X,Y,MS | --press-named NAME | --press-secondary-named NAME | --double-press-named NAME | --double-press-output X,Y | --move-named NAME | --hold-named MS NAME | --move-output X,Y | --double-press X,Y | --triple-press X,Y | --double-drag X0,Y0,X1,Y1 | --scroll X,Y,DY[,EVENTS] (each DY of a scroll or flick may be DX:DY) | --scroll-output X,Y,DY,EVENTS | --scroll-named DY,EVENTS NAME | --swipe FINGERS,DX,DY,STEPS[,HZ] | --swipe-begin FINGERS,DX,DY,STEPS[,HZ] | --swipe-move DX,DY,STEPS[,HZ] | --swipe-end MS | --pinch X,Y,PERCENT,DEGREES | --type TEXT | --preedit TEXT | --commit TEXT | --transaction BEFORE,AFTER COMMIT PREEDIT BEGIN,END SEGMENTS|- | --keyboard TEXT | --type-paced HZ TEXT | --compose-keys TEXT | --im-change BEFORE,AFTER COMMIT PREEDIT current|stale | --key CODE[+CODE]... | --key-down CODE[+CODE]... | --key-up CODE[+CODE]... | --drag X0,Y0,X1,Y1 | --drag-output X0,Y0,X1,Y1 | --drag-paced X0,Y0,X1,Y1,MOTIONS,HZ | --scroll-paced X,Y,DY,EVENTS,HZ | --flick X,Y,DY,EVENTS,HZ | --flick-hold X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-press X,Y,DY,EVENTS,HZ,AFTER_MS[,AX,AY] | --flick-wheel X,Y,DY,EVENTS,HZ,AFTER_MS,NOTCH[,AX,AY] | --flick-fingers X,Y,DY,EVENTS,HZ,AFTER_MS,DY,EVENTS[,AX,AY] | --move-paced X0,Y0,X1,Y1,MOTIONS,HZ | --press-paced X,Y,COUNT,INTERVAL_MS | --double-press-taken X,Y | --double-click X,Y,HOLD_MS,GAP_MS | --scale SCALE_120 | --a11y-action activate|focus|increment|decrement|scroll-forward|scroll-backward|dismiss|custom:LABEL|select:START-END,NAME | --move-window DX,DY | --resize-window W,H | --minimize-window | --caps-lock | --clipboard LIST | --switch-terminal N | --idle SECONDS | --signal SEGV|ABRT|KILL|TERM reader|shell | --signal STOP shell | --wait MS | --wait-named MS NAME | --wait-sheet-keyboard MS | --transition-clock hold|run|MS | --cue NAME | --expect-popup]... \
                      -- COMMAND [ARGS]... (no COMMAND with --login)";
 
 /// An output of `--outputs`: its pixels, its scale (in 120ths) and the refresh it is paced at, if
@@ -2023,6 +2037,10 @@ impl Launch {
                         hold_ms: n[2] as u32,
                         gap_ms: n[3] as u32,
                     }
+                }
+                Some("--double-press-taken") => {
+                    let n = numbers(args.next(), 2)?;
+                    Step::DoublePressTaken { at: (n[0], n[1]) }
                 }
                 Some("--press-paced") => {
                     let n = numbers(args.next(), 4)?;
@@ -5252,15 +5270,50 @@ fn taken(session: &mut Session) -> Result<()> {
         let Some(client) = scene.drag_target().or_else(|| scene.holding_press()) else {
             return Ok(());
         };
-        let Some(ping) = scene.ping_after(client) else {
-            return Ok(());
-        };
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !session.compositor.scene.answered(client, ping) && Instant::now() < deadline {
-            session.compositor.serve(&session.listener)?;
-        }
+        ping_answered(session, client)?;
     }
     Ok(())
+}
+
+/// Pings `client` after everything it was sent and serves until it answers (five seconds at
+/// most); nothing for an application that answers no Ping.
+fn ping_answered(session: &mut Session, client: ClientId) -> Result<()> {
+    let Some(ping) = session.compositor.scene.ping_after(client) else {
+        return Ok(());
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !session.compositor.scene.answered(client, ping) && Instant::now() < deadline {
+        session.compositor.serve(&session.listener)?;
+    }
+    Ok(())
+}
+
+/// A double click whose first click the application took before the second
+/// (`Step::DoublePressTaken`).
+fn double_press_taken(session: &mut Session, window: Rect, at: (i32, i32)) -> Result<()> {
+    if !Rect::new(0, 0, window.width, window.height).contains_point(at.0, at.1) {
+        return Err(format!("({}, {}) is outside the window {window:?}", at.0, at.1).into());
+    }
+    let origin = monotonic_ns();
+    let idle_wait = session.compositor.idle_wait;
+    let click = |session: &mut Session, due: Duration| -> Result<()> {
+        let scene = &mut session.compositor.scene;
+        scene.set_input_time(paced_time(origin, due));
+        scene.pointer_motion(window.x + at.0, window.y + at.1);
+        scene.pointer_button(BUTTON, true);
+        scene.pointer_button(BUTTON, false);
+        session.compositor.idle_wait = Duration::ZERO;
+        session.compositor.serve(&session.listener)?;
+        session.compositor.idle_wait = idle_wait;
+        Ok(())
+    };
+    click(session, Duration::ZERO)?;
+    // Two Pings in turn: the first answered once JavaScript ran the click, the second once the
+    // host has carried out what JavaScript asked for it (a field's focus).
+    for _ in 0..2 {
+        ping_answered(session, CLIENT)?;
+    }
+    click(session, Duration::from_millis(100))
 }
 
 /// A paced drag (`Step::DragPaced`) on the scene: the press, each motion when its time comes with
@@ -6358,6 +6411,7 @@ fn inject(compositor: &mut Compositor, window: Rect, step: &Step) -> Result<()> 
         | Step::TypePaced { .. }
         | Step::HoldOutput { .. }
         | Step::DoubleClick { .. }
+        | Step::DoublePressTaken { .. }
         | Step::PressPaced { .. } => {}
         // The step loop runs it through the devices; there is no scene equivalent of a terminal.
         Step::SwitchTerminal(_) => return Err("--switch-terminal needs --uinput and --kms".into()),
@@ -7495,6 +7549,12 @@ pub fn run(out: &Path, launch: &Launch) -> Result<()> {
                 } = step
                 {
                     double_click(&mut session, window, *at, *hold_ms, *gap_ms)?;
+                }
+                0
+            }
+            _ if matches!(step, Step::DoublePressTaken { .. }) => {
+                if let Step::DoublePressTaken { at } = step {
+                    double_press_taken(&mut session, window, *at)?;
                 }
                 0
             }

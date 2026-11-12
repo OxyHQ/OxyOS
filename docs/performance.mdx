@@ -93,7 +93,7 @@ main one, and its JavaScript thread, `oxyos-js`, too).
 
 **Each Bloom host** (an application, the shell, the login screen) writes, named by the
 application's id (else its module), lines of six kinds (`tools/rn-host-spike/frame-diagnostics.h`),
-each of its two threads measured on its own ([ADR 0067](./adr/0067-the-ui-thread)): the UI thread's
+each of its two threads measured on its own ([ADR 0071](./adr/0071-the-ui-thread)): the UI thread's
 frames, and JavaScript's work on its thread:
 
 ```text
@@ -282,7 +282,7 @@ none; leaving it, the icon and its button again, 16. Each step also has a backst
 JavaScript's time on its thread's CPU, two refreshes at 60 Hz (`js_work.js_ms_backstop`: 33 ms), for
 a gross regression only: ten times the hover's quiet median (3.2 ms) and fifty times a window
 change's, twice the most the heaviest load measured made of it (16.9 ms). It was by the wall clock
-until 11 November 2026, when JavaScript ran on a thread of its own (docs/adr/0067-the-ui-thread.mdx)
+until 11 November 2026, when JavaScript ran on a thread of its own (docs/adr/0071-the-ui-thread.mdx)
 and a merge queue's runner at load 30–40 timed 57.6 ms of it for 4.8 ms on its CPU, once 2.8 s for
 4 ms: the rest was the thread preempted and blocked, the machine's time, not JavaScript's. Blocked
 and preempted time are said with a backstop's failure, and `js_blocked_ms_max` holds blocked time

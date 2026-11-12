@@ -1,5 +1,5 @@
 {
-  "about": "Dragging selected text, as on a Mac (docs/adr/0037-text-editing.mdx, decision 9; docs/adr/0035-drag-and-drop.mdx): sample/TextDragProbe.tsx's Bloom fields (a single-line one, a multiline one, and one with maxLength 12 inside a drop target taking text) and sample/TextDragPeer.tsx, another application started beside it (`companion`), with a row of text it drags and two drop targets taking text, one copying unless asked otherwise and one that only moves. A press on the selection released without moving places the caret where it was pressed; moved, it drags the selected text. Within the field the drop moves it (Option copies), one edit that one undo takes back, the text moved left selected. Into another field it copies, that field taking focus with the text selected, focus, change and selectionChange its only events; a field inside a drop target takes the text dropped on it, the drop target hearing only the pointer pass over its own edge. Out to the other application's copying target it arrives once and the field keeps it; to the moving one the field deletes it. Text dragged in from the other application drops into a field; a field keeps only what maxLength leaves room for; Escape cancels with nothing changed. With Command a drag into another field moves: the field it left, no longer focused, deletes the text as an edit of its own, and an undo in the other takes back only its insertion. Each step's React events and deliveries to both applications are exact. At scale 1.25 (a 1600x1000 display, 1280x800 logical). Each drag at a hand's pace lets the application take each motion (`until_taken`), so what the drag passes over and what each target is told is where the hand was, however loaded the machine. Last, the field's text selected whole and dragged out, its press, motions and release read in one turn as a loaded machine reads them: the drag the field starts after the release is dropped where it was released, once (docs/adr/0035-drag-and-drop.mdx, decision 2): its own drop target never crossed, the other application's copying target taking it.",
+  "about": "Dragging selected text, as on a Mac (docs/adr/0037-text-editing.mdx, decision 9; docs/adr/0035-drag-and-drop.mdx): sample/TextDragProbe.tsx's Bloom fields (a single-line one, a multiline one, and one with maxLength 12 inside a drop target taking text) and sample/TextDragPeer.tsx, another application started beside it (`companion`), with a row of text it drags and two drop targets taking text, one copying unless asked otherwise and one that only moves. A press on the selection released without moving places the caret where it was pressed; moved, it drags the selected text. Within the field the drop moves it (Option copies), one edit that one undo takes back, the text moved left selected. Into another field it copies, that field taking focus with the text selected, focus, change and selectionChange its only events; a field inside a drop target takes the text dropped on it, the drop target hearing only the pointer pass over its own edge. Out to the other application's copying target it arrives once and the field keeps it; to the moving one the field deletes it. Text dragged in from the other application drops into a field; a field keeps only what maxLength leaves room for; Escape cancels with nothing changed. With Command a drag into another field moves: the field it left, no longer focused, deletes the text as an edit of its own, and an undo in the other takes back only its insertion. Each step's React events and deliveries to both applications are exact. At scale 1.25 (a 1600x1000 display, 1280x800 logical). Each drag at a hand's pace lets the application take each motion (`until_taken`), so what the drag passes over and what each target is told is where the hand was, however loaded the machine. Last, the field's text selected whole and dragged out, its press, motions and release read in one turn as a loaded machine reads them: the drag the field starts after the release is dropped where it was released, once (docs/adr/0035-drag-and-drop.mdx, decision 2): its own drop target never crossed, the other application's copying target taking it. Then a double click in the line whose first click the application took before the second (`double_press_taken`): one selection change a click, as the double click on it before, whose clicks the application read in one turn.",
   "module": "TextDragProbe",
   "window": [
     640,
@@ -661,7 +661,7 @@
       }
     },
     {
-      "name": "OxyOS selected in the line by a double click",
+      "name": "OxyOS selected in the line by a double click: the first click focuses it at its release, its caret there, and the second selects the word, one selection change a click",
       "do": [
         "double_press",
         [
@@ -680,7 +680,7 @@
           "blur@inner": 1,
           "endEditing@inner": 1,
           "focus@line": 1,
-          "selectionChange@line": 1
+          "selectionChange@line": 2
         },
         "delivered": {
           "1": {
@@ -948,6 +948,40 @@
             "drag.dragLeave@copy-zone": 1,
             "drag.drop@copy-zone": 1
           }
+        }
+      }
+    },
+    {
+      "name": "OxyOS selected again by a double click whose first click the application took before the second: the field focused by the first click (its caret there), then the word, one selection change a click however late JavaScript's own focus for the click",
+      "do": [
+        "double_press_taken",
+        [
+          170,
+          42
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"uno dos tresHola OxyOS\" [17,22]"
+        ],
+        "focus_input": "line",
+        "react": {
+          "touchStart@line": 2,
+          "touchEnd@line": 2,
+          "blur@inner": 1,
+          "endEditing@inner": 1,
+          "focus@line": 1,
+          "selectionChange@line": 2
+        },
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 2,
+            "release": 2
+          }
+        },
+        "in_companion": {
+          "react": {}
         }
       }
     }

@@ -531,7 +531,7 @@ bool DragDrop::deliver() {
       // The drag leaves the target as it is dropped on, as the web's does, with the drop: the two
       // reach JavaScript in one batch, so what the target does as the drag leaves it (a gap closing
       // on a spring) is undone by what it does with the drop (the dropped one in the gap at once)
-      // before a frame shows it, however busy JavaScript is (docs/adr/0067-the-ui-thread.mdx).
+      // before a frame shows it, however busy JavaScript is (docs/adr/0071-the-ui-thread.mdx).
       view->second.view.eventEmitter->dispatchEvent("dragLeave", folly::dynamic::object());
       Report::get().deliver("drag.dragLeave", it->surface, view->second.view, folly::dynamic::object());
       view->second.view.eventEmitter->dispatchEvent("drop", folly::dynamic(event));

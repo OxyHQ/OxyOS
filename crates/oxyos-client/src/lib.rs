@@ -179,7 +179,7 @@ impl Client {
 
     /// The caller answers the compositor's pings itself (`pong`), and [`Client::poll`] returns
     /// them: a client whose events are read on one thread and handled on another (the Bloom
-    /// host's JavaScript, docs/adr/0067-the-ui-thread.mdx) answers once it handled what came before
+    /// host's JavaScript, docs/adr/0071-the-ui-thread.mdx) answers once it handled what came before
     /// the ping, so a stuck handler is a hang (docs/adr/0067-hangs-and-force-quit.mdx) however
     /// promptly its events are read.
     pub fn answer_pings_itself(&mut self) {

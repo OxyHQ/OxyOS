@@ -489,6 +489,28 @@ class SpinnerFrames(unittest.TestCase):
         self.assertEqual(failures, ["step 1 (wait): 1 frames turned only a spinner in the step, expected 2 to 100"])
 
 
+class ClosedAfterLeave(unittest.TestCase):
+    """`closed_after_leave` (notifications-reader.json): how long the banner stayed after the pointer
+    left it, on the shell's clock, wherever the steps' bounds fell."""
+
+    def check(self, close_ms, end_ms=20000):
+        report = [{"kind": "frame", "t": int(4.4e9), "surface": 5, "texts": ["¿Comemos juntos?"]},
+                  {"kind": "received", "t": int(14.509e9), "surface": 5, "event": "pointer.leave"},
+                  {"kind": "popup", "t": int(close_ms * 1e6), "surface": 5, "event": "shell.close"}]
+        step = {"name": "goes", "do": ["wait", 0],
+                "expect": {"closed_after_leave": {"text": "¿Comemos juntos?", "ms": [5000, 8000]}}}
+        failures = []
+        regress.check_step(0, step, {"t_settled": int(end_ms * 1e6)}, report, int(18e9), failures)
+        return failures
+
+    def test_five_seconds_after_even_when_it_closed_before_the_step(self):
+        self.assertEqual(self.check(19513), [])
+        self.assertEqual(self.check(19513, end_ms=30000), [])
+
+    def test_closing_sooner_fails(self):
+        self.assertEqual(len(self.check(17000)), 1)
+
+
 class GlidesOnlySlow(unittest.TestCase):
     """`glide`'s check that a fling only slows (regress.glide_speeding), on frames written by hand."""
 
@@ -511,6 +533,16 @@ class GlidesOnlySlow(unittest.TestCase):
     def test_upwards_too(self):
         self.assertEqual(regress.glide_speeding(self.frames((0, 500), (16, 460), (32, 430), (48, 380))),
                          [(2, -1875, -3125)])
+
+    def test_a_frame_timed_by_its_sample_not_its_late_line(self):
+        # touchpad-scroll step 1 on seldon (load 81): the second frame's line came 2.1 ms after its
+        # spline was sampled (its commit waited for JavaScript's), which by the lines alone reads as
+        # 480 then 617 px/s; by the samples, 534 then 543, within the rounding's slack.
+        lines = [(316.58, 316.44, 90.95), (336.14, 334.04, 100.35), (350.51, 350.36, 109.21), (397.24, 397.04, 128.01)]
+        frames = [{"t": int(t * 1e6), "sampled": int(sampled * 1e6), "y": y} for t, sampled, y in lines]
+        self.assertEqual(regress.glide_speeding(frames), [])
+        by_lines = [{"t": f["t"], "y": f["y"]} for f in frames]
+        self.assertEqual(regress.glide_speeding(by_lines), [(1, 481, 617)])
 
 
 class AGlidesClockIsItsOwn(unittest.TestCase):
@@ -671,7 +703,7 @@ class GlidesMeetInput(unittest.TestCase):
 
 
 class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
-    """A step's `stall` (docs/adr/0067-the-ui-thread.mdx): what moves is drawn through a block of
+    """A step's `stall` (docs/adr/0071-the-ui-thread.mdx): what moves is drawn through a block of
     JavaScript's, every run half the block's refreshes, with --speed-budgets each refresh."""
 
     @staticmethod
@@ -718,7 +750,7 @@ class JavaScriptHeldWhileSomethingMoves(unittest.TestCase):
 
 class TypedTextEchoedAsTheFieldTookIt(unittest.TestCase):
     """`spoken`'s "typed": text typed at once is echoed whole or in pieces, as the field took each key
-    (a field takes a key once JavaScript answered it, docs/adr/0067-the-ui-thread.mdx)."""
+    (a field takes a key once JavaScript answered it, docs/adr/0071-the-ui-thread.mdx)."""
 
     wanted = [{"typed": "ada", "interrupting": True}, {"text": "Ese nombre ya está en uso", "interrupting": True}]
 
