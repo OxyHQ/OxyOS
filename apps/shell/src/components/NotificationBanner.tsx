@@ -7,9 +7,14 @@ import { AppIcon } from "../apps";
 import type { ShellApplication, ShellNotification } from "../model";
 import { ago, applicationOf, spoken } from "../notifications";
 import { useShellMessages } from "../useShellMessages";
-import { BloomColorScope, useReducedTransparency } from "@oxy.so/bloom/theme";
+import { BloomColorScope } from "@oxy.so/bloom/theme";
 import { useAccent } from "./accent";
-import { glass } from "./glass";
+import { GlassMaterial, useGlass } from "./GlassMaterial";
+
+// A banner's glass's fill, and its shape within its 1-pixel border, which the material under it
+// takes.
+const BANNER_GLASS = "#f5f7fbf2";
+const BANNER_SHAPE = { borderRadius: 17 } as const;
 
 export const BANNER_WIDTH = 360;
 
@@ -45,7 +50,7 @@ export const NotificationCard = memo(function NotificationCard({
   onHeld?: (held: boolean) => void;
   testID: string;
 }) {
-  const reduced = useReducedTransparency();
+  const bannerGlass = useGlass(BANNER_GLASS);
   const accentPreset = useAccent();
   const messages = useShellMessages();
   const words = messages.notifications;
@@ -74,10 +79,11 @@ export const NotificationCard = memo(function NotificationCard({
       className="overflow-hidden rounded-[18px] border border-white/70"
       style={{
         width: BANNER_WIDTH,
-        backgroundColor: glass("#f5f7fbf2", reduced),
+        backgroundColor: bannerGlass.backgroundColor,
         boxShadow: "0 12px 40px #0b183a33, 0 0 0 .5px #0b183a1f",
       }}
     >
+      <GlassMaterial testID={`${testID}-material`} fill={BANNER_GLASS} shape={BANNER_SHAPE} />
       <PressArea
         testID={`${testID}-open`}
         accessibilityRole="button"

@@ -570,6 +570,28 @@ const sounds = platformSounds.available
     }
   : undefined;
 
+// The platform's material (docs/adr/0069-the-platforms-material.mdx, Bloom's `material`): the
+// OxyOSMaterialView host component (material.h), which Bloom mounts under a floating surface's tint.
+// The host fills it with what its surface drew beneath it, blurred and saturated, and tells the
+// compositor its frame and corners, where the compositor blurs the windows and the desktop beneath
+// the surface. A compositor of protocol version 45 or later takes them (OxyOSMaterial's
+// `available`); on an older one there is no `material`, and Bloom draws its opaque fills.
+const materialAvailable = Boolean(TurboModuleRegistry.get('OxyOSMaterial')?.getConstants?.()?.available);
+
+const OxyOSMaterialView = NativeComponentRegistry.get('OxyOSMaterialView', () => ({
+  uiViewClassName: 'OxyOSMaterialView',
+  validAttributes: {},
+}));
+
+// Bloom's PlatformMaterialProps: its frame and shape (`style`) and Bloom's theme (`appearance`), for
+// which nothing differs here: the blur is the same in light and dark, and the tint over it Bloom's.
+function Material({ style, testID }) {
+  return (
+    // Never flattened away: the host finds the material's frame by its view. It takes no input.
+    <OxyOSMaterialView style={style} testID={testID} pointerEvents="none" collapsable={false} />
+  );
+}
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set([
@@ -581,6 +603,7 @@ export const oxyosSurfaces = {
     ...(menuBar ? ['menu-bar'] : []),
     ...(appearance ? ['appearance'] : []),
     ...(drag ? ['drag-and-drop'] : []),
+    ...(materialAvailable ? ['material'] : []),
   ]),
   PopupSurface,
   window,
@@ -592,4 +615,5 @@ export const oxyosSurfaces = {
   search,
   sounds,
   ...(drag ? { DropTarget, drag } : {}),
+  ...(materialAvailable ? { Material } : {}),
 };

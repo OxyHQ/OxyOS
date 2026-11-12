@@ -193,6 +193,9 @@ struct ShellService {
   // application that opens its scheme, citing the latest input: the request's serial, 0 if it could
   // not be sent (`OxyOSShellLaunch` answers). False if not sent.
   std::function<bool(uint32_t window)> forceQuitApplication;
+  // The Window menu (docs/adr/0016-windows.mdx, decision 12): the compositor lays out a window
+  // (OXYOS_WINDOW_LAYOUT_*). False if not sent.
+  std::function<bool(uint32_t window, uint8_t layout)> layOutWindow;
   std::function<bool(uint32_t list, const std::vector<std::string>& ids)> setApplicationList;
   std::function<uint32_t(const std::string& url)> openUrl;
   // The Trash emptied, citing the latest input: the session asks the person first.
@@ -396,6 +399,8 @@ struct HostServices {
   // docs/adr/0044-system-sounds.mdx), citing the latest input: whether it was asked for.
   std::function<bool(const std::string& sound)> playSystemSound;
   bool soundsAvailable = false;
+  // Whether the compositor takes material regions (protocol version 45, OxyOSMaterial).
+  bool materialAvailable = false;
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

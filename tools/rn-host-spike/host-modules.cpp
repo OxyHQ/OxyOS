@@ -767,6 +767,34 @@ std::shared_ptr<TurboModule> createHostModule(
       ready(rt);
       return jsi::Value(services.shell.forceQuitApplication(number(rt, args, count, 0)));
     });
+    // The Window menu (docs/adr/0016-windows.mdx, decision 12): `layOutWindow(window, layout)`, the
+    // layout by its name in sample/oxyos/platform/src/shell.ts, true if sent.
+    module->method("layOutWindow", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      static const std::map<std::string, uint8_t> layouts = {
+          {"fill", OXYOS_WINDOW_LAYOUT_FILL},
+          {"center", OXYOS_WINDOW_LAYOUT_CENTER},
+          {"left", OXYOS_WINDOW_LAYOUT_LEFT},
+          {"right", OXYOS_WINDOW_LAYOUT_RIGHT},
+          {"top", OXYOS_WINDOW_LAYOUT_TOP},
+          {"bottom", OXYOS_WINDOW_LAYOUT_BOTTOM},
+          {"topLeft", OXYOS_WINDOW_LAYOUT_TOP_LEFT},
+          {"topRight", OXYOS_WINDOW_LAYOUT_TOP_RIGHT},
+          {"bottomLeft", OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT},
+          {"bottomRight", OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT},
+          {"leftAndRight", OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT},
+          {"rightAndLeft", OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT},
+          {"topAndBottom", OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM},
+          {"bottomAndTop", OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP},
+          {"quarters", OXYOS_WINDOW_LAYOUT_QUARTERS},
+          {"returnToPreviousSize", OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE},
+          {"zoom", OXYOS_WINDOW_LAYOUT_ZOOM},
+      };
+      if (count < 2 || !args[1].isString()) throw jsi::JSError(rt, "OxyOSShell.layOutWindow: a window and a layout");
+      auto layout = layouts.find(args[1].asString(rt).utf8(rt));
+      if (layout == layouts.end()) throw jsi::JSError(rt, "OxyOSShell.layOutWindow: an unknown layout");
+      return jsi::Value(services.shell.layOutWindow && services.shell.layOutWindow(number(rt, args, count, 0), layout->second));
+    });
     module->method("setApplicationList", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
       if (count < 2 || !args[0].isString() || !args[1].isObject() || !args[1].asObject(rt).isArray(rt)) {
@@ -1340,6 +1368,11 @@ std::shared_ptr<TurboModule> createHostModule(
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });
+  } else if (name == "OxyOSMaterial") {
+    // The platform's material (sample/oxyos/platform-surface.js, Bloom's `material` capability;
+    // docs/adr/0069-the-platforms-material.mdx): whether the compositor blurs beneath a surface's
+    // material regions, which the host's OxyOSMaterialView tells it.
+    module->constants(folly::dynamic::object("available", services.materialAvailable));
   } else if (name == "OxyOSDrag") {
     // Dragging the application's content to another application (sample/oxyos/platform-surface.js,
     // Bloom's usePlatformDrag; docs/adr/0035-drag-and-drop.mdx): from the press it holds, the

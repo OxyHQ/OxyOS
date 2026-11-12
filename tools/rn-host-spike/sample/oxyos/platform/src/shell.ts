@@ -32,6 +32,26 @@ const SHELL_EVENTS = {
 } as const;
 export type ShellEvent = keyof typeof SHELL_EVENTS;
 
+/** Where the Window menu asks the compositor to put a window (ADR 0016, decision 12). */
+export type WindowLayout =
+  | 'fill'
+  | 'center'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'topLeft'
+  | 'topRight'
+  | 'bottomLeft'
+  | 'bottomRight'
+  | 'leftAndRight'
+  | 'rightAndLeft'
+  | 'topAndBottom'
+  | 'bottomAndTop'
+  | 'quarters'
+  | 'returnToPreviousSize'
+  | 'zoom';
+
 /** The shell's intents on the compositor and the session, each the host's OxyOSShell method of the
     same name (docs/adr/0009-session-shell.mdx and the ADRs each names): fire and forget, the next
     state saying what came of it; where it answers, whether it was sent (or a serial, 0: not sent). */
@@ -54,6 +74,10 @@ export interface ShellIntents {
   showAllApplications(): void;
   /** Has the session end the application of the window `window` (ADR 0034). */
   forceQuitApplication(window: number): boolean;
+  /** Has the compositor lay out the window `window`, as the Window menu asks (ADR 0016, decision
+      12): Fill, Center, a half or quarter, an arrangement, Return to Previous Size, or Zoom (and
+      back). Whether it was sent. */
+  layOutWindow(window: number, layout: WindowLayout): boolean;
   /** Moves the window `window` to the workspace `workspace`. */
   moveWindowToWorkspace(window: number, workspace: number): void;
   /** Shows the workspace `workspace`. */
@@ -136,6 +160,7 @@ const INTENTS: readonly (keyof ShellIntents)[] = [
   'hideOtherApplications',
   'showAllApplications',
   'forceQuitApplication',
+  'layOutWindow',
   'moveWindowToWorkspace',
   'activateWorkspace',
   'addWorkspace',

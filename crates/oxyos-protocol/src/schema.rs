@@ -10,7 +10,7 @@ use crate::wire::{
     PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
     ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size,
     SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind,
-    WifiState, Wire,
+    WifiState, WindowLayout, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -290,6 +290,9 @@ messages! {
         // Show All, without changing the active window.
         113 => HideOtherApplications { window: u32 },
         114 => ShowAllApplications {},
+        // Version 48 (ADR 0016, decision 12): the Window menu's tiling, Center, Return to Previous
+        // Size and Zoom for `window`, as Super+Alt's keys and its green bubble ask them.
+        115 => LayOutWindow { window: u32, layout: WindowLayout },
         // The session's shell gives the keyboard focus to one of its own panels or overlays (the
         // launcher's search), citing the serial of an input it received: a press, a key or a
         // SystemShortcut. One it did not receive lately is ignored.
@@ -899,6 +902,12 @@ messages! {
         // Is the client still responding (ADR 0034)? It answers Pong naming `serial`. Sent to a
         // client given input, asked to close or activated, while no Ping to it is unanswered.
         230 => Ping { serial: u32 },
+        // Version 49: has the client handled everything it was sent before this? It answers Pong
+        // naming `serial` once it has (its library as it reads it; a client that answers pings
+        // itself once the thread that handles its events ran them), never waiting to be idle
+        // besides: whether a step's input was taken, for the development compositor's director.
+        // It counts for nothing in whether the client is responding.
+        233 => PingHandled { serial: u32 },
         // To the session's shell (ADR 0034): one of the person's lists of applications as the
         // session keeps it, when the shell connects and whenever it changes, ids one a line in
         // chunks as SetApplicationList's. `chosen`: the person has changed it; until then the

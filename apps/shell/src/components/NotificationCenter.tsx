@@ -7,9 +7,13 @@ import type { ShellApplication, ShellNotifications } from "../model";
 import { groupNotifications } from "../notifications";
 import { BANNER_WIDTH, NotificationCard } from "./NotificationBanner";
 import { useShellMessages } from "../useShellMessages";
-import { BloomColorScope, useReducedTransparency } from "@oxy.so/bloom/theme";
+import { BloomColorScope } from "@oxy.so/bloom/theme";
 import { useAccent } from "./accent";
-import { glass } from "./glass";
+import { GlassMaterial, useGlass } from "./GlassMaterial";
+
+// Its glass's fill, and its shape within its 1-pixel border, which the material under it takes.
+const NOTIFICATION_CENTER_GLASS = "#e9edf4d9";
+const NOTIFICATION_CENTER_SHAPE = { borderRadius: 21 } as const;
 
 /**
  * The Notification Center (docs/adr/0026-notifications.mdx), opened from the top bar's clock as a
@@ -32,7 +36,7 @@ export const NotificationCenter = memo(function NotificationCenter({
   top: number;
   close: () => void;
 }) {
-  const reduced = useReducedTransparency();
+  const panelGlass = useGlass(NOTIFICATION_CENTER_GLASS);
   const accentPreset = useAccent();
   const messages = useShellMessages();
   const words = messages.notifications;
@@ -62,10 +66,15 @@ export const NotificationCenter = memo(function NotificationCenter({
           right: 12,
           bottom: 12,
           width: BANNER_WIDTH + 24,
-          backgroundColor: glass("#e9edf4d9", reduced),
+          backgroundColor: panelGlass.backgroundColor,
           boxShadow: "0 22px 70px #0b183a40, 0 0 0 .5px #0b183a1f",
         }}
       >
+        <GlassMaterial
+          testID="notification-center-material"
+          fill={NOTIFICATION_CENTER_GLASS}
+          shape={NOTIFICATION_CENTER_SHAPE}
+        />
         <Box className="flex-row items-center justify-between px-4 pb-2 pt-3">
           <Text accessibilityRole="header" className="text-[15px] font-semibold text-[#1d2530]">
             {messages.common.notifications}

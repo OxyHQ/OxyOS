@@ -6,6 +6,7 @@
 #include "expo-blur.h"
 #include "expo-image.h"
 #include "masked-view.h"
+#include "material.h"
 #include "progress-bar.h"
 #include "skia-gpu.h"
 
@@ -40,6 +41,7 @@
 #include <include/core/SkTextBlob.h>
 #include <include/gpu/ganesh/GrDirectContext.h>
 #include <include/gpu/ganesh/SkSurfaceGanesh.h>
+#include <include/effects/SkBlenders.h>
 #include <include/effects/SkImageFilters.h>
 #include <include/utils/SkShadowUtils.h>
 #include <include/ports/SkFontMgr_empty.h>
@@ -163,6 +165,12 @@ struct Draw {
   bool placesWindows = true;
   Affine toSurface;
   Clip surfaceClip = kUnclipped;
+  // The tightest view clipping what is drawn now (overflow hidden), in the current coordinates:
+  // its padding box and that box's corners' radii, the smaller of its top two and of its bottom
+  // two. A material filling it whole takes its shape (a menu's panel clips its paint, which
+  // reaches a pixel beyond it under the panel's edge).
+  Clip clipBox = kUnclipped;
+  float clipTop = 0, clipBottom = 0;
 };
 
 // Whether a rectangle of the current coordinates has any pixel the canvas paints (its clip, the
@@ -178,7 +186,7 @@ const std::set<std::string> kImplemented = {"RootView", "View", "Paragraph", "Te
                                             "ViewManagerAdapter_ExpoBlur_ExpoBlurTargetView", "RNCMaskedView",
                                             "ViewManagerAdapter_ExpoImage", kAndroidProgressBar,
                                             kWindowViewComponent, kMinimizeTargetComponent,
-                                            kScrollTargetComponent};
+                                            kScrollTargetComponent, "OxyOSMaterialView"};
 // The input's text laid out as it is drawn: single-line inputs do not wrap, and none is cut at a
 // number of lines or ellipsized (an EditText scrolls its text; `numberOfLines` is its height).
 ParagraphLayout layoutInput(const AndroidTextInputProps& props, const AttributedString& text, float width) {
@@ -792,6 +800,35 @@ Group groupOf(const ViewProps& props, const AndroidViewProps& android, float opa
   return group;
 }
 
+// The material view's own part (material.h): what the canvas holds beneath it, which is what the
+// surface drew before it (the damage holds all of it within the blur's reach, damage.cpp), blurred
+// by a Gaussian of kMaterialSigma logical pixels (the canvas's matrix takes it to the surface's
+// pixels) and saturated, in place of it within its rounded shape, at its opacity: a translucent
+// backdrop (a panel's tint under a card) is replaced by its blur, never doubled by it. Nothing
+// beneath is nothing.
+void drawMaterial(SkCanvas& canvas, const SkRRect& shape, float opacity, const Draw& draw) {
+  if (!touches(draw, shape.rect().x(), shape.rect().y(), shape.rect().width(), shape.rect().height())) return;
+  // The luminance-preserving saturation, Rec. 709's weights, as the compositor's (gpu/material.rs).
+  constexpr float s = kMaterialSaturation;
+  constexpr float r = 0.2126f, g = 0.7152f, b = 0.0722f;
+  const float matrix[20] = {r * (1 - s) + s, g * (1 - s), b * (1 - s), 0, 0,
+                            r * (1 - s), g * (1 - s) + s, b * (1 - s), 0, 0,
+                            r * (1 - s), g * (1 - s), b * (1 - s) + s, 0, 0,
+                            0, 0, 0, 1, 0};
+  sk_sp<SkImageFilter> backdrop = SkImageFilters::ColorFilter(
+      SkColorFilters::Matrix(matrix),
+      SkImageFilters::Blur(kMaterialSigma, kMaterialSigma, SkTileMode::kClamp, nullptr));
+  canvas.save();
+  canvas.clipRRect(shape, true);
+  // The blurred backdrop in place of the backdrop, by the view's opacity: opacity × blurred +
+  // (1 - opacity) × beneath (the shape's antialiased edge lerps the same way).
+  SkPaint replacing;
+  replacing.setBlender(SkBlenders::Arithmetic(0, opacity, 1 - opacity, 0, true));
+  canvas.saveLayer(SkCanvas::SaveLayerRec(&shape.rect(), &replacing, backdrop.get(), 0));
+  canvas.restore();
+  canvas.restore();
+}
+
 void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, float opacity, Draw& draw,
               bool untransformed) {
   auto it = tree.views().find(tag);
@@ -905,6 +942,35 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     // tint (all there is without a target).
     if (auto blurTarget = expoBlurTarget(view); blurTarget && drawingBlurTarget == 0) {
       drawBlurred(tree, tag, *blurTarget, x, y, w, h, border, opacity, draw);
+    }
+    // The platform's material (material.h): what the surface drew beneath it, blurred and
+    // saturated within its shape; and where it is, which the compositor blurs beneath the surface.
+    if (isMaterialView(view.componentName) && !reducedTransparency()) {
+      drawMaterial(canvas, borderBox(border, x, y, w, h), opacity, draw);
+      Clip inside = clip.intersect(Clip{x, y, x + w, y + h});
+      if (draw.placesWindows && !inside.empty()) {
+        const auto& radii = border.borderRadii;
+        float top = std::min(radii.topLeft.horizontal, radii.topRight.horizontal);
+        float bottom = std::min(radii.bottomLeft.horizontal, radii.bottomRight.horizontal);
+        Rect own{{x, y}, {w, h}};
+        // Filling what clips it whole, its shape is that box's.
+        auto near = [](float a, float b) { return std::abs(a - b) < 0.01f; };
+        const Clip& box = draw.clipBox;
+        if (near(inside.x0, box.x0) && near(inside.y0, box.y0) && near(inside.x1, box.x1) && near(inside.y1, box.y1)) {
+          own = Rect{{box.x0, box.y0}, {box.x1 - box.x0, box.y1 - box.y0}};
+          top = draw.clipTop;
+          bottom = draw.clipBottom;
+        }
+        const Affine& toSurface = draw.toSurface;
+        Rect rect = toSurface.bounds(own);
+        Rect cut = toSurface.bounds(Rect{{inside.x0, inside.y0}, {inside.x1 - inside.x0, inside.y1 - inside.y0}});
+        Clip kept = draw.surfaceClip.intersect(Clip{cut.origin.x, cut.origin.y, cut.getMaxX(), cut.getMaxY()});
+        if (!kept.empty()) {
+          stats.materials.push_back(RenderStats::Material{rect,
+                                                          Rect{{kept.x0, kept.y0}, {kept.x1 - kept.x0, kept.y1 - kept.y0}},
+                                                          top * toSurface.a, bottom * toSurface.a});
+        }
+      }
     }
     if (auto tint = expoBlurTint(view)) {
       SkPaint paint(faded(*tint, opacity));
@@ -1042,9 +1108,27 @@ void drawView(const ViewTree& tree, Tag tag, float ox, float oy, Clip clip, floa
     }
   }
   if (clips && props) clipToPaddingBox(canvas, *props, view.layoutMetrics, x, y, w, h);
+  // What clips its children, for a material filling it (Draw::clipBox).
+  const Clip clipBox = draw.clipBox;
+  const float clipTop = draw.clipTop, clipBottom = draw.clipBottom;
+  // A box that holds the one before it whole clips nothing more of it: the tighter one, and its
+  // corners, stay (a menu's paint, a pixel larger than the panel clipping it, clips too).
+  bool holds = clipBox.x0 >= paddingBox.x0 && clipBox.y0 >= paddingBox.y0 && clipBox.x1 <= paddingBox.x1 &&
+               clipBox.y1 <= paddingBox.y1;
+  if (clips && props && !holds) {
+    auto border = props->resolveBorderMetrics(view.layoutMetrics);
+    const auto& r = border.borderRadii;
+    const auto& widths = border.borderWidths;
+    draw.clipBox = paddingBox;
+    draw.clipTop = std::max(0.0f, std::min(r.topLeft.horizontal, r.topRight.horizontal) - widths.top);
+    draw.clipBottom = std::max(0.0f, std::min(r.bottomLeft.horizontal, r.bottomRight.horizontal) - widths.bottom);
+  }
   for (Tag child : it->second.children) {
     drawChild(tree, child, childOx, childOy, childClip, opacity, draw, stretch ? &*stretch : nullptr);
   }
+  draw.clipBox = clipBox;
+  draw.clipTop = clipTop;
+  draw.clipBottom = clipBottom;
   // Its overlay scrollbars (scrollbars.h), over its content, unscrolled and unstretched, within
   // its padding box.
   if (name == "ScrollView" && view.state && touches(draw, x, y, w, h)) {
@@ -1802,6 +1886,42 @@ bool writePng(const Canvas& drawn, const std::string& path) {
   file.write(reinterpret_cast<const char*>(png.data()), static_cast<long>(png.size()));
   file.close();
   return !file.fail();
+}
+
+std::vector<int32_t> materialRegions(const std::vector<RenderStats::Material>& materials, float scale, int width,
+                                     int height) {
+  std::vector<int32_t> out;
+  auto add = [&out](long x0, long y0, long x1, long y1, long radius) {
+    if (x1 <= x0 || y1 <= y0 || out.size() / 5 >= OXYOS_MAX_MATERIAL_REGIONS) return;
+    radius = std::clamp(radius, 0L, std::min(x1 - x0, y1 - y0) / 2);
+    for (long value : {x0, y0, x1 - x0, y1 - y0, radius}) out.push_back(static_cast<int32_t>(value));
+  };
+  for (const auto& material : materials) {
+    // Its visible part in the surface's pixels, each edge on the nearest pixel's, within the surface.
+    auto edge = [scale](Float at) { return static_cast<long>(std::lround(at * scale)); };
+    long x0 = std::max(0L, edge(material.clip.origin.x)), y0 = std::max(0L, edge(material.clip.origin.y));
+    long x1 = std::min<long>(width, edge(material.clip.getMaxX()));
+    long y1 = std::min<long>(height, edge(material.clip.getMaxY()));
+    if (x1 <= x0 || y1 <= y0) continue;
+    // Its corners only where it is whole: one cut is square.
+    bool whole = edge(material.rect.origin.x) == x0 && edge(material.rect.origin.y) == y0 &&
+                 edge(material.rect.getMaxX()) == x1 && edge(material.rect.getMaxY()) == y1;
+    long top = whole ? std::lround(material.top * scale) : 0;
+    long bottom = whole ? std::lround(material.bottom * scale) : 0;
+    top = std::clamp(top, 0L, std::min(x1 - x0, y1 - y0) / 2);
+    bottom = std::clamp(bottom, 0L, std::min(x1 - x0, y1 - y0) / 2);
+    if (top == bottom) {
+      add(x0, y0, x1, y1, top);
+    } else if (top > bottom) {
+      // Rounded at its top: that end two radii tall, then the rest from a radius down.
+      add(x0, y0, x1, std::min(y1, y0 + 2 * top), top);
+      add(x0, y0 + top, x1, y1, bottom);
+    } else {
+      add(x0, std::max(y0, y1 - 2 * bottom), x1, y1, bottom);
+      add(x0, y0, x1, y1 - bottom, top);
+    }
+  }
+  return out;
 }
 
 RenderStats render(const ViewTree& tree, const Display& display, const std::string& pngPath) {

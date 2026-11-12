@@ -1,0 +1,146 @@
+{
+  "about": "A window the session moves or resizes is where the assistive technology holds it, at once and exactly (docs/adr/0014-screen-reader.mdx; ADR 0016's windows): the compositor sends the screen reader the window's tree again at its new place when it moves, and the frame for its new size carries the tree laid out for it. Each step checks the window's frame and its field's rectangle in the tree, the frame's origin plus the field's place in it (32, 24), in the step the window moved or was resized, never a step later (settings-caret-blink-scaled's press on a moved window's field once landed where the window had first been).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    440,
+    320
+  ],
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "steps": [
+    {
+      "name": "shown where the session placed it, its field there in the tree",
+      "do": [
+        "wait",
+        1500
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          420,
+          200,
+          440,
+          320
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Line",
+              "rect": [
+                452,
+                224,
+                376,
+                36
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "moved 300 right and 80 up: the tree's field moved with it, exactly",
+      "do": [
+        "move-window",
+        [
+          300,
+          -80
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          720,
+          120,
+          440,
+          320
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Line",
+              "rect": [
+                752,
+                144,
+                376,
+                36
+              ]
+            },
+            {
+              "role": "Text",
+              "name": "Line: \"\" [0,0]",
+              "rect": [
+                744,
+                324,
+                392,
+                20
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "resized to 600 × 360 where it is: the field laid out wider, at the same place",
+      "do": [
+        "resize-window",
+        [
+          600,
+          360
+        ]
+      ],
+      "expect": {
+        "window_rect": [
+          720,
+          120,
+          600,
+          360
+        ],
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Line",
+              "rect": [
+                752,
+                144,
+                536,
+                36
+              ]
+            },
+            {
+              "role": "Text",
+              "name": "Line: \"\" [0,0]",
+              "rect": [
+                744,
+                324,
+                552,
+                20
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a press on the field by its name, where the tree holds it: the moved window's field takes the keyboard",
+      "do": [
+        "press_named",
+        "Line"
+      ],
+      "expect": {
+        "delivered": {
+          "1": {
+            "enter": 1,
+            "press": 1,
+            "release": 1
+          }
+        },
+        "focus_input": "line"
+      }
+    }
+  ]
+}

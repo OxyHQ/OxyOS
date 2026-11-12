@@ -336,6 +336,10 @@ fn requests() -> Vec<Request> {
         Request::HideApplication { window: 7 },
         Request::QuitApplication { window: 8 },
         Request::HideOtherApplications { window: 7 },
+        Request::LayOutWindow {
+            window: 7,
+            layout: WindowLayout::BottomAndTop,
+        },
         Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
@@ -1027,6 +1031,7 @@ fn events() -> Vec<Event> {
             text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
         },
         Event::Ping { serial: 9 },
+        Event::PingHandled { serial: 10 },
         Event::TrashItems { items: 3 },
         Event::DragEnter {
             surface: 1,
@@ -1912,6 +1917,10 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
     let mut nothing = Vec::new();
     assert!(!write_event_for(&mut nothing, &ping, 7).unwrap());
     assert_eq!(event_since(&ping), 8);
+    // A Ping answered once the client handled what came before it is version 49's.
+    let handled = Event::PingHandled { serial: 4 };
+    assert!(!write_event_for(&mut nothing, &handled, 48).unwrap());
+    assert_eq!(event_since(&handled), 49);
     assert_eq!(
         request_since(&Request::ForceQuitApplication { window: 1 }),
         8
@@ -3260,6 +3269,21 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_48_lay_out_window_is_only_version_48s() {
+    let asked = Request::LayOutWindow {
+        window: 1,
+        layout: WindowLayout::Fill,
+    };
+    assert_eq!(request_since(&asked), 48);
+    assert_eq!(LAYOUT_WINDOW_VERSION, 48);
+    // Every layout has its byte, and no other byte is one.
+    let every = (1..=17).filter_map(WindowLayout::from_raw).count();
+    assert_eq!(every, 17);
+    assert_eq!(WindowLayout::from_raw(0), None);
+    assert_eq!(WindowLayout::from_raw(18), None);
 }
 
 #[test]

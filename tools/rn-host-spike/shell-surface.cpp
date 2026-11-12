@@ -1,4 +1,5 @@
 #include "shell-surface.h"
+#include "material.h"
 
 #include "report.h"
 
@@ -487,8 +488,16 @@ void ShellSurfaceHost::present(const TextInputEdit& edit, const std::string& foc
     if (auto secure = secureFields(tree_, tag, at); window_.setSecureRegions(region.surface, secure)) {
       Report::get().input("secure.regions", region.surface, folly::dynamic::object("rects", toDynamic(secure)));
     }
+    // Its material regions go with the frame (material.h, docs/adr/0069-the-platforms-material.mdx):
+    // the compositor blurs what is beneath its panels there.
+    auto materials = materialRegions(stats.materials, display.scale, region.canvas.width, region.canvas.height);
+    bool materialsMoved = window_.setMaterialRegions(region.surface, materials);
+    if (materialsMoved) {
+      Report::get().input("material.regions", region.surface,
+                          folly::dynamic::object("regions", materialReport(materials)));
+    }
     // Nothing changed but its rings (damage.h's spinningOnly), and nothing it tells with the frame.
-    bool onlyTurning = damage && region.damage.spinningOnly() && !windowsMoved;
+    bool onlyTurning = damage && region.damage.spinningOnly() && !windowsMoved && !materialsMoved;
     window_.present(region.surface, region.canvas, pixels, onlyTurning);
     region.spins = stats.spinning;
     double area = 0;

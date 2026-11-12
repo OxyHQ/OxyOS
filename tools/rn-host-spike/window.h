@@ -50,6 +50,9 @@ class Window {
   // dispatch read since the last call, by serial.
   void answerPingsItself();
   std::vector<uint64_t> takePings() { return std::exchange(pings_, {}); }
+  // The compositor's PingHandled (protocol version 49) read since the last call, by serial: answered
+  // once JavaScript ran what came before it, never waiting for it to be idle besides.
+  std::vector<uint64_t> takeHandledPings() { return std::exchange(handledPings_, {}); }
   void pong(uint64_t serial);
 
   struct Surface {
@@ -278,6 +281,9 @@ class Window {
   bool setApplicationList(uint32_t serial, uint32_t list, const std::string& ids);
   bool openUrl(uint32_t serial, uint64_t input, const std::string& url);
   bool forceQuitApplication(uint32_t window);
+  // Lays out the window `window` as `layout` (OXYOS_WINDOW_LAYOUT_*: the Window menu, ADR 0016,
+  // decision 12). False if not sent (a compositor before version 48, an unknown layout).
+  bool layOutWindow(uint32_t window, uint8_t layout);
   // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
   bool emptyTrash(uint64_t input);
   // One of the system's interface sounds (OXYOS_SYSTEM_SOUND_*), citing `input`
@@ -321,6 +327,12 @@ class Window {
   // rectangles, docs/adr/0024-system-shortcuts.mdx, decision 10): sent, before the present they go
   // with, only when they differ from what the surface last sent. True if they were sent.
   bool setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects);
+  // A surface's material regions (docs/adr/0069-the-platforms-material.mdx, renderer.h's
+  // materialRegions: five values each in its pixels), under which the compositor blurs what it
+  // composes beneath the surface: sent, before the present they go with, only when they differ
+  // from what the surface last sent, and only to a compositor of OXYOS_MATERIAL_VERSION or later.
+  // True if they were sent.
+  bool setMaterialRegions(uint32_t id, const std::vector<int32_t>& regions);
   // Screenshots (ADR 0024, decision 10), the session's shell's: a capture of what the person chose,
   // citing the interface's serial (OXYOS_CAPTURE_*, global logical rectangle), the interface ended
   // without one, one of its shell surfaces left out of captures, and a saved screenshot opened
@@ -461,6 +473,8 @@ class Window {
   std::map<uint32_t, Surface> surfaces_;
   // The secure regions each surface last sent (setSecureRegions).
   std::map<uint32_t, std::vector<OxyOSRect>> secureRegions_;
+  // The material regions each surface last sent (setMaterialRegions).
+  std::map<uint32_t, std::vector<int32_t>> materialRegions_;
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far
@@ -482,6 +496,7 @@ class Window {
   // The window went, the application running on in the background (closeToplevel).
   bool toplevelClosed_ = false;
   std::vector<uint64_t> pings_;  // read and not yet taken (answerPingsItself)
+  std::vector<uint64_t> handledPings_;  // likewise, PingHandled's
   std::chrono::steady_clock::time_point resizedAt_{};
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;

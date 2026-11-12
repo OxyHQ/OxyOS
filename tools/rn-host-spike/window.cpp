@@ -111,6 +111,10 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
       pings_.push_back(event.serial);
       continue;
     }
+    if (event.kind == OXYOS_EVENT_PING_HANDLED) {
+      handledPings_.push_back(event.serial);
+      continue;
+    }
     // The person's input, as received, and handled as the cause of what it delivers to React.
     Report::get().received(event);
     Report::Handling handling(event);
@@ -518,6 +522,10 @@ bool Window::openUrl(uint32_t serial, uint64_t input, const std::string& url) {
   return oxyos_client_open_url(client_, serial, input, url.data(), url.size()) == 0;
 }
 
+bool Window::layOutWindow(uint32_t window, uint8_t layout) {
+  return oxyos_client_lay_out_window(client_, window, layout) == 0;
+}
+
 bool Window::forceQuitApplication(uint32_t window) {
   return oxyos_client_manage(client_, OXYOS_MANAGE_FORCE_QUIT_APPLICATION, window, 0) == 0;
 }
@@ -673,6 +681,7 @@ void Window::closeToplevel() {
   if (toplevelClosed_) return;
   toplevelClosed_ = true;
   secureRegions_.erase(kToplevel);
+  materialRegions_.erase(kToplevel);
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, kToplevel);
   if (oxyos_client_destroy_surface(client_, kToplevel) != 0) refused("cannot close the window");
   // Its state stays for what reads its last size; with no configure it is never ready, and with
@@ -863,6 +872,18 @@ bool Window::setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects) 
   return true;
 }
 
+bool Window::setMaterialRegions(uint32_t id, const std::vector<int32_t>& regions) {
+  if (closedSurface(id) || protocolVersion() < OXYOS_MATERIAL_VERSION) return false;
+  auto& sent = materialRegions_[id];
+  if (sent == regions) return false;
+  if (oxyos_client_set_material_regions(client_, id, regions.data(), regions.size() / 5) != 0) {
+    if (disconnected()) return false;
+    failed("cannot set a surface's material regions");
+  }
+  sent = regions;
+  return true;
+}
+
 bool Window::capture(uint64_t serial, uint8_t kind, uint32_t output, const OxyOSRect& rect, uint32_t window,
                      uint8_t destination) {
   return oxyos_client_capture(client_, serial, kind, output, rect.x, rect.y, rect.width, rect.height, window,
@@ -890,6 +911,7 @@ bool Window::openScreenshot(uint32_t screenshot, uint64_t serial) {
 
 void Window::destroy(uint32_t id) {
   secureRegions_.erase(id);
+  materialRegions_.erase(id);
   if (surfaces_.erase(id) == 0) return;
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, id);
   if (oxyos_client_destroy_surface(client_, id) != 0) refused("cannot destroy a popup");

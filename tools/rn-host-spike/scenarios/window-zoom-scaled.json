@@ -12,7 +12,7 @@
       "expect": {
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
-        "output_pixels": {"237,107": "#4072ee", "260,130": "#e2e2e2", "0,930": "#a8b3eb", "1599,930": "#a7b4eb", "3,953": "#f7f9fc", "35,930": "#f7f9fc"}
+        "output_pixels": {"237,107": "#4072ee", "260,130": "#e2e2e2", "0,930": "#a8b3eb", "1599,930": "#a7b4eb", "3,953": "#e1e6fd", "35,930": "#dde5fd"}
       },
       "allow_unchanged": true
     },
@@ -29,8 +29,8 @@
           "0,929": "#e2e2e2",
           "1599,929": "#eeeeee",
           "0,34": "#4071ea",
-          "0,930": "#f7f9fc",
-          "1599,930": "#f7f9fc"
+          "0,930": "#e5e8f3",
+          "1599,930": "#e6e9f5"
         },
         "in_shell": {"committed": {"shell-dock": {"borderTopLeftRadius": [28, 0], "borderTopRightRadius": [28, 0]}}}
       }
@@ -42,7 +42,7 @@
         "window_rect": [190, 86, 900, 600],
         "texts": ["active yes, zoomed no, full screen no"],
         "transitions": {"seen": [{"kind": "window", "change": "zoomed", "ended": true, "eased": true}], "frames_min": 5},
-        "output_pixels": {"237,107": "#4072ee", "260,130": "#e2e2e2", "0,35": "#467bfd", "0,930": "#a8b3eb", "1599,930": "#a7b4eb", "3,953": "#f7f9fc", "35,930": "#f7f9fc"},
+        "output_pixels": {"237,107": "#4072ee", "260,130": "#e2e2e2", "0,35": "#467bfd", "0,930": "#a8b3eb", "1599,930": "#a7b4eb", "3,953": "#e1e6fd", "35,930": "#dde5fd"},
         "in_shell": {"committed": {"shell-dock": {"borderTopLeftRadius": [0, 28], "borderTopRightRadius": [0, 28]}}}
       }
     }
