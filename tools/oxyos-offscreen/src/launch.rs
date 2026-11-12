@@ -3367,9 +3367,11 @@ struct Wait<'a> {
 /// on its own (held-frames' timer every 50 ms, the displays off), and a loaded machine stretches
 /// each of those turns until the host is found in one at nearly every sample: waited for without
 /// end, its step never settled. Nothing of the thread tells the two apart (a timer's turn preempted
-/// 600 ms for 5 ms of CPU, a press's 170 ms for 2), so the wait is bounded: a step otherwise still
-/// waits this long at most for its hosts' turns to end.
-const TURNS_WAITED_AT_MOST: Duration = Duration::from_secs(3);
+/// 600 ms for 5 ms of CPU, a press's 170 ms for 2), so the wait is bounded, far above any turn's
+/// (a page's render starved 13.5 s on seldon, 32 busy loops at its own priority) and within the
+/// step's deadline (STEP_DEADLINE): a step otherwise still waits this long at most for its hosts'
+/// turns to end. A step that would have run to its deadline settles; any other is as before.
+const TURNS_WAITED_AT_MOST: Duration = Duration::from_secs(20);
 
 /// Whether a Bloom host is in the middle of a turn: its JavaScript thread (`oxyos-js`) anywhere but
 /// waiting for work in `futex`, or, for a host with no JavaScript thread of its own, its main thread
