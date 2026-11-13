@@ -50,68 +50,65 @@ import { useShellLocale, useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
 import { showsInputSources, sourceMark, sourceName, type InputSourcesState } from "../input-sources";
 
-/** A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus
-    and separators. A choice calls `onCommand` with the entry's id; the menu closes. */
-function MenuEntries({
-  items,
-  onCommand,
-}: {
-  items: readonly ShellMenuItem[];
-  onCommand: (id: string) => void;
-}) {
-  return (
-    <>
-      {items.map((item) => {
-        if (item.kind === "separator") {
-          return (
-            <React.Fragment key={item.id}>
-              <MenubarSeparator />
-            </React.Fragment>
-          );
-        }
-        if (item.kind === "submenu") {
-          return (
-            <MenubarSub key={item.id}>
-              <MenubarSubTrigger disabled={item.enabled === false}>{item.label}</MenubarSubTrigger>
-              <MenubarSubContent label={item.label}>
-                <MenuEntries items={item.items} onCommand={onCommand} />
-              </MenubarSubContent>
-            </MenubarSub>
-          );
-        }
-        // The chord as the session shows it (Ctrl, not the application's `Mod`), as the row's
-        // trailing hint. Never the row's `shortcut`: the application runs its own chords, and
-        // the shell would run them a second time.
-        const chord = item.shortcut ? <MenubarShortcut>{item.shortcut}</MenubarShortcut> : undefined;
-        if (item.checked !== undefined) {
-          return (
-            <MenubarCheckboxItem
-              key={item.id}
-              // Named by its label alone, as the Oxy menu's rows: its chord is drawn beside it.
-              accessibilityLabel={item.label}
-              checked={item.checked}
-              disabled={item.enabled === false}
-              trailing={chord}
-              onCheckedChange={() => onCommand(item.id)}
-            >
-              {item.label}
-            </MenubarCheckboxItem>
-          );
-        }
-        return (
-          <MenubarItem
-            key={item.id}
-            accessibilityLabel={item.label}
-            disabled={item.enabled === false}
-            trailing={chord}
-            onPress={() => onCommand(item.id)}
-          >
-            {item.label}
-          </MenubarItem>
-        );
-      })}
-    </>
-  );
+/**
+ * A menu's entries as Bloom's menu bar rows: commands (with their check and chord), submenus and
+ * separators. A choice calls `onCommand` with the entry's id; the menu closes.
+ *
+ * Called, not mounted as a component: the menu's content is then Bloom's own rows, which Bloom
+ * reads as the menu's declaration while it is closed and mounts only as it opens (Bloom 19.10.0),
+ * as a Mac's bar keeps a menu's items as data and builds its rows as it opens. A component of
+ * ours would be mounted headless in every closed menu, its rows rendered with every bar render.
+ */
+function menuEntries(items: readonly ShellMenuItem[], onCommand: (id: string) => void): React.ReactNode[] {
+  return items.map((item) => {
+    if (item.kind === "separator") {
+      return (
+        <React.Fragment key={item.id}>
+          <MenubarSeparator />
+        </React.Fragment>
+      );
+    }
+    if (item.kind === "submenu") {
+      return (
+        <MenubarSub key={item.id}>
+          <MenubarSubTrigger disabled={item.enabled === false}>{item.label}</MenubarSubTrigger>
+          <MenubarSubContent label={item.label}>
+            {menuEntries(item.items, onCommand)}
+          </MenubarSubContent>
+        </MenubarSub>
+      );
+    }
+    // The chord as the session shows it (Ctrl, not the application's `Mod`), as the row's
+    // trailing hint. Never the row's `shortcut`: the application runs its own chords, and
+    // the shell would run them a second time.
+    const chord = item.shortcut ? <MenubarShortcut>{item.shortcut}</MenubarShortcut> : undefined;
+    if (item.checked !== undefined) {
+      return (
+        <MenubarCheckboxItem
+          key={item.id}
+          // Named by its label alone, as the Oxy menu's rows: its chord is drawn beside it.
+          accessibilityLabel={item.label}
+          checked={item.checked}
+          disabled={item.enabled === false}
+          trailing={chord}
+          onCheckedChange={() => onCommand(item.id)}
+        >
+          {item.label}
+        </MenubarCheckboxItem>
+      );
+    }
+    return (
+      <MenubarItem
+        key={item.id}
+        accessibilityLabel={item.label}
+        disabled={item.enabled === false}
+        trailing={chord}
+        onPress={() => onCommand(item.id)}
+      >
+        {item.label}
+      </MenubarItem>
+    );
+  });
 }
 
 function ControlsIcon({
@@ -957,7 +954,7 @@ const BarMenus = memo(function BarMenus({
               </Button>
             </MenubarTrigger>
             <MenubarContent label={menu.label} sideOffset={MENU_SIDE_OFFSET}>
-              <MenuEntries items={menu.items} onCommand={command} />
+              {menuEntries(menu.items, command)}
             </MenubarContent>
           </MenubarMenu>
         );
