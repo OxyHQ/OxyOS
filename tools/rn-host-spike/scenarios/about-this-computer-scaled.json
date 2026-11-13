@@ -153,6 +153,14 @@
             "hidden": false,
             "focused": true
           }
+        },
+        "windows_placed": {
+          "2": [
+            0,
+            0,
+            0,
+            0
+          ]
         }
       }
     },

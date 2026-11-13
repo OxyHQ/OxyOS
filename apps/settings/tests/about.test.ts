@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { messagesFor } from "../src/messages.ts";
-import { aboutThisComputer, MORE_INFO_URL, type SystemFacts } from "../src/model.ts";
+import { readFileSync } from "node:fs";
+import { ABOUT_WINDOW, aboutThisComputer, MORE_INFO_URL, type SystemFacts } from "../src/model.ts";
 
 const SYSTEM: SystemFacts = {
   computerName: "ThinkPad P14s",
@@ -45,4 +46,11 @@ test("a fact the system does not tell is left out, never guessed", () => {
     about.rows.map((row) => row.key),
     ["version"],
   );
+});
+
+test("About This Computer's package declares the window size its limits keep, so it opens at it", () => {
+  const description = JSON.parse(
+    readFileSync(new URL("../../../tools/rn-host-spike/sample/packages/so.oxy.aboutthiscomputer.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(description.window, { width: ABOUT_WINDOW.width, height: ABOUT_WINDOW.height });
 });

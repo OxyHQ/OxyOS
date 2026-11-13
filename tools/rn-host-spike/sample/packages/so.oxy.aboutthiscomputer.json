@@ -14,5 +14,9 @@
   },
   "architectures": [
     "any"
-  ]
+  ],
+  "window": {
+    "width": 300,
+    "height": 380
+  }
 }

@@ -7,5 +7,7 @@ Type=Application
 Name=About This Computer
 Name[es]=Acerca de este ordenador
 Icon=../../../../../config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png
+# Its window opens at its own size, as a Mac's About This Mac does, never resized (its package's `window`).
+X-OxyOS-Window-Size=300x380
 X-OxyOS-Bloom-Module=OxyOSAboutThisComputer
 NoDisplay=true

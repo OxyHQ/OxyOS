@@ -12,10 +12,8 @@ import { useTheme } from "@oxy.so/bloom/theme";
 import { Text } from "@oxy.so/bloom/typography";
 import { useWindowSizeLimits, WindowControls, WindowDragRegion } from "@oxy.so/bloom/window";
 import type { Messages } from "./messages";
-import { aboutThisComputer, type SystemFacts } from "./model";
+import { ABOUT_WINDOW, aboutThisComputer, type SystemFacts } from "./model";
 
-/** The window's size, as a Mac's About This Mac keeps one: it is neither resized nor zoomed. */
-export const ABOUT_WINDOW = { width: 300, height: 380 } as const;
 /** The sign's size, where a Mac draws the computer. */
 const SIGN = 88;
 
