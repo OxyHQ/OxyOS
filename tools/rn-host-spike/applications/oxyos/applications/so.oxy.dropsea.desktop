@@ -8,6 +8,8 @@
 Type=Application
 Name=Dropsea
 Icon=../../../../shell-preview/assets/apps/dropsea.png
+# Its window opens at its own size, a Finder window's (its package's `window`).
+X-OxyOS-Window-Size=900x560
 X-OxyOS-Bloom-Module=Dropsea
 X-OxyOS-Bloom-Bundle=/usr/lib/oxyos/apps/so.oxy.dropsea/index.hbc
 X-OxyOS-Runtime=1

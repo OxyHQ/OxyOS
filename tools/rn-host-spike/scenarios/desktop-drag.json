@@ -3,7 +3,7 @@
   "locale": "es_ES.UTF-8",
   "module": "Dropsea",
   "window": [
-    580,
+    640,
     460
   ],
   "shell": "OxyOSShell",
@@ -32,7 +32,7 @@
   },
   "steps": [
     {
-      "name": "the desktop and Dropsea's home",
+      "name": "the desktop and Dropsea's home, its window at its minimum or more from its first frame (640 × 460), so its safe areas are told once, never again as the window widens",
       "do": [
         "wait",
         1500
@@ -66,17 +66,17 @@
           }
         },
         "react": {
-          "insetsChange@RNCSafeAreaProvider#6": 2,
-          "insetsChange@RNCSafeAreaProvider#18": [
-            1,
-            2
-          ],
-          "insetsChange@RNCSafeAreaProvider#10": [
-            1,
-            2
-          ]
+          "insetsChange@RNCSafeAreaProvider#6": 1,
+          "insetsChange@RNCSafeAreaProvider#18": 1,
+          "insetsChange@RNCSafeAreaProvider#10": 1
         },
-        "delivered": {}
+        "delivered": {},
+        "window_rect": [
+          320,
+          116,
+          640,
+          460
+        ]
       }
     },
     {

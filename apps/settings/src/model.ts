@@ -553,6 +553,11 @@ export function formatMemory(bytes: number): string {
 /** The URL its More Info… opens: Settings at its About page, as a Mac's opens General › About. */
 export const MORE_INFO_URL = "oxyos-settings://about";
 
+/** About This Computer's window size, as a Mac's About This Mac keeps one: neither resized nor zoomed
+    (the window's limits, `AboutThisComputer`). Its package declares the same size (`window`), so the
+    window opens at it, never at the session's. */
+export const ABOUT_WINDOW = { width: 300, height: 380 } as const;
+
 /** The words it says (the catalogue's `about` and `aboutThisComputer`). */
 type AboutMessages = {
   about: { processor: string; memory: string; version: string };
