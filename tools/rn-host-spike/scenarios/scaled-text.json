@@ -1,5 +1,5 @@
 {
-  "about": "Text on an output at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25): the application is asked for frames at 1.25 and draws its glyphs rasterized at their size in the output's pixels, not the logical glyphs set at scaled positions (which drew them a fifth smaller and spread apart). Settings' sidebar label 'Appearance' (selected, #1b1b1b: Bloom's desktop label ink on its neutral selection) on a 1600x1000 output at 1.25, in output pixels: the strokes of its 'a', 'r' and 'n' fall where the logical glyphs left the selection's background.",
+  "about": "Text on an output at a fractional scale (ADR 0018: the ThinkPad's panel at 1.25): the application is asked for frames at 1.25 and draws its glyphs rasterized at their size in the output's pixels, not the logical glyphs set at scaled positions (which drew them a fifth smaller and spread apart). Settings' sidebar label 'Appearance' (selected, #1b1b1b: Bloom's desktop label ink on its neutral selection) on a 1600x1000 output at 1.25, in output pixels: the strokes of its 'a', 'r' and 'n' fall where the logical glyphs left the selection's background (Bloom's 28-point desktop rows, the label in the body style).",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -20,12 +20,12 @@
       "allow_unchanged": true,
       "expect": {
         "output_pixels": {
-          "300,261": "#1b1b1b",
-          "305,256": "#1b1b1b",
-          "305,261": "#1b1b1b",
-          "310,257": "#1b1b1b",
-          "330,256": "#1b1b1b",
-          "334,259": "#1b1b1b"
+          "300,270": "#1b1b1b",
+          "300,273": "#1b1b1b",
+          "315,270": "#1b1b1b",
+          "315,273": "#1b1b1b",
+          "328,271": "#1b1b1b",
+          "337,271": "#1b1b1b"
         }
       }
     }

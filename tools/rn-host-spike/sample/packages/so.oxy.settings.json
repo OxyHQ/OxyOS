@@ -18,5 +18,6 @@
   "capabilities": [
     { "name": "url-schemes", "purpose": { "en": "To open at a page of its own: an app opens Settings at your Oxy Account.", "es": "Para abrirse en una página suya: una app abre Ajustes en tu cuenta de Oxy." } }
   ],
-  "opens": { "schemes": ["oxyos-settings"] }
+  "opens": { "schemes": ["oxyos-settings"] },
+  "window": { "width": 780, "height": 560 }
 }

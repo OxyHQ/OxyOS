@@ -170,11 +170,11 @@
     {
       "name": "turned off: the session keeps trackpad_natural_scrolling = false",
       "do": [
-        "press",
-        [
-          758,
-          96
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Desplazamiento natural"
+        }
       ],
       "expect": {
         "at": {
@@ -279,11 +279,11 @@
     {
       "name": "turned on: the session keeps mouse_natural_scrolling = true",
       "do": [
-        "press",
-        [
-          758,
-          96
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Desplazamiento natural"
+        }
       ],
       "expect": {
         "at": {

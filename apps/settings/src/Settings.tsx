@@ -51,8 +51,22 @@ import {
 import { Button } from "@oxy.so/bloom/button";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
 import { useWindowKeys } from "@oxy.so/bloom/kbd";
+import {
+  Menubar,
+  MenubarContent,
+  MenubarItem,
+  MenubarMenu,
+  MenubarSeparator,
+  MenubarTrigger,
+} from "@oxy.so/bloom/menubar";
 import { SettingsLayout, SettingsSelect } from "@oxy.so/bloom/settings-modal";
-import type { SettingsModalPage, SettingsNavGroup } from "@oxy.so/bloom/settings-modal";
+import type {
+  SettingsLayoutHandle,
+  SettingsLayoutHistory,
+  SettingsModalPage,
+  SettingsNavGroup,
+} from "@oxy.so/bloom/settings-modal";
+import { useWindowSizeLimits } from "@oxy.so/bloom/window";
 import { RadioGroup } from "@oxy.so/bloom/radio";
 import { Slider } from "@oxy.so/bloom/slider";
 import { Switch } from "@oxy.so/bloom/switch";
@@ -125,6 +139,8 @@ import {
   type SoundSide,
 } from "./sound";
 import { messagesFor, messagesLanguage, type Messages } from "./messages";
+import { searchedGroups, type DeclaredPage } from "./sidebar-search";
+import DECLARED_PAGES from "../searchable.json";
 import { WallpaperPage } from "./WallpaperPage";
 import {
   categoriesInOrder,
@@ -158,6 +174,7 @@ import {
   type UpdateProgress,
   type UpdateRow,
 } from "./updates";
+import { ListRow, ListRowDetail, ListRowTitle, useListRowInk } from "./ListRow";
 
 /** A page's model and words, and the session's locale its numbers and dates are formatted in. */
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
@@ -184,12 +201,15 @@ function ToggleItem({
       description={description}
       icon={icon}
       testID={testID}
-      rightElement={<Switch checked={value} onCheckedChange={onChange} accessibilityLabel={title} testID={`${testID}-switch`} />}
+      // A mini switch, as a Mac's form rows hold one (its height the row's small controls').
+      rightElement={
+        <Switch size="xs" checked={value} onCheckedChange={onChange} accessibilityLabel={title} testID={`${testID}-switch`} />
+      }
     />
   );
 }
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 
 function AppearancePage({ snapshot, actions, strings }: PageProps) {
   const { appearance, accent } = snapshot.preferences;
@@ -292,6 +312,7 @@ function NotificationsPage({ snapshot, actions, strings }: PageProps) {
               testID={`notification-sound-${app.id}`}
               rightElement={
                 <Switch
+                  size="xs"
                   checked={!snapshot.preferences.notificationSoundsOff.includes(app.id)}
                   onCheckedChange={(on) =>
                     actions.setPreference(
@@ -551,6 +572,7 @@ function SoundOutput({ side, act, words }: { side: SoundSide; act: SoundActions;
           testID="sound-mute-row"
           rightElement={
             <Switch
+              size="xs"
               checked={side.muted}
               onCheckedChange={(muted) => act.setMuted("output", muted)}
               accessibilityLabel={words.mute}
@@ -1177,20 +1199,10 @@ function SourceRow({
   current: boolean;
 }) {
   const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const { ink } = useListRowInk(selected);
   const layout = id === LAYOUT_SOURCE;
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-        paddingHorizontal: 10,
-        paddingVertical: 7,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
+    <ListRow selected={selected}>
       <View
         style={{
           width: 28,
@@ -1206,11 +1218,11 @@ function SourceRow({
           {layout ? layoutShortName(state.layout) : INPUT_METHOD_GLYPHS[id]}
         </Text>
       </View>
-      <Text numberOfLines={1} style={{ flex: 1, color: ink, fontSize: 14 }}>
+      <ListRowTitle color={ink} style={{ flex: 1 }}>
         {sourceName(id, state, words)}
-      </Text>
+      </ListRowTitle>
       {current ? <RiCheckLine size="sm" fill={ink} /> : null}
-    </View>
+    </ListRow>
   );
 }
 
@@ -1946,30 +1958,15 @@ function SpotlightPage({ actions, strings, locale }: PageProps) {
 /** A folder kept out of the index, drawn: its icon, its name and, small, its path. Decorative: the
     list's option is the control, named by its label. */
 function ExcludedRow({ uri, selected }: { uri: string; selected: boolean }) {
-  const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const { ink, detail } = useListRowInk(selected);
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
+    <ListRow selected={selected}>
       <RiFolder3Line size="sm" fill={ink} />
       <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: ink, fontSize: 14 }}>
-          {folderName(uri)}
-        </Text>
-        <Text numberOfLines={1} style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 11 }}>
-          {folderPath(uri)}
-        </Text>
+        <ListRowTitle color={ink}>{folderName(uri)}</ListRowTitle>
+        <ListRowDetail color={detail}>{folderPath(uri)}</ListRowDetail>
       </View>
-    </View>
+    </ListRow>
   );
 }
 
@@ -2007,6 +2004,7 @@ function PrivacyPage({ snapshot, actions, strings }: PageProps) {
                     // Named with its application, as each switch is reached alone (Tab, the reader's
                     // focus): the section's heading is not said with it ("Camera for Allo").
                     <Switch
+                      size="xs"
                       checked={row.granted}
                       onCheckedChange={(granted: boolean) => act.decide(app.id, row.capability, granted)}
                       accessibilityLabel={words.capabilityOf(capability, app.name)}
@@ -2272,7 +2270,12 @@ export function Settings({
   initialPage?: string;
 }) {
   const told = useBloomLocale();
-  const strings = messagesFor(resolveBloomLanguage(told));
+  const language = resolveBloomLanguage(told);
+  const strings = messagesFor(language);
+  // Its window keeps its sidebar beside the page: never narrower than a desktop's System Settings
+  // lays out side by side (Bloom's settings go to the phone's list and page below it). Its size when
+  // it opens is its package's (`window`), as a Mac's System Settings opens at its own.
+  useWindowSizeLimits({ minWidth: SETTINGS_MIN_WIDTH });
   const locale = told ?? sessionLocale(snapshot.preferences, snapshot.system.locale);
   // What every page is given changes with everything the session tells (a preference, a volume, a
   // network's strength): it reaches the pages through a context, so that a change renders the page
@@ -2439,20 +2442,100 @@ export function Settings({
     }),
     [strings, words, networked, bluetooth, powerPage, backupPage, accountKind, keychain],
   );
+  // The sidebar's search, as a Mac's System Settings has one: the pages the words Settings declares
+  // to Spotlight find (searchable.json), and the names the sidebar shows.
+  const [query, setQuery] = React.useState("");
+  const shownGroups = React.useMemo(
+    () => searchedGroups(groups, query, DECLARED_PAGES as readonly DeclaredPage[], language),
+    [groups, query, language],
+  );
+  const search = React.useMemo(
+    () => ({ value: query, onChangeText: setQuery, accessibilityLabel: strings.searchSettings, testID: "settings-search" }),
+    [query, strings.searchSettings],
+  );
+  // The window's Edit › Find… and View › Back and Forward act through the layout, as its own
+  // field and toolbar do.
+  const layoutRef = React.useRef<SettingsLayoutHandle>(null);
+  const [history, setHistory] = React.useState<SettingsLayoutHistory>({ canGoBack: false, canGoForward: false });
   // Opened at a page (`oxyos-settings://PAGE`): that page, shown at once even in a narrow window.
   const opened = initialPage !== undefined && Object.prototype.hasOwnProperty.call(pages, initialPage);
   const layout = React.useMemo(
     () => (
       <SettingsLayout
-        groups={groups}
+        ref={layoutRef}
+        groups={shownGroups}
         pages={pages}
         defaultPage={opened ? initialPage : "appearance"}
         initialView={opened ? "page" : "navigation"}
+        density="compact"
+        search={search}
+        onHistoryChange={setHistory}
         labels={{ nav: strings.title }}
         testID="settings"
       />
     ),
-    [groups, pages, opened, initialPage, strings.title],
+    [shownGroups, pages, opened, initialPage, strings.title, search],
   );
-  return <PagePropsContext.Provider value={props}>{layout}</PagePropsContext.Provider>;
+  const menus = strings.menus;
+  // Drawn again only when its words or where the pages visited can go change, never with each
+  // preference the session tells.
+  const menubar = React.useMemo(
+    () => (
+      <Menubar>
+        <MenubarMenu value="edit">
+          <MenubarTrigger>{menus.edit.title}</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem action="undo">{menus.edit.undo}</MenubarItem>
+            <MenubarItem action="redo">{menus.edit.redo}</MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem action="cut">{menus.edit.cut}</MenubarItem>
+            <MenubarItem action="copy">{menus.edit.copy}</MenubarItem>
+            <MenubarItem action="paste">{menus.edit.paste}</MenubarItem>
+            <MenubarItem action="pasteAndMatchStyle">{menus.edit.pasteAndMatchStyle}</MenubarItem>
+            <MenubarItem action="delete">{menus.edit.delete}</MenubarItem>
+            <MenubarItem action="selectAll">{menus.edit.selectAll}</MenubarItem>
+            <MenubarSeparator />
+            <MenubarItem shortcut="Mod+F" onPress={() => layoutRef.current?.focusSearch()} testID="menu-find">
+              {menus.edit.find}
+            </MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
+        <MenubarMenu value="view">
+          <MenubarTrigger>{menus.view.title}</MenubarTrigger>
+          <MenubarContent>
+            <MenubarItem
+              shortcut="Mod+["
+              disabled={!history.canGoBack}
+              onPress={() => layoutRef.current?.back()}
+              testID="menu-back"
+            >
+              {menus.view.back}
+            </MenubarItem>
+            <MenubarItem
+              shortcut="Mod+]"
+              disabled={!history.canGoForward}
+              onPress={() => layoutRef.current?.forward()}
+              testID="menu-forward"
+            >
+              {menus.view.forward}
+            </MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
+      </Menubar>
+    ),
+    [menus, history],
+  );
+  return (
+    <PagePropsContext.Provider value={props}>
+      {/* Edit and View, in a Mac's order: in the session's menu bar on OxyOS, in the window
+          elsewhere (ADR 0021). The application's own menu (About, Settings…, Hide, Quit) and the
+          Window menu are the platform's. */}
+      {menubar}
+      {layout}
+    </PagePropsContext.Provider>
+  );
 }
+
+/** The narrowest Settings' window is: its sidebar beside the page (Bloom's settings are a phone's
+    list and page below 640). */
+const SETTINGS_MIN_WIDTH = 640;

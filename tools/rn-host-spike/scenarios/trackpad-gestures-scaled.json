@@ -109,11 +109,11 @@
     {
       "name": "Mission Control's menu opened",
       "do": [
-        "press",
-        [
-          667,
-          289
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Mission Control"
+        }
       ],
       "expect": {
         "texts": [
@@ -241,11 +241,11 @@
     {
       "name": "Mission Control's menu opened",
       "do": [
-        "press",
-        [
-          667,
-          289
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Mission Control"
+        }
       ],
       "expect": {
         "texts": [
@@ -388,11 +388,11 @@
     {
       "name": "Pasar de un escritorio a otro's menu opened",
       "do": [
-        "press",
-        [
-          639,
-          223
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Pasar de un escritorio a otro"
+        }
       ],
       "expect": {
         "texts": [
@@ -529,11 +529,11 @@
     {
       "name": "Launchpad's pinch turned off",
       "do": [
-        "press",
-        [
-          757,
-          415
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Aplicaciones"
+        }
       ],
       "expect": {
         "preferences_file": {

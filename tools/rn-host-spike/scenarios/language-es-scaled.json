@@ -138,11 +138,11 @@
   {
    "name": "The language's menu, said",
    "do": [
-    "press",
-    [
-     750,
-     94
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Idioma"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
@@ -227,11 +227,11 @@
   {
    "name": "The time format's menu, said in English",
    "do": [
-    "press",
-    [
-     750,
-     218
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Time format"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
@@ -284,7 +284,7 @@
    "expect": {
     "spoken": [
      {
-      "text": "Window, collapsed, button",
+      "text": "Edit, collapsed, button",
       "interrupting": true,
       "voice": "en"
      }

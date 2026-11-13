@@ -7,4 +7,6 @@ Name=Settings
 Name[es]=Ajustes
 Icon=../../../../shell-preview/assets/apps/settings.png
 X-OxyOS-Bloom-Module=OxyOSSettings
+# Its window opens at its own size, as a Mac's System Settings does: its sidebar beside the page.
+X-OxyOS-Window-Size=780x560
 MimeType=x-scheme-handler/oxyos-settings;

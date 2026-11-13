@@ -86,7 +86,30 @@
       }
     },
     {
-      "name": "Tab: the sidebar's selected row",
+      "name": "Tab: the sidebar's search field first, as a Mac's System Settings has it at the sidebar's top, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-search",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Buscar en Ajustes, campo de búsqueda",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab again: the sidebar's selected row",
       "do": [
         "key",
         [

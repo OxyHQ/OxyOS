@@ -36,7 +36,8 @@ fn an_entry_is_an_application_named_in_the_sessions_language() {
         Launch::Bloom {
             module: "EditingProbe".into(),
             bundle: None,
-            runtime: None
+            runtime: None,
+            window: None
         }
     );
     assert_eq!(es.pinned, Some(2));
@@ -1107,6 +1108,7 @@ fn a_system_launch_runs_what_the_policy_names() {
             module: "Settings".into(),
             bundle: Some(dir.0.join("elsewhere.js")),
             runtime: None,
+            window: None,
         },
         pinned: None,
         origin: Origin::System,
@@ -1144,7 +1146,8 @@ fn a_system_launch_runs_what_the_policy_names() {
         Launch::Bloom {
             module: "Settings".into(),
             bundle: Some(bundle.clone()),
-            runtime: None
+            runtime: None,
+            window: None
         }
     );
     let only_host = |path: &Path| path == host;
@@ -1414,7 +1417,8 @@ fn an_entry_names_the_runtime_it_was_built_for() {
         Launch::Bloom {
             module: "Inbox".into(),
             bundle: None,
-            runtime: Some(1)
+            runtime: Some(1),
+            window: None
         }
     );
     for refused in ["0", "01", "+1", "-1", "x", "", "1.0", "4294967296"] {
@@ -1423,6 +1427,67 @@ fn an_entry_names_the_runtime_it_was_built_for() {
             "X-OxyOS-Runtime={refused} was accepted"
         );
     }
+}
+
+#[test]
+fn an_entry_declares_the_size_its_window_opens_at() {
+    let entry = |size: &str| {
+        parse(
+            "so.oxy.settings",
+            &format!("[Desktop Entry]\nType=Application\nName=Settings\nX-OxyOS-Bloom-Module=OxyOSSettings\nX-OxyOS-Window-Size={size}\n"),
+            Path::new("/apps"),
+            &[],
+        )
+    };
+    let settings = entry("780x560").unwrap().unwrap();
+    assert_eq!(
+        settings.launch,
+        Launch::Bloom {
+            module: "OxyOSSettings".into(),
+            bundle: None,
+            runtime: None,
+            window: Some((780, 560))
+        }
+    );
+    for refused in [
+        "",
+        "780",
+        "780x",
+        "x560",
+        "780X560",
+        "780 x 560",
+        "0780x560",
+        "-780x560",
+        "199x560",
+        "780x8193",
+        "780x560x1",
+        "4294967296x560",
+    ] {
+        assert!(
+            entry(refused).is_err(),
+            "X-OxyOS-Window-Size={refused} was accepted"
+        );
+    }
+    // It opens at its own size; another at the session's; a chooser at a chooser's, whatever.
+    let session = Runtime {
+        socket: PathBuf::from("/run/oxyos-test"),
+        bloom_host: None,
+        bloom_bundle: None,
+        runtimes: PathBuf::from("/nonexistent-runtimes"),
+        window: (600, 360),
+        env: Vec::new(),
+    };
+    assert_eq!(opening_size(&settings, &session, false), (780, 560));
+    assert_eq!(opening_size(&settings, &session, true), CHOOSER_WINDOW);
+    let other = parse(
+        "so.oxy.inbox",
+        "[Desktop Entry]\nType=Application\nName=Inbox\nX-OxyOS-Bloom-Module=Inbox\n",
+        Path::new("/apps"),
+        &[],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(opening_size(&other, &session, false), (600, 360));
 }
 
 #[test]
@@ -1441,6 +1506,7 @@ fn an_application_runs_on_its_runtimes_host() {
             module: "Inbox".into(),
             bundle: Some(dir.0.join("bundle.js")),
             runtime,
+            window: None,
         },
         pinned: None,
         origin: Origin::Development,
@@ -1562,6 +1628,7 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
             module: "OxyOSSettings".into(),
             bundle: None,
             runtime: Some(1),
+            window: None,
         },
         pinned: None,
         origin: Origin::System,
@@ -1604,7 +1671,8 @@ fn a_system_application_naming_a_runtime_runs_that_runtimes_host_only() {
         Launch::Bloom {
             module: "OxyOSSettings".into(),
             bundle: Some(bundle.clone()),
-            runtime: None
+            runtime: None,
+            window: None
         }
     );
     // A policy naming another host than the entry's runtime's: not started.
@@ -1992,6 +2060,7 @@ fn a_package_is_the_directory_of_its_compiled_bundle_and_manifest() {
             module: "Inbox".into(),
             bundle: Some(bundle),
             runtime: Some(1),
+            window: None,
         },
         pinned: None,
         origin: Origin::Development,

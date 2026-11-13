@@ -23,7 +23,7 @@
   },
   "steps": [
     {
-      "name": "the account first in the sidebar, its name under the group's heading",
+      "name": "the account first in the sidebar, by its name, with no group heading over it (a Mac's sidebar has none)",
       "do": [
         "wait",
         1500
@@ -31,17 +31,12 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Oxy Account",
           "Ada Lovelace",
           "AL",
           "Appearance"
         ],
         "at": {
           "window": [
-            {
-              "role": "Heading",
-              "name": "Oxy Account"
-            },
             {
               "role": "ListItem",
               "name": "Ada Lovelace",

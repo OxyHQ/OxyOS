@@ -33,6 +33,7 @@ import {
   type StorageMeasured,
 } from "./storage";
 import { formatSize } from "./updates";
+import { ListRow, ListRowDetail, ListRowTitle, useListRowInk } from "./ListRow";
 
 type Props = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 type Words = Messages["storage"];
@@ -40,7 +41,7 @@ type Words = Messages["storage"];
 /** How many of the largest files Review Files lists. */
 const LARGEST = 50;
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
 
 /** The index's sums as one text, to tell whether they changed. */
@@ -211,6 +212,7 @@ export function StoragePage({ snapshot, actions, strings, locale }: Props) {
           testID="storage-empty-trash"
           rightElement={
             <Switch
+              size="xs"
               checked={emptyAutomatically}
               // Turned on, as a Mac asks before it erases anything; turned off at once.
               onCheckedChange={(on: boolean) =>
@@ -654,23 +656,13 @@ function UnusedAppsSheet({
 /** A row of a sheet's list, drawn: its title and, small, what it is. Decorative: the list's option
     is the control, named by its label. */
 function ItemRow({ title, detail, selected }: { title: string; detail: string; selected: boolean }) {
-  const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const ink = useListRowInk(selected);
   return (
-    <View
-      style={{
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
-      <Text numberOfLines={1} style={{ color: ink, fontSize: 14 }}>
-        {title}
-      </Text>
-      <Text numberOfLines={1} style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 11 }}>
-        {detail}
-      </Text>
-    </View>
+    <ListRow selected={selected}>
+      <View style={{ flex: 1 }}>
+        <ListRowTitle color={ink.ink}>{title}</ListRowTitle>
+        <ListRowDetail color={ink.detail}>{detail}</ListRowDetail>
+      </View>
+    </ListRow>
   );
 }

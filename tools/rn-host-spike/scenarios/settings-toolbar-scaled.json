@@ -1,5 +1,5 @@
 {
- "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Dropsea's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. At scale 1.25 (the ThinkPad's panel). Its sidebar is one navigation holding ONE list of its sixteen rows, top to bottom (its items, docs/adr/0039-keyboard-access.mdx) (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
+ "about": "OxyOS's Settings as a Mac's System Settings window (docs/adr/0016-windows.mdx): Bloom's SettingsLayout composed by AppShell, as Dropsea's window is, its page's PageHeader the window's toolbar, with back and forward as ONE group (a ButtonGroup the assistive technology receives holding both buttons, side by side inside it, and no other back or forward anywhere), each enabled only where the pages visited have somewhere to go, moved by a press in the toolbar and by Ctrl+[ / Ctrl+]. At scale 1.25 (the ThinkPad's panel). Its sidebar is one navigation holding ONE list of its fifteen rows, top to bottom (its items, docs/adr/0039-keyboard-access.mdx) (Bloom keeps every grouping container's children: before, the navigation was an empty node beside loose rows), and stays so as pages change.",
  "module": "OxyOSSettings",
  "window": [
   960,
@@ -19,7 +19,7 @@
  },
  "steps": [
   {
-   "name": "Its first page: the sidebar one navigation holding its sixteen rows, the first twelve in sight (it scrolls to About, as a Mac's does); the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
+   "name": "Its first page: the sidebar one navigation holding its fifteen rows, the first twelve in sight (it scrolls to About, as a Mac's does); the window's toolbar holds back and forward as one group, both disabled (nowhere to go yet), and a press on its left half lands on Back",
    "do": [
     "wait",
     1500
@@ -85,11 +85,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -116,6 +111,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -159,11 +159,11 @@
   {
    "name": "Wallpaper, from the sidebar: visited, so Back is enabled; nothing ahead",
    "do": [
-    "press",
-    [
-     136,
-     150
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Wallpaper"
+    }
    ],
    "expect": {
     "at_group": [
@@ -223,11 +223,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -254,6 +249,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -279,11 +279,11 @@
   {
    "name": "Displays, from the sidebar",
    "do": [
-    "press",
-    [
-     136,
-     350
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Displays"
+    }
    ],
    "expect": {
     "at_group": [
@@ -341,11 +341,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": [
          "selected"
@@ -374,6 +369,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -461,11 +461,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -492,6 +487,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -579,11 +579,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": [
          "selected"
@@ -612,6 +607,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -699,11 +699,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -730,6 +725,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -819,11 +819,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -850,6 +845,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]
@@ -937,11 +937,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -969,6 +964,11 @@
         "role": "ListItem",
         "name": "Trackpad",
         "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
+        "state": []
        }
       ]
      }
@@ -993,11 +993,11 @@
   {
    "name": "A page chosen with pages ahead drops them: Accessibility, nothing ahead",
    "do": [
-    "press",
-    [
-     136,
-     390
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Accessibility"
+    }
    ],
    "expect": {
     "at_group": [
@@ -1055,11 +1055,6 @@
        },
        {
         "role": "ListItem",
-        "name": "Desktop & Dock",
-        "state": []
-       },
-       {
-        "role": "ListItem",
         "name": "Displays",
         "state": []
        },
@@ -1088,6 +1083,11 @@
        {
         "role": "ListItem",
         "name": "Trackpad",
+        "state": []
+       },
+       {
+        "role": "ListItem",
+        "name": "Date & Time",
         "state": []
        }
       ]

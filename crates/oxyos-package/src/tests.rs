@@ -656,6 +656,55 @@ fn capabilities_are_sorted_with_a_purpose_and_agree_with_opens() {
 }
 
 #[test]
+fn a_manifest_may_declare_the_size_its_window_opens_at() {
+    let window = |width: u64, height: u64| {
+        json::object(vec![
+            ("width", json::Value::Integer(width)),
+            ("height", json::Value::Integer(height)),
+        ])
+    };
+    let declared = manifest_with(|m| set(m, "window", window(780, 560)), "Notes");
+    let manifest = Manifest::parse(&declared).unwrap();
+    assert_eq!(
+        manifest.window,
+        Some(crate::WindowSize {
+            width: 780,
+            height: 560
+        })
+    );
+    assert_eq!(manifest.to_canonical(), declared);
+    // Without it, none: the session's size.
+    assert_eq!(
+        Manifest::parse(&manifest_with(|_| {}, "Notes"))
+            .unwrap()
+            .window,
+        None
+    );
+    for (width, height, field) in [
+        (199, 560, "window.width"),
+        (780, 8193, "window.height"),
+        (0, 560, "window.width"),
+        (u64::from(u32::MAX) + 1, 560, "window.width"),
+    ] {
+        assert_eq!(
+            Manifest::parse(&manifest_with(
+                |m| set(m, "window", window(width, height)),
+                "Notes"
+            )),
+            Err(Error::OutOfRange(field))
+        );
+    }
+    let unknown = json::object(vec![
+        ("width", json::Value::Integer(780)),
+        ("height", json::Value::Integer(560)),
+        ("x", json::Value::Integer(0)),
+    ]);
+    assert!(Manifest::parse(&manifest_with(|m| set(m, "window", unknown), "Notes")).is_err());
+    let missing = json::object(vec![("width", json::Value::Integer(780))]);
+    assert!(Manifest::parse(&manifest_with(|m| set(m, "window", missing), "Notes")).is_err());
+}
+
+#[test]
 fn json_limits_hold() {
     let deep = "[".repeat(40) + &"]".repeat(40);
     assert_eq!(Manifest::parse(deep.as_bytes()), Err(Error::TooDeep));

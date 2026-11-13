@@ -384,7 +384,7 @@
    }
   },
   {
-   "name": "Settings shows Appearance's choices",
+   "name": "Settings shows Appearance's choices, at its own size with its sidebar beside the page (never the phone's list and its back arrow)",
    "do": [
     "wait_named",
     [
@@ -394,7 +394,22 @@
    ],
    "allow_unchanged": true,
    "expect": {
-    "react": {}
+    "react": {},
+    "windows_placed": {
+     "2": [
+      250,
+      66,
+      780,
+      560
+     ]
+    },
+    "in_launched": {
+     "texts": [
+      "Fondo de pantalla",
+      "Accesibilidad",
+      "Teclado"
+     ]
+    }
    }
   }
  ]

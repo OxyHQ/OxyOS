@@ -1,5 +1,5 @@
 {
- "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on About This Computer, Down moves to System Settings… and Return opens Settings; Tab goes down its sidebar, each row said once with its ring; Space opens Accessibility; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1 (1280 × 720).",
+ "about": "Settings opened and a setting changed with the keyboard alone (docs/adr/0039-keyboard-access.mdx): Allo (sample/EditingProbe.tsx) with the shell, the screen reader on in Spanish. Super+F2 puts the keyboard on the Oxy menu, Return opens it on About This Computer, Down moves to System Settings… and Return opens Settings; Settings opens at its own size, its sidebar beside the page; Tab reaches its search field, then the sidebar's selected row, and ↓ goes down the sidebar's one list to Accessibility, each row chosen, its page shown and said once with its ring; Tab reaches Reduce motion's switch and Space turns it on, the session telling every application; Shift+Tab goes back. Every step checks the keyboard's focus, what the assistive technology holds of Settings, what the reader says and what is announced. At 1 (1280 × 720).",
  "locale": "es_ES.UTF-8",
  "module": "EditingProbe",
  "window": [
@@ -133,7 +133,7 @@
    }
   },
   {
-   "name": "Return chooses System Settings: the session starts Settings, whose window takes the keyboard; nothing of it is focused yet",
+   "name": "Return chooses System Settings: the session starts Settings at its own size, its sidebar beside the page (never the phone's list), whose window takes the keyboard; nothing of it is focused yet",
    "do": [
     "key",
     [
@@ -144,14 +144,53 @@
    "expect": {
     "react": {},
     "in_launched": {
-     "keyboard_focus": null
+     "keyboard_focus": null,
+     "texts": [
+      "Apariencia",
+      "Fondo de pantalla",
+      "Accesibilidad"
+     ]
     },
     "spoken": [],
+    "announcements": [],
+    "windows_placed": {
+     "2": [
+      250,
+      66,
+      780,
+      560
+     ]
+    }
+   }
+  },
+  {
+   "name": "Tab: the sidebar's search field first, as a Mac's System Settings has it at the sidebar's top, said once",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "react": {},
+    "in_launched": {
+     "keyboard_focus": {
+      "target": "settings-search",
+      "ring": true
+     }
+    },
+    "spoken": [
+     {
+      "text": "Buscar en Ajustes, campo de búsqueda",
+      "interrupting": true
+     }
+    ],
     "announcements": []
    }
   },
   {
-   "name": "Tab: the keyboard on the sidebar's first row, its ring around it, said once",
+   "name": "Tab again: the keyboard on the sidebar's selected row, Appearance, its ring around it, said once with its place in the one list",
    "do": [
     "key",
     [
@@ -170,9 +209,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Apariencia",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -180,7 +220,7 @@
     },
     "spoken": [
      {
-      "text": "Apariencia, botón",
+      "text": "Apariencia, seleccionado, 1 de 20",
       "interrupting": true
      }
     ],
@@ -188,11 +228,11 @@
    }
   },
   {
-   "name": "Tab: Wallpaper, the next row",
+   "name": "↓: Fondo de pantalla, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -207,9 +247,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Fondo de pantalla",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -217,7 +258,7 @@
     },
     "spoken": [
      {
-      "text": "Fondo de pantalla, botón",
+      "text": "Fondo de pantalla, seleccionado, 2 de 20",
       "interrupting": true
      }
     ],
@@ -225,11 +266,11 @@
    }
   },
   {
-   "name": "Tab: Notifications, the next row",
+   "name": "↓: Notificaciones, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -244,9 +285,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Notificaciones",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -254,7 +296,7 @@
     },
     "spoken": [
      {
-      "text": "Notificaciones, botón",
+      "text": "Notificaciones, seleccionado, 3 de 20",
       "interrupting": true
      }
     ],
@@ -262,11 +304,11 @@
    }
   },
   {
-   "name": "Tab: Sound, the next row",
+   "name": "↓: Sonido, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -281,9 +323,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Sonido",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -291,7 +334,7 @@
     },
     "spoken": [
      {
-      "text": "Sonido, botón",
+      "text": "Sonido, seleccionado, 4 de 20",
       "interrupting": true
      }
     ],
@@ -299,11 +342,11 @@
    }
   },
   {
-   "name": "Tab: Lock Screen, the next row",
+   "name": "↓: Pantalla de bloqueo, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -318,9 +361,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Pantalla de bloqueo",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -328,7 +372,7 @@
     },
     "spoken": [
      {
-      "text": "Pantalla de bloqueo, botón",
+      "text": "Pantalla de bloqueo, seleccionado, 5 de 20",
       "interrupting": true
      }
     ],
@@ -336,11 +380,11 @@
    }
   },
   {
-   "name": "Tab: Desktop & Dock, the next row",
+   "name": "↓: Escritorio y Dock, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -355,9 +399,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Escritorio y Dock",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -365,7 +410,7 @@
     },
     "spoken": [
      {
-      "text": "Escritorio y Dock, botón",
+      "text": "Escritorio y Dock, seleccionado, 6 de 20",
       "interrupting": true
      }
     ],
@@ -373,11 +418,11 @@
    }
   },
   {
-   "name": "Tab: Displays, the next row",
+   "name": "↓: Pantallas, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -392,9 +437,10 @@
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Pantallas",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -402,7 +448,7 @@
     },
     "spoken": [
      {
-      "text": "Pantallas, botón",
+      "text": "Pantallas, seleccionado, 7 de 20",
       "interrupting": true
      }
     ],
@@ -410,11 +456,11 @@
    }
   },
   {
-   "name": "Tab: Accessibility, the next row",
+   "name": "↓: Accesibilidad, the next row, chosen and its page shown, the keyboard with it, said once",
    "do": [
     "key",
     [
-     15
+     108
     ]
    ],
    "allow_unchanged": true,
@@ -424,14 +470,18 @@
      "keyboard_focus": {
       "target": "settings-nav-accessibility",
       "ring": true
-     }
+     },
+     "texts": [
+      "Reducir movimiento"
+     ]
     },
     "at": {
      "launched": [
       {
-       "role": "Button",
+       "role": "ListItem",
        "name": "Accesibilidad",
        "state": [
+        "selected",
         "focused"
        ]
       }
@@ -439,30 +489,10 @@
     },
     "spoken": [
      {
-      "text": "Accesibilidad, botón",
+      "text": "Accesibilidad, seleccionado, 8 de 20",
       "interrupting": true
      }
     ],
-    "announcements": []
-   }
-  },
-  {
-   "name": "Space opens Accessibility, as a press would; the keyboard stays where it is",
-   "do": [
-    "key",
-    [
-     57
-    ]
-   ],
-   "allow_unchanged": true,
-   "expect": {
-    "react": {},
-    "in_launched": {
-     "texts": [
-      "Reducir movimiento"
-     ]
-    },
-    "spoken": [],
     "announcements": []
    }
   },

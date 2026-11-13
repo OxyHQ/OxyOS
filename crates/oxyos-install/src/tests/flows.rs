@@ -863,6 +863,19 @@ fn an_entry_declares_the_kinds_of_file_and_the_url_schemes_its_package_opens() {
     );
 }
 
+#[test]
+fn an_entry_declares_the_size_its_packages_window_opens_at() {
+    let mut manifest = oxyos_package::Manifest::parse(&Pkg::notes(12).manifest()).unwrap();
+    let version = std::path::Path::new("/var/lib/oxyos/packages/so.oxy.notes/12");
+    assert!(!crate::install::entry_text(&manifest, version, 1).contains("X-OxyOS-Window-Size"));
+    manifest.window = Some(oxyos_package::WindowSize {
+        width: 780,
+        height: 560,
+    });
+    let entry = crate::install::entry_text(&manifest, version, 1);
+    assert!(entry.contains("X-OxyOS-Window-Size=780x560\n"), "{entry}");
+}
+
 /// What `Pkg::notes(code)` needs on the disk before it is fetched: what it fetches, and as much
 /// again as its entry for the bytecode.
 fn room_for_notes(code: u64) -> u64 {

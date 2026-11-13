@@ -67,11 +67,11 @@
     {
       "name": "Battery: the level and state, Battery Health, Low Power Mode, the last 24 hours and Options…",
       "do": [
-        "press",
-        [
-          136,
-          110
-        ]
+        "press_named",
+        {
+          "role": "ListItem",
+          "name": "Battery"
+        }
       ],
       "expect": {
         "texts": [
@@ -100,11 +100,11 @@
     {
       "name": "Low Power Mode's choices",
       "do": [
-        "press",
-        [
-          810,
-          413
-        ]
+        "press_named",
+        {
+          "role": "Button",
+          "name": "Low Power Mode"
+        }
       ],
       "expect": {
         "texts": [
