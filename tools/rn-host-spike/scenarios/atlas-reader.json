@@ -151,21 +151,6 @@
    }
   },
   {
-   "name": "the pointer leaves the window's controls for the work area's lower right, as a person's goes on to the page: it rests on no control that opens anything by hover (Inbox's window, opened later, shows its zoom control where Atlas's was)",
-   "do": [
-    "move_output",
-    [
-     1000,
-     600
-    ]
-   ],
-   "allow_unchanged": true,
-   "expect": {
-    "spoken": [],
-    "announcements": []
-   }
-  },
-  {
    "name": "the storefront, Inbox's lockup offering Get",
    "do": [
     "wait_named",
@@ -848,7 +833,7 @@
    ]
   },
   {
-   "name": "Space again, on the same control, now Open: the session starts the installed Inbox",
+   "name": "Space again, on the same control, now Open: the session starts the installed Inbox (its window opens with its zoom control under the pointer left where Atlas's was: a window coming under a still pointer opens no hover menu until the pointer moves, as on a Mac, #617)",
    "do": [
     "key",
     [

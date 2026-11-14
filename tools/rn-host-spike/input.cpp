@@ -416,7 +416,10 @@ void PointerInput::handle(const OxyOSEvent& event) {
   x_ = x;
   y_ = y;
   if (event.detail == OXYOS_POINTER_ENTER || event.detail == OXYOS_POINTER_MOTION) {
-    hover(*content, x, y);
+    // The compositor follows an entry the pointer's movement made with a motion; an entry alone
+    // is a surface that came under a still pointer (mapped, raised, moved, a window closed over
+    // it). React Native hears the pointer over its views from the motion.
+    hover(*content, x, y, event.detail == OXYOS_POINTER_MOTION);
     // Over a scrollbar's track, it shows wide (a hidden one too, as a Mac's overlay scroller
     // appears under the pointer), and while a button is held elsewhere it stays as it was.
     if (!down_) hoverBar(barAt(*content, x, y), event.surface);
@@ -506,7 +509,7 @@ void PointerInput::handle(const OxyOSEvent& event) {
   }
 }
 
-void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, float y) {
+void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, float y, bool moved) {
   std::vector<Tag> now;
   if (content) {
     Tag target = hitTest(tree_, *content, x, y);
@@ -561,12 +564,18 @@ void PointerInput::hover(const std::optional<SurfaceContent>& content, float x, 
       emitter->onPointerMove(event);
     }
   };
+  if (content && !moved) {
+    // A surface came under the still pointer: its shape is set (above), and the views under it
+    // hear the pointer once it moves.
+    hoveredSurface_ = surface;
+    return;
+  }
   if (!now.empty()) {
     // A motion of less than a tenth of a pixel over the same view is none (Android's
     // ONMOVE_EPSILON).
-    bool moved = !hoveredAt_ || hovered_.empty() || hovered_.back() != now.back() ||
-                 std::abs(hoveredAt_->x - page.x) > 0.1f || std::abs(hoveredAt_->y - page.y) > 0.1f;
-    if (moved) send(now.back(), false);
+    bool changed = !hoveredAt_ || hovered_.empty() || hovered_.back() != now.back() ||
+                   std::abs(hoveredAt_->x - page.x) > 0.1f || std::abs(hoveredAt_->y - page.y) > 0.1f;
+    if (changed) send(now.back(), false);
   } else if (!hovered_.empty()) {
     // Out of the window (or over none of its views): the pointer left the root.
     send(hovered_.back(), true);
