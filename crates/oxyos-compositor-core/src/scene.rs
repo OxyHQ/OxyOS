@@ -455,6 +455,10 @@ pub struct Scene {
     focus_before_grab: Option<SurfaceKey>,
     pointer: (i32, i32),
     pointer_focus: Option<SurfaceKey>,
+    /// The serial of the pointer's entry onto `pointer_focus`: the client the pointer rests on may
+    /// grab a popup with it while the pointer stays there (a menu opened by hover, as a Mac's
+    /// green button's), as it may with its own latest press.
+    pointer_enter_serial: u64,
     capture: Option<SurfaceKey>,
     buttons_down: u32,
     swallowed_releases: u32,
@@ -2614,9 +2618,18 @@ impl Scene {
                 && (self.is_ancestor_or_self(press.surface, parent)
                     || self.grab.contains(&press.surface))
         });
+        // Or the pointer's entry onto the parent (or what it hangs from) it still rests on, from
+        // that surface's client: a menu the pointer opened by resting on its trigger, with no
+        // press behind it. Any press elsewhere since (another client's, the shell's) does not
+        // take that from it, while the pointer has not left.
+        let hover_ok = serial != 0
+            && serial == self.pointer_enter_serial
+            && self.pointer_focus.is_some_and(|focus| {
+                focus.client == key.client && self.is_ancestor_or_self(focus, parent)
+            });
         if self.locked {
             self.dismiss(key, DismissReason::Locked);
-        } else if !(chain_ok || replaces.is_some()) || !press_ok {
+        } else if !(chain_ok || replaces.is_some()) || !(press_ok || hover_ok) {
             self.dismiss(key, DismissReason::GrabDenied);
         } else {
             match replaces {
@@ -4263,9 +4276,11 @@ impl Scene {
                 self.pointer_event(old, serial, PointerKind::Leave, 0);
             }
         }
+        self.pointer_enter_serial = 0;
         if let Some(new) = target {
             let serial = self.next_serial();
             self.pointer_event(new, serial, PointerKind::Enter, 0);
+            self.pointer_enter_serial = serial;
         }
         self.pointer_focus = target;
     }

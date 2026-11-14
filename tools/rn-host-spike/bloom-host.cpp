@@ -1552,6 +1552,10 @@ int main(int argc, char** argv) {
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
+    // The serial of the pointer's latest entry onto one of this client's surfaces: a menu opened
+    // by the pointer resting on its trigger (a hover menu, the zoom control's layouts) grabs with
+    // it, as the client the pointer is over, when no press of its own is newer (popups.sync).
+    uint64_t lastEnter = 0;
     // A command chosen in a text input's context menu cites the row's press or key.
     editing.useInputSerial([&lastPress] { return lastPress; });
     // The surface with the compositor's keyboard focus (0: none of this client's), and the text
@@ -2962,6 +2966,9 @@ int main(int argc, char** argv) {
                   (asShell && event.kind == OXYOS_EVENT_SCROLL)) {
                 lastPress = event.serial;
               }
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_ENTER) {
+                lastEnter = event.serial;
+              }
               report(event);
               if (keyTaken) return;
               if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
@@ -3982,7 +3989,9 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
         }
-        if (!settling) popups.sync(lastPress);
+        // A popup grabs with the newest of the client's last press and the pointer's entry onto
+        // it: the compositor takes either from the client the person last pressed or rests on.
+        if (!settling) popups.sync(std::max(lastPress, lastEnter));
         if (popupFocusFirst && keyboardHeldFor == 0) {
           if (auto opened = popups.awaitingFocus(); opened != 0 && keyboardHeldOnce.insert(opened).second) {
             oxyos::Report::get().input("test.keyboard.held", opened);
