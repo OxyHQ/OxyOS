@@ -30,6 +30,10 @@
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
+// The zoom control's layouts (Bloom's WindowLayouts, `window-layout`, docs/adr/0016-windows.mdx,
+// decision 12): registered for WindowControls by importing them, which only a platform that lays
+// windows out does.
+import '@oxy.so/bloom/window/layouts';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { homeName } from './home-name';
 import {

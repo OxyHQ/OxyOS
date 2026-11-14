@@ -1,0 +1,2214 @@
+{
+  "about": "The zoom bubble's layouts, as a Mac's green button since macOS 15 (docs/adr/0016-windows.mdx, decision 12): WindowProbe's zoom bubble (Bloom's WindowControls, the window-layout capability) with the pointer resting on it opens, half a second on, a menu in a compositor popup named Window layouts: Move & Resize (Left, Right, Top, Bottom and the quarters), Fill & Arrange (Fill, Center and the arrangements) and Return to Previous Size, each row named by its label. Each row chosen lays the window out as the compositor's own tiling does (LayOutSurface, protocol version 50), the rectangles window-tiling asserts at 1280 × 720 with no shell (the work area the whole display, 8 px margins), and Return to Previous Size gives back the frame before the first; an arrangement with no window behind takes its first tile. A long press opens it too; from the keyboard ↓ and Return choose a row and Escape closes it; a press on the bubble still zooms.",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "steps": [
+    {
+      "name": "The window is the active one",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          60,
+          900,
+          600
+        ],
+        "focus_surface": 1,
+        "popups": 0
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble: nothing yet",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Left: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Left"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Right: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Right"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Center: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Center"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          326,
+          8,
+          628,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Top: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Top"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Bottom: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Bottom"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          364,
+          1264,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Top Left: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Top Left"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          628,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Top Right: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Top Right"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Bottom Left: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Bottom Left"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          364,
+          628,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Bottom Right: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Bottom Right"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          364,
+          628,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Fill: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Fill"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Left & Right: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Left & Right"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          628,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Right & Left: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Right & Left"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Top & Bottom: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Top & Bottom"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Bottom & Top: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Bottom & Top"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          364,
+          1264,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Quarters: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Quarters"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          628,
+          348
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Return to Previous Size: the window laid out as the compositor's tiling lays it out, the menu gone",
+      "do": [
+        "press_named",
+        "Return to Previous Size"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          190,
+          60,
+          900,
+          600
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "A long press on the zoom bubble opens its layouts too",
+      "do": [
+        "hold_named",
+        [
+          "Zoom",
+          800
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "its layouts, from the long press",
+      "do": [
+        "wait_named",
+        [
+          "Fill",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1
+      }
+    },
+    {
+      "name": "Fill, from it",
+      "do": [
+        "press_named",
+        "Fill"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          8,
+          8,
+          1264,
+          704
+        ],
+        "popups": 0
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble again",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "↓ makes Left the active row, ↓ again Right",
+      "do": [
+        "key",
+        [
+          108,
+          108
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1
+      }
+    },
+    {
+      "name": "Return chooses Right: the right half",
+      "do": [
+        "key",
+        [
+          28
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "popups": 0,
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble once more",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts show, half a second on: a menu named Window layouts, every row named by its label",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "Menu",
+              "name": "Window layouts"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Fill"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Center"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Left & Right"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Right & Left"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Top & Bottom"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Bottom & Top"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Quarters"
+            },
+            {
+              "role": "MenuItem",
+              "name": "Return to Previous Size"
+            }
+          ]
+        },
+        "texts": [
+          "Move & Resize",
+          "Fill & Arrange"
+        ]
+      }
+    },
+    {
+      "name": "Escape closes it, the window as it was",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          644,
+          8,
+          628,
+          704
+        ],
+        "popups": 0
+      }
+    },
+    {
+      "name": "A press on the zoom bubble still zooms",
+      "do": [
+        "press_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "window_rect": [
+          0,
+          0,
+          1280,
+          720
+        ],
+        "popups": 0
+      }
+    }
+  ]
+}
