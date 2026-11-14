@@ -961,6 +961,71 @@ fn the_stores_statement_verifies_and_matches() {
 }
 
 #[test]
+fn only_the_stores_signature_says_a_release_is_oxys_own() {
+    let store = SigningKey::from_seed(&STORE);
+    let (_, _, _, release) = signed_release(&store);
+    // Without `firstParty`, a third party's; its bytes are as they were before the field.
+    assert!(!release.statement.first_party);
+    let text = String::from_utf8(release.to_canonical()).unwrap();
+    assert!(!text.contains("firstParty"), "{text}");
+    // Signed by the store as Oxy's own: said, and read back.
+    let own = store.sign_release(ReleaseStatement {
+        first_party: true,
+        ..release.statement.clone()
+    });
+    let own_text = String::from_utf8(own.to_canonical()).unwrap();
+    assert!(own_text.contains("\"firstParty\":true"), "{own_text}");
+    assert!(
+        SignedRelease::verify(own_text.as_bytes(), &[store.public_key()])
+            .unwrap()
+            .first_party
+    );
+    // Added to a third party's statement after the store signed it: refused.
+    let claimed = text.replacen(
+        "\"manifestLength\"",
+        "\"firstParty\":true,\"manifestLength\"",
+        1,
+    );
+    assert_ne!(claimed, text);
+    assert_eq!(
+        SignedRelease::verify(claimed.as_bytes(), &[store.public_key()]),
+        Err(Error::BadSignature)
+    );
+    // Anything but a boolean is no answer.
+    let mut odd = release.statement.to_value();
+    if let json::Value::Object(members) = &mut odd {
+        members.push(("firstParty".into(), json::string("yes")));
+    }
+    let signature = store.sign_raw(
+        &[
+            b"oxyos-package release v1\0".as_slice(),
+            &json::canonical(&odd),
+        ]
+        .concat(),
+    );
+    let document = json::canonical(&json::object(vec![
+        ("algorithm", json::string("ed25519")),
+        ("keyId", json::string(store.public_key().key_id().as_str())),
+        ("signature", json::string(&base64url::encode(&signature))),
+        ("statement", odd),
+    ]));
+    assert_eq!(
+        SignedRelease::verify(&document, &[store.public_key()]),
+        Err(Error::WrongType("firstParty"))
+    );
+}
+
+#[test]
+fn only_the_oxy_account_is_oxys_own() {
+    let own: Vec<&str> = Capability::ALL
+        .iter()
+        .filter(|c| c.oxys_own())
+        .map(Capability::name)
+        .collect();
+    assert_eq!(own, ["oxy-account"]);
+}
+
+#[test]
 fn the_stores_statement_is_refused_unless_trusted_and_matching() {
     let store = SigningKey::from_seed(&STORE);
     let (bytes, manifest, signature, release) = signed_release(&store);

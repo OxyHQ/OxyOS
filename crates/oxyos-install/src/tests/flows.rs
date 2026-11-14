@@ -292,6 +292,123 @@ fn an_account_never_holds_another_back() {
     );
 }
 
+/// Oxy's own application (the store's statement says `firstParty`) is granted its Oxy account
+/// without the person being shown or asked it, at install and when an update adds it (Oxy ADR
+/// 0066); the device's capabilities and the rest are as for anyone's.
+#[test]
+fn oxys_own_application_gets_its_oxy_account_without_asking() {
+    let names = |plan: &crate::install::Plan| -> Vec<String> {
+        plan.capabilities.iter().map(|c| c.name.clone()).collect()
+    };
+    let mut world = World::new("first-party");
+    let mut v12 = Pkg::notes(12);
+    v12.first_party = true;
+    v12.capabilities = vec!["network", "notifications", "oxy-account"];
+    world.repo.add(&v12);
+    world.repo.publish();
+    let installer = world.installer();
+    let prepared = installer.prepare(ALICE, ID).unwrap();
+    assert_eq!(names(&prepared.plan), ["network", "notifications"]);
+    installer.commit(&prepared, &mut |_| {}).unwrap();
+    assert_eq!(
+        decision(&world, "alice", "oxy-account"),
+        Some(Decision::Granted)
+    );
+    assert_eq!(
+        decision(&world, "alice", "notifications"),
+        Some(Decision::Undecided)
+    );
+
+    // An update adding the Oxy account to an install without it: no consent, it switches.
+    let mut world = World::new("first-party-update");
+    let mut v12 = Pkg::notes(12);
+    v12.first_party = true;
+    world.repo.add(&v12);
+    world.repo.publish();
+    let installer = world.installer();
+    install(&installer, ALICE, ID).unwrap();
+    let mut v13 = Pkg::notes(13);
+    v13.first_party = true;
+    v13.capabilities = vec!["camera", "network", "notifications", "oxy-account"];
+    world.repo.add(&v13);
+    world.repo.publish();
+    installer.check().unwrap();
+    let state = installer.update_state(ALICE).unwrap();
+    assert_eq!(
+        (state.updates[0].status.as_str(), &state.updates[0].consent),
+        ("available", &None)
+    );
+    let prepared = installer.prepare(ALICE, ID).unwrap();
+    assert!(prepared.plan.new_capabilities.is_empty());
+    assert_eq!(
+        names(&prepared.plan),
+        ["camera", "network", "notifications"]
+    );
+    assert_eq!(
+        installer.update(ALICE, None).unwrap()[0].outcome,
+        "switched"
+    );
+    assert_eq!(world.current("alice", ID), Some(13));
+    assert_eq!(
+        decision(&world, "alice", "oxy-account"),
+        Some(Decision::Granted)
+    );
+    assert_eq!(
+        decision(&world, "alice", "camera"),
+        Some(Decision::Undecided)
+    );
+}
+
+/// A third party's application (no `firstParty` in the store's statement) shows its Oxy account
+/// at install and waits for consent when an update adds it, as before.
+#[test]
+fn a_third_partys_oxy_account_is_shown_and_consented() {
+    let mut world = World::new("third-party");
+    let mut v12 = Pkg::notes(12);
+    v12.capabilities = vec!["network", "oxy-account"];
+    world.repo.add(&v12);
+    world.repo.publish();
+    let installer = world.installer();
+    let prepared = installer.prepare(ALICE, ID).unwrap();
+    assert_eq!(
+        prepared
+            .plan
+            .capabilities
+            .iter()
+            .map(|c| (c.name.as_str(), c.asked_at_first_use))
+            .collect::<Vec<_>>(),
+        [("network", false), ("oxy-account", false)]
+    );
+    // An update of an install without it waits for consent.
+    let mut world = World::new("third-party-update");
+    world.repo.add(&Pkg::notes(12));
+    world.repo.publish();
+    let installer = world.installer();
+    install(&installer, ALICE, ID).unwrap();
+    let mut v13 = Pkg::notes(13);
+    v13.capabilities = vec!["network", "notifications", "oxy-account"];
+    world.repo.add(&v13);
+    world.repo.publish();
+    installer.check().unwrap();
+    let wanted = Some(Consent {
+        capabilities: vec!["oxy-account".into()],
+        key_rotation: false,
+    });
+    assert_eq!(
+        installer.update_state(ALICE).unwrap().updates[0].consent,
+        wanted
+    );
+    assert_eq!(
+        installer.prepare(ALICE, ID).unwrap().plan.new_capabilities,
+        ["oxy-account"]
+    );
+    assert_eq!(
+        installer.update(ALICE, None).unwrap()[0].outcome,
+        "awaitingConsent"
+    );
+    assert_eq!(world.current("alice", ID), Some(12));
+}
+
 #[test]
 fn a_hold_defers_only_its_own_accounts_switch() {
     let mut world = World::new("hold");
