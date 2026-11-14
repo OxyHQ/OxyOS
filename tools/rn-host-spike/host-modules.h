@@ -262,6 +262,10 @@ struct WindowService {
   // Moves the window with the pointer from the press being handled (false if there is none).
   std::function<bool()> startMove;
   std::function<void(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight)> setSizeLimits;
+  // Its zoom control's layouts (docs/adr/0016-windows.mdx, decision 12, protocol version 50): laid
+  // out as `layout` (OXYOS_WINDOW_LAYOUT_*), and moved to another of the session's workspaces.
+  std::function<void(uint8_t layout)> layOut;
+  std::function<void(uint32_t workspace)> moveToWorkspace;
 };
 
 // The session's preferences (docs/adr/0019-settings.mdx): those every client draws by (`drawing`:
@@ -371,6 +375,9 @@ struct HostServices {
   // Whether the host runs an application in a window of its own (not the shell, not offscreen):
   // known before JavaScript starts, so Bloom's adapter reports the `window` capability from it.
   bool applicationWindow = false;
+  // Whether its compositor lays the window out at its own request (protocol version 50 or newer,
+  // docs/adr/0016-windows.mdx, decision 12): Bloom's adapter reports `window-layout` from it.
+  bool windowLayouts = false;
   // Whether it runs the session's shell, whose surfaces' keys are offered to JavaScript too
   // (Launchpad's arrows and Return, docs/adr/0009-session-shell.mdx).
   bool shellWindow = false;

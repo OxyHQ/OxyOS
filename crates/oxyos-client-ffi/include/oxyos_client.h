@@ -41,6 +41,10 @@ typedef struct OxyOSClient OxyOSClient;
 #define OXYOS_EVENT_WINDOW_APP_ID 39
 #define OXYOS_EVENT_WINDOW_CLOSED 40
 #define OXYOS_EVENT_WORKSPACES 41
+/* To a toplevel's client (ADR 0016, decision 12, version 50): the session's workspaces (detail: how
+ * many) and the one the window `surface` is on (code, from 0), as it gets its role and whenever
+ * either changes, for its zoom control's Move to. */
+#define OXYOS_EVENT_SURFACE_WORKSPACES 151
 #define OXYOS_EVENT_WINDOW_SIZE 80
 /* Whether a zoomed or full-screen window covers an output (docs/adr/0034-the-dock.mdx, version
    22): code the output, flag 1 while one does. */
@@ -1124,6 +1128,12 @@ int oxyos_client_begin_move(OxyOSClient* client, uint32_t surface, uint64_t seri
 int oxyos_client_set_fullscreen(OxyOSClient* client, uint32_t surface, bool enabled);
 int oxyos_client_set_maximized(OxyOSClient* client, uint32_t surface, bool enabled);
 int oxyos_client_minimize(OxyOSClient* client, uint32_t surface);
+/* A toplevel's own layouts (ADR 0016, decision 12: its zoom control's menu, version 50): laid out
+ * as `layout` (OXYOS_WINDOW_LAYOUT_*, Zoom zooming it or back), or moved to another of the
+ * session's workspaces (from 0; OXYOS_EVENT_SURFACE_WORKSPACES says them). Only the client's own
+ * toplevel; nothing while locked. 0, or OXYOS_ERROR (a compositor of a version before 50). */
+int oxyos_client_lay_out_surface(OxyOSClient* client, uint32_t surface, uint8_t layout);
+int oxyos_client_move_surface_to_workspace(OxyOSClient* client, uint32_t surface, uint32_t workspace);
 int oxyos_client_set_size_limits(OxyOSClient* client, uint32_t surface, uint32_t min_width, uint32_t min_height,
                                  uint32_t max_width, uint32_t max_height);
 int oxyos_client_set_input_region(OxyOSClient* client, uint32_t surface, int32_t x, int32_t y, uint32_t width,

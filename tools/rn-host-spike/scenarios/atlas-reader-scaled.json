@@ -152,6 +152,21 @@
    }
   },
   {
+   "name": "the pointer leaves the window's controls for the work area's lower right, as a person's goes on to the page: it rests on no control that opens anything by hover (Inbox's window, opened later, shows its zoom control where Atlas's was)",
+   "do": [
+    "move_output",
+    [
+     1250,
+     750
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "spoken": [],
+    "announcements": []
+   }
+  },
+  {
    "name": "the storefront, Inbox's lockup offering Get",
    "do": [
     "wait_named",

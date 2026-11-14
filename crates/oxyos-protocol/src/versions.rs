@@ -95,7 +95,9 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// versions 46 and 47 are other changes' in flight (OxyOS #553, #545);
 /// version 48, the shell laying out a window (`LayOutWindow`, ADR 0016, decision 12: the Window
 /// menu's tiling and Zoom); version 49, a Ping answered once the client has handled what came
-/// before it, never waiting for it to be idle besides (`PingHandled`).
+/// before it, never waiting for it to be idle besides (`PingHandled`); version 50, a toplevel's
+/// own layouts (`LayOutSurface`, `MoveSurfaceToWorkspace`, `SurfaceWorkspaces`, ADR 0016,
+/// decision 12: its zoom control's menu), both ways.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -121,6 +123,7 @@ const EVENTS_ADDED: Added = &[
     (38, 168..=169),
     (43, 75..=75),
     (49, 233..=233),
+    (50, 151..=151),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -150,6 +153,7 @@ const REQUESTS_ADDED: Added = &[
     (43, 113..=114),
     (45, 71..=71),
     (48, 115..=115),
+    (50, 177..=178),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

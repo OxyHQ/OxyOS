@@ -2706,6 +2706,10 @@ fn the_header_matches_the_window_management_abi() {
             OXYOS_EVENT_WINDOW_CLOSED.into(),
         ),
         ("OXYOS_EVENT_WORKSPACES", OXYOS_EVENT_WORKSPACES.into()),
+        (
+            "OXYOS_EVENT_SURFACE_WORKSPACES",
+            OXYOS_EVENT_SURFACE_WORKSPACES.into(),
+        ),
         ("OXYOS_EVENT_OUTPUT", OXYOS_EVENT_OUTPUT.into()),
         (
             "OXYOS_EVENT_OUTPUT_REMOVED",
@@ -2881,6 +2885,16 @@ fn window_events_convert_field_by_field() {
     assert_eq!(
         (spaces.kind, spaces.detail, spaces.code),
         (OXYOS_EVENT_WORKSPACES, 3, 1)
+    );
+    let mine = convert(&Event::SurfaceWorkspaces {
+        surface: 4,
+        count: 3,
+        workspace: 2,
+    })
+    .unwrap();
+    assert_eq!(
+        (mine.kind, mine.surface, mine.detail, mine.code),
+        (OXYOS_EVENT_SURFACE_WORKSPACES, 4, 3, 2)
     );
     let output = convert(&Event::Output {
         output: 2,
@@ -6517,6 +6531,13 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
             oxyos_client_lay_out_window(client, 7, OXYOS_WINDOW_LAYOUT_TOP_LEFT),
             0
         );
+        // A toplevel's own (ADR 0016, decision 12); an unknown layout sends nothing.
+        assert_eq!(oxyos_client_lay_out_surface(client, 3, 99), OXYOS_ERROR);
+        assert_eq!(
+            oxyos_client_lay_out_surface(client, 3, OXYOS_WINDOW_LAYOUT_RIGHT),
+            0
+        );
+        assert_eq!(oxyos_client_move_surface_to_workspace(client, 3, 1), 0);
         assert_eq!(
             oxyos_client_manage(client, OXYOS_MANAGE_SHOW_ALL_APPLICATIONS, 0, 0),
             0
@@ -6549,6 +6570,14 @@ fn the_docks_requests_and_events_go_through_the_c_abi() {
             Request::LayOutWindow {
                 window: 7,
                 layout: oxyos_protocol::WindowLayout::TopLeft,
+            },
+            Request::LayOutSurface {
+                surface: 3,
+                layout: oxyos_protocol::WindowLayout::Right,
+            },
+            Request::MoveSurfaceToWorkspace {
+                surface: 3,
+                workspace: 1,
             },
             Request::ShowAllApplications {},
             Request::EmptyTrash { input: 43 },
@@ -7850,5 +7879,11 @@ fn the_header_matches_the_window_layouts() {
     }
     assert!(HEADER.contains(
         "int oxyos_client_lay_out_window(OxyOSClient* client, uint32_t window, uint8_t layout);"
+    ));
+    assert!(HEADER.contains(
+        "int oxyos_client_lay_out_surface(OxyOSClient* client, uint32_t surface, uint8_t layout);"
+    ));
+    assert!(HEADER.contains(
+        "int oxyos_client_move_surface_to_workspace(OxyOSClient* client, uint32_t surface, uint32_t workspace);"
     ));
 }

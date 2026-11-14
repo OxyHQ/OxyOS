@@ -30,6 +30,10 @@
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
+// The zoom control's layouts (Bloom's WindowLayouts, `window-layout`, docs/adr/0016-windows.mdx,
+// decision 12): registered for WindowControls by importing them, which only a platform that lays
+// windows out does.
+import '@oxy.so/bloom/window/layouts';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { homeName } from './home-name';
 import {
@@ -146,6 +150,15 @@ function createWindow() {
     // The sizes the application's layout holds together at (`SetSizeLimits`): the compositor never
     // configures the window outside them, by its edges or by zoom.
     setSizeLimits: (limits) => platformWindows.setSizeLimits(limits),
+    // Its zoom control's layouts (`window-layout`, docs/adr/0016-windows.mdx, decision 12): the
+    // compositor lays the window out and moves it to another desktop at its own request, as a
+    // Mac's green button asks the window server; the state's `desktops` say them.
+    ...(platformWindows.layouts
+      ? {
+          layOut: (layout) => platformWindows.layOut(layout),
+          moveToDesktop: (desktop) => platformWindows.moveToDesktop(desktop),
+        }
+      : null),
   };
 }
 
@@ -600,6 +613,7 @@ export const oxyosSurfaces = {
     // controls take a desktop's geometry and its menus a desktop's presentation everywhere.
     'pointer',
     ...(window ? ['window'] : []),
+    ...(window?.layOut ? ['window-layout'] : []),
     ...(menuBar ? ['menu-bar'] : []),
     ...(appearance ? ['appearance'] : []),
     ...(drag ? ['drag-and-drop'] : []),

@@ -563,3 +563,193 @@ fn the_shells_window_menu_lays_out_and_zooms_a_window_by_its_number() {
     assert_eq!(h.rect(window), before);
     assert_eq!(h.scene.tile_of(window), None);
 }
+
+#[test]
+fn a_window_lays_itself_out_from_its_zoom_control_as_the_shell_does() {
+    use oxyos_protocol::WindowLayout;
+    let mut h = Harness::new();
+    bars(&mut h);
+    let back = h.toplevel(OTHER, 1, 500, 400);
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.click(h.rect(window).x + 10, h.rect(window).y + 10);
+    h.scene.move_window_to(window, (100, 100));
+    let before = h.rect(window);
+    // Its own toplevel, by its own surface id: no grant.
+    let ask = |h: &mut Harness, layout| {
+        h.request(
+            APP,
+            Request::LayOutSurface {
+                surface: window.id,
+                layout,
+            },
+        )
+    };
+    for (layout, tile) in [
+        (WindowLayout::Left, Tile::Left),
+        (WindowLayout::Right, Tile::Right),
+        (WindowLayout::Top, Tile::Top),
+        (WindowLayout::Bottom, Tile::Bottom),
+        (WindowLayout::TopLeft, Tile::TopLeft),
+        (WindowLayout::TopRight, Tile::TopRight),
+        (WindowLayout::BottomLeft, Tile::BottomLeft),
+        (WindowLayout::BottomRight, Tile::BottomRight),
+        (WindowLayout::Fill, Tile::Fill),
+    ] {
+        ask(&mut h, layout).unwrap();
+        h.present(window);
+        assert_eq!(h.rect(window), tile.rect(AREA), "{layout:?}");
+        assert_eq!(h.scene.tile_of(window), Some(Some(tile)), "{layout:?}");
+    }
+    ask(&mut h, WindowLayout::ReturnToPreviousSize).unwrap();
+    h.present(window);
+    assert_eq!(h.rect(window), before);
+    ask(&mut h, WindowLayout::Center).unwrap();
+    h.present(window);
+    assert_eq!(h.rect(window), Rect::new(760, 382, 400, 300));
+    ask(&mut h, WindowLayout::ReturnToPreviousSize).unwrap();
+    h.present(window);
+    // An arrangement takes the window behind it too, as the shell's does.
+    ask(&mut h, WindowLayout::RightAndLeft).unwrap();
+    h.present(window);
+    h.present(back);
+    assert_eq!(h.rect(window), Tile::Right.rect(AREA));
+    assert_eq!(h.rect(back), Tile::Left.rect(AREA));
+    assert_eq!(h.scene.focus, Some(window));
+    ask(&mut h, WindowLayout::ReturnToPreviousSize).unwrap();
+    h.present(window);
+    // Zoom, as its zoom control: zoomed, and back.
+    ask(&mut h, WindowLayout::Zoom).unwrap();
+    h.present(window);
+    assert!(h.scene.is_maximized(window));
+    ask(&mut h, WindowLayout::Zoom).unwrap();
+    h.present(window);
+    assert!(!h.scene.is_maximized(window));
+    assert_eq!(h.rect(window), before);
+    // Nothing while locked.
+    h.scene.lock();
+    ask(&mut h, WindowLayout::Fill).unwrap();
+    h.scene.unlock();
+    h.present(window);
+    assert_eq!(h.rect(window), before);
+}
+
+#[test]
+fn a_window_lays_out_only_its_own_toplevels() {
+    use oxyos_protocol::WindowLayout;
+    let mut h = Harness::new();
+    bars(&mut h);
+    let theirs = h.toplevel(OTHER, 1, 500, 400);
+    let mine = h.toplevel(APP, 2, 400, 300);
+    let before = h.rect(theirs);
+    // The other application's window by its surface id is no surface of this client's.
+    assert_eq!(
+        h.request(
+            APP,
+            Request::LayOutSurface {
+                surface: theirs.id,
+                layout: WindowLayout::Fill,
+            }
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+    assert_eq!(
+        h.request(
+            APP,
+            Request::MoveSurfaceToWorkspace {
+                surface: theirs.id,
+                workspace: 0,
+            }
+        ),
+        Err(ErrorCode::UnknownSurface)
+    );
+    h.present(theirs);
+    assert_eq!(h.rect(theirs), before);
+    // A popup of its own is no window.
+    let popup = h.popup(mine, 9, menu(Rect::new(10, 10, 20, 20), 120, 80));
+    assert_eq!(
+        h.request(
+            APP,
+            Request::LayOutSurface {
+                surface: popup.id,
+                layout: WindowLayout::Fill,
+            }
+        ),
+        Err(ErrorCode::InvalidRole)
+    );
+    assert_eq!(
+        h.request(
+            APP,
+            Request::MoveSurfaceToWorkspace {
+                surface: popup.id,
+                workspace: 0,
+            }
+        ),
+        Err(ErrorCode::InvalidRole)
+    );
+}
+
+#[test]
+fn a_window_moves_itself_to_another_workspace_and_is_told_the_workspaces() {
+    let mut h = Harness::new();
+    bars(&mut h);
+    let window = h.toplevel(APP, 1, 400, 300);
+    let told = |h: &Harness| -> Vec<(u32, u32, u32)> {
+        h.events_for(APP)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::SurfaceWorkspaces {
+                    surface,
+                    count,
+                    workspace,
+                } => Some((surface, count, workspace)),
+                _ => None,
+            })
+            .collect()
+    };
+    // Told as it gets its role: one workspace, on it.
+    h.scene.drain_events();
+    assert_eq!(told(&h), vec![(window.id, 1, 0)]);
+    h.clear_log();
+    // Told again only when something changed: a workspace added.
+    h.scene.drain_events();
+    assert_eq!(told(&h), vec![]);
+    h.request(SHELL, Request::AddWorkspace {}).unwrap();
+    h.scene.drain_events();
+    assert_eq!(told(&h), vec![(window.id, 2, 0)]);
+    h.clear_log();
+    // Moved by its own request: gone from the workspace shown, and told where it is.
+    h.request(
+        APP,
+        Request::MoveSurfaceToWorkspace {
+            surface: window.id,
+            workspace: 1,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.window_workspace(window), Some(1));
+    assert!(!h.rendered(window));
+    h.scene.drain_events();
+    assert_eq!(told(&h), vec![(window.id, 2, 1)]);
+    // A workspace there is not: nothing.
+    h.request(
+        APP,
+        Request::MoveSurfaceToWorkspace {
+            surface: window.id,
+            workspace: 7,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.scene.window_workspace(window), Some(1));
+    // Nothing while locked.
+    h.scene.lock();
+    h.request(
+        APP,
+        Request::MoveSurfaceToWorkspace {
+            surface: window.id,
+            workspace: 0,
+        },
+    )
+    .unwrap();
+    h.scene.unlock();
+    assert_eq!(h.scene.window_workspace(window), Some(1));
+}

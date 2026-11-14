@@ -416,6 +416,9 @@ The application's own window: its state and operations, its menus, its keys and 
 | `windows.zoom` | `(): void \| undefined` |  |
 | `windows.startMove` | `(): boolean` | While a press is being handled: the compositor moves the window until its buttons are up. Whether it did (no press held, no move). |
 | `windows.setSizeLimits` | `(limits: { minWidth?: number; minHeight?: number; maxWidth?: number; maxHeight?: number; }): void` | The sizes the application's layout holds together at: the compositor never configures the window outside them, by its edges or by zoom (0: no limit). |
+| `windows.layouts` | `boolean` | Whether the compositor lays the window out at its own request (protocol version 50): its zoom control's layouts (docs/adr/0016-windows.mdx, decision 12). |
+| `windows.layOut` | `(layout: string): void \| undefined` | Lays the window out as a Mac's green button does (`fill`, `left`, `leftRight`, `returnToPrevious`, ...: Bloom's PlatformWindowLayout). |
+| `windows.moveToDesktop` | `(desktop: number): void \| undefined` | Moves the window to another of the session's desktops, from 0 (the state's `desktops`). |
 | `windows.menus.available` | `boolean` | Whether this host has it: where it does not, every call rejects with `unavailable`. |
 | `windows.menus.set` | `(entries: MenuEntry[]): number` | Sends `entries` as the window's menus, a new commit: its serial, 0 if not sent (the compositor refuses more than 256 entries or deeper than 4). |
 | `windows.menus.onChoose` | `(listener: (choice: { serial: number; index: number; }) => void): () => void` | The person chose the entry `index` of the commit `serial` in the shell's bar. |

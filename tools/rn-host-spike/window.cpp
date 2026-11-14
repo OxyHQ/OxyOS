@@ -252,6 +252,9 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     } else if (event.kind == OXYOS_EVENT_ACTIVATED && event.surface == kToplevel) {
       active_ = event.flag != 0;
       input(event);
+    } else if (event.kind == OXYOS_EVENT_SURFACE_WORKSPACES && event.surface == kToplevel) {
+      workspaces_ = Workspaces{.count = event.detail, .current = event.code};
+      input(event);
     } else if (event.kind != OXYOS_EVENT_RELEASED) {
       input(event);
     }
@@ -736,6 +739,18 @@ void Window::beginMove(uint64_t serial) {
 void Window::setMaximized(bool enabled) {
   if (closedSurface(kToplevel)) return;
   if (oxyos_client_set_maximized(client_, kToplevel, enabled) != 0) refused("cannot zoom the window");
+}
+
+void Window::layOut(uint8_t layout) {
+  if (closedSurface(kToplevel)) return;
+  if (oxyos_client_lay_out_surface(client_, kToplevel, layout) != 0) refused("cannot lay out the window");
+}
+
+void Window::moveToWorkspace(uint32_t workspace) {
+  if (closedSurface(kToplevel)) return;
+  if (oxyos_client_move_surface_to_workspace(client_, kToplevel, workspace) != 0) {
+    refused("cannot move the window to that desktop");
+  }
 }
 
 void Window::minimize() {

@@ -31,7 +31,7 @@ pub use wire::{
 /// version from the oldest still supported to the current one, encoding each connection's events
 /// as its version defines them.
 pub const MIN_VERSION: u16 = 2;
-pub const VERSION: u16 = 49;
+pub const VERSION: u16 = 50;
 /// The first version whose compositor takes an application's `OpenUrl` for the platform's
 /// Settings (`oxyos-settings:`, docs/adr/0019-settings.mdx): an older one refuses it as
 /// unauthorized, closing the connection, so a client asks it only of this version or newer.
@@ -78,6 +78,11 @@ pub const LAYOUT_WINDOW_VERSION: u16 = 48;
 /// everything it was sent before it (a runtime whose events are handled on another thread, once
 /// that thread has run them), never waiting for it to be idle besides. An older one is sent `Ping`.
 pub const PING_HANDLED_VERSION: u16 = 49;
+/// The first version whose compositor takes a toplevel's own `LayOutSurface` and
+/// `MoveSurfaceToWorkspace` and tells it `SurfaceWorkspaces` (ADR 0016, decision 12: its zoom
+/// control's layouts, a Mac's green button): an older one closes the connection for either
+/// request, so a client asks them only of this version or newer.
+pub const WINDOW_LAYOUTS_VERSION: u16 = 50;
 /// The platform's Settings' URL scheme (docs/adr/0019-settings.mdx): `oxyos-settings://PAGE`
 /// opens Settings at that page, from the shell or any application citing its input.
 pub const PLATFORM_SETTINGS_SCHEME: &str = "oxyos-settings";

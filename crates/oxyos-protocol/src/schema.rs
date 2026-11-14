@@ -214,6 +214,13 @@ messages! {
         59 => SetSizeLimits { surface: u32, min_width: u32, min_height: u32, max_width: u32, max_height: u32 },
         60 => SetMaximized { surface: u32, enabled: bool },
         61 => Minimize { surface: u32 },
+        // Version 50 (ADR 0016, decision 12): a toplevel's own layouts, as its zoom control's
+        // menu asks them (a Mac's green button): laid out as the shell's LayOutWindow lays a
+        // window out (`layout` Zoom zooms it or back), and moved to another of the session's
+        // workspaces (numbered from 0), as the shell's MoveWindowToWorkspace moves one. Only the
+        // client's own toplevels; nothing while locked.
+        177 => LayOutSurface { surface: u32, layout: WindowLayout },
+        178 => MoveSurfaceToWorkspace { surface: u32, workspace: u32 },
         // Settings (the `settings` grant, ADR 0019) changes one of the user's preferences:
         // `key=value` in chunks as SetAppId's; `serial`, its own, names the change in
         // PreferenceResult. The session validates it, keeps it and applies it.
@@ -805,6 +812,10 @@ messages! {
         // To a connection that asked for key text (SetKeyText): a key, as Key, with what the
         // session's layout typed with it (its compose sequences included; empty for a modifier, an
         // editing key, a control character or a dead key).
+        // Version 50 (ADR 0016, decision 12): a toplevel told the session's workspaces and the one
+        // it is on (numbered from 0) as it gets its role and whenever either changes, for its zoom
+        // control's Move to; never to a client of an older version.
+        151 => SurfaceWorkspaces { surface: u32, count: u32, workspace: u32 },
         150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText, time_ns: u64 },
         // To a client with the `store`, `updates`, `privacy` or `network` grant, or the shell: the
         // session's answer to its SystemRequest `serial`, JSON text in chunks; `serial` 0 is told

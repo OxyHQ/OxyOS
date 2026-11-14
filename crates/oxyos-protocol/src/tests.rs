@@ -340,6 +340,14 @@ fn requests() -> Vec<Request> {
             window: 7,
             layout: WindowLayout::BottomAndTop,
         },
+        Request::LayOutSurface {
+            surface: 1,
+            layout: WindowLayout::TopLeft,
+        },
+        Request::MoveSurfaceToWorkspace {
+            surface: 1,
+            workspace: 2,
+        },
         Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
@@ -1133,6 +1141,11 @@ fn events() -> Vec<Event> {
             text: PreeditText::new("so.oxy.inbox").unwrap(),
         },
         Event::WindowClosed { window: 7 },
+        Event::SurfaceWorkspaces {
+            surface: 1,
+            count: 3,
+            workspace: 1,
+        },
         Event::Workspaces {
             count: 2,
             active: 1,
@@ -3269,6 +3282,34 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_50_window_layouts_are_only_version_50s() {
+    let laid = Request::LayOutSurface {
+        surface: 1,
+        layout: WindowLayout::Fill,
+    };
+    let moved = Request::MoveSurfaceToWorkspace {
+        surface: 1,
+        workspace: 1,
+    };
+    assert_eq!(request_since(&laid), 50);
+    assert_eq!(request_since(&moved), 50);
+    let told = Event::SurfaceWorkspaces {
+        surface: 1,
+        count: 2,
+        workspace: 0,
+    };
+    assert_eq!(event_since(&told), 50);
+    assert_eq!(WINDOW_LAYOUTS_VERSION, 50);
+    // Never written to a client of an older version.
+    let mut older = Vec::new();
+    assert!(!write_event_for(&mut older, &told, 49).unwrap());
+    assert!(older.is_empty());
+    let mut newer = Vec::new();
+    assert!(write_event_for(&mut newer, &told, 50).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(newer), 50).unwrap(), told);
 }
 
 #[test]

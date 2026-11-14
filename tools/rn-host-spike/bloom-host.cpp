@@ -1233,6 +1233,7 @@ int main(int argc, char** argv) {
       const char* appId = std::getenv("OXYOS_APP_ID");
       if (!shellMode && (title || appId)) window->nameWindow(title ? title : "", appId ? appId : "");
       services.applicationWindow = !shellMode;
+      services.windowLayouts = !shellMode && window->layouts();
       if (!shellMode || shellFiles) services.files = &files;
       // A file the session started it to open (its launch record's) is the person's to give.
       if (const char* opened = std::getenv("OXYOS_LAUNCH_URL"); !shellMode && opened &&
@@ -1551,6 +1552,10 @@ int main(int argc, char** argv) {
     };
     // The latest press or key press: the input a popup opened by it cites for its grab.
     uint64_t lastPress = 0;
+    // The serial of the pointer's latest entry onto one of this client's surfaces: a menu opened
+    // by the pointer resting on its trigger (a hover menu, the zoom control's layouts) grabs with
+    // it, as the client the pointer is over, when no press of its own is newer (popups.sync).
+    uint64_t lastEnter = 0;
     // A command chosen in a text input's context menu cites the row's press or key.
     editing.useInputSerial([&lastPress] { return lastPress; });
     // The surface with the compositor's keyboard focus (0: none of this client's), and the text
@@ -1659,8 +1664,14 @@ int main(int argc, char** argv) {
     if (!shellMode) {
       services.window = {
           .state = [&window] {
-            return folly::dynamic::object("active", window->active())("maximized", window->maximized())(
-                "fullscreen", window->fullscreen());
+            folly::dynamic state = folly::dynamic::object("active", window->active())(
+                "maximized", window->maximized())("fullscreen", window->fullscreen());
+            // The session's desktops and the one the window is on, once the compositor told them
+            // (docs/adr/0016-windows.mdx, decision 12): its zoom control's Move to.
+            if (auto desktops = window->workspaces(); desktops.count > 0) {
+              state["desktops"] = folly::dynamic::object("count", desktops.count)("current", desktops.current);
+            }
+            return state;
           },
           .close = [&closeAsked] {
             closeAsked = true;
@@ -1685,6 +1696,12 @@ int main(int argc, char** argv) {
           // the window is gone.
           .setSizeLimits = [&window](uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight) {
             if (window) window->setSizeLimits(minWidth, minHeight, maxWidth, maxHeight);
+          },
+          .layOut = [&window](uint8_t layout) {
+            if (window) window->layOut(layout);
+          },
+          .moveToWorkspace = [&window](uint32_t workspace) {
+            if (window) window->moveToWorkspace(workspace);
           },
       };
     }
@@ -2949,6 +2966,9 @@ int main(int argc, char** argv) {
                   (asShell && event.kind == OXYOS_EVENT_SCROLL)) {
                 lastPress = event.serial;
               }
+              if (event.kind == OXYOS_EVENT_POINTER && event.detail == OXYOS_POINTER_ENTER) {
+                lastEnter = event.serial;
+              }
               report(event);
               if (keyTaken) return;
               if (event.kind == OXYOS_EVENT_POPUP_DONE) popups.dismissed(event);
@@ -3969,7 +3989,9 @@ int main(int argc, char** argv) {
           dirty = true;
           busy = true;
         }
-        if (!settling) popups.sync(lastPress);
+        // A popup grabs with the newest of the client's last press and the pointer's entry onto
+        // it: the compositor takes either from the client the person last pressed or rests on.
+        if (!settling) popups.sync(std::max(lastPress, lastEnter));
         if (popupFocusFirst && keyboardHeldFor == 0) {
           if (auto opened = popups.awaitingFocus(); opened != 0 && keyboardHeldOnce.insert(opened).second) {
             oxyos::Report::get().input("test.keyboard.held", opened);

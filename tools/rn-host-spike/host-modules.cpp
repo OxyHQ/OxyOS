@@ -41,6 +41,43 @@ namespace oxyos {
 
 namespace {
 
+// A window's layouts by their names in sample/oxyos/platform/src/shell.ts and Bloom's
+// PlatformWindowLayout (docs/adr/0016-windows.mdx, decision 12): the shell's Window menu's and an
+// application's zoom control's, the same OXYOS_WINDOW_LAYOUT_*.
+const std::map<std::string, uint8_t>& windowLayouts() {
+  static const std::map<std::string, uint8_t> layouts = {
+      {"fill", OXYOS_WINDOW_LAYOUT_FILL},
+      {"center", OXYOS_WINDOW_LAYOUT_CENTER},
+      {"left", OXYOS_WINDOW_LAYOUT_LEFT},
+      {"right", OXYOS_WINDOW_LAYOUT_RIGHT},
+      {"top", OXYOS_WINDOW_LAYOUT_TOP},
+      {"bottom", OXYOS_WINDOW_LAYOUT_BOTTOM},
+      {"topLeft", OXYOS_WINDOW_LAYOUT_TOP_LEFT},
+      {"topRight", OXYOS_WINDOW_LAYOUT_TOP_RIGHT},
+      {"bottomLeft", OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT},
+      {"bottomRight", OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT},
+      {"leftAndRight", OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT},
+      {"rightAndLeft", OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT},
+      {"topAndBottom", OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM},
+      {"bottomAndTop", OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP},
+      {"quarters", OXYOS_WINDOW_LAYOUT_QUARTERS},
+      {"returnToPreviousSize", OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE},
+      {"zoom", OXYOS_WINDOW_LAYOUT_ZOOM},
+      // Bloom's names for the arrangements and Return to Previous Size.
+      {"leftRight", OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT},
+      {"rightLeft", OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT},
+      {"topBottom", OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM},
+      {"bottomTop", OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP},
+      {"returnToPrevious", OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE},
+  };
+  return layouts;
+}
+
+}  // namespace
+
+
+namespace {
+
 jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& argument) {
   if (callback.isObject() && callback.asObject(rt).isFunction(rt)) {
     callback.asObject(rt).asFunction(rt).call(rt, argument);
@@ -771,25 +808,7 @@ std::shared_ptr<TurboModule> createHostModule(
     // layout by its name in sample/oxyos/platform/src/shell.ts, true if sent.
     module->method("layOutWindow", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
-      static const std::map<std::string, uint8_t> layouts = {
-          {"fill", OXYOS_WINDOW_LAYOUT_FILL},
-          {"center", OXYOS_WINDOW_LAYOUT_CENTER},
-          {"left", OXYOS_WINDOW_LAYOUT_LEFT},
-          {"right", OXYOS_WINDOW_LAYOUT_RIGHT},
-          {"top", OXYOS_WINDOW_LAYOUT_TOP},
-          {"bottom", OXYOS_WINDOW_LAYOUT_BOTTOM},
-          {"topLeft", OXYOS_WINDOW_LAYOUT_TOP_LEFT},
-          {"topRight", OXYOS_WINDOW_LAYOUT_TOP_RIGHT},
-          {"bottomLeft", OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT},
-          {"bottomRight", OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT},
-          {"leftAndRight", OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT},
-          {"rightAndLeft", OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT},
-          {"topAndBottom", OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM},
-          {"bottomAndTop", OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP},
-          {"quarters", OXYOS_WINDOW_LAYOUT_QUARTERS},
-          {"returnToPreviousSize", OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE},
-          {"zoom", OXYOS_WINDOW_LAYOUT_ZOOM},
-      };
+      const auto& layouts = windowLayouts();
       if (count < 2 || !args[1].isString()) throw jsi::JSError(rt, "OxyOSShell.layOutWindow: a window and a layout");
       auto layout = layouts.find(args[1].asString(rt).utf8(rt));
       if (layout == layouts.end()) throw jsi::JSError(rt, "OxyOSShell.layOutWindow: an unknown layout");
@@ -1110,7 +1129,7 @@ std::shared_ptr<TurboModule> createHostModule(
       if (!services.window.state) throw jsi::JSError(rt, "OxyOSWindow: only an application's window has it");
     };
     module->constants(folly::dynamic::object("available", services.applicationWindow)(
-        "metrics", folly::dynamic::object("controls", folly::dynamic::object("start", 14)("top", 16)("width", 68)(
+        "layouts", services.windowLayouts)("metrics", folly::dynamic::object("controls", folly::dynamic::object("start", 14)("top", 16)("width", 68)(
                                                           "height", 20))("room", folly::dynamic::object("top", 52)(
                                                           "leading", 88))("radius", 16)));
     module->method("getState", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
@@ -1133,6 +1152,24 @@ std::shared_ptr<TurboModule> createHostModule(
       ready(rt);
       auto at = [&](size_t i) { return count > i && args[i].isNumber() ? static_cast<uint32_t>(args[i].asNumber()) : 0u; };
       services.window.setSizeLimits(at(0), at(1), at(2), at(3));
+      return jsi::Value::undefined();
+    });
+    // Its zoom control's layouts (decision 12): `layOut(layout)` by Bloom's PlatformWindowLayout
+    // name, `moveToDesktop(desktop)` from 0.
+    module->method("layOut", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSWindow.layOut: a layout");
+      auto layout = windowLayouts().find(args[0].asString(rt).utf8(rt));
+      if (layout == windowLayouts().end()) throw jsi::JSError(rt, "OxyOSWindow.layOut: an unknown layout");
+      services.window.layOut(layout->second);
+      return jsi::Value::undefined();
+    });
+    module->method("moveToDesktop", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isNumber() || args[0].asNumber() < 0) {
+        throw jsi::JSError(rt, "OxyOSWindow.moveToDesktop: a desktop, from 0");
+      }
+      services.window.moveToWorkspace(static_cast<uint32_t>(args[0].asNumber()));
       return jsi::Value::undefined();
     });
     module->listeners();

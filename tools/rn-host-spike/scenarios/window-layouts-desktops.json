@@ -1,0 +1,169 @@
+{
+  "about": "The zoom bubble's Move to (docs/adr/0016-windows.mdx, decision 12), with the session's shell at 1600 × 1000 and 1.25: with one desktop WindowProbe's zoom bubble's layouts offer no Move to; with a second added in Mission Control they end with Move to Desktop 2 (the window told the desktops and its own, SurfaceWorkspaces, protocol version 50), never its own desktop, and choosing it moves the window there (MoveSurfaceToWorkspace) while the first desktop stays the one shown, as a Mac's.",
+  "module": "WindowProbe",
+  "window": [
+    900,
+    600
+  ],
+  "shell": "OxyOSShell",
+  "outputs": "1600x1000@1.25",
+  "steps": [
+    {
+      "name": "The window is the active one, on the only desktop",
+      "do": [
+        "press",
+        [
+          600,
+          300
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "workspaces": [
+          1,
+          0
+        ],
+        "popups": 0
+      }
+    },
+    {
+      "name": "The pointer rests on the zoom bubble",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts, with no Move to: there is no other desktop",
+      "do": [
+        "wait_named",
+        [
+          "Return to Previous Size",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at_absent": {
+          "popup": [
+            {
+              "name": "Move to Desktop 1"
+            },
+            {
+              "name": "Move to Desktop 2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escape closes it",
+      "do": [
+        "key",
+        [
+          1
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0
+      }
+    },
+    {
+      "name": "Super+↑: Mission Control",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "a second desktop added",
+      "do": [
+        "press_named",
+        "Add Desktop"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "workspaces": [
+          2,
+          0
+        ]
+      }
+    },
+    {
+      "name": "Super+↑ again: closed",
+      "do": [
+        "key",
+        [
+          125,
+          103
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "The pointer rests on the zoom bubble again",
+      "do": [
+        "move_named",
+        "Zoom"
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Its layouts end with Move to Desktop 2, the other desktop, and not the window's own",
+      "do": [
+        "wait_named",
+        [
+          "Move to Desktop 2",
+          5000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 1,
+        "at": {
+          "popup": [
+            {
+              "role": "MenuItem",
+              "name": "Move to Desktop 2"
+            }
+          ]
+        },
+        "at_absent": {
+          "popup": [
+            {
+              "name": "Move to Desktop 1"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Move to Desktop 2: the window goes there (MoveSurfaceToWorkspace), the first desktop still the one shown",
+      "do": [
+        "press_named",
+        "Move to Desktop 2"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "popups": 0,
+        "workspaces": [
+          2,
+          0
+        ],
+        "window_shown": false
+      }
+    }
+  ]
+}
