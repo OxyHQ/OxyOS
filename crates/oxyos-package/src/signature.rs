@@ -397,11 +397,17 @@ pub struct ReleaseStatement {
     pub manifest_sha256: Sha256,
     pub manifest_length: u64,
     pub developer_key_id: KeyId,
+    /// The release is of one of Oxy's own applications (`firstParty`): one in Oxy's first-party
+    /// registry, which the store reads when it approves the release (Oxy ADR 0066, decision 1).
+    /// What the person is never asked for such an application is
+    /// [`Capability::oxys_own`](crate::Capability::oxys_own). Written only when true; a statement
+    /// without it is a third party's.
+    pub first_party: bool,
 }
 
 impl ReleaseStatement {
     /// The statement of this manifest's release for `architecture`, signed by the developer as
-    /// `signature` says.
+    /// `signature` says: a third party's, until the store says otherwise (`first_party`).
     pub fn of(
         manifest: &Manifest,
         manifest_bytes: &[u8],
@@ -416,11 +422,12 @@ impl ReleaseStatement {
             manifest_sha256: Sha256::of(manifest_bytes),
             manifest_length: manifest_bytes.len() as u64,
             developer_key_id: signature.key_id.clone(),
+            first_party: false,
         }
     }
 
     pub(crate) fn to_value(&self) -> Value {
-        json::object(vec![
+        let mut members = vec![
             ("packageId", json::string(&self.package_id)),
             ("versionCode", Value::Integer(self.version_code)),
             (
@@ -437,7 +444,11 @@ impl ReleaseStatement {
                 "developerKeyId",
                 json::string(self.developer_key_id.as_str()),
             ),
-        ])
+        ];
+        if self.first_party {
+            members.push(("firstParty", Value::Bool(true)));
+        }
+        json::object(members)
     }
 
     fn from_value(value: Value) -> Result<Self, Error> {
@@ -462,6 +473,11 @@ impl ReleaseStatement {
             .ok_or(Error::Invalid("manifestSha256"))?;
         let manifest_length = fields.integer("manifestLength")?;
         let developer_key_id = KeyId::parse(&fields.string("developerKeyId")?)?;
+        let first_party = match fields.optional("firstParty") {
+            None => false,
+            Some(Value::Bool(first_party)) => first_party,
+            Some(_) => return Err(Error::WrongType("firstParty")),
+        };
         fields.finish()?;
         Ok(ReleaseStatement {
             package_id,
@@ -471,6 +487,7 @@ impl ReleaseStatement {
             manifest_sha256,
             manifest_length,
             developer_key_id,
+            first_party,
         })
     }
 

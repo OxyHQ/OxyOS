@@ -292,6 +292,15 @@ impl Capability {
                 | Capability::LoginItem
         )
     }
+
+    /// An Oxy thing rather than the device's or the person's: granted to Oxy's own applications
+    /// without asking, so their install and update sheets never list it; a third party's
+    /// application shows it at install, as Oxy's consent screen (decision 8's table; Oxy ADR
+    /// 0066). Which application is Oxy's own is the store's statement's to say
+    /// ([`ReleaseStatement::first_party`](crate::ReleaseStatement::first_party)).
+    pub fn oxys_own(&self) -> bool {
+        matches!(self, Capability::OxyAccount)
+    }
 }
 
 /// A capability with its purpose, in the person's languages.

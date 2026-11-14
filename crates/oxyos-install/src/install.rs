@@ -27,7 +27,9 @@
 //!   is not switched away from while it holds it.
 //! - **Consent:** an update that declares a capability shown at install that the account's
 //!   current version does not, or that is signed by a rotated key, is staged for the account
-//!   until the account consents.
+//!   until the account consents. An Oxy thing (the `oxy-account` capability) of a release the
+//!   store's statement says is Oxy's own (`firstParty`) is granted without asking: its sheets
+//!   never list it and it needs no consent (Oxy ADR 0066); a third party's still does.
 //! - **One update state** (decision 16): a check reads the store's metadata and verifies each
 //!   update's manifest once for the machine; each account's state (what it can update, the size
 //!   to fetch, release notes, what needs its consent) is computed from it and the account's
@@ -51,7 +53,7 @@ use crate::state::{
 use crate::tuf::{self, TufError};
 use oxyos_package::json::Value;
 use oxyos_package::{
-    lineage_accepts, Architecture, DeveloperSignature, Lineage, Manifest, PublicKey,
+    lineage_accepts, Architecture, Capability, DeveloperSignature, Lineage, Manifest, PublicKey,
     ReleaseStatement, Runtime, Sha256, SignedRelease, HERMES_BYTECODE_MAGIC,
 };
 use serde::{Deserialize, Serialize};
@@ -398,6 +400,8 @@ pub struct Plan {
     pub runtime_abi: u32,
     /// Bytes to fetch: the files the machine does not have.
     pub download: u64,
+    /// What the sheet lists: every capability the manifest declares, but an Oxy thing of Oxy's own
+    /// application, granted without asking (decision 8; Oxy ADR 0066).
     pub capabilities: Vec<PlannedCapability>,
     /// Capabilities shown at install the account's current version does not declare.
     pub new_capabilities: Vec<String>,
@@ -591,8 +595,15 @@ pub fn data_directories(id: &str) -> Vec<String> {
     ]
 }
 
+/// Whether `capability` of `release` is granted without the person being asked or shown it: an
+/// Oxy thing ([`Capability::oxys_own`]) of a release the store's statement says is Oxy's own
+/// (Oxy ADR 0066). A third party's is shown at install, as Oxy's consent screen.
+fn granted_unasked(capability: Capability, release: &Release) -> bool {
+    release.statement.first_party && capability.oxys_own()
+}
+
 /// What an account's update to `to` needs its consent for, from its current version `from`.
-fn consent_needed(from: &Facts, to: &Manifest, to_key: &str) -> Option<Consent> {
+fn consent_needed(from: &Facts, to: &Verified) -> Option<Consent> {
     let declared: BTreeSet<&str> = from
         .manifest
         .capabilities
@@ -600,12 +611,17 @@ fn consent_needed(from: &Facts, to: &Manifest, to_key: &str) -> Option<Consent> 
         .map(|c| c.capability.name())
         .collect();
     let capabilities: Vec<String> = to
+        .manifest
         .capabilities
         .iter()
-        .filter(|c| !c.capability.asked_at_first_use() && !declared.contains(c.capability.name()))
+        .filter(|c| {
+            !c.capability.asked_at_first_use()
+                && !granted_unasked(c.capability, &to.release)
+                && !declared.contains(c.capability.name())
+        })
         .map(|c| c.capability.name().to_string())
         .collect();
-    let key_rotation = from.key_id != to_key;
+    let key_rotation = from.key_id != to.release.signature.key_id.as_str();
     (key_rotation || !capabilities.is_empty()).then_some(Consent {
         capabilities,
         key_rotation,
@@ -931,8 +947,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
         let (new_capabilities, key_rotation, update) = match &mine {
             Some(mine) if mine.current != manifest.version_code => {
                 let from = self.facts(id, mine.current)?;
-                let consent =
-                    consent_needed(&from, manifest, verified.release.signature.key_id.as_str());
+                let consent = consent_needed(&from, &verified);
                 (
                     consent
                         .as_ref()
@@ -955,6 +970,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
             capabilities: manifest
                 .capabilities
                 .iter()
+                .filter(|c| !granted_unasked(c.capability, &verified.release))
                 .map(|c| PlannedCapability {
                     name: c.capability.name().to_string(),
                     purpose: c
@@ -1071,11 +1087,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 let consent = if consented {
                     None
                 } else {
-                    consent_needed(
-                        &from,
-                        &verified.manifest,
-                        verified.release.signature.key_id.as_str(),
-                    )
+                    consent_needed(&from, verified)
                 };
                 mine.staged = Some(Staged {
                     version_code: code,
@@ -1530,8 +1542,7 @@ impl<F: Fetch, C: Compile, A: Accounts> Installer<F, C, A> {
                 continue;
             }
             if let Some(v) = self.candidate_for(&mine) {
-                let consent =
-                    consent_needed(&from, &v.manifest, v.release.signature.key_id.as_str());
+                let consent = consent_needed(&from, &v);
                 let status = if consent.is_some() {
                     "awaitingConsent"
                 } else if memory

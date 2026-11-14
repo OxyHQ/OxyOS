@@ -85,6 +85,37 @@ test("a consent lists what the update adds, and a rotated key", () => {
   ]);
 });
 
+test("a third party's Oxy account is listed at install and in a consent, in each language", () => {
+  // The install service lists it only for a third party's application: Oxy's own is granted it
+  // without asking, so its plans and consents never name it (crates/oxyos-install, Oxy ADR 0066).
+  const thirdParty: Plan = {
+    ...plan,
+    capabilities: [{ name: "oxy-account", purpose: { en: "Sign you in", es: "Iniciar tu sesión" }, askedAtFirstUse: false }],
+  };
+  assert.deepEqual(sheetView({ kind: "install", plan: thirdParty }, EN).lines, [
+    { label: "Your Oxy account", detail: "Sign you in" },
+  ]);
+  assert.deepEqual(sheetView({ kind: "install", plan: thirdParty }, ES).lines, [
+    { label: "Tu cuenta de Oxy", detail: "Iniciar tu sesión" },
+  ]);
+  const update: AvailableUpdate = {
+    id: "com.example.notes",
+    name: "Notes",
+    names: { es: "Notas" },
+    toVersion: "1.13.0",
+    download: 40,
+    releaseNotes: {},
+    consent: { capabilities: ["oxy-account"], keyRotation: false },
+  };
+  const es = sheetView({ kind: "consent", update }, ES);
+  assert.deepEqual(es.lines, [{ label: "Tu cuenta de Oxy" }]);
+  assert.equal(es.accept, "Actualizar");
+  assert.deepEqual(sheetView({ kind: "consent", update }, EN).lines, [{ label: "Your Oxy account" }]);
+  // Oxy's own plan, without it: nothing about the account is shown.
+  const own = sheetView({ kind: "install", plan }, ES);
+  assert.ok(own.lines.every((line) => line.label !== "Tu cuenta de Oxy"));
+});
+
 test("a permission asks in the registry's name for the app", () => {
   const view = sheetView({ kind: "permission", id: "so.oxy.notes", capability: "notifications" }, ES, {
     "so.oxy.notes": "Notas",
