@@ -409,8 +409,8 @@ impl Scene {
 
     /// A toplevel's requests about its own window, from a chooser whose window is a sheet: to its
     /// client it is a window, so none is an error. A sheet has no title, application id or menus
-    /// of its own (its window's stand), takes no limits, is not zoomed, made full screen or
-    /// minimized; a drag of it (BeginMove with a press of its own) moves the window it is attached
+    /// of its own (its window's stand), takes no limits, is not zoomed, laid out, moved to another
+    /// workspace, made full screen or minimized; a drag of it (BeginMove with a press of its own) moves the window it is attached
     /// to, whose own presses the sheet keeps from it. Any other request is not one of these.
     pub(super) fn sheet_request(
         &mut self,
@@ -424,6 +424,8 @@ impl Scene {
             | Request::SetMaximized { surface, .. }
             | Request::SetFullscreen { surface, .. }
             | Request::Minimize { surface }
+            | Request::LayOutSurface { surface, .. }
+            | Request::MoveSurfaceToWorkspace { surface, .. }
             | Request::MenusBegin { surface, .. }
             | Request::MenuItem { surface, .. }
             | Request::MenuText { surface, .. }

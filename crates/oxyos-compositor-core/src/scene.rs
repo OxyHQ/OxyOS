@@ -181,6 +181,9 @@ struct Node {
     refresh_mhz: u32,
     /// The output its client was last told it is on (`SurfaceOutput`; 0: not yet).
     told_output: OutputId,
+    /// A toplevel's workspaces as its client was last told them (`SurfaceWorkspaces`: the count
+    /// and the one it is on); none yet.
+    told_workspaces: Option<(u32, u32)>,
     mapped: bool,
     hidden: bool,
     dismissed: bool,
@@ -1764,6 +1767,10 @@ impl Scene {
             ),
             Request::SetMaximized { surface, enabled } => self.set_maximized(key(surface), enabled),
             Request::Minimize { surface } => self.minimize_request(key(surface)),
+            Request::LayOutSurface { surface, layout } => self.lay_out_surface(key(surface), layout),
+            Request::MoveSurfaceToWorkspace { surface, workspace } => {
+                self.move_surface_to_workspace(key(surface), workspace)
+            }
             Request::SetKeyText { enabled } => {
                 if enabled {
                     self.key_text.insert(client);
@@ -2231,6 +2238,7 @@ impl Scene {
                 output,
                 refresh_mhz,
                 told_output: if refresh_mhz != 0 { output } else { 0 },
+                told_workspaces: None,
                 mapped: false,
                 hidden: false,
                 dismissed: false,
@@ -5258,6 +5266,8 @@ impl Scene {
         self.tell_refreshes();
         // The shell is told what changed of windows and workspaces since it was last told.
         self.tell_shell();
+        // Each toplevel, the workspaces and the one it is on, where they changed (ADR 0016).
+        self.tell_surface_workspaces();
         // Settings, what changed of the displays (ADR 0018).
         self.tell_displays();
         // Then the active window's menus, once it knows the window (ADR 0021).

@@ -10,13 +10,17 @@ type Json = Record<string, unknown>;
 
 /** The host's modules behind it (OxyOSWindow, OxyOSMenuBar, OxyOSKeyboard, OxyOSEditing). */
 export interface WindowModule {
-  getConstants(): { available?: boolean; metrics?: Json };
+  getConstants(): { available?: boolean; layouts?: boolean; metrics?: Json };
   getState(): Json;
   close(): void;
   minimize(): void;
   zoom(): void;
   startMove(): boolean;
   setSizeLimits(minWidth: number, minHeight: number, maxWidth: number, maxHeight: number): void;
+  /** Its zoom control's layouts (docs/adr/0016-windows.mdx, decision 12): a host whose compositor
+      lays the window out at its own request (`layouts`), by Bloom's PlatformWindowLayout name. */
+  layOut?(layout: string): void;
+  moveToDesktop?(desktop: number): void;
 }
 export interface MenuBarModule {
   getConstants(): { available?: boolean };
@@ -130,6 +134,14 @@ export function createWindows(
     setSizeLimits(limits: { minWidth?: number; minHeight?: number; maxWidth?: number; maxHeight?: number }) {
       window?.setSizeLimits(limits.minWidth ?? 0, limits.minHeight ?? 0, limits.maxWidth ?? 0, limits.maxHeight ?? 0);
     },
+    /** Whether the compositor lays the window out at its own request (protocol version 50): its
+        zoom control's layouts (docs/adr/0016-windows.mdx, decision 12). */
+    layouts: Boolean(hasWindow && windowConstants?.layouts && window?.layOut),
+    /** Lays the window out as a Mac's green button does (`fill`, `left`, `leftRight`,
+        `returnToPrevious`, ...: Bloom's PlatformWindowLayout). */
+    layOut: (layout: string) => window?.layOut?.(layout),
+    /** Moves the window to another of the session's desktops, from 0 (the state's `desktops`). */
+    moveToDesktop: (desktop: number) => window?.moveToDesktop?.(desktop),
     /** The window's menus in the shell's bar. */
     menus: {
       available: Boolean(menuBar?.getConstants()?.available),

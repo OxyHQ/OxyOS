@@ -9,7 +9,7 @@
 //! margins", its default.
 
 use super::{Move, OutputId, Role, Scene, SurfaceKey};
-use oxyos_protocol::{Rect, Size, MODIFIER_ALT};
+use oxyos_protocol::{ErrorCode, Rect, Size, MODIFIER_ALT};
 
 /// The margin tiles keep from the work area's edges and from each other, in logical pixels.
 pub const TILE_MARGIN: u32 = 8;
@@ -323,6 +323,31 @@ impl Scene {
                 for (window, tile) in behind.into_iter().zip(&tiles[1..]) {
                     self.tile_window(window, output, *tile);
                 }
+            }
+        }
+    }
+
+    /// A toplevel's own request for a layout (`LayOutSurface`, ADR 0016, decision 12: its zoom
+    /// control's menu, a Mac's green button): laid out as the shell's LayOutWindow lays a window
+    /// out, Zoom zooming it or back as its zoom control does. Only a toplevel: anything else of
+    /// the client's is an error, as `SetMaximized` is.
+    pub(super) fn lay_out_surface(
+        &mut self,
+        key: SurfaceKey,
+        layout: oxyos_protocol::WindowLayout,
+    ) -> Result<(), ErrorCode> {
+        let node = self.live(key).ok_or(ErrorCode::UnknownSurface)?;
+        if node.role != Role::Toplevel {
+            return Err(ErrorCode::InvalidRole);
+        }
+        match layout_of(layout) {
+            Some(layout) => {
+                self.lay_out_window(key, layout);
+                Ok(())
+            }
+            None => {
+                let zoomed = self.is_maximized(key);
+                self.set_maximized(key, !zoomed)
             }
         }
     }

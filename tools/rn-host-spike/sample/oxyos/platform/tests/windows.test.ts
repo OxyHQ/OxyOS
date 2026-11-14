@@ -19,13 +19,15 @@ function played() {
   const windows = createWindows(
     {
       window: {
-        getConstants: () => ({ available: true, metrics: { radius: 16 } }),
+        getConstants: () => ({ available: true, layouts: true, metrics: { radius: 16 } }),
         getState: () => ({ active: true }),
         close: () => calls.push('close'),
         minimize: () => calls.push('minimize'),
         zoom: () => calls.push('zoom'),
         startMove: () => true,
         setSizeLimits: (...limits) => calls.push(limits),
+        layOut: (layout) => calls.push(['layOut', layout]),
+        moveToDesktop: (desktop) => calls.push(['moveToDesktop', desktop]),
       },
       menuBar: { getConstants: () => ({ available: true }), setMenus: (entries) => (calls.push(entries.length), 7) },
       keyboard: { getConstants: () => ({ available: true }), setListener: (listener) => (hostListener = listener) },
@@ -49,6 +51,20 @@ test("the window's state is followed; its operations reach the host", () => {
   windows.setSizeLimits({ minWidth: 400, minHeight: 300 });
   assert.deepEqual(calls, ['zoom', [400, 300, 0, 0]]);
   assert.deepEqual(windows.metrics, { radius: 16 });
+});
+
+test("the zoom control's layouts and Move to reach the host, where its compositor lays windows out", () => {
+  const { windows, calls, emit } = played();
+  assert.equal(windows.layouts, true);
+  windows.layOut('leftRight');
+  windows.moveToDesktop(2);
+  assert.deepEqual(calls, [
+    ['layOut', 'leftRight'],
+    ['moveToDesktop', 2],
+  ]);
+  // The desktops as the host tells them, with the window's state.
+  emit('OxyOSWindowChanged', { active: true, desktops: { count: 3, current: 1 } });
+  assert.deepEqual(windows.state.current(), { active: true, desktops: { count: 3, current: 1 } });
 });
 
 test("the menus are sent as a commit; a choice in the bar is told by its commit and index", () => {

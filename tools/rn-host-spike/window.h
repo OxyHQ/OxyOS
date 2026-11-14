@@ -124,6 +124,17 @@ class Window {
   void setMaximized(bool enabled);
   void minimize();
   void setSizeLimits(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight);
+  // Its zoom control's layouts (decision 12, protocol version 50): laid out as `layout`
+  // (OXYOS_WINDOW_LAYOUT_*, Zoom zooming it or back), moved to another of the session's
+  // workspaces (from 0), and the workspaces as the compositor last told them (count 0: not told).
+  bool layouts() const { return protocolVersion() >= 50; }
+  void layOut(uint8_t layout);
+  void moveToWorkspace(uint32_t workspace);
+  struct Workspaces {
+    uint32_t count = 0;
+    uint32_t current = 0;
+  };
+  Workspaces workspaces() const { return workspaces_; }
   // Whether the window is zoomed or fills its output, from its latest configure, and whether it
   // is the active window, from the compositor's ACTIVATED.
   bool maximized() const { return surfaces_.at(kToplevel).states & OXYOS_CONFIGURE_MAXIMIZED; }
@@ -492,6 +503,7 @@ class Window {
   std::map<uint32_t, Display> displays_;
   Trial trial_;
   bool active_ = false;
+  Workspaces workspaces_;
   uint64_t presented_ = 0;
   // The window went, the application running on in the background (closeToplevel).
   bool toplevelClosed_ = false;

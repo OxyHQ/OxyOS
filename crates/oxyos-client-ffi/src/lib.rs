@@ -78,6 +78,10 @@ pub const OXYOS_EVENT_WINDOW_TITLE: u32 = 38;
 pub const OXYOS_EVENT_WINDOW_APP_ID: u32 = 39;
 pub const OXYOS_EVENT_WINDOW_CLOSED: u32 = 40;
 pub const OXYOS_EVENT_WORKSPACES: u32 = 41;
+/// To a toplevel's client (ADR 0016, decision 12, version 50): the session's workspaces (detail:
+/// how many) and the one the window `surface` is on (code, from 0), as it gets its role and
+/// whenever either changes, for its zoom control's Move to.
+pub const OXYOS_EVENT_SURFACE_WORKSPACES: u32 = 151;
 /// To the session's shell (ADR 0022): a window's size in logical pixels (code: the window;
 /// width, height), when it is first told and whenever it changes.
 pub const OXYOS_EVENT_WINDOW_SIZE: u32 = 80;
@@ -1785,6 +1789,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 code: window,
                 width: size.width,
                 height: size.height,
+                ..out
+            }
+        }
+        Event::SurfaceWorkspaces {
+            surface,
+            count,
+            workspace,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SURFACE_WORKSPACES,
+                surface,
+                detail: count,
+                code: workspace,
                 ..out
             }
         }
@@ -3601,6 +3618,44 @@ pub unsafe extern "C" fn oxyos_client_set_maximized(
 ) -> c_int {
     // SAFETY: forwarded caller contract.
     unsafe { send(client, Request::SetMaximized { surface, enabled }) }
+}
+
+/// A toplevel lays out its own window (ADR 0016, decision 12: its zoom control's menu, a Mac's
+/// green button): `layout` is an OXYOS_WINDOW_LAYOUT_*, as the shell's `oxyos_client_lay_out_window`
+/// takes, Zoom zooming it or back. Only the client's own toplevel; nothing while locked. Refused to
+/// a compositor of a version before 50. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_lay_out_surface(
+    client: *mut OxyOSClient,
+    surface: u32,
+    layout: u8,
+) -> c_int {
+    let Some(layout) = WindowLayout::from_raw(layout) else {
+        return fail("unknown layout");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::LayOutSurface { surface, layout }) }
+}
+
+/// A toplevel moves its own window to another of the session's workspaces, numbered from 0
+/// (ADR 0016, decision 12: its zoom control's Move to, `OXYOS_EVENT_SURFACE_WORKSPACES`): one there
+/// is, while unlocked. Refused to a compositor of a version before 50. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_move_surface_to_workspace(
+    client: *mut OxyOSClient,
+    surface: u32,
+    workspace: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::MoveSurfaceToWorkspace { surface, workspace }) }
 }
 
 /// Minimizes a toplevel, as the shell does: into the dock (ADR 0016). 0 on success.
