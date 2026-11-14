@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shellMessages } from "../src/messages.ts";
-import { systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
+import { shownRows, systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
 import { chordLabel } from "../src/chord.ts";
 import { sheetView, startsOnAnswer, type SheetText } from "../src/sheet.ts";
 
@@ -14,7 +14,7 @@ function read(rows: SystemMenuRow[]): string[] {
 }
 
 test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in order", () => {
-  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate Isern" });
+  const rows = shownRows(systemMenuRows(en, { canLock: true, power: true, name: "Nate Isern" }), false);
   assert.deepEqual(read(rows), [
     "About This Computer",
     "—",
@@ -34,8 +34,26 @@ test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in ord
   assert.ok(rows.every((row) => row.kind === "separator" || row.confirm !== false));
 });
 
+test("each alternate is declared right after its item, with Option's modifiers, a key of its own and no question", () => {
+  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate" });
+  const alternates = rows.flatMap((row, index) =>
+    row.kind === "item" && row.alternate ? [{ row, before: rows[index - 1] }] : [],
+  );
+  assert.deepEqual(
+    alternates.map(({ row, before }) => [before?.kind === "item" ? before.label : "—", row.label, row.alternate]),
+    [
+      ["Restart…", "Restart", "Alt"],
+      ["Shut Down…", "Shut Down", "Alt"],
+      ["Log Out Nate…", "Log Out Nate", "Alt"],
+    ],
+  );
+  assert.ok(alternates.every(({ row, before }) => row.confirm === false && before?.kind === "item" && before.id === row.id));
+  const keys = rows.map((row) => (row.kind === "item" ? row.key : row.id));
+  assert.equal(new Set(keys).size, keys.length);
+});
+
 test("About This Computer first, then System Settings… and the App Store where it is installed, as a Mac's", () => {
-  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate", store: "Atlas" });
+  const rows = shownRows(systemMenuRows(en, { canLock: true, power: true, name: "Nate", store: "Atlas" }), false);
   assert.deepEqual(read(rows).slice(0, 5), ["About This Computer", "—", "System Settings…", "Atlas…", "—"]);
   assert.deepEqual(
     rows.slice(0, 4).map((row) => row.id),
@@ -44,10 +62,10 @@ test("About This Computer first, then System Settings… and the App Store where
   // Launchpad and Mission Control are the dock's, their keys' and the desktop's View menu's, never
   // the Oxy menu's, as a Mac's Apple menu has neither.
   for (const option of [false, true]) {
-    const labels = read(systemMenuRows(en, { canLock: true, power: true, store: "Atlas", option }));
+    const labels = read(shownRows(systemMenuRows(en, { canLock: true, power: true, store: "Atlas" }), option));
     assert.ok(!labels.includes("Applications") && !labels.includes("Show Desktops"));
   }
-  assert.deepEqual(read(systemMenuRows(es, { canLock: true, power: true, name: "Nate", store: "Atlas" })).slice(0, 4), [
+  assert.deepEqual(read(shownRows(systemMenuRows(es, { canLock: true, power: true, name: "Nate", store: "Atlas" }), false)).slice(0, 4), [
     "Acerca de este ordenador",
     "—",
     "Ajustes del Sistema…",
@@ -55,13 +73,13 @@ test("About This Computer first, then System Settings… and the App Store where
   ]);
   // Option changes none of them.
   assert.deepEqual(
-    read(systemMenuRows(en, { canLock: true, power: true, store: "Atlas", option: true })).slice(0, 4),
+    read(shownRows(systemMenuRows(en, { canLock: true, power: true, store: "Atlas" }), true)).slice(0, 4),
     ["About This Computer", "—", "System Settings…", "Atlas…"],
   );
 });
 
 test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear pantalla, Cerrar sesión de…", () => {
-  const rows = systemMenuRows(es, { canLock: true, power: true, name: "Nate Isern" });
+  const rows = shownRows(systemMenuRows(es, { canLock: true, power: true, name: "Nate Isern" }), false);
   assert.deepEqual(read(rows).slice(0, 4), ["Acerca de este ordenador", "—", "Ajustes del Sistema…", "—"]);
   assert.deepEqual(read(rows).slice(4, 5), ["Forzar salida… Alt+Super+Esc"]);
   assert.deepEqual(read(rows).slice(6), [
@@ -75,7 +93,7 @@ test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear p
 });
 
 test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q", () => {
-  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate", option: true });
+  const rows = shownRows(systemMenuRows(en, { canLock: true, power: true, name: "Nate" }), true);
   assert.deepEqual(read(rows).slice(6), [
     "Sleep",
     "Restart",
@@ -88,7 +106,7 @@ test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q
   assert.ok(ends.length === 2 && ends.every((row) => row.kind === "item" && row.confirm === false));
   const logOut = rows.find((row) => row.kind === "item" && row.id === "session.logOut");
   assert.equal(logOut?.kind === "item" && logOut.confirm, false);
-  assert.deepEqual(read(systemMenuRows(es, { canLock: true, power: true, name: "Nate", option: true })).slice(6), [
+  assert.deepEqual(read(shownRows(systemMenuRows(es, { canLock: true, power: true, name: "Nate" }), true)).slice(6), [
     "Reposo",
     "Reiniciar",
     "Apagar equipo",
@@ -101,27 +119,27 @@ test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q
 test("Log Out always names the person, as a Mac's: an account with no name is the Oxy Account, never the Unix user", () => {
   for (const name of [undefined, "", "  "]) {
     assert.equal(
-      read(systemMenuRows(en, { canLock: true, power: true, name })).at(-1),
+      read(shownRows(systemMenuRows(en, { canLock: true, power: true, name }), false)).at(-1),
       "Log Out Oxy Account… Shift+Super+Q",
     );
     assert.equal(
-      read(systemMenuRows(en, { canLock: true, power: true, name, option: true })).at(-1),
+      read(shownRows(systemMenuRows(en, { canLock: true, power: true, name }), true)).at(-1),
       "Log Out Oxy Account Alt+Shift+Super+Q",
     );
     assert.equal(
-      read(systemMenuRows(es, { canLock: true, power: true, name })).at(-1),
+      read(shownRows(systemMenuRows(es, { canLock: true, power: true, name }), false)).at(-1),
       "Cerrar sesión de Cuenta de Oxy… Mayús+Super+Q",
     );
   }
 });
 
 test("without the session's power or lock the menu offers neither, and no stray separator", () => {
-  assert.deepEqual(read(systemMenuRows(en, { canLock: false, power: false })), [
+  assert.deepEqual(read(shownRows(systemMenuRows(en, { canLock: false, power: false }), false)), [
     "About This Computer",
     "—",
     "System Settings…",
   ]);
-  assert.deepEqual(read(systemMenuRows(en, { canLock: true, power: false })), [
+  assert.deepEqual(read(shownRows(systemMenuRows(en, { canLock: true, power: false }), false)), [
     "About This Computer",
     "—",
     "System Settings…",
