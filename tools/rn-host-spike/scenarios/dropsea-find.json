@@ -152,6 +152,7 @@
     "focus_input": "search",
     "delivered": {
      "1": {
+      "enter": 1,
       "focus.in": 1,
       "menu.activated": 1
      }
