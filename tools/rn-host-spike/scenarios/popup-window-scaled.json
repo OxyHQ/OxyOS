@@ -248,7 +248,7 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "popups": 0,
+        "popups": 1,
         "focus_surface": 4,
         "window_rect": [
           90,
@@ -311,7 +311,7 @@
             56
           ]
         ],
-        "focus_surface": 4,
+        "focus_surface": 5,
         "react": {},
         "popup_events": {
           "open@Context menu": 1
@@ -323,7 +323,7 @@
             "press": 1,
             "release": 1
           },
-          "4": {
+          "5": {
             "focus.in": 1
           }
         },
@@ -349,10 +349,10 @@
         "react": {},
         "popup_events": {
           "dismissed@Context menu": 1,
-          "close@4": 1
+          "close@5": 1
         },
         "delivered": {
-          "4": {
+          "5": {
             "focus.out": 1,
             "popup.done": 1
           }
@@ -471,14 +471,14 @@
         "react": {},
         "popup_events": {
           "dismissed@Explains the page": 1,
-          "close@5": 1
+          "close@6": 1
         },
         "delivered": {
           "1": {
             "focus.out": 1,
             "leave": 1
           },
-          "5": {
+          "6": {
             "popup.done": 1
           }
         }
