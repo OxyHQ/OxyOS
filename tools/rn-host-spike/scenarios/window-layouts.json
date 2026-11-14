@@ -145,6 +145,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -260,6 +272,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -379,6 +403,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -494,6 +530,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -613,6 +661,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -728,6 +788,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -847,6 +919,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -962,6 +1046,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -1081,6 +1177,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -1196,6 +1304,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -1315,6 +1435,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -1430,6 +1562,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -1549,6 +1693,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -1666,6 +1822,18 @@
       }
     },
     {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
       "name": "The pointer rests on the zoom bubble",
       "do": [
         "move_named",
@@ -1781,6 +1949,18 @@
         "popups": 0,
         "focus_surface": 1
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble",
@@ -1941,6 +2121,18 @@
         ],
         "popups": 0
       }
+    },
+    {
+      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "do": [
+        "move_output",
+        [
+          640,
+          360
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
     },
     {
       "name": "The pointer rests on the zoom bubble again",

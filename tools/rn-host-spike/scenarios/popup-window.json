@@ -227,7 +227,7 @@
       }
     },
     {
-      "name": "a press on the zoom bubble closes the menu and does not zoom the window; the pointer resting on it then opens its layouts, as a Mac's green button's (ADR 0016, decision 12), which take the keyboard",
+      "name": "a press on the zoom bubble closes the menu and does not zoom the window",
       "do": [
         "press",
         [
@@ -237,8 +237,8 @@
       ],
       "allow_unchanged": true,
       "expect": {
-        "popups": 1,
-        "focus_surface": 4,
+        "popups": 0,
+        "focus_surface": 1,
         "window_rect": [
           90,
           96,
@@ -248,41 +248,22 @@
         "react": {},
         "popup_events": {
           "dismissed@actions": 1,
-          "close@3": 1,
-          "open@settings-shell-window-controls-layouts": 1
+          "close@3": 1
         },
         "delivered": {
           "1": {
             "enter": 1,
-            "focus.in": 1,
-            "focus.out": 1
+            "focus.in": 1
           },
           "3": {
             "focus.out": 1,
             "popup.done": 1
-          },
-          "4": {
-            "focus.in": 1
           }
         },
         "texts": [
           "menu opened 2, closed 2",
           "active yes, zoomed no, full screen no"
         ]
-      }
-    },
-    {
-      "name": "Escape closes the layouts, the keyboard back with the window",
-      "do": [
-        "key",
-        [
-          1
-        ]
-      ],
-      "allow_unchanged": true,
-      "expect": {
-        "popups": 0,
-        "focus_surface": 1
       }
     },
     {
@@ -300,7 +281,7 @@
             56
           ]
         ],
-        "focus_surface": 5,
+        "focus_surface": 4,
         "react": {},
         "popup_events": {
           "open@Context menu": 1
@@ -312,7 +293,7 @@
             "press": 1,
             "release": 1
           },
-          "5": {
+          "4": {
             "focus.in": 1
           }
         },
@@ -338,10 +319,10 @@
         "react": {},
         "popup_events": {
           "dismissed@Context menu": 1,
-          "close@5": 1
+          "close@4": 1
         },
         "delivered": {
-          "5": {
+          "4": {
             "focus.out": 1,
             "popup.done": 1
           }
@@ -460,14 +441,14 @@
         "react": {},
         "popup_events": {
           "dismissed@Explains the page": 1,
-          "close@6": 1
+          "close@5": 1
         },
         "delivered": {
           "1": {
             "focus.out": 1,
             "leave": 1
           },
-          "6": {
+          "5": {
             "popup.done": 1
           }
         }
