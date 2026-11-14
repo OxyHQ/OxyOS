@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@oxy.so/bloom':
-        specifier: 21.0.0
-        version: 21.0.0(501a0e62c95a3ecb87ea142691e9afd2)
+        specifier: 21.5.0
+        version: 21.5.0(6a0a1b803496ade5786f655a376ca029)
       expo:
         specifier: ~58.0.14
         version: 58.0.20(@babel/core@7.29.7(supports-color@8.1.1))(@expo/dom-webview@58.0.2)(react-dom@19.3.0(react@19.3.0))(react-native-web@0.21.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-native-worklets@0.13.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1))(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1)(typescript@6.0.3)
@@ -921,8 +921,8 @@ packages:
   '@oxc-project/types@0.154.0':
     resolution: {integrity: sha512-KYOUGQFlLWR+s4QMV2Q9ko38TZm7EdO87Qm7rvZLqk/webse/cDjtyxKhg/47l0byCbs/k46LT8qc4PKjAikzA==}
 
-  '@oxy.so/bloom@21.0.0':
-    resolution: {integrity: sha512-i/lYbnVGoLmorvqGunaEJXL2UUq9QIb3XHo/X45udBWa+ZjV8gLfzGnjbRUryPNF8J0heMar/iU5okjVuAAgFA==}
+  '@oxy.so/bloom@21.5.0':
+    resolution: {integrity: sha512-Hf23r/npv3gtaVStNUc0CfyQ/8FlyN8RqsWNBz4AJIs+YWlwqzGk2MsrueE5aDgFiX0fXhJ1aetsN0O8fBrcFA==}
     peerDependencies:
       '@lottiefiles/dotlottie-react': '>=0.13.0'
       '@react-native-community/netinfo': '>=11.1.0'
@@ -942,6 +942,7 @@ packages:
       react: '>=18.0.0'
       react-dom: '>=18.0.0'
       react-native: '>=0.73.0'
+      react-native-css: '>=3.1.0-rc.0'
       react-native-gesture-handler: '>=2.16.1'
       react-native-keyboard-controller: '>=1.11.4'
       react-native-pager-view: '>=6.0.0'
@@ -4177,7 +4178,7 @@ snapshots:
 
   '@oxc-project/types@0.154.0': {}
 
-  '@oxy.so/bloom@21.0.0(501a0e62c95a3ecb87ea142691e9afd2)':
+  '@oxy.so/bloom@21.5.0(6a0a1b803496ade5786f655a376ca029)':
     dependencies:
       '@tanstack/react-virtual': 3.14.23(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       expo-blur: 58.0.5(expo@58.0.20)(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)
@@ -4197,10 +4198,7 @@ snapshots:
       nativewind: 5.0.0-rc.0(react-native-css@3.1.0-rc.0(@expo/metro-config@58.0.18(expo@58.0.20)(supports-color@8.1.1)(typescript@6.0.3))(lightningcss@1.33.0)(react-native@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.3.0)(react@19.3.0)(supports-color@8.1.1))(react@19.3.0)(supports-color@8.1.1))(tailwindcss@4.3.3)
       react-dom: 19.3.0(react@19.3.0)
     transitivePeerDependencies:
-      - '@expo/metro-config'
       - '@types/react'
-      - lightningcss
-      - supports-color
 
   '@react-native/asset-utils@0.88.0': {}
 
