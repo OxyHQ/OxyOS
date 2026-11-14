@@ -41,6 +41,9 @@ export type SystemMenuRow =
     }
   | { kind: "separator"; id: string };
 
+/** One of the menu's commands (or an alternate of one). */
+type SystemMenuItem = Extract<SystemMenuRow, { kind: "item" }>;
+
 /**
  * The Oxy menu's rows, a Mac's Apple menu's in its order: About This Computer; System Settings…
  * and, where the App Store is installed (Atlas), its row named as the registry names it; then,
@@ -76,7 +79,7 @@ export function systemMenuRows(
 ): SystemMenuRow[] {
   const words = messages.power;
   const person = name?.trim() || words.unnamedAccount;
-  const item = (id: SystemMenuCommand, label: string, chord?: string): SystemMenuRow => ({
+  const item = (id: SystemMenuCommand, label: string, chord?: string): SystemMenuItem => ({
     kind: "item",
     key: id,
     id,
@@ -84,7 +87,7 @@ export function systemMenuRows(
     ...(chord ? { chord } : null),
   });
   // Option's alternate of `id`: no question.
-  const now = (id: SystemMenuCommand, label: string, chord?: string): SystemMenuRow => ({
+  const now = (id: SystemMenuCommand, label: string, chord?: string): SystemMenuItem => ({
     ...item(id, label, chord),
     key: `${id}.now`,
     confirm: false,

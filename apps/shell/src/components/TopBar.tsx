@@ -44,6 +44,7 @@ import type {
   ShellPowerActions,
 } from "../model";
 import { systemMenuRows, type SystemMenuCommand } from "../system-menu";
+import type { ShellKeyboard } from "../platform";
 import { barClock, clockSaid } from "../clock";
 import { useShellLocale, useShellMessages } from "../useShellMessages";
 import { SafeModeLabel } from "./SafeModeLabel";
