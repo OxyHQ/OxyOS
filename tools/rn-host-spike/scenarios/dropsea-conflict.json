@@ -239,14 +239,14 @@
           ]
         },
         "menus": {
-          "Edit > Undo Copy “notes.txt”": {
+          "Edit > Undo Copy of “notes.txt”": {
             "disabled": false
           }
         }
       }
     },
     {
-      "name": "Undo (Ctrl+Z, the Edit menu's Undo Copy “notes.txt”): the copy goes to the Trash, in Documents, which the window does not show",
+      "name": "Undo (Ctrl+Z, the Edit menu's Undo Copy of “notes.txt”): the copy goes to the Trash, in Documents, which the window does not show",
       "do": [
         "key",
         [
@@ -264,10 +264,10 @@
           ]
         },
         "menus": {
-          "Edit > Redo Copy “notes.txt”": {
+          "Edit > Redo Copy of “notes.txt”": {
             "disabled": false
           },
-          "Edit > Undo Move “plan.txt”": {
+          "Edit > Undo Move of “plan.txt”": {
             "disabled": false
           }
         }
