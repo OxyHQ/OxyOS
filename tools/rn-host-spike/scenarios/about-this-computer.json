@@ -105,7 +105,7 @@
       }
     },
     {
-      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…, its safe area told as it takes its own size; the menu closed; nothing of it focused",
+      "name": "About This Computer: its window opens with this machine's name, processor, memory and OxyOS's version, and More Info…, its window at its own size, 300 × 380, from its first frame (its package's `window`), its safe area told; the menu closed; nothing of it focused",
       "do": [
         "press_named",
         "Acerca de este ordenador"
@@ -153,6 +153,14 @@
             "hidden": false,
             "focused": true
           }
+        },
+        "windows_placed": {
+          "2": [
+            490,
+            156,
+            300,
+            380
+          ]
         }
       }
     },
