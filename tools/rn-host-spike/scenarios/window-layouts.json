@@ -145,13 +145,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -274,13 +271,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -403,13 +397,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -532,13 +523,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -661,13 +649,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -790,13 +775,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -919,13 +901,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1048,13 +1027,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1177,13 +1153,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1306,13 +1279,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1435,13 +1405,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1564,13 +1531,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1693,13 +1657,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1822,13 +1783,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -1951,13 +1909,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
@@ -2123,13 +2078,10 @@
       }
     },
     {
-      "name": "The pointer goes to the display's middle first: the zoom bubble may have come under it with the window, and only the pointer's movement onto it is hover (#617)",
+      "name": "The pointer goes to the close bubble first, beside the zoom bubble in every layout: the zoom bubble may have come under the pointer with the window, and only the pointer's movement onto it is hover (#617)",
       "do": [
-        "move_output",
-        [
-          640,
-          360
-        ]
+        "move_named",
+        "Close"
       ],
       "allow_unchanged": true,
       "expect": {}
