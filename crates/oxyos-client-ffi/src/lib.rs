@@ -3655,7 +3655,12 @@ pub unsafe extern "C" fn oxyos_client_move_surface_to_workspace(
     workspace: u32,
 ) -> c_int {
     // SAFETY: forwarded caller contract.
-    unsafe { send(client, Request::MoveSurfaceToWorkspace { surface, workspace }) }
+    unsafe {
+        send(
+            client,
+            Request::MoveSurfaceToWorkspace { surface, workspace },
+        )
+    }
 }
 
 /// Minimizes a toplevel, as the shell does: into the dock (ADR 0016). 0 on success.

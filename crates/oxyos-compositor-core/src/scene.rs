@@ -1767,7 +1767,9 @@ impl Scene {
             ),
             Request::SetMaximized { surface, enabled } => self.set_maximized(key(surface), enabled),
             Request::Minimize { surface } => self.minimize_request(key(surface)),
-            Request::LayOutSurface { surface, layout } => self.lay_out_surface(key(surface), layout),
+            Request::LayOutSurface { surface, layout } => {
+                self.lay_out_surface(key(surface), layout)
+            }
             Request::MoveSurfaceToWorkspace { surface, workspace } => {
                 self.move_surface_to_workspace(key(surface), workspace)
             }
