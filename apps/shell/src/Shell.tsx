@@ -942,7 +942,6 @@ export const Shell = memo(function Shell({
             powerActions={powerActions}
             userName={lock ? personName(lock.user) : undefined}
             store={appStore}
-            menuKeyboard={keyboard}
             onCommand={menuCommand}
             power={controls?.power}
             network={controls?.network}
