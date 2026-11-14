@@ -1660,8 +1660,8 @@ int main(int argc, char** argv) {
     if (!shellMode) {
       services.window = {
           .state = [&window] {
-            auto state = folly::dynamic::object("active", window->active())("maximized", window->maximized())(
-                "fullscreen", window->fullscreen());
+            folly::dynamic state = folly::dynamic::object("active", window->active())(
+                "maximized", window->maximized())("fullscreen", window->fullscreen());
             // The session's desktops and the one the window is on, once the compositor told them
             // (docs/adr/0016-windows.mdx, decision 12): its zoom control's Move to.
             if (auto desktops = window->workspaces(); desktops.count > 0) {
