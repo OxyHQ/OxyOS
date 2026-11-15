@@ -44,7 +44,11 @@
        "role": "Alert"
       }
      ]
-    }
+    },
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1
+    },
+    "delivered": {}
    }
   },
   {
@@ -67,7 +71,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "focus@user": 1,
+     "selectionChange@user": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -114,6 +128,18 @@
        ]
       }
      ]
+    },
+    "react": {
+     "keyPress@user": 3,
+     "change@user": 3,
+     "selectionChange@user": 3
+    },
+    "delivered": {
+     "1": {
+      "key.press": 3,
+      "key.release": 3,
+      "text_input": 3
+     }
     }
    }
   },
@@ -142,6 +168,18 @@
        "role": "Alert"
       }
      ]
+    },
+    "react": {
+     "keyPress@user": 1,
+     "change@user": 1,
+     "selectionChange@user": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1,
+      "text_input": 1
+     }
     }
    }
   },
@@ -165,7 +203,18 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@user": 1,
+     "endEditing@user": 1,
+     "focus@save": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -204,6 +253,15 @@
        ]
       }
      ]
+    },
+    "react": {
+     "click@save": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
     }
    }
   },
@@ -233,7 +291,16 @@
       "text": "2 cambios guardados",
       "live": true
      }
-    ]
+    ],
+    "react": {
+     "click@save": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -256,7 +323,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@save": 1,
+     "focus@copy": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -304,6 +381,15 @@
        "name": "3 archivos"
       }
      ]
+    },
+    "react": {
+     "click@copy": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
     }
    }
   },
@@ -327,7 +413,17 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {
+     "blur@copy": 1,
+     "focus@delete": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -371,6 +467,15 @@
        "name": "No se ha podido borrar"
       }
      ]
+    },
+    "react": {
+     "click@delete": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
     }
    }
   }
