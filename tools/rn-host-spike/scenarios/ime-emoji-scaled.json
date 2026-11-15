@@ -365,7 +365,7 @@
       ],
       "expect": {
         "texts": [
-          "Line: \"😃acat\" [6,6]"
+          "Line: \"😀acat\" [6,6]"
         ],
         "react": {
           "change@line": 3,
@@ -422,7 +422,7 @@
           }
         ],
         "field": {
-          "text": "😃a"
+          "text": "😀a"
         }
       }
     },
@@ -437,7 +437,7 @@
       "expect": {
         "focus_input": "line",
         "texts": [
-          "Line: \"😃a\" [3,3]"
+          "Line: \"😀a\" [3,3]"
         ],
         "react": {
           "change@line": 1,
@@ -453,7 +453,7 @@
           {}
         ],
         "field": {
-          "text": "😃a",
+          "text": "😀a",
           "anchor": 5,
           "cursor": 5
         },
@@ -472,7 +472,7 @@
       ],
       "expect": {
         "texts": [
-          "Line: \"😃aa\" [4,4]"
+          "Line: \"😀aa\" [4,4]"
         ],
         "react": {
           "keyPress@line": 1,
@@ -492,7 +492,7 @@
           }
         ],
         "field": {
-          "text": "😃aa",
+          "text": "😀aa",
           "anchor": 6,
           "cursor": 6
         }
