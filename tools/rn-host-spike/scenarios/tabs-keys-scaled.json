@@ -1590,6 +1590,73 @@
      }
     }
    }
+  },
+  {
+   "name": "Shift+Tab before the first stop wraps round to the last, Listo, as a Mac's full keyboard access does",
+   "do": [
+    "key",
+    [
+     42,
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "done",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "Listo, botón",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@tab-general": 1,
+     "focus@done": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
+   }
+  },
+  {
+   "name": "Tab past the last stop wraps round to the first, the strip's selected tab",
+   "do": [
+    "key",
+    [
+     15
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "keyboard_focus": {
+     "target": "tab-general",
+     "ring": true
+    },
+    "spoken": [
+     {
+      "text": "General, seleccionado, pestaña, 1 de 3",
+      "interrupting": true
+     }
+    ],
+    "announcements": [],
+    "react": {
+     "blur@done": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
+   }
   }
  ]
 }

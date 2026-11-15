@@ -286,11 +286,13 @@ These are listed for their owners to decide. This change fixes none of them.
 
 10. **Escape in menus, and every step's deliveries** (15 November 2026): Escape in `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys` (each at both scales) now asserts `focus_surface`, `delivered` and `react`: the keyboard back on the window with one `focus.in`, the key itself taken by the menu once (`key@` its menu) and nothing else delivered. `keyboard-popover`, `live-regions`, `accessibility-collections` and `tabs-keys` assert `react` and `delivered` in every step. Each value was read from a run and checked against the step: one press and one release a key (two with Shift), one `blur` and one `focus` a move, a typed letter one `keyPress`, `change`, `selectionChange` and `text_input`, and the menu bar offered every key but Tab as a shortcut first, as everywhere else.
 
+11. **Tab round a window's stops, both ways** (15 November 2026): `tabs-keys(-scaled)` goes on past its first stop with Shift+Tab to the last, and past its last with Tab to the first, as a Mac's full keyboard access does, the focus, what is said and every event exact. **Space choosing a menu's row**, as Return does: `menu-type-select(-scaled)`.
+
 **Open, most important first:**
 
 1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
 2. An item's shortcut with its menu open, and Space choosing a row, are untested.
 3. The reader crossing surfaces. The order is when trees arrived, undocumented.
-4. A forward Tab wrap in a window. `react` is missing from the settings readers.
+4. `react` is missing from the settings readers.
 5. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
 6. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.
