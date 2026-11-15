@@ -1,0 +1,116 @@
+{
+  "about": "A host whose frame the displays off hold wakes for nothing (ADR 0057, decision 6: the machine silent when nothing happens). FrameProbe's Once button, once the scenario's server answers its cue (`cue_before`, never a clock of the application's own), changes what the window draws twice, 300 ms apart, and never again, as a clock's two ticks. The displays are off by then for want of input (the battery's timers as held-frames': off after two minutes), so the compositor answers none of the window's frames: the first change's frame goes out and stays unanswered, and the second's waits behind it. Waiting is not work: the host's loop used to count the window it could not draw as busy, arm its idle memory trim a second on at every wake, and so wake once a second for as long as the displays stayed off (the ThinkPad's shell, 15 November 2026: 1.03 wakeups a second with its panel off). Twenty seconds with the frame held: the host's threads are switched out about as often as the director's own steps make them (9 to 11 measured on seldon), not once a second more. A press brings the displays back, and the frame held shows both changes.",
+  "module": "FrameProbe",
+  "window": [
+    480,
+    460
+  ],
+  "http": {
+    "port": 18660
+  },
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.frameprobe",
+    "title": "Frames"
+  },
+  "controls": {
+    "output_volume": 0.5,
+    "output_muted": false,
+    "input_volume": 1,
+    "input_muted": false,
+    "display_brightness": 0.75,
+    "wifi": "connected",
+    "wifi_signal": 73,
+    "ssid": "LukeSkyRouter",
+    "wired": false,
+    "bluetooth": "on",
+    "bluetooth_connected": 1
+  },
+  "power": {
+    "battery": {
+      "percent": 64.0,
+      "state": "discharging",
+      "time_to_empty": 12000,
+      "energy_full": 49.6,
+      "energy_full_design": 57.0,
+      "cycles": 412
+    },
+    "on_ac": false
+  },
+  "steps": [
+    {
+      "name": "Once: waiting for the scenario's cue",
+      "do": [
+        "press",
+        [
+          116,
+          408
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": false,
+        "texts": [
+          "Count 0, frame 0"
+        ]
+      }
+    },
+    {
+      "name": "Two minutes with no input: the displays turn off",
+      "do": [
+        "idle",
+        120
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": true
+      }
+    },
+    {
+      "name": "The cue answered with the displays off: the window changes twice, 300 ms apart; the compositor answers none of its frames",
+      "do": [
+        "wait",
+        2000
+      ],
+      "cue_before": "once",
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": true
+      }
+    },
+    {
+      "name": "Twenty seconds more, the frame held: the host wakes for nothing",
+      "do": [
+        "wait",
+        20000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": true,
+        "host": {
+          "wakeups": [
+            0,
+            15
+          ]
+        }
+      }
+    },
+    {
+      "name": "A press on the window's empty side brings the displays back: the frame held shows both changes",
+      "do": [
+        "press",
+        [
+          400,
+          30
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "displays_off": false,
+        "texts": [
+          "Count 0, frame 2"
+        ]
+      }
+    }
+  ]
+}

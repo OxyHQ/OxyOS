@@ -4201,7 +4201,12 @@ int main(int argc, char** argv) {
         // it: an application doing nothing never turns. It waits only after a second idle turn.
         idleTurns = busy ? 0 : idleTurns + 1;
         // What an idle window does not need is given back once it has been idle a while (memory.h).
-        if (busy || dirty) {
+        // Only work counts. A window left dirty here could not draw: it waits on the compositor (its
+        // previous frame unanswered, as it stays while the displays are off), on JavaScript settling,
+        // or on its first commit, each of which wakes the loop. Counted as work, that wait armed the
+        // trim again at every wake: the shell woke once a second for as long as the ThinkPad's
+        // displays were off (perf.py session, 15 November 2026: 1.03 wakeups a second).
+        if (busy) {
           oxyos::Memory::get().worked(Clock::now());
         } else {
           oxyos::Memory::get().tick(Clock::now());

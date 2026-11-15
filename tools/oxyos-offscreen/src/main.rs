@@ -825,6 +825,45 @@ impl Session {
         )
     }
 
+    /// The director's application's host, for a step's result (regress.py's `host`): the times
+    /// its threads were switched out (each a wakeup) and the CPU they ran since they started, so
+    /// a step can hold a host with nothing to do to silence (the displays off, its frame held);
+    /// and each thread's wakeups by its name (threads of one name summed), to say which woke.
+    pub fn host_use(&self) -> String {
+        let Some((pid, _)) = self.app.as_ref() else {
+            return "null".into();
+        };
+        let Ok(entries) = std::fs::read_dir(
+            std::path::Path::new("/proc")
+                .join(pid.to_string())
+                .join("task"),
+        ) else {
+            return "null".into();
+        };
+        let mut wakeups = 0;
+        let mut cpu = 0;
+        let mut threads = std::collections::BTreeMap::<String, u64>::new();
+        for task in entries.flatten() {
+            let path = task.path();
+            let woke = switches(&path);
+            wakeups += woke;
+            cpu += run_ns(&path);
+            let name = std::fs::read_to_string(path.join("comm")).unwrap_or_default();
+            *threads.entry(name.trim().to_string()).or_default() += woke;
+        }
+        let threads: Vec<String> = threads
+            .iter()
+            .map(|(name, woke)| {
+                format!("{}:{woke}", serde_json::to_string(name).unwrap_or_default())
+            })
+            .collect();
+        format!(
+            "{{\"wakeups\":{wakeups},\"cpu_ms\":{},\"threads\":{{{}}}}}",
+            cpu / 1_000_000,
+            threads.join(",")
+        )
+    }
+
     /// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
     /// the part made at the first turn (the login screen's at a login), logind's calls made in the
     /// turn on the played bus, so a step's answer is settled with it.
