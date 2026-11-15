@@ -28,8 +28,8 @@
 #   4. with a GPU (a render node and a Vulkan device that is not the CPU): the one-GPU checks (ADR
 #      0031, decision 14: the device chosen on fake sysfs trees, the painter never opening a decoy
 #      driver, and only the render nodes of a GPU driving a display opened here), gpu-client with
-#      tools/oxyos-gpu-client as its client, and the session's scenarios composed on the GPU alone
-#      (--gpu-only). Without one this is said and skipped.
+#      tools/oxyos-gpu-client as its client, and it and the session's scenarios composed on the GPU
+#      alone (--gpu-only). Without one this is said and skipped.
 # Left out: astro* (an Astro engine: a deploy's ASTRO_PACKAGE), terminal (a real display, --kms),
 # fidelity-thresholds (fidelity.py's settings, not a scenario).
 set -eu
@@ -195,8 +195,13 @@ else
     echo "$allowed" | grep -qx "${p##*/}" || echo "$p"; done)
   [ -z "$bad" ] || fail "a GPU that drives no display was opened: $bad"
   phase "one GPU: only $(echo $allowed | tr '\n' ' ')opened"
-  sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client" \
-    || { said gpu-client; sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client"; } || { said gpu-client; fail "gpu-client failed twice"; }
+  # The native GPU client against a compositor composing on that GPU alone, as the session does
+  # (--gpu-only): it names the GPU, offers its tiled modifiers, and imports without mapping. On
+  # the CPU it names no GPU, and the client's Vulkan on the CPU (Mesa's lavapipe, which on Debian
+  # trixie exports no DMA-BUF with a modifier) drew into shared memory; composing on both
+  # (--gpu), the CPU's side cannot map an amdgpu DMA-BUF (#616).
+  sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client" --gpu-only \
+    || { said gpu-client; sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client" --gpu-only; } || { said gpu-client; fail "gpu-client failed twice"; }
   for n in $GPU_ONLY_SCENARIOS; do
     sh "$R/run-one.sh" "$n@gpu-only" --gpu-only || { said "$n@gpu-only"; sh "$R/run-one.sh" "$n@gpu-only" --gpu-only; } \
       || { said "$n@gpu-only"; fail "scenario $n failed twice composed on the GPU alone"; }
