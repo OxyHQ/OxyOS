@@ -1,34 +1,98 @@
 {
   "about": "A Bloom password field (sample/SecureProbe.tsx): what is typed reaches the application, which shows only how many characters arrived, but is drawn as bullets and never appears in the host's report or in what the compositor holds for an assistive technology (ADR 0003). Leaving the field (Enter submits and blurs it, as on Android) reports its blur and endEditing as bullets, never the password.",
   "module": "SecureProbe",
-  "window": [800, 480],
+  "window": [
+    800,
+    480
+  ],
   "steps": [
     {
       "name": "focus the password field",
-      "do": ["press", [400, 42]],
-      "expect": {"focus_input": "password"}
+      "do": [
+        "press",
+        [
+          400,
+          42
+        ]
+      ],
+      "expect": {
+        "focus_input": "password",
+        "react": {}
+      }
     },
     {
       "name": "type a password: bullets on screen, nothing published",
-      "do": ["type", "hunter2"],
+      "do": [
+        "type",
+        "hunter2"
+      ],
       "expect": {
-        "texts": ["Typed 7 characters", "•••••••"],
-        "absent": ["hunter2"],
+        "texts": [
+          "Typed 7 characters",
+          "•••••••"
+        ],
+        "absent": [
+          "hunter2"
+        ],
         "focus_input": "password",
-        "a11y": {"window": [{"role": "textinput", "name": "Password", "id": "password"}]},
-        "at": {"window": [{"role": "TextInput", "name": "Password", "value": ""}]},
-        "never": ["hunter2", "hunter"]
+        "a11y": {
+          "window": [
+            {
+              "role": "textinput",
+              "name": "Password",
+              "id": "password"
+            }
+          ]
+        },
+        "at": {
+          "window": [
+            {
+              "role": "TextInput",
+              "name": "Password",
+              "value": ""
+            }
+          ]
+        },
+        "never": [
+          "hunter2",
+          "hunter"
+        ],
+        "react": {}
       }
     },
     {
       "name": "delete a character",
-      "do": ["key", 14],
-      "expect": {"texts": ["Typed 6 characters", "••••••"], "absent": ["•••••••"], "never": ["hunter"]}
+      "do": [
+        "key",
+        14
+      ],
+      "expect": {
+        "texts": [
+          "Typed 6 characters",
+          "••••••"
+        ],
+        "absent": [
+          "•••••••"
+        ],
+        "never": [
+          "hunter"
+        ],
+        "react": {}
+      }
     },
     {
       "name": "Enter submits and leaves the field: its blur and endEditing are reported as bullets, never the password",
-      "do": ["key", 28],
-      "expect": {"focus_input": null, "never": ["hunter"]}
+      "do": [
+        "key",
+        28
+      ],
+      "expect": {
+        "focus_input": null,
+        "never": [
+          "hunter"
+        ],
+        "react": {}
+      }
     }
   ]
 }
