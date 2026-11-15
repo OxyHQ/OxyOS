@@ -100,7 +100,9 @@
     "texts": [
      "Sección: General"
     ],
-    "react": {},
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1
+    },
     "delivered": {}
    }
   },
@@ -203,8 +205,15 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -309,8 +318,17 @@
     "texts": [
      "Sección: Avanzado"
     ],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-general": 1,
+     "focus@tab-advanced": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -412,8 +430,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-advanced": 1,
+     "focus@tab-about": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -515,8 +542,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-about": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -618,8 +654,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-general": 1,
+     "focus@tab-about": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -724,8 +769,17 @@
     "texts": [
      "Sección: General"
     ],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@tab-about": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -827,8 +881,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@tab-general": 1,
+     "focus@categories-item-homes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -930,8 +992,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@categories-item-homes": 1,
+     "focus@categories-item-search": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1033,8 +1104,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@categories-item-search": 1,
+     "focus@categories-item-people": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1131,8 +1211,15 @@
     },
     "spoken": [],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1234,8 +1321,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "shortcut@menu-bar": 1,
+     "blur@categories-item-people": 1,
+     "focus@categories-item-homes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1259,8 +1355,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@categories-item-homes": 1,
+     "focus@done": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -1363,8 +1467,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@done": 1,
+     "focus@categories-item-homes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
    }
   },
   {
@@ -1467,8 +1579,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@categories-item-homes": 1,
+     "focus@tab-general": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
    }
   }
  ]

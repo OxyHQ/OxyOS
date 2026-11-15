@@ -917,9 +917,20 @@
           ]
         },
         "popups": 0,
-        "react": {},
-        "delivered": {},
-        "focus_surface": -999
+        "react": {
+          "key@Documents": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "2": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "focus_surface": 1
       }
     },
     {
@@ -1016,9 +1027,20 @@
           ]
         },
         "popups": 0,
-        "react": {},
-        "delivered": {},
-        "focus_surface": -999
+        "react": {
+          "key@Documents": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "3": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "focus_surface": 1
       }
     },
     {
@@ -1443,9 +1465,20 @@
         ],
         "announcements": [],
         "popups": 0,
-        "react": {},
-        "delivered": {},
-        "focus_surface": -999
+        "react": {
+          "key@Documents": 1
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          },
+          "4": {
+            "focus.out": 1,
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "focus_surface": 1
       }
     },
     {

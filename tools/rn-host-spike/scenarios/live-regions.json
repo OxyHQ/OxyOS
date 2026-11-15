@@ -44,7 +44,9 @@
       }
      ]
     },
-    "react": {},
+    "react": {
+     "insetsChange@RNCSafeAreaProvider#2": 1
+    },
     "delivered": {}
    }
   },
@@ -69,8 +71,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "focus@user": 1,
+     "selectionChange@user": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -118,8 +128,18 @@
       }
      ]
     },
-    "react": {},
-    "delivered": {}
+    "react": {
+     "keyPress@user": 3,
+     "change@user": 3,
+     "selectionChange@user": 3
+    },
+    "delivered": {
+     "1": {
+      "key.press": 3,
+      "key.release": 3,
+      "text_input": 3
+     }
+    }
    }
   },
   {
@@ -148,8 +168,18 @@
       }
      ]
     },
-    "react": {},
-    "delivered": {}
+    "react": {
+     "keyPress@user": 1,
+     "change@user": 1,
+     "selectionChange@user": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1,
+      "text_input": 1
+     }
+    }
    }
   },
   {
@@ -173,8 +203,17 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@user": 1,
+     "endEditing@user": 1,
+     "focus@save": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -214,8 +253,15 @@
       }
      ]
     },
-    "react": {},
-    "delivered": {}
+    "react": {
+     "click@save": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -245,8 +291,15 @@
       "live": true
      }
     ],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "click@save": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -270,8 +323,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@save": 1,
+     "focus@copy": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -320,8 +381,15 @@
       }
      ]
     },
-    "react": {},
-    "delivered": {}
+    "react": {
+     "click@copy": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -345,8 +413,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@copy": 1,
+     "focus@delete": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -391,8 +467,15 @@
       }
      ]
     },
-    "react": {},
-    "delivered": {}
+    "react": {
+     "click@delete": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   }
  ]

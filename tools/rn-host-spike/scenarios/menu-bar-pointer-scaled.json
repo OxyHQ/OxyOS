@@ -585,8 +585,12 @@
           "wrap lines: on"
         ],
         "react": {},
-        "delivered": {},
-        "focus_surface": -999
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1
       }
     }
   ],

@@ -284,11 +284,13 @@ These are listed for their owners to decide. This change fixes none of them.
 8. **A text field's menu from the keyboard:** `text-field-menu-keys(-scaled)`, with the fix in `navigationKey`.
 9. **Candidates following a window moved and resized, and the reader saying a commit:** `ime-candidates-follow(-scaled)`; a field focused by a press is the reader's focus now, and a composition is not echoed.
 
+10. **Escape in menus, and every step's deliveries** (15 November 2026): Escape in `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys` (each at both scales) now asserts `focus_surface`, `delivered` and `react`: the keyboard back on the window with one `focus.in`, the key itself taken by the menu once (`key@` its menu) and nothing else delivered. `keyboard-popover`, `live-regions`, `accessibility-collections` and `tabs-keys` assert `react` and `delivered` in every step. Each value was read from a run and checked against the step: one press and one release a key (two with Shift), one `blur` and one `focus` a move, a typed letter one `keyPress`, `change`, `selectionChange` and `text_input`, and the menu bar offered every key but Tab as a shortcut first, as everywhere else.
+
 **Open, most important first:**
 
 1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
-2. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
+2. An item's shortcut with its menu open, and Space choosing a row, are untested.
 3. The reader crossing surfaces. The order is when trees arrived, undocumented.
-4. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
+4. A forward Tab wrap in a window. `react` is missing from the settings readers.
 5. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
 6. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.

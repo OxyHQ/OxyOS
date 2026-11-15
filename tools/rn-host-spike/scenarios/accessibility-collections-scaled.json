@@ -99,8 +99,15 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "focus@notes": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -128,8 +135,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@notes": 1,
+     "focus@photo": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -153,8 +168,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@photo": 1,
+     "focus@report": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -178,8 +201,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@report": 1,
+     "focus@row-3": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -203,8 +234,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@row-3": 1,
+     "focus@row-4": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 1,
+      "key.release": 1
+     }
+    }
    }
   },
   {
@@ -229,8 +268,16 @@
      }
     ],
     "announcements": [],
-    "react": {},
-    "delivered": {}
+    "react": {
+     "blur@row-4": 1,
+     "focus@row-3": 1
+    },
+    "delivered": {
+     "1": {
+      "key.press": 2,
+      "key.release": 2
+     }
+    }
    }
   }
  ]
