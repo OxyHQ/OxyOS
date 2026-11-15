@@ -126,7 +126,9 @@ rm -rf \$out.failed; mv \$out \$out.failed 2>/dev/null; mkdir -p \$out.failed; m
 exit 1
 EOF
 mkdir -p "$R/scenarios"; : > "$R/failed"
-said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3 | cut -c1-240; }
+# A failure's first three lines, whole: what was said, committed or received against what was
+# expected is at their end, and the records stay on the runner, which only the CI user reads.
+said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3; }
 
 grep -vE '^(perf|refresh)-' "$R/list" | xargs -P "$GATE_JOBS" -I{} sh -c "sh '$R/run-one.sh' {} --renderer cpu || echo {} >> '$R/failed'"
 phase "$(grep -vcE '^(perf|refresh)-' "$R/list") scenarios run, $GATE_JOBS at a time: $(wc -l < "$R/failed") failed"
