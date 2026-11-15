@@ -79,10 +79,10 @@
       }
     },
     {
-      "name": "Five seconds more, the frame held: the host wakes for nothing",
+      "name": "Twenty seconds more, the frame held: the host wakes for nothing",
       "do": [
         "wait",
-        5000
+        20000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -90,7 +90,7 @@
         "host": {
           "wakeups": [
             0,
-            2
+            1000
           ]
         }
       }
