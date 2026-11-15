@@ -290,10 +290,14 @@
    }
   },
   {
-   "name": "Reset",
+   "name": "Reset: the press, then the daemon's answer, which opens the note",
    "do": [
     "press_named",
     "Reset"
+   ],
+   "until_named": [
+    "Network settings were reset.",
+    5000
    ],
    "allow_unchanged": true,
    "expect": {
