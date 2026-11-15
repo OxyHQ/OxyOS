@@ -9,8 +9,9 @@
  * frame showing JavaScript's answer to it (an input is timed to that frame, frame-diagnostics.h) (scenarios/held-frames.json: a frame the
  * compositor holds while the displays are off; requestAnimationFrame would wait for the
  * compositor's answer instead); one on "once", once the server answers the cue `once`, changes it
- * a single time, a frame to draw and nothing after it (scenarios/displays-off-silent.json: a host
- * whose frame the displays off hold wakes for nothing). Each starts when the scenario says, never on a clock of its own: a
+ * twice ONCE_AGAIN_MS apart and then never again, as a clock's two ticks: the first frame goes out
+ * and stays unanswered while the displays are off, the second waits behind it
+ * (scenarios/displays-off-silent.json: a host whose frame the displays off hold wakes for nothing). Each starts when the scenario says, never on a clock of its own: a
  * step waits for its window to stop changing, and a loop begun two seconds after the press began
  * before a loaded machine's step had settled, which then never did.
  */
@@ -22,8 +23,9 @@ const ANIMATED_FRAMES = 90;
 // The scenario's server (scenarios/held-frames.json's `http`): its answer to the cue starts the loop.
 const LOOP_CUE = 'http://127.0.0.1:18660/cue/loop';
 const LOOP_EVERY_MS = 50;
-// The cue for one change (scenarios/displays-off-silent.json's `cue_before`).
+// The cue for two changes (scenarios/displays-off-silent.json's `cue_before`), this far apart.
 const ONCE_CUE = 'http://127.0.0.1:18660/cue/once';
+const ONCE_AGAIN_MS = 300;
 
 function Button({ id, label, onPress }: { id: string; label: string; onPress: () => void }) {
   return (
@@ -80,7 +82,10 @@ export default function FrameProbe() {
   };
   const once = () => {
     fetch(ONCE_CUE)
-      .then(() => setFrame((f) => f + 1))
+      .then(() => {
+        setFrame((f) => f + 1);
+        setTimeout(() => setFrame((f) => f + 1), ONCE_AGAIN_MS);
+      })
       .catch(() => {});
   };
   return (

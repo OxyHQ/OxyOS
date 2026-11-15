@@ -1,5 +1,5 @@
 {
-  "about": "A host whose frame the displays off hold wakes for nothing (ADR 0057, decision 6: the machine silent when nothing happens). FrameProbe's Once button, once the scenario's server answers its cue (`cue_before`, never a clock of the application's own), changes what the window draws a single time. The displays are off by then for want of input (the battery's timers as held-frames': off after two minutes), so the compositor answers none of the window's frames and the one it has to draw waits. Waiting is not work: the host's loop used to count the window it could not draw as busy, arm its idle memory trim a second on at every wake, and so wake once a second for as long as the displays stayed off (the ThinkPad's shell, 15 November 2026: 1.03 wakeups a second with its panel off). Five seconds with the frame held: the host's threads are switched out a few times at most. A press brings the displays back, and the frame held shows the change.",
+  "about": "A host whose frame the displays off hold wakes for nothing (ADR 0057, decision 6: the machine silent when nothing happens). FrameProbe's Once button, once the scenario's server answers its cue (`cue_before`, never a clock of the application's own), changes what the window draws twice, 300 ms apart, and never again, as a clock's two ticks. The displays are off by then for want of input (the battery's timers as held-frames': off after two minutes), so the compositor answers none of the window's frames: the first change's frame goes out and stays unanswered, and the second's waits behind it. Waiting is not work: the host's loop used to count the window it could not draw as busy, arm its idle memory trim a second on at every wake, and so wake once a second for as long as the displays stayed off (the ThinkPad's shell, 15 November 2026: 1.03 wakeups a second with its panel off). Twenty seconds with the frame held: the host's threads are switched out about as often as the director's own steps make them (9 to 11 measured on seldon), not once a second more. A press brings the displays back, and the frame held shows both changes.",
   "module": "FrameProbe",
   "window": [
     480,
@@ -67,7 +67,7 @@
       }
     },
     {
-      "name": "The cue answered with the displays off: the window changes once, and the compositor answers none of its frames",
+      "name": "The cue answered with the displays off: the window changes twice, 300 ms apart; the compositor answers none of its frames",
       "do": [
         "wait",
         2000
@@ -90,13 +90,13 @@
         "host": {
           "wakeups": [
             0,
-            1000
+            15
           ]
         }
       }
     },
     {
-      "name": "A press on the window's empty side brings the displays back: the frame held shows the change, made once",
+      "name": "A press on the window's empty side brings the displays back: the frame held shows both changes",
       "do": [
         "press",
         [
@@ -108,7 +108,7 @@
       "expect": {
         "displays_off": false,
         "texts": [
-          "Count 0, frame 1"
+          "Count 0, frame 2"
         ]
       }
     }
