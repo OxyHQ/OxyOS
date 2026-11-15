@@ -1,5 +1,5 @@
 {
-  "about": "Emoji (ADR 0041) with the real engine: Control+Super+Space, as a Mac's Control-Command-Space, opens emoji's search in the focused field with the layout current: fcitx5's QuickPhrase with CLDR's annotations, in the session's language (English here). The word typed is the composition; 1 chooses the first emoji, committed into the field, and the search ends with the layout typing as before. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it; with the session in Spanish (emoji are searched in its language, CLDR's annotations through fcitx5's Spanish keyboard engine, whatever the layout), the session's shell drawing the emoji under the caret and the screen reader saying them, on an output at 1.25 (1600×1000).",
+  "about": "Emoji (ADR 0041) with the real engine: Control+Super+Space, as a Mac's Control-Command-Space, opens emoji's search in the focused field with the layout current: fcitx5's QuickPhrase with CLDR's annotations, in the session's language (English here). The word typed is the composition; 1 chooses the first emoji, committed into the field, and the search ends with the layout typing as before. Each step checks the text React has, exactly the React events, the transactions the field was given and what reached it; with the session in Spanish (emoji are searched in its language, CLDR's annotations through fcitx5's Spanish keyboard engine, whatever the layout), the session's shell drawing the emoji under the caret and the screen reader saying them, on an output at 1.25 (1600×1000). Opened again and a word typed, Escape cancels the search as it cancels any composition: the word goes, the text is as it was in one change, nothing is committed, and the layout types again.",
   "module": "ImeProbe",
   "window": [
     800,
@@ -322,6 +322,180 @@
           }
         ],
         "announcements": []
+      }
+    },
+    {
+      "name": "Control+Super+Space again: emoji's search opens on the text there",
+      "do": [
+        "strokes",
+        [
+          [
+            29,
+            125,
+            57
+          ]
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "react": {},
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1
+          }
+        },
+        "transactions": [],
+        "shell": {
+          "candidates": null
+        },
+        "spoken": [],
+        "announcements": []
+      }
+    },
+    {
+      "name": "c a t: the word searched is the composition, after the text",
+      "do": [
+        "strokes",
+        [
+          46,
+          30,
+          20
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"😃acat\" [6,6]"
+        ],
+        "react": {
+          "change@line": 3,
+          "selectionChange@line": 3,
+          "keyPress@line": 3
+        },
+        "delivered": {
+          "1": {
+            "text_input": 3
+          }
+        },
+        "transactions": [
+          {
+            "preedit": "c",
+            "cursor": [
+              1,
+              1
+            ],
+            "segments": [
+              [
+                0,
+                1,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "ca",
+            "cursor": [
+              2,
+              2
+            ],
+            "segments": [
+              [
+                0,
+                2,
+                "composing"
+              ]
+            ]
+          },
+          {
+            "preedit": "cat",
+            "cursor": [
+              3,
+              3
+            ],
+            "segments": [
+              [
+                0,
+                3,
+                "composing"
+              ]
+            ]
+          }
+        ],
+        "field": {
+          "text": "😃a"
+        }
+      }
+    },
+    {
+      "name": "Escape cancels the search: the word goes, the text as it was, as one change, nothing committed",
+      "do": [
+        "strokes",
+        [
+          1
+        ]
+      ],
+      "expect": {
+        "focus_input": "line",
+        "texts": [
+          "Line: \"😃a\" [3,3]"
+        ],
+        "react": {
+          "change@line": 1,
+          "selectionChange@line": 1,
+          "keyPress@line": 1
+        },
+        "delivered": {
+          "1": {
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {}
+        ],
+        "field": {
+          "text": "😃a",
+          "anchor": 5,
+          "cursor": 5
+        },
+        "composition": {
+          "line": null
+        }
+      }
+    },
+    {
+      "name": "the search ended, the layout types again with no engine",
+      "do": [
+        "strokes",
+        [
+          30
+        ]
+      ],
+      "expect": {
+        "texts": [
+          "Line: \"😃aa\" [4,4]"
+        ],
+        "react": {
+          "keyPress@line": 1,
+          "change@line": 1,
+          "selectionChange@line": 1
+        },
+        "delivered": {
+          "1": {
+            "key.press": 1,
+            "key.release": 1,
+            "text_input": 1
+          }
+        },
+        "transactions": [
+          {
+            "commit": "a"
+          }
+        ],
+        "field": {
+          "text": "😃aa",
+          "anchor": 6,
+          "cursor": 6
+        }
       }
     }
   ],
