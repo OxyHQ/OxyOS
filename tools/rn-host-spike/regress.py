@@ -4591,7 +4591,12 @@ def check_activity(index, step, result, results, processes, failures):
                 count = used[key] - was[key]
                 least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
                 if not least <= count <= most:
-                    failures.append(f"{name}: the host's {key} {count} in the step, expected {wanted}")
+                    # Which threads woke, by name: what to look at.
+                    woke = {thread: n - (was.get("threads") or {}).get(thread, 0)
+                            for thread, n in (used.get("threads") or {}).items()}
+                    woke = {thread: n for thread, n in woke.items() if n}
+                    failures.append(f"{name}: the host's {key} {count} in the step, expected {wanted}"
+                                    + (f" (threads that woke: {woke})" if key == "wakeups" else ""))
     if "processes" in expect:
         after = (before or {}).get("t_settled", 0)
         until = result.get("t_settled")

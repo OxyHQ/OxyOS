@@ -96,12 +96,12 @@
       }
     },
     {
-      "name": "A press brings the displays back: the frame held shows the change",
+      "name": "A press on the window's empty side brings the displays back: the frame held shows the change, made once",
       "do": [
         "press",
         [
-          116,
-          408
+          400,
+          30
         ]
       ],
       "allow_unchanged": true,
