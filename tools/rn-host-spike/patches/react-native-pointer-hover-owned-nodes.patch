@@ -1,0 +1,179 @@
+React Native 0.88: hover tracking holds the nodes it dispatches pointer events to.
+
+PointerHoverTracker::getLatestNode returned the newest clone of a node as a raw
+pointer taken from the shared_ptr getNewestCloneOfShadowNode returns, owned only
+by the shadow tree's current revision. handleIncomingPointerEventOnNode
+collects the nodes a pointer leaves that way, then dispatches pointerleave to
+them one by one from the deepest. Each dispatch runs JavaScript, and meanwhile
+the UI thread may commit a state update and mount it (ShadowTree::commit, then
+MountingCoordinator::pullTransaction), which frees the revision those nodes
+belong to: the next dispatch reads a freed node. On OxyOS that crashed the
+host on its JavaScript thread in the dispatch's ShadowNode::getEventEmitter,
+with MALLOC_PERTURB_'s 0xa5 in the register (a Dropsea window under load).
+
+EventPath now owns its nodes: the target through target_, each ancestor through
+root_ (whose tree it is part of), a newest clone through the shared_ptr that
+found it. The events, their order and their targets are unchanged.
+
+PointerEventsProcessor.cpp's own header is included by its full path, as the
+patched copy is compiled outside React Native's directory.
+
+Upstream (facebook/react-native main) still returns the raw pointer at the
+time of writing. CMakeLists.txt applies this to private copies of the three
+files at configure time; the React Native package itself is never modified,
+and a release this no longer applies to stops the build.
+
+diff -ru a/react/renderer/uimanager/PointerEventsProcessor.cpp b/react/renderer/uimanager/PointerEventsProcessor.cpp
+--- a/react/renderer/uimanager/PointerEventsProcessor.cpp
++++ b/react/renderer/uimanager/PointerEventsProcessor.cpp
+@@ -5,7 +5,7 @@
+  * LICENSE file in the root directory of this source tree.
+  */
+ 
+-#include "PointerEventsProcessor.h"
++#include <react/renderer/uimanager/PointerEventsProcessor.h>
+ 
+ #include <glog/logging.h>
+ #include <react/renderer/bridging/bridging.h>
+@@ -469,8 +469,8 @@
+   // reverse iterate (now from target to root), actually emitting the events.
+   bool hasParentLeaveCaptureListener = false;
+   std::vector<std::reference_wrapper<const ShadowNode>> targetsToEmitLeaveTo;
+-  for (auto nodeRef : leavingNodes) {
+-    const auto& node = nodeRef.get();
++  for (const auto& nodeRef : leavingNodes) {
++    const auto& node = *nodeRef;
+ 
+     bool hasCapturingListener = isViewListeningToEvents(
+         node, {ViewEvents::Offset::PointerLeaveCapture});
+@@ -515,8 +515,8 @@
+   // the events in this loop inline since it's expected to fire the evens in
+   // order from root to target.
+   bool hasParentEnterCaptureListener = false;
+-  for (auto nodeRef : enteringNodes) {
+-    const auto& node = nodeRef.get();
++  for (const auto& nodeRef : enteringNodes) {
++    const auto& node = *nodeRef;
+ 
+     bool hasCapturingListener = isViewListeningToEvents(
+         node, {ViewEvents::Offset::PointerEnterCapture});
+diff -ru a/react/renderer/uimanager/PointerHoverTracker.cpp b/react/renderer/uimanager/PointerHoverTracker.cpp
+--- a/react/renderer/uimanager/PointerHoverTracker.cpp
++++ b/react/renderer/uimanager/PointerHoverTracker.cpp
+@@ -45,7 +45,7 @@
+   auto eventPath = getEventPathTargets();
+ 
+   for (const auto& oldTarget : eventPath) {
+-    auto newestTarget = uiManager.getNewestCloneOfShadowNode(oldTarget);
++    auto newestTarget = uiManager.getNewestCloneOfShadowNode(*oldTarget);
+     if (newestTarget &&
+         newestTarget->getTraits().check(ShadowNodeTraits::Trait::ViewKind)) {
+       auto eventFlags =
+@@ -82,7 +82,7 @@
+   auto myIt = myEventPath.rbegin();
+   auto otherIt = otherEventPath.rbegin();
+   while (myIt != myEventPath.rend() && otherIt != otherEventPath.rend()) {
+-    if (!ShadowNode::sameFamily(myIt->get(), otherIt->get())) {
++    if (!ShadowNode::sameFamily(**myIt, **otherIt)) {
+       break;
+     }
+     ++myIt;
+@@ -91,43 +91,44 @@
+ 
+   EventPath removed;
+   for (auto nodeIt = myIt; nodeIt != myEventPath.rend(); nodeIt++) {
+-    const auto& latestNode = getLatestNode(*nodeIt, uiManager);
++    auto latestNode = getLatestNode(*nodeIt, uiManager);
+     if (latestNode != nullptr) {
+-      removed.emplace_back(*latestNode);
++      removed.push_back(std::move(latestNode));
+     }
+   }
+ 
+   EventPath added;
+   for (auto nodeIt = otherIt; nodeIt != otherEventPath.rend(); nodeIt++) {
+-    const auto& latestNode = other.getLatestNode(*nodeIt, uiManager);
++    auto latestNode = other.getLatestNode(*nodeIt, uiManager);
+     if (latestNode != nullptr) {
+-      added.emplace_back(*latestNode);
++      added.push_back(std::move(latestNode));
+     }
+   }
+ 
+   return std::make_tuple(removed, added);
+ }
+ 
+-const ShadowNode* PointerHoverTracker::getTarget(
++std::shared_ptr<const ShadowNode> PointerHoverTracker::getTarget(
+     const UIManager& uiManager) const {
+   if (target_ == nullptr) {
+     return nullptr;
+   }
+-  return getLatestNode(*target_, uiManager);
++  return getLatestNode(target_, uiManager);
+ }
+ 
+ void PointerHoverTracker::markAsOld() {
+   isOldTracker_ = true;
+ }
+ 
+-const ShadowNode* PointerHoverTracker::getLatestNode(
+-    const ShadowNode& node,
++std::shared_ptr<const ShadowNode> PointerHoverTracker::getLatestNode(
++    const std::shared_ptr<const ShadowNode>& node,
+     const UIManager& uiManager) const {
+   if (isOldTracker_) {
+-    auto newestTarget = uiManager.getNewestCloneOfShadowNode(node);
+-    return newestTarget.get();
++    // The newest clone is held here, not only by the current revision: a commit and its mount
++    // free that revision while the events are dispatched to it.
++    return uiManager.getNewestCloneOfShadowNode(*node);
+   }
+-  return &node;
++  return node;
+ }
+ 
+ EventPath PointerHoverTracker::getEventPathTargets() const {
+@@ -138,9 +139,10 @@
+ 
+   auto ancestors = target_->getFamily().getAncestors(*root_);
+ 
+-  result.emplace_back(*target_);
++  result.push_back(target_);
+   for (auto it = ancestors.rbegin(); it != ancestors.rend(); it++) {
+-    result.push_back(it->first);
++    // An ancestor is part of root_'s tree, which root_ owns: held through it.
++    result.emplace_back(root_, &it->first.get());
+   }
+ 
+   return result;
+diff -ru a/react/renderer/uimanager/PointerHoverTracker.h b/react/renderer/uimanager/PointerHoverTracker.h
+--- a/react/renderer/uimanager/PointerHoverTracker.h
++++ b/react/renderer/uimanager/PointerHoverTracker.h
+@@ -23,11 +23,13 @@
+ class PointerHoverTracker {
+  public:
+   using Unique = std::unique_ptr<PointerHoverTracker>;
+-  using EventPath = std::vector<std::reference_wrapper<const ShadowNode>>;
++  // Owning: a path outlives the revision it was read from, as the events dispatched along it run
++  // JavaScript and other threads commit and mount.
++  using EventPath = std::vector<std::shared_ptr<const ShadowNode>>;
+ 
+   PointerHoverTracker(std::shared_ptr<const ShadowNode> target, const UIManager &uiManager);
+ 
+-  const ShadowNode *getTarget(const UIManager &uiManager) const;
++  std::shared_ptr<const ShadowNode> getTarget(const UIManager &uiManager) const;
+   bool hasSameTarget(const PointerHoverTracker &other) const;
+   bool areAnyTargetsListeningToEvents(std::initializer_list<ViewEvents::Offset> eventTypes, const UIManager &uiManager)
+       const;
+@@ -56,7 +58,9 @@
+    * A thin wrapper around `UIManager::getNewestCloneOfShadowNode` that only
+    * actually gets the newest clone only if the tracker is marked as "old".
+    */
+-  const ShadowNode *getLatestNode(const ShadowNode &node, const UIManager &uiManager) const;
++  std::shared_ptr<const ShadowNode> getLatestNode(
++      const std::shared_ptr<const ShadowNode> &node,
++      const UIManager &uiManager) const;
+ 
+   /**
+    * Retrieves the list of shadow node references in the event's path starting
