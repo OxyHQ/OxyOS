@@ -63,7 +63,7 @@ Sources: [ADR 0008](./adr/0008-input-method) and [ADR 0041](./adr/0041-input-met
 | The reader says candidates | `shell-candidates*`, `ime-japanese*`, scaled `ime-*` | speech (exact), `at` | `ime-pinyin` and `ime-hangul` at 1 have none. |
 | The reader says a commit as typed text | **added:** every scaled `ime-*` with the reader, and `ime-candidates-follow(-scaled)` | speech (exact) | **Bug fixed.** A field focused by a press was never the assistive technology's focus, so the reader neither said it nor echoed any typing, a commit included. The host now gives a focused field that focus however it took it, and tells the assistive technology the text without the composition, so the keys that compose are not echoed and the commit is said (ADR 0041, decision 5; ADR 0037, decision 7). |
 | Dead keys while an input method is current | — | — | Not covered. |
-| Secure fields never reach an input method | `input-method`, `text-input`, `secure-field`; scene `a_password_never_reaches_the_input_method` | O, F, D | Not with the real engine. `secure-field` has no `react`. |
+| Secure fields never reach an input method | `input-method`, `text-input`, `secure-field`; scene `a_password_never_reaches_the_input_method` | O, F, D (**added:** `secure-field`'s `react` in every step, exact: a seven-letter commit is one `change` and no `keyPress`, as React Native's input connection reports a commit longer than two units) | Not with the real engine. |
 
 ## 2. Text selection, caret and editing
 
