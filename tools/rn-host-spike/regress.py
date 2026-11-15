@@ -182,6 +182,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   counted from the step before's settling to this one's; and "followed"
   (whether a client follows), as it is once the step settled. A hidden window's step holds them
   to none;
+- host: the application's host, from the step before's settling to this one's, each key given a
+  count or [least, most]: "wakeups" (each a time one of its threads was switched out) and
+  "cpu_ms" its threads ran; a host with nothing to do holds them near none;
 - processes: with the scenario's `processes` (below), by name: the "signals" each received in the
   step (from the step before's settling to this one's), exactly and in order ("TERM", "INT"...),
   and whether it was still "running" once the step settled (SIGKILL is seen as not running);
@@ -4577,6 +4580,18 @@ def check_activity(index, step, result, results, processes, failures):
                 least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
                 if not least <= count <= most:
                     failures.append(f"{name}: activity {key} {count} in the step, expected {wanted}")
+    # The application's host, from the step before's settling to this one's: a host with nothing
+    # to do wakes for nothing, its frame held by the displays off or not.
+    if "host" in expect:
+        used, was = result.get("host"), (before or {}).get("host")
+        if used is None or was is None:
+            failures.append(f"{name}: the application's host is not counted in this step and the one before")
+        else:
+            for key, wanted in expect["host"].items():
+                count = used[key] - was[key]
+                least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
+                if not least <= count <= most:
+                    failures.append(f"{name}: the host's {key} {count} in the step, expected {wanted}")
     if "processes" in expect:
         after = (before or {}).get("t_settled", 0)
         until = result.get("t_settled")

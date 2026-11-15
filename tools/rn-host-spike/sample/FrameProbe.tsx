@@ -8,7 +8,9 @@
  * draw, as a clock or data arriving gives it one; each press on it says the loop is on or off, the
  * frame showing JavaScript's answer to it (an input is timed to that frame, frame-diagnostics.h) (scenarios/held-frames.json: a frame the
  * compositor holds while the displays are off; requestAnimationFrame would wait for the
- * compositor's answer instead). It starts when the scenario says, never on a clock of its own: a
+ * compositor's answer instead); one on "once", once the server answers the cue `once`, changes it
+ * a single time, a frame to draw and nothing after it (scenarios/displays-off-silent.json: a host
+ * whose frame the displays off hold wakes for nothing). Each starts when the scenario says, never on a clock of its own: a
  * step waits for its window to stop changing, and a loop begun two seconds after the press began
  * before a loaded machine's step had settled, which then never did.
  */
@@ -20,6 +22,8 @@ const ANIMATED_FRAMES = 90;
 // The scenario's server (scenarios/held-frames.json's `http`): its answer to the cue starts the loop.
 const LOOP_CUE = 'http://127.0.0.1:18660/cue/loop';
 const LOOP_EVERY_MS = 50;
+// The cue for one change (scenarios/displays-off-silent.json's `cue_before`).
+const ONCE_CUE = 'http://127.0.0.1:18660/cue/once';
 
 function Button({ id, label, onPress }: { id: string; label: string; onPress: () => void }) {
   return (
@@ -74,6 +78,11 @@ export default function FrameProbe() {
       })
       .catch(() => {});
   };
+  const once = () => {
+    fetch(ONCE_CUE)
+      .then(() => setFrame((f) => f + 1))
+      .catch(() => {});
+  };
   return (
     <View style={{ padding: 16, gap: 12, backgroundColor: '#ffffff', flex: 1 }}>
       <Button id="fast" label="Fast" onPress={() => setCount((c) => c + 1)} />
@@ -83,6 +92,7 @@ export default function FrameProbe() {
       <View style={{ width: 20 + (frame % 200), height: 6, backgroundColor: '#3b6fd8' }} />
       <Button id="loop" label="Loop" onPress={loop} />
       <Text style={{ fontSize: 13 }}>{`Loop ${loopOn ? 'on' : 'off'}`}</Text>
+      <Button id="once" label="Once" onPress={once} />
     </View>
   );
 }
