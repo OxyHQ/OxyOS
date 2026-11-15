@@ -193,7 +193,13 @@ class Window {
   bool toplevelClosed() const { return toplevelClosed_; }
   // A surface that went with the window closed to run in the background: nothing is asked of it,
   // or the compositor would end the connection over a surface it no longer has.
-  bool closedSurface(uint32_t id) const { return toplevelClosed_ && id == kToplevel; }
+  // A surface no request may name any more: the window closed to run in the background, or a
+  // popup or shell region this client already destroyed (`destroy`) or never opened. A request
+  // naming it is a protocol error that ends the connection: the shell published the accessibility
+  // of the Oxy menu it had just destroyed as the lock closed it, and was ended (#620).
+  bool closedSurface(uint32_t id) const {
+    return (toplevelClosed_ && id == kToplevel) || surfaces_.find(id) == surfaces_.end();
+  }
   // Search (docs/adr/0051-search.mdx, protocol version 30): a request of the search index's
   // vocabulary, answered by SEARCH_TEXT events naming `serial`. False if it could not be sent.
   bool searchRequest(uint32_t serial, const std::string& text);
