@@ -584,7 +584,9 @@
           "new documents: 0",
           "wrap lines: on"
         ],
-        "react": {}
+        "react": {},
+        "delivered": {},
+        "focus_surface": -999
       }
     }
   ],

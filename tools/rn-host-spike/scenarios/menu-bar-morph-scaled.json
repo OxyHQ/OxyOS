@@ -511,7 +511,9 @@
         "texts": [
           "new documents: 0",
           "wrap lines: off"
-        ]
+        ],
+        "delivered": {},
+        "focus_surface": -999
       }
     }
   ]

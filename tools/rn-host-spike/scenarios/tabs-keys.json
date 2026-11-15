@@ -98,7 +98,9 @@
     },
     "texts": [
      "Sección: General"
-    ]
+    ],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -199,7 +201,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -303,7 +307,9 @@
     "announcements": [],
     "texts": [
      "Sección: Avanzado"
-    ]
+    ],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -404,7 +410,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -505,7 +513,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -606,7 +616,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -710,7 +722,9 @@
     "announcements": [],
     "texts": [
      "Sección: General"
-    ]
+    ],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -811,7 +825,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -912,7 +928,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -1013,7 +1031,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -1109,7 +1129,9 @@
      ]
     },
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -1210,7 +1232,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -1233,7 +1257,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -1335,7 +1361,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -1437,7 +1465,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   }
  ]

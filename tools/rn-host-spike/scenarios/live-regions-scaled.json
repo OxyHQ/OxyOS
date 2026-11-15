@@ -44,7 +44,9 @@
        "role": "Alert"
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -67,7 +69,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -114,7 +118,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -142,7 +148,9 @@
        "role": "Alert"
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -165,7 +173,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -204,7 +214,9 @@
        ]
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -233,7 +245,9 @@
       "text": "2 cambios guardados",
       "live": true
      }
-    ]
+    ],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -256,7 +270,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -304,7 +320,9 @@
        "name": "3 archivos"
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -327,7 +345,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -371,7 +391,9 @@
        "name": "No se ha podido borrar"
       }
      ]
-    }
+    },
+    "react": {},
+    "delivered": {}
    }
   }
  ]

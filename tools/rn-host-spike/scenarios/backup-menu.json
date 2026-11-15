@@ -164,7 +164,9 @@
               "name": "Explorar copias de seguridad"
             }
           ]
-        }
+        },
+        "delivered": {},
+        "focus_surface": -999
       }
     },
     {
@@ -359,7 +361,9 @@
       ],
       "expect": {
         "react": {},
-        "focus_input": "line"
+        "focus_input": "line",
+        "delivered": {},
+        "focus_surface": -999
       }
     },
     {
@@ -429,7 +433,9 @@
       ],
       "expect": {
         "react": {},
-        "focus_input": "line"
+        "focus_input": "line",
+        "delivered": {},
+        "focus_surface": -999
       }
     },
     {

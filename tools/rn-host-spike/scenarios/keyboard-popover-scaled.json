@@ -24,7 +24,9 @@
     "keyboard_focus": null,
     "popups": 0,
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -48,7 +50,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -72,7 +76,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -116,7 +122,9 @@
       "interrupting": false
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -151,7 +159,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -187,7 +197,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -211,7 +223,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -236,7 +250,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -261,7 +277,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -284,7 +302,9 @@
      "Guardado 1, aviso sí"
     ],
     "spoken": [],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   },
   {
@@ -317,7 +337,10 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {},
+    "focus_surface": -999
    }
   },
   {
@@ -341,7 +364,9 @@
       "interrupting": true
      }
     ],
-    "announcements": []
+    "announcements": [],
+    "react": {},
+    "delivered": {}
    }
   }
  ]
