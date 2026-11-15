@@ -17,7 +17,12 @@
       ],
       "expect": {
         "focus_input": "password",
-        "react": {}
+        "react": {
+          "touchStart@password": 1,
+          "touchEnd@password": 1,
+          "focus@password": 1,
+          "selectionChange@password": 1
+        }
       }
     },
     {
@@ -57,7 +62,10 @@
           "hunter2",
           "hunter"
         ],
-        "react": {}
+        "react": {
+          "change@password": 1,
+          "selectionChange@password": 1
+        }
       }
     },
     {
@@ -77,7 +85,11 @@
         "never": [
           "hunter"
         ],
-        "react": {}
+        "react": {
+          "keyPress@password": 1,
+          "change@password": 1,
+          "selectionChange@password": 1
+        }
       }
     },
     {
@@ -91,7 +103,11 @@
         "never": [
           "hunter"
         ],
-        "react": {}
+        "react": {
+          "submitEditing@password": 1,
+          "blur@password": 1,
+          "endEditing@password": 1
+        }
       }
     }
   ]
