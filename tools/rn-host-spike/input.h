@@ -237,7 +237,10 @@ class PointerInput {
   // makes pointerover, pointerout, pointerenter and pointerleave for the views that listen, as
   // it does for iOS's Fabric. Pressability's hover is built on them. The pointer's shape follows
   // the views under it.
-  void hover(const std::optional<SurfaceContent>& content, float x, float y);
+  // `moved`: the pointer moved there (a motion), not a surface coming under a still pointer (an
+  // entry alone): only a person's movement over a view is hover, so a menu that opens on hover
+  // waits for it, as a Mac's do. An entry alone still sets the pointer's shape.
+  void hover(const std::optional<SurfaceContent>& content, float x, float y, bool moved = true);
 
   // Overlay scrollbars (scrollbars.h). A scroll the person made shows the view's, from `now`
   // (`awakenBars`); the scrollbar under a point of `content`, if one shows there or would with the
