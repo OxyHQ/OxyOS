@@ -261,6 +261,10 @@ class Mounter : public SchedulerDelegate {
           mount(item.surface, *item.transaction);
           mounted.insert(item.surface);
           appliedBatch_ = std::max(appliedBatch_, item.batch);
+          if (item.batch != 0) {
+            std::lock_guard lock(mutex_);
+            unpublishedBatch_ = std::max(unpublishedBatch_, item.batch);
+          }
           break;
         case Item::Kind::Command:  // in commands_, run above
           break;
@@ -325,10 +329,20 @@ class Mounter : public SchedulerDelegate {
   void announce(const std::string& text) { queue(Item{.kind = Item::Kind::Announcement, .name = text}); }
   // Whether the queue holds what JavaScript did in a batch before `batch` (js-thread.h's): work the
   // loop has not applied yet, handing JavaScript what came for it first (decision 2 of ADR 0071).
+  // Applied but not yet published counts too: the loop mounts a commit, moves the keyboard as it
+  // asks (a sheet gone, the keyboard back on its button), draws, and only then publishes the
+  // accessibility that says the focus; an announcement out in between was said before the focus,
+  // which interrupted it (settings-input-sources under load).
   bool holdsEarlierThan(uint64_t batch) {
     std::lock_guard lock(mutex_);
+    if (unpublishedBatch_ != 0 && unpublishedBatch_ < batch) return true;
     return std::any_of(queue_.begin(), queue_.end(),
                        [batch](const Item& item) { return item.batch != 0 && item.batch < batch; });
+  }
+  // What the loop applied is published (its frame and accessibility out, or none needed).
+  void published() {
+    std::lock_guard lock(mutex_);
+    unpublishedBatch_ = 0;
   }
   void schedulerDidSetIsJSResponder(const ShadowView&, bool, bool) override {}
   // Animated's native driver setting a view's props between commits (native-animated.h), on the UI
@@ -423,6 +437,9 @@ class Mounter : public SchedulerDelegate {
   // Shared with the threads that commit and send. A pull holds it, so the queue has transactions in
   // the order the coordinators gave them.
   std::mutex mutex_;
+  // The latest batch of JavaScript's whose commit the loop applied and has not published yet; 0 once
+  // it has (`published`). Under mutex_: JavaScript's thread reads it as it announces.
+  uint64_t unpublishedBatch_ = 0;
   bool unpulled_ = false;
   std::deque<Item> queue_;
   // View commands, run before the queue (apply).
@@ -1627,9 +1644,9 @@ int main(int argc, char** argv) {
     // an announcement event does TalkBack's queue.
     // Said at once, as the one thread said it before the frame showing what JavaScript just did; but
     // while what JavaScript did in an earlier batch is held back (the input that came for it handed
-    // first), behind that work (Mounter::announce), and out once the frame showing it published its
-    // accessibility (announceAfterFrame): a focus moved by a press is said before what JavaScript
-    // announces as the session answers it.
+    // first) or applied and not yet published, behind that work (Mounter::announce), and out once
+    // the frame showing it published its accessibility (announceAfterFrame): a focus moved by a
+    // press is said before what JavaScript announces as the session answers it.
     services.announce = [&window, &mounter, &js, announcer](const std::string& text) {
       if (!oxyos::UiThread::isCurrent() && mounter.holdsEarlierThan(js->running())) {
         mounter.announce(text);
@@ -4135,6 +4152,7 @@ int main(int argc, char** argv) {
         // JavaScript's announcements, once what it did before them is published (the frame above):
         // a focus its work moved is said before them.
         if (!dirty) {
+          mounter.published();
           for (const auto& text : std::exchange(announceAfterFrame, {})) services.announce(text);
         }
         // What the turn did may change what worklets' and Reanimated's next frames act on
