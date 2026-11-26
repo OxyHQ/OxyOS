@@ -19,17 +19,49 @@ concurrency:
 
 # Each job runs on x86-64 and on AArch64 (GitHub's Arm runners), natively: OxyOS is built and tested
 # for both architectures (docs/adr/0032-arm.mdx). Nothing here builds or publishes an image.
+#
+# Each job's two legs are two jobs with the same display names (`verify (ubuntu-latest)`, `verify
+# (ubuntu-24.04-arm)`), sharing their steps through YAML anchors: the AArch64 leg (`verify`) always
+# runs hosted, and the x86-64 leg (`verify-x64`) races in the Seldon race (OxyHQ/oxy
+# docs/engineering/build-and-deploy.md, CI on Seldon). The race is opt-in with the repository
+# variable CI_SELDON_RACE=true, on same-repository pull requests and merge queue entries; push runs
+# stay hosted. Unset, every job runs hosted as before and none of the race's jobs takes a runner.
+# Set, the x86-64 legs run on the self-hosted seldon-ci pool (never the gate's own oxyos-gate and
+# oxyos-merge runners); a leg still queued 3 minutes after it was created gets its hosted twin (the
+# `-hosted` jobs), the lane that starts first wins and the finish job cancels the other through its
+# job-level concurrency group. A Seldon lane that fails, whatever the reason (the house network
+# drops new connections in bursts), reruns hosted in its `-rescue` job, which fails again on a
+# genuine failure. Native foundation complete takes the raced legs' verdict from the race.
 jobs:
+  race:
+    if: ${{ vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    uses: OxyHQ/oxy/.github/workflows/seldon-race-start.yml@main
+    permissions:
+      actions: read
+
+  race-finish:
+    needs: race
+    # `!cancelled()`: an ancestor skipped on this event must not skip it.
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    uses: OxyHQ/oxy/.github/workflows/seldon-race-finish.yml@main
+    permissions:
+      actions: read
+
+  # The AArch64 leg; `verify-x64` below is the x86-64 one, with the same steps.
   verify:
+    name: verify (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
+    permissions: &race-lane-permissions
+      contents: read
+      actions: read # the Seldon race guard reads this run's jobs
     # Twenty minutes for building and testing, and ten more at most for the system's packages (their
     # own step's limit below): a slow mirror fails that step, saying so, and never eats the build's.
     timeout-minutes: 30
-    env:
+    env: &verify-env
       APT_PACKAGES: libinput-dev libudev-dev libxkbcommon-dev xkb-data libvulkan1 mesa-vulkan-drivers dbus-daemon libpipewire-0.3-dev libclang-dev pipewire-bin libspa-0.2-modules
       # The workspace's tests, then clippy's check of every target, fill the runner's disk with
       # debug information and incremental state: on 11 November 2026 an x86-64 run stopped in clippy
@@ -37,7 +69,15 @@ jobs:
       # backtrace needs only lines, not variables.
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
-    steps:
+    steps: &verify-steps
+      # A lane that starts after its hosted twin waits here to be cancelled (the Seldon race). The
+      # x86-64 leg's only: the AArch64 legs never race.
+      - &race-guard
+        name: Seldon race guard
+        if: vars.CI_SELDON_RACE == 'true' && !endsWith(github.job, '-rescue') && matrix.runner == 'ubuntu-latest'
+        uses: OxyHQ/oxy/.github/actions/seldon-race@main
+        with:
+          mode: guard
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       # The TypeScript and JavaScript (apps/, the sample's platform and probes, shell-preview, the
       # scripts' modules) through Biome, the Oxy linter (biome.jsonc; ~/Oxy/docs/lint-and-format.md),
@@ -177,19 +217,69 @@ jobs:
         if: always()
         run: df -h / && du -sh target
 
+  # verify's x86-64 leg: on seldon-ci when the race is on, with the same name and steps.
+  verify-x64:
+    name: verify (${{ matrix.runner }})
+    strategy: &x64
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest]
+    runs-on: &seldon-lane ${{ vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork && 'seldon-ci' || 'ubuntu-latest' }}
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-seldon-verify (${{ matrix.runner }})
+    permissions: *race-lane-permissions
+    timeout-minutes: 30
+    env: *verify-env
+    steps: *verify-steps
+
+  # verify-x64's hosted twin in the Seldon race: the same name and steps.
+  verify-x64-hosted:
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('verify ({0})', matrix.runner) || format('verify ({0}) (seldon twin, off)', matrix.runner) }}
+    needs: race
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    strategy: *x64
+    runs-on: ubuntu-latest
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-hosted-verify (${{ matrix.runner }})
+    permissions: *race-lane-permissions
+    timeout-minutes: 30
+    env: *verify-env
+    steps: *verify-steps
+
+  # verify-x64's rescue: reruns it hosted when its Seldon lane failed (the house network drops
+  # connections); a genuine failure fails again.
+  verify-x64-rescue:
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('verify ({0})', matrix.runner) || format('verify ({0}) (seldon rescue, off)', matrix.runner) }}
+    needs: verify-x64
+    if: ${{ !cancelled() && needs.verify-x64.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    strategy: *x64
+    runs-on: ubuntu-latest
+    permissions: *race-lane-permissions
+    timeout-minutes: 30
+    env: *verify-env
+    steps: *verify-steps
+
   # The tests that run the system's useradd, chpasswd and userdel on a root of their own need
   # Debian trixie's (shadow 4.17), the tools OxyOS uses; ubuntu-latest's (shadow 4.13) cannot, and
   # the job above skips those tests, saying why (crates/oxyos-account/src/tests/mod.rs,
   # `passwd_tools`). Here they must run.
+  # The AArch64 leg; `passwd-tools-x64` below is the x86-64 one, with the same steps.
   passwd-tools:
+    name: passwd-tools (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
+    permissions: *race-lane-permissions
     container: debian:trixie
     timeout-minutes: 15
-    steps:
+    steps: &passwd-tools-steps
+      - *race-guard
       - run: apt-get update -q && apt-get install -y -q --no-install-recommends ca-certificates curl gcc libc6-dev python3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - id: toolchain
@@ -202,21 +292,68 @@ jobs:
         env:
           OXYOS_ACCOUNT_PASSWD_TOOLS: required
 
+  # passwd-tools's x86-64 leg: on seldon-ci when the race is on, with the same name and steps.
+  passwd-tools-x64:
+    name: passwd-tools (${{ matrix.runner }})
+    strategy: *x64
+    runs-on: *seldon-lane
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-seldon-passwd-tools (${{ matrix.runner }})
+    permissions: *race-lane-permissions
+    timeout-minutes: 15
+    container: debian:trixie
+    steps: *passwd-tools-steps
+
+  # passwd-tools-x64's hosted twin in the Seldon race: the same name and steps.
+  passwd-tools-x64-hosted:
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('passwd-tools ({0})', matrix.runner) || format('passwd-tools ({0}) (seldon twin, off)', matrix.runner) }}
+    needs: race
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    strategy: *x64
+    runs-on: ubuntu-latest
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-hosted-passwd-tools (${{ matrix.runner }})
+    permissions: *race-lane-permissions
+    timeout-minutes: 15
+    container: debian:trixie
+    steps: *passwd-tools-steps
+
+  # passwd-tools-x64's rescue: reruns it hosted when its Seldon lane failed (the house network drops
+  # connections); a genuine failure fails again.
+  passwd-tools-x64-rescue:
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('passwd-tools ({0})', matrix.runner) || format('passwd-tools ({0}) (seldon rescue, off)', matrix.runner) }}
+    needs: passwd-tools-x64
+    if: ${{ !cancelled() && needs.passwd-tools-x64.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    strategy: *x64
+    runs-on: ubuntu-latest
+    permissions: *race-lane-permissions
+    timeout-minutes: 15
+    container: debian:trixie
+    steps: *passwd-tools-steps
+
   # Backups go through Debian's restic and, for a share, rclone's SMB client (docs/adr/0059-backups.mdx):
   # the engine's and the service's tests need both, and the share's a samba of their own, which smbd
   # runs as root (it changes to the share's user). Debian trixie's are the image's versions; without
   # them the job above skips those tests, saying why, and here they must run. So must a whole
   # computer's restore (tests/restore.rs): its users made again on another root by Debian's
   # groupadd and useradd (`--prefix`), and, as root here, its files' owners checked.
+  # The AArch64 leg; `backup-engine-x64` below is the x86-64 one, with the same steps.
   backup-engine:
+    name: backup-engine (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
+    permissions: *race-lane-permissions
     container: debian:trixie
     timeout-minutes: 20
-    steps:
+    steps: &backup-engine-steps
+      - *race-guard
       - run: apt-get update -q && apt-get install -y -q --no-install-recommends ca-certificates curl gcc libc6-dev pkg-config libudev-dev python3 restic rclone samba
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - id: toolchain
@@ -229,3 +366,136 @@ jobs:
         env:
           OXYOS_BACKUP_ENGINE: required
           OXYOS_ACCOUNT_PASSWD_TOOLS: required
+
+  # backup-engine's x86-64 leg: on seldon-ci when the race is on, with the same name and steps.
+  backup-engine-x64:
+    name: backup-engine (${{ matrix.runner }})
+    strategy: *x64
+    runs-on: *seldon-lane
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-seldon-backup-engine (${{ matrix.runner }})
+    permissions: *race-lane-permissions
+    timeout-minutes: 20
+    container: debian:trixie
+    steps: *backup-engine-steps
+
+  # backup-engine-x64's hosted twin in the Seldon race: the same name and steps.
+  backup-engine-x64-hosted:
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('backup-engine ({0})', matrix.runner) || format('backup-engine ({0}) (seldon twin, off)', matrix.runner) }}
+    needs: race
+    if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
+    strategy: *x64
+    runs-on: ubuntu-latest
+    concurrency:
+      group: seldon-race-${{ github.run_id }}-${{ github.run_attempt }}-hosted-backup-engine (${{ matrix.runner }})
+    permissions: *race-lane-permissions
+    timeout-minutes: 20
+    container: debian:trixie
+    steps: *backup-engine-steps
+
+  # backup-engine-x64's rescue: reruns it hosted when its Seldon lane failed (the house network drops
+  # connections); a genuine failure fails again.
+  backup-engine-x64-rescue:
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('backup-engine ({0})', matrix.runner) || format('backup-engine ({0}) (seldon rescue, off)', matrix.runner) }}
+    needs: backup-engine-x64
+    if: ${{ !cancelled() && needs.backup-engine-x64.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
+    strategy: *x64
+    runs-on: ubuntu-latest
+    permissions: *race-lane-permissions
+    timeout-minutes: 20
+    container: debian:trixie
+    steps: *backup-engine-steps
+
+  # The one check this workflow stands for, modelled on OxyHQ/Gemies' and OxyHQ/Bloom's: green only
+  # when every job above passed, so a cancelled or skipped job can never read as a pass. A required
+  # check by job name cannot follow the Seldon race (a twin and a rescue share their leg's name, and a
+  # cancelled loser is not a failure); this one can. Not `CI complete`: Applications and Scenarios
+  # are workflows of their own, and this gate covers this one alone. Nothing here is path filtered on
+  # a pull request or in the queue, so the only skips it allows are the race's own: the race start,
+  # the twins and the rescues skip whenever they are not needed. When the race or a rescue ran, a
+  # raced leg passes on the race's verdict: its name passed in some lane and failed in no hosted lane.
+  native-complete:
+    name: Native foundation complete
+    if: always()
+    # Not race-finish: its reapers run on seldon-ci-light and only follow the cancellation, so
+    # needing it would wait on Seldon.
+    needs:
+      - race
+      - verify
+      - verify-x64
+      - verify-x64-hosted
+      - verify-x64-rescue
+      - passwd-tools
+      - passwd-tools-x64
+      - passwd-tools-x64-hosted
+      - passwd-tools-x64-rescue
+      - backup-engine
+      - backup-engine-x64
+      - backup-engine-x64-hosted
+      - backup-engine-x64-rescue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read # the Seldon race verdict reads this run's jobs
+    steps:
+      # Per job name: passed when one of its lanes succeeded and no hosted lane failed. Whenever the
+      # race is on: a rescue can run without the race.
+      - name: Seldon race verdict
+        id: race
+        if: vars.CI_SELDON_RACE == 'true'
+        uses: OxyHQ/oxy/.github/actions/seldon-race@main
+        with:
+          mode: verdict
+      - name: Every job passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          RACE_VERDICT: ${{ steps.race.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          failures=()
+          result() { jq -r --arg job "$1" '.[$job].result // "missing"' <<<"$RESULTS"; }
+
+          # The race's start: skipped when not needed, never failed.
+          r="$(result race)"
+          case "$r" in
+            success | skipped) ;;
+            *) failures+=("race did not pass: $r") ;;
+          esac
+
+          # A raced leg's result, in $family: the verdict when the race raced (and the leg was not
+          # skipped) or its rescue ran; otherwise the leg's own, with its twin and rescue skipped.
+          # Not called in a subshell, so its failures reach the list.
+          family() {
+            local job="$1" own twin rescue raced
+            own="$(result "$job")"
+            twin="$(result "$job-hosted")"
+            rescue="$(result "$job-rescue")"
+            raced="$(jq -r '.race.outputs.race // ""' <<<"$RESULTS")"
+            if [ "$rescue" != skipped ] || { [ "$raced" = true ] && ! { [ "$own" = skipped ] && [ "$twin" = skipped ]; }; }; then
+              family="${RACE_VERDICT:-no verdict}"
+              return
+            fi
+            [ "$twin" = skipped ] || failures+=("$job-hosted ran although the Seldon race did not: $twin")
+            family="$own"
+          }
+
+          for job in verify passwd-tools backup-engine; do
+            # The AArch64 leg, always hosted.
+            r="$(result "$job")"
+            [ "$r" = success ] || failures+=("$job (ubuntu-24.04-arm) did not pass: $r")
+            # The x86-64 leg.
+            family "$job-x64"
+            [ "$family" = success ] || failures+=("$job (ubuntu-latest) did not pass: $family")
+          done
+
+          if [ ${#failures[@]} -gt 0 ]; then
+            for failure in "${failures[@]}"; do
+              echo "::error::$failure"
+            done
+            exit 1
+          fi
+          echo 'Every job passed.'

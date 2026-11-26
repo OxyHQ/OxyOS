@@ -137,6 +137,13 @@ passes merges the entry (a merge commit); one that fails takes the pull request 
 failure in the run's log and its records on the gate's machine, and the pull request goes back in
 once fixed.
 
+The Native foundation's x86-64 legs can race between Seldon's `seldon-ci` pool and GitHub-hosted
+runners (OxyHQ/oxy `docs/engineering/build-and-deploy.md#ci-on-seldon`), on pull requests and queue
+entries, when the repository variable `CI_SELDON_RACE` is `true`; their AArch64 legs, Applications
+and Scenarios never move. A raced leg's name can then carry a cancelled loser or a failed Seldon lane
+next to the run that passed, so **Native foundation complete**, the workflow's own gate, is the check
+that judges the whole workflow.
+
 On a pull request the gate runs only when asked: the `gate` label (each push then runs it again), or
 the workflow dispatched for a branch (`gh workflow run scenarios.yml --ref BRANCH`). Otherwise it is
 skipped, which lets the pull request join the queue. A fork's pull request never runs it on its own,
