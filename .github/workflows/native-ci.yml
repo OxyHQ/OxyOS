@@ -234,7 +234,9 @@ jobs:
 
   # verify-x64's hosted twin in the Seldon race: the same name and steps.
   verify-x64-hosted:
-    name: verify (${{ matrix.runner }})
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('verify ({0})', matrix.runner) || format('verify ({0}) (seldon twin, off)', matrix.runner) }}
     needs: race
     if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
     strategy: *x64
@@ -249,7 +251,9 @@ jobs:
   # verify-x64's rescue: reruns it hosted when its Seldon lane failed (the house network drops
   # connections); a genuine failure fails again.
   verify-x64-rescue:
-    name: verify (${{ matrix.runner }})
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('verify ({0})', matrix.runner) || format('verify ({0}) (seldon rescue, off)', matrix.runner) }}
     needs: verify-x64
     if: ${{ !cancelled() && needs.verify-x64.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
     strategy: *x64
@@ -302,7 +306,9 @@ jobs:
 
   # passwd-tools-x64's hosted twin in the Seldon race: the same name and steps.
   passwd-tools-x64-hosted:
-    name: passwd-tools (${{ matrix.runner }})
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('passwd-tools ({0})', matrix.runner) || format('passwd-tools ({0}) (seldon twin, off)', matrix.runner) }}
     needs: race
     if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
     strategy: *x64
@@ -317,7 +323,9 @@ jobs:
   # passwd-tools-x64's rescue: reruns it hosted when its Seldon lane failed (the house network drops
   # connections); a genuine failure fails again.
   passwd-tools-x64-rescue:
-    name: passwd-tools (${{ matrix.runner }})
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('passwd-tools ({0})', matrix.runner) || format('passwd-tools ({0}) (seldon rescue, off)', matrix.runner) }}
     needs: passwd-tools-x64
     if: ${{ !cancelled() && needs.passwd-tools-x64.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
     strategy: *x64
@@ -373,7 +381,9 @@ jobs:
 
   # backup-engine-x64's hosted twin in the Seldon race: the same name and steps.
   backup-engine-x64-hosted:
-    name: backup-engine (${{ matrix.runner }})
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('backup-engine ({0})', matrix.runner) || format('backup-engine ({0}) (seldon twin, off)', matrix.runner) }}
     needs: race
     if: ${{ !cancelled() && needs.race.outputs.race == 'true' }}
     strategy: *x64
@@ -388,7 +398,9 @@ jobs:
   # backup-engine-x64's rescue: reruns it hosted when its Seldon lane failed (the house network drops
   # connections); a genuine failure fails again.
   backup-engine-x64-rescue:
-    name: backup-engine (${{ matrix.runner }})
+    # The lane's name only while the race is on: unset, this skipped job must not be the newest
+    # check run of a name a branch rule may still require (a skip counts as a pass).
+    name: ${{ vars.CI_SELDON_RACE == 'true' && format('backup-engine ({0})', matrix.runner) || format('backup-engine ({0}) (seldon rescue, off)', matrix.runner) }}
     needs: backup-engine-x64
     if: ${{ !cancelled() && needs.backup-engine-x64.result == 'failure' && vars.CI_SELDON_RACE == 'true' && github.run_attempt == 1 && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && !github.event.pull_request.head.repo.fork }}
     strategy: *x64
