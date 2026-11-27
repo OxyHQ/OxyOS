@@ -144,6 +144,11 @@
         ]
       ],
       "expect": {
+        "in_shell": {
+          "renders": {
+            "components_max": 1
+          }
+        },
         "at": {
           "shell": [
             {
@@ -178,6 +183,11 @@
         ]
       ],
       "expect": {
+        "in_shell": {
+          "renders": {
+            "components_max": 1
+          }
+        },
         "at": {
           "shell": [
             {

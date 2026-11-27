@@ -271,6 +271,18 @@ export const Launchpad = memo(function Launchpad({
     if ("app" in entry) launch(entry.app.id);
     else setFolder(entry.folder);
   };
+  // The tiles are given these for as long as Launchpad lives, so that the arrows moving the
+  // highlight draw the two tiles it moves between, never every tile on the page.
+  const latestLaunch = useRef(launch);
+  latestLaunch.current = launch;
+  const openTile = useCallback((app: ShellApplication | undefined, group: ShellFolder | undefined) => {
+    if (app) latestLaunch.current(app.id);
+    else if (group) setFolder(group);
+  }, []);
+  const register = useCallback((key: string, node: ComponentRef<typeof View> | null) => {
+    if (node) icons.current.set(key, node);
+    else icons.current.delete(key);
+  }, []);
 
   const search = (value: string) => {
     // Typing after the arrows: the search has the screen reader's focus again, so what is typed
@@ -467,65 +479,21 @@ export const Launchpad = memo(function Launchpad({
           .map((entry, index) => {
             const app = "app" in entry ? entry.app : undefined;
             const group = "folder" in entry ? entry.folder : undefined;
-            const highlighted = selected === currentPage * capacity + index;
             return (
-              <Box
+              <LaunchpadTile
                 key={app?.id ?? group!.id}
-                pointerEvents="box-none"
-                className="items-center"
-                style={{ width: cellWidth, height: rowHeight }}
-              >
-                <Button
-                  ref={(node) => {
-                    if (node) icons.current.set(keyOf(entry), node);
-                    else icons.current.delete(keyOf(entry));
-                  }}
-                  testID={
-                    app ? `launcher-${app.id}` : `launcher-folder-${group!.id}`
-                  }
-                  // Its name, as VoiceOver says a Launchpad icon; a folder says it is one.
-                  accessibilityLabel={app ? app.name : words.folder(group!.name)}
-                  pressed={highlighted}
-                  appearance="plain"
-                  className="flex-col items-center justify-start rounded-[18px] border-0 p-0"
-                  style={{
-                    width: Math.min(cellWidth, iconSize + 2 * HIGHLIGHT_PADDING + 24),
-                    height: iconSize + 8 + labelSize + 4 + 2 * HIGHLIGHT_PADDING,
-                    paddingTop: HIGHLIGHT_PADDING,
-                    paddingBottom: HIGHLIGHT_PADDING,
-                    // Launchpad's highlight: the icon and its label on a soft light plate.
-                    backgroundColor: highlighted ? "#ffffff2e" : "transparent",
-                  }}
-                  onPress={() => openEntry(entry)}
-                >
-                  <Box className="items-center" style={{ gap: 8 }}>
-                    {app ? (
-                      <DraggableAppIcon app={app} size={iconSize} />
-                    ) : (
-                      <FolderIcon
-                        apps={applications.filter((item) =>
-                          group!.appIds.includes(item.id),
-                        )}
-                        size={iconSize}
-                      />
-                    )}
-                    <Text
-                      numberOfLines={1}
-                      className="font-medium text-white"
-                      style={[
-                        LABEL_SHADOW,
-                        {
-                          fontSize: labelSize,
-                          lineHeight: labelSize + 4,
-                          maxWidth: cellWidth - 8,
-                        },
-                      ]}
-                    >
-                      {app?.name ?? group!.name}
-                    </Text>
-                  </Box>
-                </Button>
-              </Box>
+                app={app}
+                folder={group}
+                applications={applications}
+                highlighted={selected === currentPage * capacity + index}
+                cellWidth={cellWidth}
+                rowHeight={rowHeight}
+                iconSize={iconSize}
+                labelSize={labelSize}
+                folderLabel={words.folder}
+                register={register}
+                open={openTile}
+              />
             );
           })}
       </Box>
@@ -635,6 +603,73 @@ export const Launchpad = memo(function Launchpad({
 });
 
 /** A folder's icon, as Launchpad's: a frosted tile showing its first nine applications. */
+/** One of Launchpad's icons, an application or a folder: memoized, it draws again only when it is
+    highlighted or not, or what it shows changes. */
+const LaunchpadTile = memo(function LaunchpadTile({
+  app,
+  folder,
+  applications,
+  highlighted,
+  cellWidth,
+  rowHeight,
+  iconSize,
+  labelSize,
+  folderLabel,
+  register,
+  open,
+}: {
+  app: ShellApplication | undefined;
+  folder: ShellFolder | undefined;
+  applications: readonly ShellApplication[];
+  highlighted: boolean;
+  cellWidth: number;
+  rowHeight: number;
+  iconSize: number;
+  labelSize: number;
+  folderLabel: (name: string) => string;
+  register: (key: string, node: ComponentRef<typeof View> | null) => void;
+  open: (app: ShellApplication | undefined, folder: ShellFolder | undefined) => void;
+}) {
+  const key = app ? app.id : `folder-${folder!.id}`;
+  return (
+    <Box pointerEvents="box-none" className="items-center" style={{ width: cellWidth, height: rowHeight }}>
+      <Button
+        ref={(node) => register(key, node)}
+        testID={app ? `launcher-${app.id}` : `launcher-folder-${folder!.id}`}
+        // Its name, as VoiceOver says a Launchpad icon; a folder says it is one.
+        accessibilityLabel={app ? app.name : folderLabel(folder!.name)}
+        pressed={highlighted}
+        appearance="plain"
+        className="flex-col items-center justify-start rounded-[18px] border-0 p-0"
+        style={{
+          width: Math.min(cellWidth, iconSize + 2 * HIGHLIGHT_PADDING + 24),
+          height: iconSize + 8 + labelSize + 4 + 2 * HIGHLIGHT_PADDING,
+          paddingTop: HIGHLIGHT_PADDING,
+          paddingBottom: HIGHLIGHT_PADDING,
+          // Launchpad's highlight: the icon and its label on a soft light plate.
+          backgroundColor: highlighted ? "#ffffff2e" : "transparent",
+        }}
+        onPress={() => open(app, folder)}
+      >
+        <Box className="items-center" style={{ gap: 8 }}>
+          {app ? (
+            <DraggableAppIcon app={app} size={iconSize} />
+          ) : (
+            <FolderIcon apps={applications.filter((item) => folder!.appIds.includes(item.id))} size={iconSize} />
+          )}
+          <Text
+            numberOfLines={1}
+            className="font-medium text-white"
+            style={[LABEL_SHADOW, { fontSize: labelSize, lineHeight: labelSize + 4, maxWidth: cellWidth - 8 }]}
+          >
+            {app?.name ?? folder!.name}
+          </Text>
+        </Box>
+      </Button>
+    </Box>
+  );
+});
+
 function FolderIcon({
   apps,
   size,
