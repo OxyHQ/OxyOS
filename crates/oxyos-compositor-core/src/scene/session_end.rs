@@ -43,6 +43,8 @@ pub(super) struct SessionEnding {
     keys: Vec<SessionKey>,
     /// The applications that said they may be ended at once (`SuddenTermination`, decision 10).
     sudden: BTreeSet<ClientId>,
+    /// Super+Alt+Escape pressed and not yet taken (docs/adr/0067-hangs-and-force-quit.mdx).
+    force_quits: u32,
     /// The serial each application was asked to quit with and has not answered.
     asked: BTreeMap<ClientId, u32>,
     replies: Vec<QuitReplied>,
@@ -70,6 +72,18 @@ impl Scene {
     /// The session's keys pressed since the last call, in order.
     pub fn take_session_keys(&mut self) -> Vec<SessionKey> {
         std::mem::take(&mut self.session_ending.keys)
+    }
+
+    /// Super+Alt+Escape (a Mac's ⌥⌘⎋) was pressed since the last call: the program shows Force
+    /// Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx, decision 2). The scene only
+    /// takes the key, as the compositor's own, so it works whatever the shell or an application
+    /// is doing.
+    pub fn take_force_quit_shortcut(&mut self) -> bool {
+        std::mem::take(&mut self.session_ending.force_quits) > 0
+    }
+
+    pub(super) fn force_quit_shortcut(&mut self) {
+        self.session_ending.force_quits = self.session_ending.force_quits.saturating_add(1);
     }
 
     /// The clients that are applications, asked to quit before the session ends: none of the

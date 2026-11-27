@@ -37,6 +37,38 @@ endforeach()
 set(REACT_COMMON_DIR ${RN_DIR}/ReactCommon)
 set(REACT_ANDROID_DIR ${RN_DIR}/ReactAndroid)
 
+# React Native 0.88's hover tracking dispatches pointerleave to nodes it holds by raw pointer, which
+# a commit and mount on the UI thread free between two dispatches (the host crashed on its
+# JavaScript thread): patches/react-native-pointer-hover-owned-nodes.patch, applied here to
+# private copies of the three files. The header changes, so its copy comes before React Native's
+# own for every target (`BEFORE`, ahead of every subdirectory), and every translation unit sees the
+# same class. The React Native package is never modified; a release the patch no longer applies to
+# stops the build.
+set(hover_patch ${CMAKE_CURRENT_SOURCE_DIR}/patches/react-native-pointer-hover-owned-nodes.patch)
+set(hover_files PointerHoverTracker.h PointerHoverTracker.cpp PointerEventsProcessor.cpp)
+set(hover_stage ${CMAKE_CURRENT_BINARY_DIR}/react-native-patched/hover-stage)
+set(hover_root ${CMAKE_CURRENT_BINARY_DIR}/react-native-patched/hover)
+file(REMOVE_RECURSE ${hover_stage})
+foreach(file ${hover_files})
+  file(COPY ${REACT_COMMON_DIR}/react/renderer/uimanager/${file}
+    DESTINATION ${hover_stage}/react/renderer/uimanager)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${REACT_COMMON_DIR}/react/renderer/uimanager/${file})
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${hover_patch})
+execute_process(COMMAND patch -s -p1 --fuzz=0 --no-backup-if-mismatch -i ${hover_patch}
+  WORKING_DIRECTORY ${hover_stage} RESULT_VARIABLE hover_patched)
+if(NOT hover_patched EQUAL 0)
+  message(FATAL_ERROR "React Native's hover tracking changed: ${hover_patch} no longer applies; "
+    "check whether the release holds the nodes it dispatches pointer events to")
+endif()
+foreach(file ${hover_files})
+  # Through a copy that changes only when its content does, so configuring again never rebuilds it.
+  configure_file(${hover_stage}/react/renderer/uimanager/${file} ${hover_root}/react/renderer/uimanager/${file}
+    COPYONLY)
+endforeach()
+file(REMOVE_RECURSE ${hover_stage})
+include_directories(BEFORE ${hover_root})
+
 # React Native's components link `yoga`; ReactAndroid defines it in yogajni (JNI). Off Android
 # it is the core library.
 add_library(yoga INTERFACE)
@@ -160,6 +192,18 @@ if(role_kept_at GREATER_EQUAL 0)
 elseif(role_reset_at LESS 0)
   message(FATAL_ERROR "React Native's AccessibilityProps.cpp changed: check that a removed role resets")
 endif()
+
+# The hover tracking's patched sources (above, beside React Native's top) in place of its own.
+get_target_property(uimanager_sources react_renderer_uimanager SOURCES)
+foreach(file PointerHoverTracker.cpp PointerEventsProcessor.cpp)
+  list(FIND uimanager_sources ${REACT_COMMON_DIR}/react/renderer/uimanager/${file} at)
+  if(at LESS 0)
+    message(FATAL_ERROR "react_renderer_uimanager no longer builds ${file}: check the hover patch")
+  endif()
+  list(REMOVE_ITEM uimanager_sources ${REACT_COMMON_DIR}/react/renderer/uimanager/${file})
+  list(APPEND uimanager_sources ${hover_root}/react/renderer/uimanager/${file})
+endforeach()
+set_property(TARGET react_renderer_uimanager PROPERTY SOURCES ${uimanager_sources})
 
 # Like ReactAndroid's libreactnative.so: every ReactCommon OBJECT library in one shared library.
 function(collect_targets directory out)
@@ -310,10 +354,12 @@ add_custom_command(OUTPUT ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h
   VERBATIM)
 
 add_executable(oxyos-bloom-host bloom-host.cpp renderer.cpp background.cpp skia-gpu.cpp android-view-props.cpp damage.cpp host-modules.cpp application.cpp account-session.cpp migration.cpp files.cpp clipboard.cpp images.cpp svg-image.cpp network.cpp websocket.cpp worklets-host.cpp intl.cpp
-  reanimated-host.cpp native-animated.cpp animation-frames.cpp js-thread.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp platform-modules.cpp ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
-  gesture-handler.cpp modal.cpp expo-blur.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
+  reanimated-host.cpp native-animated.cpp animation-frames.cpp js-thread.cpp ui-thread.cpp window.cpp input.cpp overscroll.cpp scrollbars.cpp textinput.cpp popup.cpp drag.cpp report.cpp crash-report.cpp frame-diagnostics.cpp memory.cpp thread-clock.cpp accessibility.cpp safe-area.cpp shell-state.cpp notifications.cpp platform-modules.cpp ${PLATFORM_SPEC_INCLUDE}/OxyOSPlatformSpecJSI.h key-chords.cpp keyboard-focus.cpp shell-surface.cpp svg.cpp
+  gesture-handler.cpp modal.cpp expo-blur.cpp material.cpp expo-image.cpp masked-view.cpp keyboard-controller.cpp ${GESTURE_HANDLER_DIR}/shared/runtime/RNGHRuntimeDecorator.cpp $<TARGET_OBJECTS:oxyos_android_components> $<TARGET_OBJECTS:rnsvg_core> $<TARGET_OBJECTS:worklets_core> $<TARGET_OBJECTS:reanimated_core>)
 # The UI and JavaScript threads' short slice (docs/adr/0066-quality-of-service.mdx, decision 2).
 target_sources(oxyos-bloom-host PRIVATE scheduling.cpp)
+# React Native's Android ProgressBar, ActivityIndicator's (progress-bar.h).
+target_sources(oxyos-bloom-host PRIVATE progress-bar.cpp)
 target_include_directories(oxyos-bloom-host PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${PLATFORM_SPEC_INCLUDE})
 target_include_directories(oxyos-bloom-host SYSTEM PRIVATE ${TEXT_INCLUDES} ${WORKLETS_DIR}/Common/cpp
   ${REANIMATED_DIR}/Common/cpp ${REANIMATED_CODEGEN_DIR} ${REANIMATED_CODEGEN_DIR}/react/renderer/components)

@@ -1,5 +1,5 @@
 {
-  "about": "Signing out from Settings' Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5): Sign Out… asks first; cancelled, nothing happens; confirmed, Settings asks the session to sign out (`signOut`, its `settings` grant, citing the press), and the session ends, back to the login screen (the development compositor records it).",
+  "about": "Logging out from Settings' Oxy account (docs/adr/0020-oxy-account-login.mdx, decision 5; the words: docs/wording.mdx): Log Out… asks first; cancelled, nothing happens; confirmed, Settings asks the session to sign out (`signOut`, its `settings` grant, citing the press), and the session ends, back to the login screen (the development compositor records it).",
   "module": "OxyOSSettings",
   "window": [
     960,
@@ -31,20 +31,20 @@
       "expect": {
         "texts": [
           "@ada",
-          "Sign Out…"
+          "Log Out…"
         ]
       }
     },
     {
-      "name": "Sign Out… asks first",
+      "name": "Log Out… asks first",
       "do": [
         "press_named",
-        "Sign Out…"
+        "Log Out…"
       ],
       "expect": {
         "texts": [
-          "Sign out of OxyOS?",
-          "Your apps quit and the session ends. You can sign in again at the login screen, even offline."
+          "Log out of OxyOS?",
+          "Your apps quit and the session ends. You can sign in again at the login window, even offline."
         ]
       }
     },
@@ -56,19 +56,19 @@
       ],
       "expect": {
         "absent": [
-          "Sign out of OxyOS?"
+          "Log out of OxyOS?"
         ]
       }
     },
     {
-      "name": "Sign Out… again",
+      "name": "Log Out… again",
       "do": [
         "press_named",
-        "Sign Out…"
+        "Log Out…"
       ],
       "expect": {
         "texts": [
-          "Sign out of OxyOS?"
+          "Log out of OxyOS?"
         ]
       }
     },
@@ -76,14 +76,14 @@
       "name": "confirmed: the session signs out",
       "do": [
         "press_named",
-        "Sign Out"
+        "Log Out"
       ],
       "allow_unchanged": true,
       "expect": {
         "signed_out": true,
         "absent": [
-          "Sign out of OxyOS?",
-          "OxyOS couldn't sign out."
+          "Log out of OxyOS?",
+          "OxyOS couldn’t log out. Try again."
         ]
       }
     }

@@ -113,6 +113,6 @@ test("the sound's words are in both languages", () => {
   assert.deepEqual(keys(CATALOGUES.es.sound.builtIn), keys(CATALOGUES.en.sound.builtIn));
   assert.equal(es.output, "Salida");
   assert.equal(es.input, "Entrada");
-  assert.equal(es.unavailable, "OxyOS no puede acceder al sonido.");
-  assert.equal(en.unavailable, "OxyOS can't reach the sound.");
+  assert.equal(es.unavailable, "El sonido no está disponible ahora mismo. Reiniciar el ordenador puede ayudar.");
+  assert.equal(en.unavailable, "Sound isn’t available right now. Restarting the computer may help.");
 });

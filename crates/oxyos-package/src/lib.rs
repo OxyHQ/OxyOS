@@ -25,8 +25,8 @@ mod tree;
 
 pub use manifest::{
     Architecture, Capability, CapabilityRequest, Entry, FileEntry, Manifest, Opens, PackagePath,
-    Runtime, Sha256, Text, MAX_FILES, MAX_FILE_SIZE, MAX_MANIFEST_SIZE, MAX_PATH_LENGTH, RESERVED,
-    SYSTEM_GRANTS,
+    Runtime, Sha256, Text, WindowSize, MAX_FILES, MAX_FILE_SIZE, MAX_MANIFEST_SIZE,
+    MAX_PATH_LENGTH, RESERVED, SYSTEM_GRANTS, WINDOW_SIDES,
 };
 pub use runtime::{FrameworkDigests, RuntimeDescription, MAX_RUNTIME_DESCRIPTION};
 pub use signature::{

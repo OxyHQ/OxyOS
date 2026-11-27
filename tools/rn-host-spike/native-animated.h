@@ -1,8 +1,9 @@
 // React Native's Animated with its native driver (`useNativeDriver: true`) on OxyOS: React Native's
 // own C++ implementation (react/renderer/animated: `AnimatedModule`, `NativeAnimatedNodesManager`),
 // as Android runs it with `cxxNativeAnimatedEnabled`. JavaScript builds the animated graph through
-// the `NativeAnimatedModule` TurboModule; the host steps it once a frame on its loop (Android's
-// Choreographer drives it through `driveCxxAnimations`), and the manager sets the props it computes
+// the `NativeAnimatedModule` TurboModule on its thread; the host steps it once a frame on the UI
+// thread, its loop (ui-thread.h; Android's Choreographer drives it through `driveCxxAnimations`), so a
+// busy JavaScript never holds an animation up, and the manager sets the props it computes
 // on the mounted views between React's commits (`updateViewProps`, Android's mounting layer's
 // `synchronouslyUpdateViewOnUIThread`). Layout props, and the last values of every finished
 // animation, are committed to Fabric's shadow tree, and the props it manages are kept on the views
@@ -18,6 +19,7 @@
 
 #include <chrono>
 #include <functional>
+#include <mutex>
 #include <memory>
 #include <optional>
 
@@ -45,8 +47,9 @@ class NativeAnimatedHost {
 
  private:
   struct Frames {
+    std::mutex mutex;
     // The manager's frame (`onRender`), from when it asks for frames until it stops.
-    std::function<void()> render;
+    std::shared_ptr<std::function<void()>> render;
     double last = 0;
   };
   const DisplayRefresh& refresh_;

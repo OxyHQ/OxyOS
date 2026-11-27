@@ -348,6 +348,15 @@ fn a_process_of_the_persons_is_inspected_and_quit_and_the_session_never() {
         .spawn()
         .unwrap();
     let pid = child.id();
+    // Spawning returns once the child's exec is past its point of no return, before the kernel
+    // has named it and laid out its arguments: until then /proc shows the test's thread forked
+    // ("activity::tests"), which a loaded machine left it showing when it was inspected. Inspected
+    // once it is `sleep 30`.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read(format!("/proc/{pid}/cmdline")).unwrap() != b"sleep\x0030\x00" {
+        assert!(Instant::now() < deadline, "sleep never ran");
+        std::thread::yield_now();
+    }
     let started = {
         let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
         let after = &text[text.rfind(')').unwrap() + 1..];

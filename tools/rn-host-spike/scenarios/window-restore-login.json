@@ -1,0 +1,122 @@
+{
+  "about": "What opens at login comes back whole (docs/adr/0070-windows-come-back-where-they-were.mdx), as a Mac's Resume brings windows back: the person's record in the run's state folder says they had two desktops, Chat behind Inbox on the first, Permission on the second and Crash Probe minimized, and all four open at login. The session starts with the two desktops; each window opens at its frame, Permission on the second desktop (not shown), Crash Probe minimized into the dock, and Inbox, in front last time, in front with the keyboard whichever application is ready first: one that was behind arrives behind and takes nothing. Without it, the desktop and minimized state are lost, and the last application ready takes the keyboard. At 1 (1280 × 720).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "installed": [
+    {
+      "package": "so.oxy.inbox"
+    },
+    {
+      "package": "so.oxy.backgroundprobe"
+    },
+    {
+      "package": "so.oxy.permissionprobe"
+    },
+    {
+      "package": "so.oxy.crashprobe"
+    }
+  ],
+  "preferences": {
+    "open_at_login": "so.oxy.inbox,so.oxy.backgroundprobe,so.oxy.permissionprobe,so.oxy.crashprobe"
+  },
+  "applications_launched": [],
+  "home": {
+    "items": {
+      ".local/state/oxyos/windows": "{\"desktops\":2,\"windows\":[{\"application\":\"so.oxy.backgroundprobe\",\"x\":60,\"y\":80,\"width\":500,\"height\":400,\"desktop\":0},{\"application\":\"so.oxy.permissionprobe\",\"x\":300,\"y\":120,\"width\":520,\"height\":380,\"desktop\":1},{\"application\":\"so.oxy.crashprobe\",\"x\":200,\"y\":100,\"width\":480,\"height\":360,\"desktop\":0,\"minimized\":true},{\"application\":\"so.oxy.inbox\",\"x\":400,\"y\":180,\"width\":700,\"height\":460,\"desktop\":0}]}"
+    }
+  },
+  "steps": [
+    {
+      "name": "Inbox is ready",
+      "do": [
+        "wait_named",
+        [
+          "Press me",
+          30000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "Chat is ready",
+      "do": [
+        "wait_named",
+        [
+          "Add Login Item",
+          30000
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {}
+    },
+    {
+      "name": "every window where it was: Inbox in front with the keyboard, Chat behind it, Permission on the second desktop, Crash Probe minimized",
+      "do": [
+        "wait",
+        4000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "windows_of": {
+          "so.oxy.allo": {
+            "focused": false
+          },
+          "so.oxy.inbox": {
+            "frame": [
+              400,
+              180,
+              700,
+              460
+            ],
+            "workspace": 0,
+            "minimized": false,
+            "focused": true
+          },
+          "so.oxy.backgroundprobe": {
+            "frame": [
+              60,
+              80,
+              500,
+              400
+            ],
+            "workspace": 0,
+            "minimized": false,
+            "focused": false
+          },
+          "so.oxy.permissionprobe": {
+            "frame": [
+              300,
+              120,
+              520,
+              380
+            ],
+            "workspace": 1,
+            "minimized": false,
+            "focused": false
+          },
+          "so.oxy.crashprobe": {
+            "frame": [
+              200,
+              100,
+              480,
+              360
+            ],
+            "workspace": 0,
+            "minimized": true,
+            "focused": false
+          }
+        }
+      }
+    }
+  ]
+}

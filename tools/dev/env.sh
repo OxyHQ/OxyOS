@@ -11,15 +11,22 @@ OXYOS_TREE=${OXYOS_TREE:-$(pwd)}
 OXYOS_CACHE=${OXYOS_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/oxyos}
 case $OXYOS_CACHE in /tmp | /tmp/*) echo "env.sh: OXYOS_CACHE under /tmp: use a directory on disk" >&2; return 1 2>/dev/null || exit 1 ;; esac
 # The host's toolchain (tools/rn-host-spike/toolchain.sh), the input methods' engine, the
-# applications' checkouts at their pins (tools/dev/pins) unless local.conf names others.
+# applications' checkouts at their pins (tools/dev/pins) unless local.conf names others: one
+# checkout per pinned commit (checkouts/NAME/COMMIT, a worktree of one clone, checkouts/NAME.git),
+# never changed once made, so builds of trees pinning different commits never share one.
+. "$OXYOS_TREE/tools/dev/pins"
 OXYOS_TOOLCHAIN=${OXYOS_TOOLCHAIN:-$OXYOS_CACHE/toolchain}
 OXYOS_INPUT_METHODS_WORK=$OXYOS_CACHE/input-methods
-BLOOM_DIR=${BLOOM_DIR:-$OXYOS_CACHE/src/Bloom}
-DROPSEA_DIR=${DROPSEA_DIR:-$OXYOS_CACHE/src/Dropsea/packages/frontend}
-ATLAS_DIR=${ATLAS_DIR:-$OXYOS_CACHE/src/Atlas/packages/frontend}
+OXYOS_CHECKOUTS=$OXYOS_CACHE/checkouts
+BLOOM_DIR=${BLOOM_DIR:-$OXYOS_CHECKOUTS/Bloom/$BLOOM_COMMIT}
+DROPSEA_DIR=${DROPSEA_DIR:-$OXYOS_CHECKOUTS/Dropsea/$DROPSEA_COMMIT/packages/frontend}
+ATLAS_DIR=${ATLAS_DIR:-$OXYOS_CHECKOUTS/Atlas/$ATLAS_COMMIT/packages/frontend}
+# What the host's CMake is told of the toolchain (toolchain.sh's output): paths into this Bloom's
+# React Native, so one file a Bloom checkout.
+OXYOS_CMAKE_VARS=$OXYOS_TOOLCHAIN/cmake-vars/$(printf '%s' "$BLOOM_DIR" | sha256sum | cut -c1-16).txt
 # Node and bun as bootstrap fetched them, and rustup's cargo.
 PATH=$OXYOS_CACHE/node/bin:$OXYOS_CACHE/bun/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$PATH
-export OXYOS_TREE OXYOS_CACHE OXYOS_TOOLCHAIN BLOOM_DIR DROPSEA_DIR ATLAS_DIR PATH
+export OXYOS_TREE OXYOS_CACHE OXYOS_TOOLCHAIN OXYOS_CHECKOUTS BLOOM_DIR DROPSEA_DIR ATLAS_DIR OXYOS_CMAKE_VARS PATH
 case $(dpkg --print-architecture 2>/dev/null) in
   amd64) OXYOS_ARCH=amd64 ;;
   arm64) OXYOS_ARCH=arm64 ;;

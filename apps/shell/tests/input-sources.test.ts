@@ -50,7 +50,7 @@ test("each source is named in the session's language", () => {
   assert.equal(sourceName("japanese", state(), EN), "Japanese – Romaji");
   assert.equal(sourceName("japanese", state(), ES), "Japonés – Romaji");
   assert.equal(sourceName("korean", state(), EN), "2-Set Korean");
-  assert.equal(sourceName("korean", state(), ES), "Coreano de 2 juegos");
+  assert.equal(sourceName("korean", state(), ES), "Coreano de 2 conjuntos");
   assert.equal(sourceName("layout", state(), EN), "Spanish");
   assert.equal(sourceName("layout", state(), ES), "Español");
   assert.equal(sourceName("layout", state({ layout: "us" }), ES), "EE. UU.");

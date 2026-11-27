@@ -15,6 +15,8 @@
 //! - [`install`]: installing from the live medium, and erasing and reinstalling from the recovery.
 //! - [`check`]: checking and repairing the disk's file systems.
 //! - [`network`]: what the recovery needs of NetworkManager to get online.
+//! - [`panics`]: a kernel panic's account for the person after the restart (efi-pstore,
+//!   systemd-pstore), without an address.
 //! - [`host`]: the programs every step runs (systemd-repart, cryptsetup, mount, chroot), through
 //!   one seam the tests replace.
 //!
@@ -31,6 +33,7 @@ pub mod host;
 pub mod install;
 pub mod layout;
 pub mod network;
+pub mod panics;
 pub mod request;
 
 #[cfg(test)]

@@ -2,20 +2,30 @@
  * Frames fast and slow, for the host's frame diagnostics (frame-diagnostics.h), checked by
  * scenarios/frame-diagnostics.json: a press on "fast" counts at once; one on "slow" first holds
  * JavaScript for SLOW_MS, as a slow render would; one on "animate" changes what is drawn for
- * ANIMATED_FRAMES frames of requestAnimationFrame; one on "loop", LOOP_AFTER_MS later, changes it
- * on a timer every LOOP_EVERY_MS until the next press on it, so the window always has a frame to
- * draw, as a clock or data arriving gives it one (scenarios/held-frames.json: a frame the
+ * ANIMATED_FRAMES frames of requestAnimationFrame; one on "loop", once the scenario's server answers
+ * its request for the cue `loop` (regress.py's ProbeServer, `/cue/loop`, given by a step's
+ * `cue_before`), changes it on a timer every LOOP_EVERY_MS until the next press on it, so the window always has a frame to
+ * draw, as a clock or data arriving gives it one; each press on it says the loop is on or off, the
+ * frame showing JavaScript's answer to it (an input is timed to that frame, frame-diagnostics.h) (scenarios/held-frames.json: a frame the
  * compositor holds while the displays are off; requestAnimationFrame would wait for the
- * compositor's answer instead). It starts later than the press so that the press's step settles
- * first: a step waits for its window to stop changing.
+ * compositor's answer instead); one on "once", once the server answers the cue `once`, changes it
+ * twice ONCE_AGAIN_MS apart and then never again, as a clock's two ticks: the first frame goes out
+ * and stays unanswered while the displays are off, the second waits behind it
+ * (scenarios/displays-off-silent.json: a host whose frame the displays off hold wakes for nothing). Each starts when the scenario says, never on a clock of its own: a
+ * step waits for its window to stop changing, and a loop begun two seconds after the press began
+ * before a loaded machine's step had settled, which then never did.
  */
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 const SLOW_MS = 120;
 const ANIMATED_FRAMES = 90;
-const LOOP_AFTER_MS = 2000;
+// The scenario's server (scenarios/held-frames.json's `http`): its answer to the cue starts the loop.
+const LOOP_CUE = 'http://127.0.0.1:18660/cue/loop';
 const LOOP_EVERY_MS = 50;
+// The cue for two changes (scenarios/displays-off-silent.json's `cue_before`), this far apart.
+const ONCE_CUE = 'http://127.0.0.1:18660/cue/once';
+const ONCE_AGAIN_MS = 300;
 
 function Button({ id, label, onPress }: { id: string; label: string; onPress: () => void }) {
   return (
@@ -33,6 +43,7 @@ export default function FrameProbe() {
   const [count, setCount] = React.useState(0);
   const [frame, setFrame] = React.useState(0);
   const looping = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [loopOn, setLoopOn] = React.useState(false);
   const slow = () => {
     const until = performance.now() + SLOW_MS;
     while (performance.now() < until) {
@@ -52,13 +63,30 @@ export default function FrameProbe() {
     if (looping.current !== null) {
       clearTimeout(looping.current);
       looping.current = null;
+      setLoopOn(false);
       return;
     }
+    setLoopOn(true);
+    // On, waiting for the cue: a press now stops it before it began.
+    const waiting = setTimeout(() => {}, 0);
+    looping.current = waiting;
     const tick = () => {
       setFrame((f) => f + 1);
       looping.current = setTimeout(tick, LOOP_EVERY_MS);
     };
-    looping.current = setTimeout(tick, LOOP_AFTER_MS);
+    fetch(LOOP_CUE)
+      .then(() => {
+        if (looping.current === waiting) tick();
+      })
+      .catch(() => {});
+  };
+  const once = () => {
+    fetch(ONCE_CUE)
+      .then(() => {
+        setFrame((f) => f + 1);
+        setTimeout(() => setFrame((f) => f + 1), ONCE_AGAIN_MS);
+      })
+      .catch(() => {});
   };
   return (
     <View style={{ padding: 16, gap: 12, backgroundColor: '#ffffff', flex: 1 }}>
@@ -68,6 +96,8 @@ export default function FrameProbe() {
       <Text style={{ fontSize: 13 }}>{`Count ${count}, frame ${frame}`}</Text>
       <View style={{ width: 20 + (frame % 200), height: 6, backgroundColor: '#3b6fd8' }} />
       <Button id="loop" label="Loop" onPress={loop} />
+      <Text style={{ fontSize: 13 }}>{`Loop ${loopOn ? 'on' : 'off'}`}</Text>
+      <Button id="once" label="Once" onPress={once} />
     </View>
   );
 }

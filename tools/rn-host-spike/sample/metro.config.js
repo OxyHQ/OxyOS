@@ -270,6 +270,10 @@ function applicationModule(module) {
   }
   // What the application names of the framework is public.
   for (const dependency of module.dependencies.values()) {
+    // An optional require Metro could not resolve (`try { require('x') } catch {}`) names
+    // nothing: it throws at run time, as the module expects. Atlas's Alia SDK asks for Bloom's
+    // retired native avatar companion this way.
+    if (dependency.absolutePath === undefined) continue;
     const key = ids.keyOf(dependency.absolutePath, ID_OPTIONS).key;
     const named = FRAMEWORK.modules[key];
     if (named && !named.public) throw new Error(`${module.path} names ${key}, private to ${framework}`);

@@ -115,11 +115,11 @@
   {
    "name": "Empty Trash Automatically's switch: asked first, nothing erased yet",
    "do": [
-    "press_output",
-    [
-     1020,
-     470
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Empty Trash Automatically"
+    }
    ],
    "expect": {
     "texts": [
@@ -211,7 +211,7 @@
    "allow_unchanged": true,
    "expect": {
     "texts": [
-     "Applications",
+     "Apps",
      "Allo",
      "Settings",
      "Dropsea"
@@ -389,10 +389,14 @@
    }
   },
   {
-   "name": "Move to Trash: in the Trash, out of the list, the largest left chosen",
+   "name": "Move to Trash: in the Trash, out of the list, the largest left chosen, once the file service has moved it",
    "do": [
     "press_named",
     "Move to Trash"
+   ],
+   "until_named": [
+    "Show trip.mp4 in Dropsea",
+    10000
    ],
    "expect": {
     "texts": [

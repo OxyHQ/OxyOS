@@ -171,6 +171,7 @@ const FIXTURE: SettingsSnapshot = {
     region: '',
     hourCycle: 'auto',
     doNotDisturb: false,
+    dockAutohide: false,
     notificationPreviews: 'unlocked',
     notificationSoundsOff: [],
     openAtLogin: [],
@@ -357,6 +358,7 @@ function preferencesOf(values: Record<string, string>): Preferences {
     region: values[PREFERENCE_KEYS.region] ?? '',
     hourCycle: (values[PREFERENCE_KEYS.hourCycle] as HourCycle) || 'auto',
     doNotDisturb: flag(PREFERENCE_KEYS.doNotDisturb),
+    dockAutohide: flag(PREFERENCE_KEYS.dockAutohide),
     notificationPreviews:
       (values[PREFERENCE_KEYS.notificationPreviews] as NotificationPreviews) ?? 'unlocked',
     // The applications whose notifications are silent, as the session tells Settings them.

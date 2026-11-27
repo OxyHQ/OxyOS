@@ -126,11 +126,11 @@ test("an answer that is not one is a failure", () => {
 });
 
 test("setup's words in both languages", () => {
-  assert.equal(loginMessages("en").setup.passwordTitle("Ada"), "Enter Ada's Oxy Password");
+  assert.equal(loginMessages("en").setup.passwordTitle("Ada"), "Enter Ada’s Oxy Password");
   assert.equal(loginMessages("es").setup.passwordTitle("Ada"), "Introduce la contraseña de Oxy de Ada");
   assert.equal(loginMessages("en").setup.passwordTitle(""), "Enter Your Oxy Password");
   assert.equal(loginMessages("es").setup.step("Crea un PIN", 3, 5), "Crea un PIN, paso 3 de 5");
-  assert.equal(loginMessages("en").setup.passwordThrottled(30), "Too many tries. Wait 30 seconds, then try again.");
+  assert.equal(loginMessages("en").setup.passwordThrottled(30), "Too many attempts. Wait 30 seconds, then try again.");
 });
 
 test("a QR sets a PIN alone, a typed password is taken, and only a sign-in that typed none asks it", () => {

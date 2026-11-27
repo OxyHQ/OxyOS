@@ -177,7 +177,7 @@
           "texts": [
             "Lo que informó Crash Probe",
             "Copiar",
-            "Listo"
+            "OK"
           ],
           "texts_matching": [
             "Its storage cannot be read"
@@ -273,7 +273,7 @@
       "name": "Done: back to the notice",
       "do": [
         "press_named",
-        "Listo"
+        "OK"
       ],
       "expect": {
         "react": {},

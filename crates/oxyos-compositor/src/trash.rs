@@ -9,7 +9,8 @@
 //! on, the session erases what has been in the Trash for more than 30 days, by each item's
 //! deletion date. It looks when the session starts, when the person turns it on, when the Trash
 //! changes, and when the earliest item left reaches its 30 days: the turn waits no longer than
-//! that ([`Trash::deadline`]), and nothing is read on a clock.
+//! that ([`Trash::deadline`]), and nothing is read on a clock. Its 30 days are elapsed time, its
+//! deletion date read with the time zone's rules for that date (`oxyos_files::trash::deletion_instant`).
 
 use oxyos_compositor_core::{Scene, TrashRequest};
 use oxyos_files::trash;
@@ -50,6 +51,8 @@ pub struct Trash {
     /// How many times the Trash was looked at for what has been in it too long (the tests' count
     /// of the work done).
     sweeps: u32,
+    /// The time zone deletion dates are read in: the system's at each look, unless a test sets one.
+    zone: Option<jiff::tz::TimeZone>,
 }
 
 /// Now, in milliseconds since 1970.
@@ -87,6 +90,7 @@ impl Trash {
             sweep_asked: false,
             next_due: None,
             sweeps: 0,
+            zone: None,
         })
     }
 
@@ -201,7 +205,8 @@ impl Trash {
     fn sweep(&mut self, scene: &mut Scene) {
         self.sweep_asked = false;
         self.sweeps += 1;
-        match trash::erase_older(&self.scope, now_ms() - trash::KEPT_FOR_MS) {
+        let zone = self.zone.clone().unwrap_or_else(jiff::tz::TimeZone::system);
+        match trash::erase_older_in(&self.scope, now_ms() - trash::KEPT_FOR_MS, &zone) {
             Ok(swept) => {
                 self.next_due = swept.next.map(|deleted| deleted + trash::KEPT_FOR_MS);
                 if swept.erased > 0 {
@@ -263,7 +268,6 @@ mod tests {
     use super::*;
     use oxyos_compositor_core::{ClientId, Grants};
     use oxyos_protocol::Event;
-    use std::time::{Duration, Instant};
 
     const SHELL: ClientId = 3;
 
@@ -317,14 +321,12 @@ mod tests {
         let item = home.join("report.txt");
         std::fs::write(&item, "draft").unwrap();
         trash::trash(&scope, &item).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(10);
         loop {
+            changed(&follower);
             follower.serve(&mut scene);
             if told(&mut scene).contains(&Event::TrashItems { items: 1 }) {
                 break;
             }
-            assert!(Instant::now() < deadline, "the shell was not told");
-            std::thread::sleep(Duration::from_millis(20));
         }
         // A request citing no input asks nothing (the scene says which did, scene/dock.rs).
         follower.ask(&mut scene, false);
@@ -365,94 +367,145 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
     }
 
-    /// `name` put in the home's Trash `days` ago, as a file manager would have: its info's
-    /// deletion date in local time.
-    fn trashed_days_ago(home: &std::path::Path, name: &str, days: i64) {
+    /// `name` put in the home's Trash `days` ago, as a file manager in `zone` would have: its
+    /// info's deletion date that instant's wall time there, without an offset. The instant the
+    /// Trash reads back (an hour on, in an hour the clocks repeat: never older than it is).
+    fn trashed_days_ago(
+        home: &std::path::Path,
+        name: &str,
+        days: i64,
+        zone: &jiff::tz::TimeZone,
+    ) -> i64 {
         let trash = home.join(".local/share/Trash");
         std::fs::create_dir_all(trash.join("info")).unwrap();
         std::fs::create_dir_all(trash.join("files")).unwrap();
-        let deleted = jiff::Zoned::now()
-            .checked_sub(jiff::SignedDuration::from_hours(days * 24))
-            .unwrap();
+        let deleted = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(days * 24);
+        let date = deleted
+            .to_zoned(zone.clone())
+            .strftime("%Y-%m-%dT%H:%M:%S")
+            .to_string();
         std::fs::write(
             trash.join(format!("info/{name}.trashinfo")),
             format!(
-                "[Trash Info]\nPath={}/{name}\nDeletionDate={}\n",
-                home.display(),
-                deleted.strftime("%Y-%m-%dT%H:%M:%S")
+                "[Trash Info]\nPath={}/{name}\nDeletionDate={date}\n",
+                home.display()
             ),
         )
         .unwrap();
         std::fs::write(trash.join(format!("files/{name}")), name).unwrap();
+        let read = trash::deletion_instant(&date, zone).unwrap();
+        // The date drops the instant's fraction of a second, and an hour the clocks repeat is
+        // read as its later instant.
+        let off = read - deleted.as_millisecond();
+        assert!(
+            (-1_000..=3_600_000).contains(&off),
+            "{date} read {off} ms off"
+        );
+        read
+    }
+
+    /// Waits until the Trash's watcher says something changed (its wake descriptor readable), at
+    /// most 10 s.
+    fn changed(follower: &Trash) {
+        let wake = follower.wake_fd().unwrap();
+        let mut fds = [rustix::event::PollFd::new(
+            &wake,
+            rustix::event::PollFlags::IN,
+        )];
+        let timeout = rustix::time::Timespec {
+            tv_sec: 10,
+            tv_nsec: 0,
+        };
+        let ready = rustix::event::poll(&mut fds, Some(&timeout)).unwrap();
+        assert_eq!(ready, 1, "the Trash's watcher saw no change");
+    }
+
+    /// Whether the watcher said something changed since the last turn.
+    fn woken(follower: &Trash) -> bool {
+        let wake = follower.wake_fd().unwrap();
+        let mut fds = [rustix::event::PollFd::new(
+            &wake,
+            rustix::event::PollFlags::IN,
+        )];
+        let none = rustix::time::Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        rustix::event::poll(&mut fds, Some(&none)).unwrap() > 0
     }
 
     #[test]
     fn once_turned_on_the_trash_erases_what_has_been_in_it_30_days_and_waits_for_the_next() {
-        let home = scratch("automatic");
-        let mountinfo = home.join("mountinfo");
-        std::fs::write(&mountinfo, "").unwrap();
-        let scope = Scope::new(
-            &home,
-            &home.join(".local/share"),
-            &home.join(".config"),
-            Vec::new(),
-            mountinfo,
-            rustix::process::getuid().as_raw(),
-        )
-        .unwrap();
-        let mut scene = Scene::new();
-        scene
-            .connect(
-                SHELL,
-                Grants {
-                    shell: true,
-                    ..Grants::default()
-                },
+        // Whatever the machine's zone: in UTC, and in America/Chicago's rules (as a POSIX TZ
+        // string), whose clocks change twice a year, inside the 40 days looked back on some days.
+        let chicago = jiff::tz::TimeZone::posix("CST6CDT,M3.2.0,M11.1.0").unwrap();
+        for (run, zone) in [jiff::tz::TimeZone::UTC, chicago].into_iter().enumerate() {
+            let home = scratch(&format!("automatic-{run}"));
+            let mountinfo = home.join("mountinfo");
+            std::fs::write(&mountinfo, "").unwrap();
+            let scope = Scope::new(
+                &home,
+                &home.join(".local/share"),
+                &home.join(".config"),
+                Vec::new(),
+                mountinfo,
+                rustix::process::getuid().as_raw(),
             )
             .unwrap();
-        trashed_days_ago(&home, "old.txt", 40);
-        trashed_days_ago(&home, "recent.txt", 10);
-        let mut follower = Trash::new(scope.clone()).unwrap();
-        follower.serve(&mut scene);
-        // Off, as a Mac ships: nothing goes, and nothing is due.
-        assert_eq!(trash::count(&scope), 2);
-        assert_eq!(follower.deadline(), None);
-        assert_eq!(follower.sweeps, 0);
-        assert!(told(&mut scene).contains(&Event::TrashItems { items: 2 }));
-        // Turned on: the item there 40 days goes at the next turn, silently, the shell told.
-        follower.set_empty_automatically(true);
-        follower.serve(&mut scene);
-        assert_eq!(trash::count(&scope), 1);
-        assert!(!home.join(".local/share/Trash/files/old.txt").exists());
-        assert!(scene.take_system_sounds().is_empty());
-        assert!(told(&mut scene).contains(&Event::TrashItems { items: 1 }));
-        // The next is due when the one put in ten days ago has been there 30: in 20 days.
-        let in_20_days = SystemTime::now() + Duration::from_secs(20 * 24 * 60 * 60);
-        let due = follower.deadline().expect("a deadline");
-        let off_by = due
-            .duration_since(in_20_days)
-            .unwrap_or_else(|early| early.duration());
-        assert!(off_by < Duration::from_secs(5), "{off_by:?}");
-        // The erase is a change of the Trash, looked at once more; then, while nothing changes,
-        // nothing is read again, however many turns run.
-        std::thread::sleep(Duration::from_millis(300));
-        follower.serve(&mut scene);
-        let sweeps = follower.sweeps;
-        for _ in 0..5 {
-            std::thread::sleep(Duration::from_millis(50));
+            let mut scene = Scene::new();
+            scene
+                .connect(
+                    SHELL,
+                    Grants {
+                        shell: true,
+                        ..Grants::default()
+                    },
+                )
+                .unwrap();
+            trashed_days_ago(&home, "old.txt", 40, &zone);
+            let recent = trashed_days_ago(&home, "recent.txt", 10, &zone);
+            let mut follower = Trash::new(scope.clone()).unwrap();
+            follower.zone = Some(zone.clone());
             follower.serve(&mut scene);
+            // Off, as a Mac ships: nothing goes, and nothing is due.
+            assert_eq!(trash::count(&scope), 2);
+            assert_eq!(follower.deadline(), None);
+            assert_eq!(follower.sweeps, 0);
+            assert!(told(&mut scene).contains(&Event::TrashItems { items: 2 }));
+            // Turned on: the item there 40 days goes at the next turn, silently, the shell told.
+            follower.set_empty_automatically(true);
+            follower.serve(&mut scene);
+            assert_eq!(trash::count(&scope), 1);
+            assert!(!home.join(".local/share/Trash/files/old.txt").exists());
+            assert!(scene.take_system_sounds().is_empty());
+            assert!(told(&mut scene).contains(&Event::TrashItems { items: 1 }));
+            // The next is due when the one put in ten days ago has been there 30 days, elapsed: 720
+            // hours after the instant its date says, to the millisecond, whatever the clocks did.
+            let due = follower.deadline().expect("a deadline");
+            let due_ms = due.duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+            assert_eq!(due_ms, recent + trash::KEPT_FOR_MS);
+            // The erase is a change of the Trash, looked at once more as the watcher says so; then,
+            // while nothing changes, nothing is read again, however many turns run.
+            changed(&follower);
+            let sweeps = follower.sweeps;
+            follower.serve(&mut scene);
+            assert_eq!(follower.sweeps, sweeps + 1);
+            for _ in 0..5 {
+                assert!(!woken(&follower));
+                follower.serve(&mut scene);
+            }
+            assert_eq!(follower.sweeps, sweeps + 1);
+            assert_eq!(trash::count(&scope), 1);
+            // Off again: nothing is due, and an old item put in stays.
+            follower.set_empty_automatically(false);
+            assert_eq!(follower.deadline(), None);
+            trashed_days_ago(&home, "older.txt", 90, &zone);
+            changed(&follower);
+            follower.serve(&mut scene);
+            assert_eq!(trash::count(&scope), 2);
+            assert_eq!(follower.sweeps, sweeps + 1);
+            let _ = std::fs::remove_dir_all(&home);
         }
-        assert_eq!(follower.sweeps, sweeps);
-        assert_eq!(trash::count(&scope), 1);
-        // Off again: nothing is due, and an old item stays.
-        follower.set_empty_automatically(false);
-        assert_eq!(follower.deadline(), None);
-        trashed_days_ago(&home, "older.txt", 90);
-        std::thread::sleep(Duration::from_millis(300));
-        follower.serve(&mut scene);
-        assert_eq!(trash::count(&scope), 2);
-        assert_eq!(follower.sweeps, sweeps);
-        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

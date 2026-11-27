@@ -174,9 +174,10 @@ impl Scene {
             .get_mut(&key)
             .expect("resized windows are present");
         let (origin, size) = node.upcoming();
-        // A window resized by hand is no longer zoomed.
+        // A window resized by hand is no longer zoomed, tiled or centred.
         node.maximized = false;
         node.unzoomed = None;
+        node.placed = None;
         self.resizing = Some(Resize {
             surface: key,
             edges,
@@ -296,26 +297,33 @@ impl Scene {
         }
         let current = node.upcoming();
         let (origin, size) = if enabled {
-            let area = self
-                .work_area(node.output)
-                .ok_or(ErrorCode::InvalidGeometry)?;
-            let size = node.limits.clamp(Size::new(area.width, area.height));
-            let size = Size::new(size.width.min(area.width), size.height.min(area.height));
-            let origin = (
-                area.x + ((area.width - size.width) / 2) as i32,
-                area.y + ((area.height - size.height) / 2) as i32,
-            );
-            (origin, size)
+            self.zoomed_frame(key).ok_or(ErrorCode::InvalidGeometry)?
         } else {
             node.unzoomed.unwrap_or(current)
         };
         let node = self.nodes.get_mut(&key).expect("present");
         node.maximized = enabled;
         node.unzoomed = enabled.then_some(current);
+        // Zoomed from a tile, it is restored to the tile's frame, no longer tiled.
+        node.placed = None;
         self.reconfigure(key, Some(origin), size);
         // Its frame goes from where it is to where it is configured, animated (ADR 0016).
         self.appeared(key, super::appearances::Change::Zoomed);
         Ok(())
+    }
+
+    /// The frame a window zoomed fills: its output's work area, or its largest size within
+    /// that, centred on it, if its limits are smaller.
+    pub(super) fn zoomed_frame(&self, key: SurfaceKey) -> Option<((i32, i32), Size)> {
+        let node = self.live(key)?;
+        let area = self.work_area(node.output)?;
+        let size = node.limits.clamp(Size::new(area.width, area.height));
+        let size = Size::new(size.width.min(area.width), size.height.min(area.height));
+        let origin = (
+            area.x + ((area.width - size.width) / 2) as i32,
+            area.y + ((area.height - size.height) / 2) as i32,
+        );
+        Some((origin, size))
     }
 
     /// A window minimizing itself, as the shell minimizes it.
@@ -400,6 +408,11 @@ impl Scene {
     pub fn upcoming_rect(&self, key: SurfaceKey) -> Option<Rect> {
         self.live(key)?;
         self.global_rect_pending(key)
+    }
+
+    /// How many configures a surface was sent.
+    pub fn configures_sent(&self, key: SurfaceKey) -> u64 {
+        self.live(key).map_or(0, |node| node.configures)
     }
 
     /// The serial of the latest configure a surface was sent.

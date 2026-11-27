@@ -96,7 +96,7 @@ function PopupsPage() {
               </Button>
             </PopoverContent>
           </Popover>
-          <Tooltip visible={tip} onVisibleChange={setTip} position="bottom">
+          <Tooltip visible={tip} onVisibleChange={setTip} position="bottom" delay={0}>
             <TooltipTrigger>
               <Button appearance="outline" testID="tip-trigger" onPress={() => setTip(!tip)}>
                 Help

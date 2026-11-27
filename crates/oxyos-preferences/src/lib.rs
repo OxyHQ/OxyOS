@@ -295,6 +295,10 @@ pub struct Preferences {
     /// Do Not Disturb (ADR 0026): notifications are kept in the Notification Center and shown as
     /// no banner, and the screen reader says none.
     pub do_not_disturb: bool,
+    /// *Automatically hide and show the Dock* (docs/adr/0034-the-dock.mdx, 10 November 2026): the
+    /// dock keeps no strip of the screen and slides away, shown while the pointer is at the
+    /// screen's bottom edge or over it; Super+Alt+D turns it on and off, a Mac's ⌥⌘D.
+    pub dock_autohide: bool,
     /// What the lock screen shows of notifications.
     pub notification_previews: Previews,
     /// *Empty Trash Automatically* (docs/adr/0062-storage.mdx): the session erases what has been
@@ -345,6 +349,7 @@ impl Default for Preferences {
             region: None,
             hour_cycle: HourCycle::default(),
             do_not_disturb: false,
+            dock_autohide: false,
             notification_previews: Previews::default(),
             empty_trash_automatically: false,
             reopen_windows: true,
@@ -462,6 +467,7 @@ pub const KEYS: &[&str] = &[
     "region",
     "hour_cycle",
     "do_not_disturb",
+    "dock_autohide",
     "notification_previews",
     "empty_trash_automatically",
     "reopen_windows",
@@ -559,6 +565,7 @@ impl Preferences {
             "region" => self.region = locale::region(value)?,
             "hour_cycle" => self.hour_cycle = HourCycle::parse(value).ok_or(Refused::BadValue)?,
             "do_not_disturb" => self.do_not_disturb = boolean(value)?,
+            "dock_autohide" => self.dock_autohide = boolean(value)?,
             "notification_previews" => {
                 self.notification_previews = match value {
                     "always" => Previews::Always,
@@ -633,6 +640,7 @@ impl Preferences {
             "region" => self.region.clone().unwrap_or_default(),
             "hour_cycle" => self.hour_cycle.name().to_owned(),
             "do_not_disturb" => self.do_not_disturb.to_string(),
+            "dock_autohide" => self.dock_autohide.to_string(),
             "notification_previews" => self.notification_previews.name().to_owned(),
             "empty_trash_automatically" => self.empty_trash_automatically.to_string(),
             "reopen_windows" => self.reopen_windows.to_string(),

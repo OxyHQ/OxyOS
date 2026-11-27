@@ -75,6 +75,15 @@ void Window::abandonPainter() {
   painterReady_ = -1;
 }
 
+void Window::answerPingsItself() {
+  if (oxyos_client_answer_pings_itself(client_) != 0) failed("answering pings");
+}
+
+void Window::pong(uint64_t serial) {
+  // A connection the compositor closed meanwhile is dispatch's to notice.
+  oxyos_client_pong(client_, serial);
+}
+
 Window::Surface* Window::surface(uint32_t id) {
   auto it = surfaces_.find(id);
   return it == surfaces_.end() ? nullptr : &it->second;
@@ -97,6 +106,14 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
         break;
       default:
         failed("compositor connection");
+    }
+    if (event.kind == OXYOS_EVENT_PING) {
+      pings_.push_back(event.serial);
+      continue;
+    }
+    if (event.kind == OXYOS_EVENT_PING_HANDLED) {
+      handledPings_.push_back(event.serial);
+      continue;
     }
     // The person's input, as received, and handled as the cause of what it delivers to React.
     Report::get().received(event);
@@ -235,6 +252,9 @@ bool Window::dispatch(const std::function<void(const OxyOSEvent&)>& input) {
     } else if (event.kind == OXYOS_EVENT_ACTIVATED && event.surface == kToplevel) {
       active_ = event.flag != 0;
       input(event);
+    } else if (event.kind == OXYOS_EVENT_SURFACE_WORKSPACES && event.surface == kToplevel) {
+      workspaces_ = Workspaces{.count = event.detail, .current = event.code};
+      input(event);
     } else if (event.kind != OXYOS_EVENT_RELEASED) {
       input(event);
     }
@@ -359,7 +379,7 @@ bool Window::disconnected() const {
   return poll(&fd, 1, 0) == 1 && (fd.revents & (POLLHUP | POLLERR));
 }
 
-void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage) {
+void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage, bool onlyTurning) {
   Surface& target = surfaces_.at(id);
   FrameDiagnostics::Scope presenting(FrameDiagnostics::Part::Present);
   // Canvas pixels are 0xAARRGGBB words: in memory (little-endian) B, G, R, A, which is the
@@ -403,6 +423,9 @@ void Window::present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSR
   // The frame's sequence, the client's for every surface's frames, which the compositor's
   // feedback names (regress.py: each answered once, in order, none skipped).
   parts["sequence"] = sequence;
+  // A frame that changed nothing but spinning rings, which a scenario's step does not wait on
+  // (tools/oxyos-offscreen/src/progress.rs).
+  if (onlyTurning) parts["progress_only"] = true;
   Report::get().present(id, canvas.width, canvas.height, onGpu, parts);
   if (tracing()) {
     std::cerr << "[window] present " << id << " #" << sequence << " " << canvas.width << "x" << canvas.height
@@ -500,6 +523,10 @@ bool Window::setApplicationList(uint32_t serial, uint32_t list, const std::strin
 
 bool Window::openUrl(uint32_t serial, uint64_t input, const std::string& url) {
   return oxyos_client_open_url(client_, serial, input, url.data(), url.size()) == 0;
+}
+
+bool Window::layOutWindow(uint32_t window, uint8_t layout) {
+  return oxyos_client_lay_out_window(client_, window, layout) == 0;
 }
 
 bool Window::forceQuitApplication(uint32_t window) {
@@ -657,6 +684,7 @@ void Window::closeToplevel() {
   if (toplevelClosed_) return;
   toplevelClosed_ = true;
   secureRegions_.erase(kToplevel);
+  materialRegions_.erase(kToplevel);
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, kToplevel);
   if (oxyos_client_destroy_surface(client_, kToplevel) != 0) refused("cannot close the window");
   // Its state stays for what reads its last size; with no configure it is never ready, and with
@@ -711,6 +739,18 @@ void Window::beginMove(uint64_t serial) {
 void Window::setMaximized(bool enabled) {
   if (closedSurface(kToplevel)) return;
   if (oxyos_client_set_maximized(client_, kToplevel, enabled) != 0) refused("cannot zoom the window");
+}
+
+void Window::layOut(uint8_t layout) {
+  if (closedSurface(kToplevel)) return;
+  if (oxyos_client_lay_out_surface(client_, kToplevel, layout) != 0) refused("cannot lay out the window");
+}
+
+void Window::moveToWorkspace(uint32_t workspace) {
+  if (closedSurface(kToplevel)) return;
+  if (oxyos_client_move_surface_to_workspace(client_, kToplevel, workspace) != 0) {
+    refused("cannot move the window to that desktop");
+  }
 }
 
 void Window::minimize() {
@@ -847,6 +887,18 @@ bool Window::setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects) 
   return true;
 }
 
+bool Window::setMaterialRegions(uint32_t id, const std::vector<int32_t>& regions) {
+  if (closedSurface(id) || protocolVersion() < OXYOS_MATERIAL_VERSION) return false;
+  auto& sent = materialRegions_[id];
+  if (sent == regions) return false;
+  if (oxyos_client_set_material_regions(client_, id, regions.data(), regions.size() / 5) != 0) {
+    if (disconnected()) return false;
+    failed("cannot set a surface's material regions");
+  }
+  sent = regions;
+  return true;
+}
+
 bool Window::capture(uint64_t serial, uint8_t kind, uint32_t output, const OxyOSRect& rect, uint32_t window,
                      uint8_t destination) {
   return oxyos_client_capture(client_, serial, kind, output, rect.x, rect.y, rect.width, rect.height, window,
@@ -874,6 +926,7 @@ bool Window::openScreenshot(uint32_t screenshot, uint64_t serial) {
 
 void Window::destroy(uint32_t id) {
   secureRegions_.erase(id);
+  materialRegions_.erase(id);
   if (surfaces_.erase(id) == 0) return;
   if (gpuPaint()) oxyos_paint_forget_surface(gpuPaint(), client_, id);
   if (oxyos_client_destroy_surface(client_, id) != 0) refused("cannot destroy a popup");

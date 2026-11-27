@@ -5,7 +5,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
 (OXYOS_HOST_REPORT), then checks every step's EXPECTED result, not only that pixels changed:
 
 - texts / absent: text the application shows (or must not) once the step settled, across its
-  window and popups (each surface's latest presented frame); texts_matching, regular expressions
+  window and popups (each surface's latest presented frame), "{machine:FACT}" in a text this
+  machine's name, processor, memory or os (machine_fact: what About This Computer shows of it);
+  texts_matching, regular expressions
   each some shown text matches (re.search): what follows the wall clock (the top bar's clock, in
   the locale's format);
 - focus_input: the text input holding focus (null for none), from the latest frame;
@@ -19,8 +21,13 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   never its tag, which every view mounted before it moves; two scroll views under one name in a
   step fail it (as in scroll_offset, scroll_moved and glide). Any delivered event the step does not list fails it, which catches
   duplicated and leaked events; a count may be [least, most] for events one a frame (a glide's
-  scroll events), and [0, most] for events that may not come;
-- delivered: compositor input routed to the application per surface (exact), plus `leaked`
+  scroll events), and [0, most] for events that may not come; {"turns": count} counts JavaScript's
+  turns that took the event instead (each delivery says its turn, Report::deliver): a press's
+  motions the loop read while JavaScript was busy (behind a stall, under load) wait for it together
+  and reach it in one turn, so how many there were is the machine's load, not the application's (a
+  drag starts on the first past its threshold);
+- delivered: compositor input routed to the application per surface (exact; a count may be
+  [least, most], and [0, most] for an event that may not come), plus `leaked`
   (what the session's shell takes is its own, never leaked),
   input routed to any other client; and, given `launched`, what the applications the shell
   launched received, by kind (exact; "close.requested" among them; a list of them: any one, for
@@ -81,7 +88,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   given (politeness, text, live);
 - spoken: with the scenario's `reader`, what the screen reader said in the step (ADR 0014),
   exactly and in order: each a text, or keys matching an utterance (text, interrupting, voice:
-  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040); in a
+  the eSpeak NG voice it was said with, `en` or `es`, the session's language's, ADR 0040), or
+  "typed", the echo of text typed at once, said as the field took it: whole, or in the pieces it
+  took one after another, which join to it (each matching the other keys): a field takes a key
+  once JavaScript has answered it (docs/adr/0071-the-ui-thread.mdx, decision 6); in a
   text, here and in `at`'s, "{clock}" is the shell's clock as said when it was said (`clock_said`,
   in the scenario's language: "martes, 3 de noviembre, 14:05", "Tuesday, November 3, 2:05 PM", the
   minute it was said or the one before); spoken_any_order: the same, each said once, in either
@@ -172,6 +182,9 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   counted from the step before's settling to this one's; and "followed"
   (whether a client follows), as it is once the step settled. A hidden window's step holds them
   to none;
+- host: the application's host, from the step before's settling to this one's, each key given a
+  count or [least, most]: "wakeups" (each a time one of its threads was switched out) and
+  "cpu_ms" its threads ran; a host with nothing to do holds them near none;
 - processes: with the scenario's `processes` (below), by name: the "signals" each received in the
   step (from the step before's settling to this one's), exactly and in order ("TERM", "INT"...),
   and whether it was still "running" once the step settled (SIGKILL is seen as not running);
@@ -218,10 +231,24 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   ending exactly where its window is (its last frame the one that ended it, at its end, whatever
   frames were dropped before);
 - window_states: every window as the shell is told of it once the step settled, by its number,
-  exactly those: each key given of "app", "workspace", "minimized", "hidden" and "focused"
-  matching (the dock's press, docs/adr/0034-the-dock.mdx, decision 9);
+  exactly those: each key given of "app", "workspace", "minimized", "hidden", "focused",
+  "responding" (whether its application answers, docs/adr/0067-hangs-and-force-quit.mdx), "frame"
+  ([x, y, width, height] as displayed, global and logical) and "zoomed" matching (the dock's
+  press, docs/adr/0034-the-dock.mdx, decision 9; windows coming back where they were,
+  docs/adr/0070-windows-come-back-where-they-were.mdx);
+- windows_of: {APP: {KEY: VALUE}}: the application APP has one window as the shell is told of it,
+  whatever its number, each key given (as in window_states) matching (docs/adr/0070);
+- frame_as: {"WINDOW": [N, "THEN"]}: window WINDOW's frame (window_states) exactly window THEN's
+  once step N settled (1-based): a window reopened where its application's was (docs/adr/0070);
+- tile_preview: [x, y, width, height], the tile a window being dragged would take shown beneath it
+  (global, logical; docs/adr/0016-windows.mdx, decision 12), or null for none; window_configures,
+  exactly how many configures the director's window was sent in the step (a window tiled is told
+  its new size once); companion_rect, where the companion's window is once the step settled;
 - windows_placed_as: every window where it was once step N settled (1-based): nothing of App
   Exposé's moved a window;
+- windows_placed: each window named, by its number, exactly at [x, y, width, height] (the global
+  space's logical pixels) once the step settled: where a launched application's window opened and
+  its size (Settings at the size its entry declares, docs/adr/0013-launching-applications.mdx);
 - swiped: a share (0 to 1) of a swipe's way (ADR 0046): every window moved into a view drawn,
   in the frame composed last, exactly that share of the way from where it is to its view, edge by
   edge (within a pixel), as the fingers have it;
@@ -293,6 +320,17 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "wide-y" as the pointer over one brings it wide, "hidden" once faded out; "scrollbar_thumbs",
   where each view's thumbs were in the window (logical pixels) as last reported in the step,
   {testID: {"x"|"y": [x, y, width, height]}};
+- progress_frames: [least, most] frames the application presented in the step (any of its surfaces)
+  that changed nothing but spinning rings (progress-bar.h; its report's `present` lines with
+  `progress_only`): an ActivityIndicator turning on the UI thread, each refresh, while the step
+  settled around it (a step's settling leaves those frames aside, tools/oxyos-offscreen/src/progress.rs);
+- stall: JavaScript held while something moves (docs/adr/0071-the-ui-thread.mdx): the step's longest
+  stretch of JavaScript's work on its thread (`js_timing`, at least "block_ms_min", 450 by default)
+  is the block, and what moves ("motion": "animated:TARGET", the props Animated's native driver
+  set on it; "committed:TARGET", Reanimated's commits mounted; "frames", the window's frames, a
+  glide) is drawn throughout it: every run, half the block's refreshes presented and as many lines
+  of its motion, no gap of 6 refreshes between the frames; with --speed-budgets, a frame each
+  refresh (the gaps' 95th percentile within 1.5 refreshes, none over 2, 90 % of them drawn);
 - glide: for a `flick` step (a `scroll_paced` whose fingers then lift), the scroll view
   ("view", by testID) the fingers flung, as Android's ScrollView flings: the velocity the host
   measured at the lift ("velocity": [least, most] in logical pixels a second, along the offset);
@@ -315,7 +353,8 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   "stopped_by" "hold" and "press". With "kept_by" (the same kinds of input on another surface of
   the application while it glides, a popup's), the glide goes on to its end as without it;
 - scroll_times: "dispatch": every scroll event React received in the step (scroll, the drag's and
-  the momentum's) carries as its `timestamp` when the host dispatched it, within 2 ms, as React
+  the momentum's) carries as its `timestamp` when the host dispatched it (after it received the
+  input behind it, a glide's frame the last before it, and before it reported the event), as React
   Native's Android ScrollEvent takes `SystemClock.uptimeMillis()` when it is obtained: never the
   device's time of the input behind it, nor nothing;
 - scrolled: for a `scroll_paced` step (the pointer over the window scrolling by DY in N events at a
@@ -329,6 +368,10 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   motions at a rate, no button held, the compositor serving the application between them, as a
   hand moves across a list): "presented_min", the fewest frames the window showed;
   "latency_max_ms", the longest from a motion to the frame that followed it;
+- typed: for a `type_paced` step (text typed key by key at a rate, each key carrying its time, the
+  compositor serving the application between them): "presented_min", the fewest frames the window
+  showed. Each paced step's record has `device_latency_ms`, every input's latency from its device's
+  time to the frame answering it (perf.py saturation's measure);
 - field: what the focused surface told the compositor of its text field (ADR 0008), each key
   given matching (text, anchor, cursor, purpose, hints, caret...), or null for none;
 - transactions: the text-input transactions the application was given in the step (ADR 0008),
@@ -351,9 +394,16 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   frame, as `texts` reads them) showing every one of the step's `texts` came at most so many ms
   after the host's start (its report's first `stage` "main"), by the wall clock: what a person
   waits for from launching an application to seeing what they opened, an application that renders
-  nothing until the network answers among it. Held as `latency_ms` is (always but under --collect,
-  which perf.py judges over its runs); set far above what the launch takes unloaded and far below
-  what waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
+  nothing until the network answers among it. A speed budget: held with --speed-budgets (how long
+  the launch takes by the clock is the machine's speed, which a loaded one does not hold), and
+  judged by perf.py over its runs; set far above what the launch takes unloaded and far below what
+  waiting for the network costs. Each measured value is in the run's metrics (`content_ms`);
+- content_cpu_ms_max: launch to content on the CPU, with `texts`: the CPU the host's threads (its
+  main thread's and JavaScript's, as each frame's `timing` line reports them) spent from its start
+  through the frame that first showed every one of the step's `texts`, at most so many ms. Held on
+  every run (not under --collect): the work a launch does before its content does not grow with the
+  machine's load, as its time by the clock does. Each measured value is in the run's metrics
+  (`content_cpu_ms`);
 - pixels: colours of the output once the step settled, "x,y" (window-local logical pixels at
   scale 1) -> "#rrggbb", each channel within `pixel_tolerance` (3 by default); "!#rrggbb", any
   colour further than that from it.
@@ -365,36 +415,53 @@ Runs `oxyos-offscreen --launch` with a scenario's steps, with the host writing i
   pointer presses, every mouse button's pointerdown and pointerup;)
 - react_presses: those presses, exactly, as `react` checks its events;
 - diagnostics: the application's frame diagnostics in the step (frame-diagnostics.h), from its
-  report's `timing` and `log` lines: "slow", [least, most] slow lines written to the log;
-  "slow_frames", [least, most] frames (or work that drew nothing) slower than a refresh;
-  "slow_line", a slow line written in the step having each key given ("subject", a pattern it
-  matches whole; "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went
-  unsaid); "summaries", [least, most] summaries written; "fast_frames_min", the fewest frames
-  presented within a refresh; "logged", patterns (regular expressions) each
+  report's `timing`, `js_timing` and `log` lines: "slow", [least, most] slow frames' lines written
+  to the log; "slow_frames", [least, most] frames (or work that drew nothing) of the UI thread's
+  slower than a refresh (each most a speed budget: with --speed-budgets); "slow_line", a slow frame's
+  line written in the step having each key given ("subject", a pattern it matches whole;
+  "javascript_min", "work_min", "dropped_min"; "skipped", the slow frames it says went unsaid);
+  "slow_js", [least, most] lines written for stretches of JavaScript's work on its thread longer than
+  a refresh, and "slow_js_stretches", [least, most] such stretches (each most a speed budget);
+  "slow_js_line", such a line having each key given ("subject", "work_min", "frames_min", the frames
+  the window presented meanwhile, "dropped_max", "skipped"); "summaries", [least, most] summaries
+  written; "fast_frames_min", the fewest frames presented within a refresh (a speed budget: with
+  --speed-budgets); "logged", patterns (regular expressions) each
   matching a line written in the step; "held", [least, most] holds that ended in the step (a frame
   the compositor withheld its answer to for longer than the host's bound, frame-diagnostics.h);
   "wait_max_ms", the longest any frame or work in the step waited for the compositor; "latency_max_ms",
-  the longest input to present of a frame presented in the step, and "timed_inputs_min", the fewest
-  frames presented in it that timed an input. Every run also checks, for each host's report, that every
+  the longest input to present of a frame presented in the step (a speed budget: with
+  --speed-budgets), and "timed_inputs_min", the fewest
+  frames presented in it that timed an input, and "latency_min_ms", the least such input to present
+  (an answer JavaScript took that long to give). Every run also checks, for each host's report, that every
   line its diagnostics wrote is in the log (the hosts' stderr), that a frame is slow exactly when
   its work (and its wait beyond a refresh) passes a refresh, that a slow frame's line names the
-  work its `timing` line has, that a hold is at least the host's bound long and the frame after it
-  is not charged its wait, and that each summary's numbers are those of the frames presented
-  since the summary before;
-- js_work: what the host's JavaScript cost in the step, from its report's `timing` lines (a frame's
-  work, and work that drew none when it ran JavaScript): "js_ms_max", the most JavaScript any one
+  work its `timing` line has and a slow stretch's line its `js_timing` line, that each frame counts
+  JavaScript's stretches since the frame line before, that a hold is at least the host's bound long
+  and the frame after it is not charged its wait, and that each summary's numbers are those of the
+  frames presented, and of JavaScript's stretches, since the summary before;
+- js_work: what the host's JavaScript cost in the step, from its report's `js_timing` lines (each
+  stretch of its work on its thread, js-thread.h): "js_ms_max", the most JavaScript any one
   of them ran on the host's CPU (its thread's CPU time, which the machine's load does not
   lengthen; an event the shell is told that changes nothing it shows, another window's zoom,
   runs next to none); "js_blocked_ms_max", the most time any one of them was blocked while running
   JavaScript (waiting for another thread, a lock, a file), both budgets on speed held only with
   --speed-budgets; "presented", [least, most] frames presented (0: the step changed nothing
-  the host draws); "js_wall_ms_max", the most JavaScript any one of them ran by the wall clock, a
-  backstop for a gross regression set far above what the work takes. In `in_shell`, the shell's;
+  the host draws, from the `timing` lines); "js_ms_backstop", the most JavaScript any one of them ran
+  on its thread's CPU, a backstop for a gross regression held on every run, set far above what the
+  work takes (its time by the clock, blocked and preempted, is said with it, never held: the
+  machine's load makes it). In `in_shell`, the shell's;
+- closed_after_leave: {"text", "ms": [least, most]}: the surface that showed `text` (a shell's
+  banner, in `in_shell`) closed least to most ms after the pointer last left it, as its host's
+  report has them (its `pointer.leave` received, its `popup` close), wherever in the run they fell:
+  how long a surface stays after the pointer leaves, measured on its own clock, never against the
+  steps' (a loaded machine's settling ate into a set wait, and the banner had gone at its end);
 - renders: what React re-rendered in the step, from the host's report's `react_render` lines (each
   commit's components where a re-render began, with the components each rendered; report.h), a
-  count of work the machine's load cannot change: "tops", exactly the components the step's
-  re-renders began at, in any order ([] for none: nothing re-rendered); "components_max", the most
-  components they may render in all; "each_minute", what the wall clock's minute turning renders
+  count of work neither the machine's load nor how JavaScript batches the step's updates into
+  commits can change (since #554 a loaded machine may commit one step's updates in two batches,
+  rendering the same components twice): "tops", the components the step's re-renders began at, as a
+  set ([] for none: nothing re-rendered); "components_max", the most components they may render,
+  each component counted at the most any one of the step's commits rendered of it; "each_minute", what the wall clock's minute turning renders
   (the shell's clock), not counted when a commit of exactly that comes in the two seconds after a
   minute began. In `in_shell`, the shell's;
 
@@ -403,10 +470,31 @@ it settles once the session has a sheet waiting and the shell shows a surface it
 the step, however long after the step's first answer that is (an update is staged, downloaded and
 verified, before its consent is asked), never after a set time.
 
+A `drag_paced` (or `drag_paced_named`) step with `until_taken` drags as a hand that lets the
+application take each motion: after each, it waits until the application pressed, or the drag's
+target once a drag has begun, has taken everything it was sent (two Pings answered in turn), then goes
+on. What the drag passes over (a drop target's edge, the window it leaves, the touches React is given
+before it begins) and what each is told (the action its answer was told) is then where the hand was,
+whatever the machine's load; a drag that begins late, its press already released, is a `drag_output`
+step's, whose events all reach the application before it reads any (ADR 0035, decision 2).
+
 A step with `until_named` ([name, ms]) is answered on the application's own clock (an install the
 person confirmed in a system sheet, done once the machine has fetched and compiled it): it settles only
 once the assistive technology holds a node so named on a shown surface (as `wait_named` waits, within
 `ms`), so that everything said on the way is the step's own, never split by when compiling ends.
+A step with `cue_before` (a name) gives that cue as it begins, before its input, so that what the cue
+starts goes on through the step (held-frames' loop, begun as the displays go off); the scenario's
+`http` server answers `/cue/NAME` once it is given.
+A step with `until_pointer` ([shape, ms]) is answered on the compositor's own clock (the wait cursor
+two seconds after an application stopped answering, its own cursor once it answers): it settles only
+once the pointer shows that shape (as `pointer_shape` names it), within `ms`, rather than after a set
+wait that the steps before it may have eaten into; the shape is not held for the stillness (no client
+draws it), the surfaces still are. A `cue` step (a name) tells a part played beside
+the session to act now: the director appends the name to `cues` in the run's output (`qr-approve`:
+the played phone approves the QR, `login.oxy.qr.approve` "cue").
+A step with `until_output_pixels` (ms) is drawn on the application's own clock (an icon decoded on a
+thread of its own after the frame that laid it out, in a window the shell launched, whose frames
+are not a step's changes): it settles only once the output shows its `output_pixels`, within `ms`.
 
 A `strokes` step types keys as a person does on the session's keyboard (a list of codes or chords,
 [40, 18] being ´ then e on the Spanish layout): through the session's keymap (the scenario's
@@ -447,6 +535,10 @@ what it composes (ADR 0041: twelve, five a page, which the session's shell draws
 and turning the page across it, a digit choosing that candidate of the page, Space the highlighted
 one, Escape cancelling; the shell's presses choose one or turn the page.
 
+A `grab_hold` step ([x, y, dx, dy]) is a `grab` whose button stays held: the window goes on
+moving with the pointer into the steps after it (`move_output`, `key_down`), until a
+`release_output` releases it, where a tile it previews is taken (ADR 0016, decision 12).
+
 A `drag_hold` step ([x0, y0, x1, y1, motions, hz]) is a `drag_paced` whose button stays held: the
 drag goes on into the steps after it, each step's frame showing it midway (`move_output` moves it,
 `key_down` holds a modifier that changes its action), until a `release_output` ([x, y]) moves the
@@ -466,7 +558,8 @@ or [x, y, dy, events]) at a point of the output.
 
 A step may aim at what is on screen by its accessible name instead of a point: `press_named`,
 `press_secondary_named`, `double_press_named` (an icon on the shell's desktop opened, ADR 0047) and
-`move_named` (a name) and `hold_named` ([name, ms]) are the output's
+`move_named` (a name, or {"role", "name"} when a node of another role shares the name: a Settings
+row's title text and its switch) and `hold_named` ([name, ms]) are the output's
 press, secondary press, motion and long press at the middle of the node so named that the
 session's assistive technology holds on the topmost shown surface that has one (its rectangle in
 global coordinates, ADR 0003), wherever it is when the step runs: a dock's icon by its label
@@ -501,6 +594,12 @@ every process its /proc shows, as a Mac's lists all of the user's; the run's /pr
 A scenario's `launch_settle_ms` is how long the application's first frames must stay unchanged
 before its steps begin (750 by default): a browser shows its window before its interface draws in
 it, for longer than that on a loaded machine.
+
+A scenario's `progress_phase_ms` draws its hosts' spinning rings (React Native's ActivityIndicator,
+progress-bar.h) at that point of their animation, every frame: each is still drawn again every
+refresh, as it turns, but always as it is that far in, so that `pixels` can say where its arc is.
+Without it the rings turn by the clock. Either way a frame that only turns a ring is no change a
+step waits on, or that makes one settle (tools/oxyos-offscreen/src/progress.rs).
 
 A scenario's `clear_of_minute_ms` keeps its steps clear of the wall clock's minute: no step begins
 in its last that many milliseconds, the session served until the minute has begun, the shell has
@@ -538,6 +637,14 @@ service writes (`oxyos-pack entry`, beside the offscreen compositor) with the li
 account's decisions on its capabilities; the development compositor takes it as the service's
 (`--installed-fixture`). Its `applications_launched` is what the shell had started, exactly: each id,
 where its entry came from (`system`, `installed N`, `development`) and whether it was given `settings`.
+
+A scenario with `last_session` "problem" runs a login screen (`login`) the login program told the last
+session ended because of a problem, and `session_ended` ("signal 11 3600 1762790000": how, the seconds it
+ran, when) a session the login program told how the person's last one ended (docs/adr/0065-the-session-
+ending-because-of-a-problem.mdx). A scenario with `panics` ({NAME: TEXT}) runs a session after the
+computer restarted because of a kernel panic, those its accounts as oxyos-recovery wrote them
+(docs/adr/0068-crash-evidence-and-kernel-panics.mdx); every run's folder of them is its own. Resume's record (`.local/state/oxyos/session`, JSON) and ADR 0064's
+reopen file are `home.items` of the run's state folder, as the last session left them.
 
 A scenario with `safe_mode` true runs the session as a start in Safe Mode
 (docs/adr/0054-recovery-and-erasing.mdx, decision 10; the development compositor's `--safe-mode`,
@@ -705,9 +812,11 @@ accounts' service is a stand-in answering `list` with `login.accounts`; Oxy's AP
 so the machine is offline. With `login.oxy` Oxy's API is played instead (`played_oxy`: the SDK's own
 sign-in by the code sent by email, `oxy.code`, or by password, adding a password confirmed with that
 code, or by its QR, a request `oxy.qr.approve` has a phone approve by the time the screen first asks
-(true) or `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
+(true), `oxy.qr.approve_after_ms` after the screen joined Oxy's Socket.IO `/auth-session`
 namespace over a WebSocket, which tells the screen at once ("socket"; its frames logged as `WS ...`
-requests with status 101),
+requests with status 101), or, told the same way, once a step gives the cue `qr-approve` ("cue": a
+`cue` step, after the screen joined), so the approval lands when the scenario reaches that step and
+never on a clock the steps before it race,
 for the one account it plays, committing the device credential `oxy.device`; every request
 logged by its method and path alone, one not played answered 404), and the accounts' service names
 it with a client id (`platform`); `login.enroll` plays the setup's conversation (the credential must
@@ -821,9 +930,9 @@ FIXED_LOCALE = "en_US.UTF-8"
 
 # The fields of a director record that repeat the step's own instruction (oxyos-offscreen launch.rs).
 STEP_KEYS = {"press", "press_popup", "press_output", "move_output", "press_secondary", "press_secondary_output", "hold_output", "named", "double_press", "double_press_output", "triple_press", "double_drag", "scroll", "pinch", "type", "commit", "preedit", "transaction", "keyboard",
-             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "press_paced", "double_click", "grab", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
+             "compose_keys", "im_change", "drag", "drag_output", "drag_paced", "drag_hold", "release_output", "drag_paced_named", "scroll_paced", "flick", "flick_hold", "flick_press", "flick_wheel", "flick_fingers", "move_paced", "type_paced", "press_paced", "double_press_taken", "double_click", "grab", "grab_hold", "key", "key_down", "key_up", "move_window", "resize_window", "minimize_window", "caps_lock", "scale",
              "a11y_action",
-             "expect_popup", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
+             "expect_popup", "cue", "switch_terminal", "idle", "signal", "wait", "wait_named", "wait_sheet_keyboard", "clipboard", "menu", "transition_clock",
              "scroll_output", "swipe", "swipe_begin", "swipe_move", "swipe_end"}
 
 
@@ -884,14 +993,15 @@ def package_size(package):
 
 def spoken_matches(said, wanted, any_order=False):
     """Whether the utterances `said` are those `wanted` (each a text, or keys matching an
-    utterance), each once: in order, or with `any_order` in either."""
+    utterance, or in order "typed": spoken_as_wanted), each once: in order, or with `any_order` in
+    either."""
     wanted = [w if isinstance(w, dict) else {"text": w} for w in wanted]
+    if not any_order:
+        return spoken_as_wanted(said, wanted)
     if len(said) != len(wanted):
         return False
     def matches(u, w):
         return all(same_text(u.get(k), v, u["t"]) for k, v in w.items())
-    if not any_order:
-        return all(matches(u, w) for u, w in zip(said, wanted))
     left = list(said)
     for w in wanted:
         match = next((u for u in left if matches(u, w)), None)
@@ -901,15 +1011,82 @@ def spoken_matches(said, wanted, any_order=False):
     return True
 
 
+def machine_fact(name):
+    """One of the facts Settings › About and About This Computer show of this machine, read here from
+    where the host reads them (host-modules.cpp, systemFacts), so a scenario run on any machine
+    expects exactly its own: "name" (/etc/hostname's first line), "processor" (/proc/cpuinfo's first
+    model name), "memory" (MemTotal as Settings writes it: whole GB, else MB) and "os" (os-release's
+    PRETTY_NAME, unquoted)."""
+    def first_line(path):
+        try:
+            return pathlib.Path(path).read_text().split("\n", 1)[0]
+        except OSError:
+            return ""
+    if name == "name":
+        return first_line("/etc/hostname")
+    if name == "processor":
+        for line in pathlib.Path("/proc/cpuinfo").read_text().splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].lstrip(" ")
+        return ""
+    if name == "memory":
+        kib = int(pathlib.Path("/proc/meminfo").read_text().split()[1])
+        gib = kib * 1024 / 1024 ** 3
+        # JavaScript's Math.round, never Python's round to even.
+        return f"{math.floor(gib + 0.5)} GB" if gib >= 1 else f"{math.floor(kib / 1024 + 0.5)} MB"
+    if name == "os":
+        for line in pathlib.Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                value = line[len("PRETTY_NAME="):]
+                return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
+        return ""
+    raise SystemExit(f"no machine fact {name!r}")
+
+
+def machine_text(wanted):
+    """`wanted` with each "{machine:FACT}" in it this machine's fact (machine_fact)."""
+    if not isinstance(wanted, str) or "{machine:" not in wanted:
+        return wanted
+    return re.sub(r"\{machine:([a-z]+)\}", lambda match: machine_fact(match.group(1)), wanted)
+
+
 def same_text(got, wanted, t_ns):
     """Whether a text is the one expected, "{clock}" in it the shell's clock as said (clock_said) at
-    `t_ns`, or in the minute before it (the clock said as its minute turned), and "{size:ID}" the
-    size of the package ID as built (package_size), which every change to its bundle moves."""
+    `t_ns`, or in the minute before it (the clock said as its minute turned), "{size:ID}" the
+    size of the package ID as built (package_size), which every change to its bundle moves, and
+    "{machine:FACT}" this machine's (machine_fact)."""
+    wanted = machine_text(wanted)
     if isinstance(wanted, str) and "{size:" in wanted:
         wanted = re.sub(r"\{size:([^}]+)\}", lambda match: package_size(match.group(1)), wanted)
     if not isinstance(wanted, str) or "{clock}" not in wanted:
         return got == wanted
     return any(got == wanted.replace("{clock}", clock_said(t_ns - back * 60_000_000_000)) for back in (0, 1))
+
+
+def spoken_as_wanted(said, wanted):
+    """Whether the utterances `said` are those `wanted` (`spoken`), in order: each wanted one keys an
+    utterance matches, or "typed", a text said by one utterance or by several in a row joining to it,
+    each matching the other keys."""
+    def matches(utterance, keys):
+        return all(same_text(utterance.get(k), v, utterance["t"]) for k, v in keys.items() if k != "typed")
+
+    def match(i, j):
+        if j == len(wanted):
+            return i == len(said)
+        if "typed" not in wanted[j]:
+            return i < len(said) and matches(said[i], wanted[j]) and match(i + 1, j + 1)
+        text, joined = wanted[j]["typed"], ""
+        for end in range(i, len(said)):
+            if not matches(said[end], wanted[j]):
+                return False
+            joined += said[end]["text"]
+            if not text.startswith(joined):
+                return False
+            if joined == text and match(end + 1, j + 1):
+                return True
+        return False
+
+    return match(0, 0)
 
 
 # Whether the steps' budgets on speed are held (--speed-budgets): how much time the work takes on
@@ -948,17 +1125,26 @@ def holds_renders(value):
     return False
 
 
-# A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish).
+# A slow frame's line in the session's log (frame-diagnostics.cpp, FrameDiagnostics::finish): the UI
+# thread's work, and JavaScript's on its own thread meanwhile.
 SLOW_LINE = re.compile(
     r"\[host (?P<app>\S+)\] (?P<subject>.+?) took (?P<work>[\d.]+) ms, (?P<dropped>\d+) dropped "
-    r"\(a refresh is (?P<refresh>[\d.]+) ms\): events (?P<events>[\d.]+), JavaScript (?P<javascript>[\d.]+) "
-    r"\(commits (?P<commits>[\d.]+), of which Yoga layout (?P<layout>[\d.]+) and text (?P<text>[\d.]+)\), "
-    r"animation (?P<animation>[\d.]+), mount (?P<mount>[\d.]+), drawing (?P<draw>[\d.]+), "
+    r"\(a refresh is (?P<refresh>[\d.]+) ms\): events (?P<events>[\d.]+), laying out (?P<laying_out>[\d.]+), "
+    r"animation (?P<animation>[\d.]+), mount (?P<mount>[\d.]+) \(commits (?P<commits>[\d.]+), of which Yoga "
+    r"layout (?P<layout>[\d.]+) and text (?P<text>[\d.]+)\), drawing (?P<draw>[\d.]+), "
     r"presenting (?P<present>[\d.]+)(?P<painter>| on the GPU \(sync [\d.]+\)| from the CPU), "
-    r"other (?P<other>[\d.]+); of it on the CPU (?P<cpu>[\d.]+) \(JavaScript (?P<javascript_cpu>[\d.]+)\), "
-    r"blocked (?P<blocked>[\d.]+) \(JavaScript (?P<javascript_blocked>[\d.]+)\), preempted (?P<preempted>[\d.]+); "
-    r"waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?"
+    r"other (?P<other>[\d.]+); of it on the CPU (?P<cpu>[\d.]+), blocked (?P<blocked>[\d.]+), "
+    r"preempted (?P<preempted>[\d.]+); waiting for the compositor (?P<wait>[\d.]+); (?P<turns>\d+) turns?; "
+    r"JavaScript on its thread meanwhile (?P<javascript>[\d.]+) \(on the CPU (?P<javascript_cpu>[\d.]+), "
+    r"blocked (?P<javascript_blocked>[\d.]+)\)"
     r"(?:; input to present (?P<latency>[\d.]+) ms)?(?:; (?P<skipped>\d+) slow not shown since the last)?$")
+
+# A stretch of JavaScript's work on its thread longer than a refresh (FrameDiagnostics::javascriptWorked).
+SLOW_JS_LINE = re.compile(
+    r"\[host (?P<app>\S+)\] JavaScript worked (?P<work>[\d.]+) ms after (?P<subject>.+?), on its own thread: "
+    r"on the CPU (?P<cpu>[\d.]+), blocked (?P<blocked>[\d.]+), preempted (?P<preempted>[\d.]+); "
+    r"(?P<tasks>\d+) tasks?; the window presented (?P<frames>\d+) frames? meanwhile, (?P<dropped>\d+) dropped "
+    r"\(a refresh is (?P<refresh>[\d.]+) ms\)(?:; (?P<skipped>\d+) slow not shown since the last)?$")
 
 
 def percentile(ordered, p):
@@ -995,12 +1181,18 @@ def check_pacing(report, hz, end, failures):
 
 
 def check_diagnostics(report, log_text, failures, who="the application"):
-    """A host's frame diagnostics (frame-diagnostics.h) against its own report: each line written to
-    the log is there, a slow frame's line names the work its `timing` line has, each part's time by
-    the wall clock is its time on the CPU, blocked and preempted (thread-clock.h), and each summary
-    sums up exactly the frames presented since the summary before."""
+    """A host's frame diagnostics (frame-diagnostics.h) against its own report, for each of its two
+    threads: each line written to the log is there; a slow frame's line names the work its `timing`
+    line has, and a slow stretch of JavaScript's (`js_timing`) its own; each part's time by the wall
+    clock is its time on the CPU, blocked and preempted (thread-clock.h), the UI thread's and
+    JavaScript's alike; each frame counts exactly JavaScript's stretches since the frame line
+    before; and each summary sums up exactly the frames presented, and the stretches, since the
+    summary before."""
     logged = set(log_text.splitlines())
-    frames, last_slow, after_hold = [], None, None
+    frames, stretches, since_frame, last_slow, last_slow_js, after_hold = [], [], [], None, None, None
+    def split(line, wall, of=""):
+        cpu, blocked, preempted = (line[f"{of}cpu_ms"], line[f"{of}blocked_ms"], line[f"{of}preempted_ms"])
+        return abs(cpu + blocked + preempted - wall) <= 1e-6 * max(1.0, wall)
     for line in report:
         if line["kind"] == "held":
             # A hold is a wait for the compositor's answer of at least the host's bound; what it
@@ -1009,6 +1201,17 @@ def check_diagnostics(report, log_text, failures, who="the application"):
                 failures.append(f"{who}'s hold of {line['held_ms']:.2f} ms is shorter than its bound "
                                 f"({line['held_after_ms']:.0f} ms)")
             after_hold = line
+        if line["kind"] == "js_timing":
+            if not split(line, line["work_ms"]):
+                failures.append(f"{who}'s JavaScript of {line['work_ms']:.2f} ms is {line['cpu_ms']:.2f} on the CPU, "
+                                f"{line['blocked_ms']:.2f} blocked and {line['preempted_ms']:.2f} preempted")
+            if line["slow"] != (line["work_ms"] > line["refresh_ms"]):
+                failures.append(f"{who}'s JavaScript of {line['work_ms']:.2f} ms (a refresh {line['refresh_ms']:.2f}) is "
+                                f"{'' if line['slow'] else 'not '}said to be slow")
+            stretches.append(line)
+            since_frame.append(line)
+            if line["slow"]:
+                last_slow_js = line
         if line["kind"] == "timing":
             if after_hold is not None and line["wait_ms"] >= after_hold["held_after_ms"]:
                 failures.append(f"{who}'s frame after a hold of {after_hold['held_ms']:.2f} ms was charged a wait of "
@@ -1023,13 +1226,23 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             # Each part by the wall clock is exactly its CPU's, blocked and preempted time (each rounded
             # to 0.01 ms), so that nothing off the CPU goes unsaid.
             for part, wall in line["parts"].items():
-                split = line["cpu"][part] + line["blocked"][part] + line["preempted"][part]
-                if abs(split - wall) > 0.031:
+                split_parts = line["cpu"][part] + line["blocked"][part] + line["preempted"][part]
+                if abs(split_parts - wall) > 0.031:
                     failures.append(f"{who}'s {part} of {wall:.2f} ms is {line['cpu'][part]:.2f} on the CPU, "
                                     f"{line['blocked'][part]:.2f} blocked and {line['preempted'][part]:.2f} preempted")
             if abs(line["cpu_ms"] + line["blocked_ms"] + line["preempted_ms"] - line["work_ms"]) > 1e-6:
                 failures.append(f"{who}'s frame of {line['work_ms']:.2f} ms is {line['cpu_ms']:.2f} on the CPU, "
                                 f"{line['blocked_ms']:.2f} blocked and {line['preempted_ms']:.2f} preempted")
+            # JavaScript's work on its thread since the frame line before: its stretches', exactly.
+            js = line["js"]
+            if not split(js, js["work_ms"]):
+                failures.append(f"{who}'s JavaScript meanwhile of {js['work_ms']:.2f} ms is {js['cpu_ms']:.2f} on the "
+                                f"CPU, {js['blocked_ms']:.2f} blocked and {js['preempted_ms']:.2f} preempted")
+            counted = sum(stretch["work_ms"] for stretch in since_frame)
+            if js["stretches"] != len(since_frame) or abs(js["work_ms"] - counted) > 1e-6 * max(1.0, counted):
+                failures.append(f"{who}'s frame counts {js['stretches']} stretches of JavaScript, {js['work_ms']:.2f} "
+                                f"ms; its stretches since the frame before were {len(since_frame)}, {counted:.2f} ms")
+            since_frame = []
             if line["presented"]:
                 frames.append(line)
             if line["slow"]:
@@ -1038,13 +1251,21 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             if line["text"] not in logged:
                 failures.append(f"{who}'s diagnostics wrote {line['text']!r} to its report, not to the log")
             slow = SLOW_LINE.match(line["text"])
+            slow_js = SLOW_JS_LINE.match(line["text"])
             if " took " in line["text"] and " dropped (a refresh is " in line["text"] and not slow:
                 failures.append(f"{who}'s slow line {line['text']!r} is not as frame-diagnostics.cpp writes it")
             elif slow and (last_slow is None or abs(float(slow["work"]) - last_slow["work_ms"]) > 0.051
                            or abs(float(slow["cpu"]) - last_slow["cpu_ms"]) > 0.051
-                           or abs(float(slow["javascript_cpu"]) - last_slow["cpu"]["javascript"]) > 0.051):
+                           or abs(float(slow["javascript_cpu"]) - last_slow["js"]["cpu_ms"]) > 0.051):
                 failures.append(f"{who}'s slow line {line['text']!r} does not name its frame's work "
                                 f"({last_slow and last_slow['work_ms']})")
+            if " JavaScript worked " in line["text"] and not slow_js:
+                failures.append(f"{who}'s line {line['text']!r} is not as frame-diagnostics.cpp writes JavaScript's")
+            elif slow_js and (last_slow_js is None or abs(float(slow_js["work"]) - last_slow_js["work_ms"]) > 0.051
+                              or abs(float(slow_js["cpu"]) - last_slow_js["cpu_ms"]) > 0.051
+                              or int(slow_js["frames"]) != last_slow_js["frames"]):
+                failures.append(f"{who}'s line {line['text']!r} does not name its stretch of JavaScript "
+                                f"({last_slow_js and last_slow_js['work_ms']})")
         elif line["kind"] == "timing_summary":
             work = sorted(frame["work_ms"] for frame in frames)
             latency = sorted(frame["latency_ms"] for frame in frames if frame["latency_ms"] is not None)
@@ -1052,11 +1273,17 @@ def check_diagnostics(report, log_text, failures, who="the application"):
             wanted = {"frames": len(frames), "work_p50": percentile(work, 50), "work_p95": percentile(work, 95),
                       "work_max": work[-1] if work else None, "latency_p50": percentile(latency, 50),
                       "latency_p95": percentile(latency, 95), "inputs": len(latency), "slow": len(slow),
-                      "dropped": sum(frame["dropped"] for frame in slow)}
+                      "dropped": sum(frame["dropped"] for frame in slow), "js_stretches": len(stretches),
+                      "js_slow": sum(1 for stretch in stretches if stretch["slow"])}
             got = {key: line[key] for key in wanted}
             if got != wanted:
                 failures.append(f"{who}'s summary says {got}, its frames since the one before {wanted}")
-            frames = []
+            js_ms = sum(stretch["work_ms"] for stretch in stretches)
+            longest = max((stretch["work_ms"] for stretch in stretches), default=0.0)
+            if abs(line["js_ms"] - js_ms) > 1e-6 * max(1.0, js_ms) or abs(line["js_longest_ms"] - longest) > 1e-9:
+                failures.append(f"{who}'s summary says JavaScript worked {line['js_ms']:.2f} ms, the longest "
+                                f"{line['js_longest_ms']:.2f}; its stretches since the one before {js_ms:.2f}, {longest:.2f}")
+            frames, stretches = [], []
 
 
 def director_args(step, out):
@@ -1064,13 +1291,31 @@ def director_args(step, out):
     args = ["--allow-unchanged"] if step.get("allow_unchanged") else []
     if step.get("until_sheet"):
         args.append("--until-sheet")
+    if step.get("cue_before"):
+        # A cue given as the step begins, before its input (a probe's loop, on through the step).
+        args += ["--cue-before", step["cue_before"]]
     if step.get("until_ended"):
         # Its answer is the session's end (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
         # logged out, or logind asked, once every application quit on its own clock.
         args.append("--until-ended")
+    if step.get("until_taken"):
+        # A paced drag whose hand lets the application take each motion: after each, it waits for
+        # the application pressed (the drag's target once a drag began) to take what it was sent, so
+        # what the drag passes over and what each is told is where the hand was, whatever the load.
+        args.append("--until-taken")
     if step.get("until_named"):
         name, ms = step["until_named"]
         args += ["--until-named", str(ms), name]
+    if step.get("until_pointer"):
+        shape, ms = step["until_pointer"]
+        args += ["--until-pointer", str(ms), shape]
+    if step.get("until_output_pixels"):
+        # Its answer is drawn on the application's own clock: it settles once the output shows the
+        # step's `output_pixels` (those it expects of a colour, not "!" those it must not show).
+        shown = {at: colour for at, colour in step["expect"]["output_pixels"].items() if not colour.startswith("!")}
+        args += ["--until-pixels", str(step["until_output_pixels"]), ";".join(f"{at}={colour}" for at, colour in shown.items())]
+    if kind == "cue":
+        return args + ["--cue", value]
     if kind in ("press", "press-popup"):
         return args + [f"--{kind}", f"{value[0]},{value[1]}"]
     if kind in ("press_popup", "press_output", "move_output", "release_output", "press_secondary", "press_secondary_output",
@@ -1142,17 +1387,21 @@ def director_args(step, out):
         # dock's Trash): [from, to, motions, hz] and, after that many motions, Escape (ADR 0035),
         # then how long it rests there and 1 to keep the button held (`drag_hold`'s). `to` may be a
         # point of the output, "@x,y" (an icon dragged off the dock, ADR 0034's decision 10).
-        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), value[0], value[1]]
+        return args + ["--drag-paced-named", ",".join(map(str, value[2:])), named(value[0]), named(value[1])]
     if kind in ("press_named", "press_secondary_named", "double_press_named", "move_named"):
         # The output's step at the middle of the node of this accessible name (a dock's icon by
         # its label, an icon on the desktop by its name), wherever it is when the step runs.
-        return args + ["--" + kind.replace("_", "-"), value]
+        return args + ["--" + kind.replace("_", "-"), named(value)]
     if kind == "hold_named":
         # A long press on the node of this name: [name, ms].
-        return args + ["--hold-named", str(value[1]), value[0]]
+        return args + ["--hold-named", str(value[1]), named(value[0])]
     if kind == "hold_output":
         # A long press on the output, held still: [x, y, ms] (a dock icon's menu, ADR 0034).
         return args + ["--hold-output", ",".join(map(str, value))]
+    if kind == "double_press_taken":
+        # A double click whose first click the application took before the second, the second
+        # carrying the hand's time 100 ms after the first: [x, y].
+        return args + ["--double-press-taken", ",".join(map(str, value))]
     if kind == "press_paced":
         # Presses at their pace, each carrying its time as a device's: [x, y, count, interval_ms].
         return args + ["--press-paced", ",".join(map(str, value))]
@@ -1173,9 +1422,16 @@ def director_args(step, out):
     if kind == "move_paced":
         # The mouse moved over the window at its pace, no button held: [x0, y0, x1, y1, motions, hz].
         return args + ["--move-paced", ",".join(map(str, value))]
+    if kind == "type_paced":
+        # Text typed key by key at a person's pace into the focused field: [text, keys a second].
+        return args + ["--type-paced", str(value[1]), value[0]]
     if kind == "grab":
         # A press held while the application answers it, then a drag by (dx, dy): [x, y, dx, dy].
         return args + ["--grab", ",".join(map(str, value))]
+    if kind == "grab_hold":
+        # The same, its button still held: the move goes on into the next steps (`move_output`,
+        # `key_down`, `release_output`), a window dragged to a display's edge showing its tile.
+        return args + ["--grab-hold", ",".join(map(str, value))]
     if kind in ("preedit", "commit"):
         return args + [f"--{kind}", value]
     if kind in ("keyboard", "compose_keys"):
@@ -1226,10 +1482,13 @@ def director_args(step, out):
         return args + ["--idle", str(value)]
     if kind == "signal":
         # A part of the session ended as a crash or a `kill` would, [SIGNAL, PART] ("SEGV",
-        # "reader"): the session then does what it does when that part ends on its own.
+        # "reader"; "shell", the primary output's): the session then does what it does when that
+        # part ends on its own. "STOP" hangs the shell (it answers nothing), for its watch.
         signal, part = value
-        if signal not in ("SEGV", "ABRT", "KILL", "TERM") or part not in ("reader",):
-            raise ValueError(f"signal: {value}: a signal of SEGV, ABRT, KILL or TERM to the reader")
+        if (part not in ("reader", "shell") or signal not in ("SEGV", "ABRT", "KILL", "TERM", "STOP")
+                or signal == "STOP" and part != "shell"):
+            raise ValueError(f"signal: {value}: SEGV, ABRT, KILL or TERM to the reader or the shell, "
+                             "or STOP to the shell")
         return args + ["--signal", signal, part]
     if kind == "switch-terminal":
         return args + ["--switch-terminal", str(value)]
@@ -2107,6 +2366,9 @@ def played_oxy(spec, log):
     state = {"has_password": spec.get("has_password", True), "requests": {}, "tokens": {},
              "on_device": False, "revision": 0, "qr_claims": 0, "stalled_until": 0}
     lock = threading.Lock()
+    # The cues the run's steps give (`cue`), beside the log in the run's output: none yet.
+    cues = pathlib.Path(log).parent / "cues"
+    cues.unlink(missing_ok=True)
 
     class Oxy(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -2253,12 +2515,18 @@ def played_oxy(spec, log):
                     if event[:1] != ["join"] or len(event) < 2:
                         continue
                     self.log("WS /auth-session join {token}")
-                    if spec.get("qr", {}).get("approve") == "socket":
+                    if spec.get("qr", {}).get("approve") in ("socket", "cue"):
                         threading.Thread(target=self.approve, args=(event[1], writing), daemon=True).start()
 
         def approve(self, token, writing):
-            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, told
-            on the socket at once."""
+            """The phone's approval, `qr.approve_after_ms` (default 0) after the screen joined, or
+            once a step gave the cue `qr-approve` ("cue"), told on the socket at once."""
+            if spec.get("qr", {}).get("approve") == "cue":
+                given = time.monotonic() + 600
+                while not (cues.exists() and "qr-approve" in cues.read_text().split()):
+                    if time.monotonic() > given:
+                        return
+                    time.sleep(0.02)
             time.sleep(spec.get("qr", {}).get("approve_after_ms", 0) / 1000)
             with lock:
                 request = state["requests"].get(token)
@@ -2539,8 +2807,13 @@ def websocket_close(wfile, code, reason=""):
 
 
 class ProbeServer(BaseHTTPRequestHandler):
-    """The routes the probes of scenarios/network.json, websocket.json and file-system.json call
-    (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx, sample/FileSystemProbe.tsx)."""
+    """The routes the probes of scenarios/network.json, websocket.json, file-system.json and
+    progress.json call (sample/NetworkProbe.tsx, sample/WebSocketProbe.tsx,
+    sample/FileSystemProbe.tsx, sample/ProgressProbe.tsx)."""
+
+    # The run's cues (a `cue` step's names, in the run's output): /save answers once `save-done`
+    # is among them.
+    cues = None
 
     def log_message(self, *args):
         pass
@@ -2589,6 +2862,25 @@ class ProbeServer(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if self.path.startswith("/cue/"):
+            # Answered once a step gave the cue named (a `cue` step, or a step's `cue_before`):
+            # what a probe waits for begins when the scenario says (sample/FrameProbe.tsx's loop).
+            name = self.path.split("?")[0][len("/cue/"):]
+            given = time.monotonic() + 600
+            while not (self.cues and self.cues.exists() and name in self.cues.read_text().split()):
+                if time.monotonic() > given:
+                    return self.reply(504, "no cue")
+                time.sleep(0.02)
+            return self.reply(200, name)
+        if self.path.split("?")[0] == "/save":
+            # The progress probe's work (sample/ProgressProbe.tsx): answered once a step gave the
+            # cue `save-done`, so it ends when the scenario says, however loaded the machine.
+            given = time.monotonic() + 600
+            while not (self.cues and self.cues.exists() and "save-done" in self.cues.read_text().split()):
+                if time.monotonic() > given:
+                    return self.reply(504, "no cue")
+                time.sleep(0.02)
+            return self.reply(200, "saved")
         if self.headers.get("Upgrade", "").lower() == "websocket":
             self.websocket()
         elif self.path == "/json":
@@ -3022,6 +3314,26 @@ def latest_frames(report, until, closed_before):
     return {s: f for s, f in frames.items() if s not in closed_before}
 
 
+def content_shown_cpu_ms(report, texts):
+    """Launch to content on the CPU (`content_cpu_ms_max`): ms of CPU the host's main thread and its
+    JavaScript spent (each frame's `timing` line: `cpu_ms`, and `js`'s for the stretches since the
+    one before) through the frame that first showed every one of `texts`, read as
+    `content_shown_ms` reads them; None when they never all were."""
+    shown, cpu, content = {}, 0.0, False
+    for line in report:
+        if line["kind"] == "popup" and line.get("event") in ("close", "dismissed", "shell.close"):
+            shown.pop(line["surface"], None)
+        elif line["kind"] == "frame" and line.get("presented", True) and not content:
+            shown[line["surface"]] = line.get("texts", [])
+            content = all(any(text in got for surface in shown.values() for got in surface) for text in texts)
+        elif line["kind"] == "timing":
+            cpu += line.get("cpu_ms", 0) + line.get("js", {}).get("cpu_ms", 0)
+            # The turn that presented the content frame reports its timing after it.
+            if content:
+                return round(cpu, 1)
+    return None
+
+
 def content_shown_ms(report, texts):
     """Launch to content (`content_ms_max`): ms from the host's start (its report's first `stage`
     "main") to its first presented frame after which every one of `texts` is shown, read as `texts`
@@ -3039,6 +3351,14 @@ def content_shown_ms(report, texts):
             if all(any(text in got for surface in shown.values() for got in surface) for text in texts):
                 return round((line["t"] - main) / 1e6, 1)
     return None
+
+
+def named(value):
+    """A named step's node for oxyos-offscreen: a name, or {"role", "name"} when a node of
+    another role shares the name (a Settings row's title and its switch): `ROLE::NAME`."""
+    if isinstance(value, dict):
+        return f"{value['role']}::{value['name']}"
+    return value
 
 
 def png_pixel_reader(path):
@@ -3195,6 +3515,39 @@ def android_fling_distance(velocity, friction):
     return math.copysign(distance, velocity)
 
 
+def android_spline_positions(samples=100):
+    """SplineOverScroller's SPLINE_POSITION, computed as its static initializer computes it (as
+    scroll-physics.h does): the share of a fling's distance gone at each hundredth of its time."""
+    start_tension, end_tension, inflexion = 0.5, 1.0, 0.35
+    p1, p2 = start_tension * inflexion, 1.0 - end_tension * (1.0 - inflexion)
+    positions, x_min = [], 0.0
+    for i in range(samples):
+        alpha, x_max = i / samples, 1.0
+        while True:
+            x = x_min + (x_max - x_min) / 2.0
+            coefficient = 3.0 * x * (1.0 - x)
+            tx = coefficient * ((1.0 - x) * p1 + x * p2) + x * x * x
+            if abs(tx - alpha) < 1e-5:
+                break
+            if tx > alpha:
+                x_max = x
+            else:
+                x_min = x
+        positions.append(coefficient * ((1.0 - x) * start_tension + x) + x * x * x)
+    return positions + [1.0]
+
+
+def android_fling_time(share):
+    """When a fling has gone `share` of its distance, as a share of its time (its spline, as
+    SplineOverScroller.update steps it, inverted)."""
+    positions = android_spline_positions()
+    samples = len(positions) - 1
+    for i in range(samples):
+        if positions[i + 1] >= share:
+            return (i + (share - positions[i]) / (positions[i + 1] - positions[i])) / samples
+    return 1.0
+
+
 def edge_stretch(distance):
     """EdgeEffect's dampStretchVector: the stretch drawn for a pull of `distance` (a share of the
     view's size)."""
@@ -3257,12 +3610,14 @@ def offset_before(report, view, start):
 def glide_speeding(scrolls, axis="y"):
     """Where a glide sped up: its offsets come from a spline that only slows, sampled at each frame,
     so each frame's average speed is at most the one before (a concave curve's secants only fall),
-    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end) and the
-    microseconds between a frame's clock and its report. A glide begun again, or a frame's offset
-    taken from another clock, goes faster. Each (frame, px/s before, px/s then) that did, along
-    `axis` ("x" across, "y" down)."""
+    but for the offsets' rounding to the display's pixels (a logical pixel at most, each end). Each
+    frame is timed by when its spline was sampled (`sampled`, the host's), not by its report's line,
+    which a loaded machine can write milliseconds later (the scroll's commit waiting for one of
+    JavaScript's, the thread preempted); a line without it, by the line. A glide begun again, or a
+    frame's offset taken from another clock, goes faster. Each (frame, px/s before, px/s then) that
+    did, along `axis` ("x" across, "y" down)."""
     speeding = []
-    times = [line["t"] / 1e9 for line in scrolls]
+    times = [line.get("sampled", line["t"]) / 1e9 for line in scrolls]
     offsets = [line[axis] for line in scrolls]
     speeds = [(b - a) / max(u - t, 1e-6) for a, b, t, u in zip(offsets, offsets[1:], times, times[1:])]
     for i in range(1, len(speeds)):
@@ -3281,6 +3636,82 @@ GLIDE_INPUTS = {
     "wheel": lambda line: line.get("event") == "scroll" and line.get("source") == "wheel",
     "fingers": lambda line: line.get("event") == "scroll" and line.get("source") == "finger" and not line.get("stop"),
 }
+
+
+def measure_stall(wanted, report, start, end, refresh_hz):
+    """What a step holding JavaScript (its `stall`, below) drew through the block: None without a block,
+    else the block's length, what started it, the window's frames presented in it, the lines of its
+    motion in it, the block's refreshes and the gaps between the frames (with the last before it and
+    the first after), sorted, in ms. perf.py measures with it too."""
+    refresh = 1000.0 / refresh_hz
+    blocks = [line for line in report if line["kind"] == "js_timing" and start <= line["t"] <= end
+              and line["work_ms"] >= wanted.get("block_ms_min", 450)]
+    if not blocks:
+        return None
+    block = max(blocks, key=lambda line: line["work_ms"])
+    until = block["t"] / 1e6
+    since = until - block["work_ms"]
+    frames = [line["t"] / 1e6 for line in report if line["kind"] == "frame" and line.get("surface") == 1
+              and line.get("presented", True)]
+    before = [t for t in frames if t < since]
+    after = [t for t in frames if t > until]
+    inside = [t for t in frames if since <= t <= until]
+    edges = before[-1:] + inside + after[:1]
+    kind, _, target = wanted["motion"].partition(":")
+    motion = inside if kind == "frames" else [
+        line["t"] / 1e6 for line in report if line["kind"] == kind and line.get("target") == target
+        and since <= line["t"] / 1e6 <= until]
+    return {"block_ms": block["work_ms"], "trigger": block["trigger"], "frames": len(inside), "motion": len(motion),
+            "refreshes": block["work_ms"] / refresh, "refresh_ms": refresh,
+            "gaps_ms": sorted(b - a for a, b in zip(edges, edges[1:]))}
+
+
+def stall_held(measured, strict):
+    """Whether a stall's measure (measure_stall) holds what every run holds (half the block's
+    refreshes drawn, and of its motion, no gap of 6 refreshes) or, `strict`, a frame each refresh (the
+    gaps' 95th percentile within 1.5 refreshes, none over 2, 90 % of the block's refreshes drawn),
+    and the 95th percentile of its gaps."""
+    gaps, refresh, refreshes = measured["gaps_ms"], measured["refresh_ms"], measured["refreshes"]
+    if not gaps:
+        return False, None
+    p95 = gaps[min(len(gaps) - 1, round(0.95 * (len(gaps) - 1)))]
+    least = 0.9 if strict else 0.5
+    held = measured["frames"] >= least * refreshes and measured["motion"] >= least * refreshes
+    held = held and (p95 <= 1.5 * refresh and gaps[-1] <= 2 * refresh if strict else gaps[-1] < 6 * refresh)
+    return held, p95
+
+
+def check_stall(wanted, report, start, end, fail, refresh_hz):
+    """The step's `stall`: JavaScript held while something moves (docs/adr/0071-the-ui-thread.mdx).
+    The block is the step's longest stretch of JavaScript's work on its thread (`js_timing`), at least
+    "block_ms_min" long; what moves is drawn throughout it, by the UI thread: the window's frames
+    presented in it (with the last before it and the first after), and the lines of what moves
+    ("motion": "animated:TARGET", the props Animated's native driver set; "committed:TARGET", the
+    commits of Reanimated's mounted; "frames", the frames alone: a glide). Every run holds what a
+    loaded machine still meets and a JavaScript holding the frames up never does: half the block's
+    refreshes presented, and of its motion's lines, and no gap of 6 refreshes; with --speed-budgets
+    (the timing phase, alone on reserved cores), one frame each refresh: the gaps' 95th percentile
+    within 1.5 refreshes, none over 2, and 90 % of the block's refreshes presented, and of its
+    motion's lines."""
+    measured = measure_stall(wanted, report, start, end, refresh_hz)
+    if measured is None:
+        fail(f"JavaScript was not held {wanted.get('block_ms_min', 450)} ms in the step")
+        return
+    said = (f"JavaScript held {measured['block_ms']:.0f} ms ({measured['trigger']}): {measured['frames']} frames "
+            f"presented, {measured['motion']} of {wanted['motion']}, gaps {[round(g, 1) for g in measured['gaps_ms'][-3:]]} "
+            f"ms at most")
+    if not measured["gaps_ms"]:
+        fail(f"{said}; no frame around it")
+        return
+    held, p95 = stall_held(measured, strict=False)
+    if not held:
+        fail(f"{said}: what moves was held up with JavaScript (expected half the block's "
+             f"{measured['refreshes']:.0f} refreshes drawn, no gap of 6 refreshes)")
+        return
+    held, p95 = stall_held(measured, strict=True)
+    if SPEED_BUDGETS and not held:
+        fail(f"{said}, the 95th percentile {p95:.1f}: expected a frame each refresh ({measured['refresh_ms']:.1f} ms; "
+             f"95th percentile within 1.5, none over 2, 90 % of the block's {measured['refreshes']:.0f} drawn)")
 
 
 def check_glide(wanted, report, start, end, fail):
@@ -3332,8 +3763,18 @@ def check_glide(wanted, report, start, end, fail):
     speeding = glide_speeding(after[0:1] + after[2:-1], axis)
     if speeding:
         fail(f"{view} sped up as it glided: {speeding}")
-    if len(steps) < wanted.get("frames_min", 0):
-        fail(f"{view} glided in {len(steps)} frames, expected at least {wanted['frames_min']}")
+    # The glide is drawn a frame at a time (never a jump), but where it is is its clock's, as
+    # Android's: a glide that met the end was there when its spline had gone that far, and a first
+    # frame drawn after that (late, on a loaded machine) rightly shows it there, in one frame.
+    def late_first():
+        if not steps or not distance or not wanted.get("to_end"):
+            return False
+        met_end_by = fling["ms"] * android_fling_time(abs(offsets[-1] - offsets[0]) / abs(distance))
+        return (after[2]["t"] - fling["t"]) / 1e6 >= met_end_by
+    # How many frames fit in the glide is the machine's rate (frames_least: all of them with
+    # --speed-budgets, else two).
+    if len(steps) < frames_least(wanted.get("frames_min", 0)) and not late_first():
+        fail(f"{view} glided in {len(steps)} frames, expected at least {frames_least(wanted['frames_min'])}")
     covered, ended = offsets[-1] - offsets[0], after[-1].get(axis)
     reached_end = wanted.get("to_end", False)
     meets = stopped_by or kept_by
@@ -3461,10 +3902,12 @@ def scroll_view_name(line):
     return line.get("target")
 
 
-def react_events(report, start, end):
+def react_events(report, start, end, turns=False):
     """The events delivered to React in a step, as "event@name" -> count (`react`): a view named by
     its testID, else the nearest ancestor's (`within`), as the host reports them; a scroll view by
-    `scroll_view_name`."""
+    `scroll_view_name`. With `turns`, each one's count is of JavaScript's turns that took it
+    (Report::deliver): what the loop queues while JavaScript works is handed over to it together,
+    the batch it takes next."""
     got = {}
     for line in report:
         # Hover follows every pointer motion: the W3C events it makes are checked by what the
@@ -3472,8 +3915,11 @@ def react_events(report, start, end):
         if line["kind"] == "deliver" and start <= line["t"] <= end and not line["event"].startswith("pointer"):
             name = scroll_view_name(line) if line["event"] in SCROLL_EVENTS else line.get("within") or line["target"]
             key = f"{line['event']}@{name}"
-            got[key] = got.get(key, 0) + 1
-    return got
+            if turns:
+                got.setdefault(key, set()).add(line.get("turn"))
+            else:
+                got[key] = got.get(key, 0) + 1
+    return {key: len(seen) for key, seen in got.items()} if turns else got
 
 
 def check_scroll_names(report, start, end, fail):
@@ -3534,7 +3980,9 @@ def animated_values(report, start, end, kind="animated"):
             for key, v in entries:
                 channels = [(v & 0xffffffff) >> shift & 0xff for shift in (16, 8, 0)] if "Color" in key or key == "color" \
                     else [v]
-                values.setdefault(line["target"], {}).setdefault(key, []).append((line["t"], channels))
+                # When the frame was sampled (the native driver's `sampled`), else its line: a loaded
+                # machine wrote a line 160 ms after its frame's values (native-animated, step 4).
+                values.setdefault(line["target"], {}).setdefault(key, []).append((line.get("sampled", line["t"]), channels))
     return values
 
 
@@ -4132,6 +4580,23 @@ def check_activity(index, step, result, results, processes, failures):
                 least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
                 if not least <= count <= most:
                     failures.append(f"{name}: activity {key} {count} in the step, expected {wanted}")
+    # The application's host, from the step before's settling to this one's: a host with nothing
+    # to do wakes for nothing, its frame held by the displays off or not.
+    if "host" in expect:
+        used, was = result.get("host"), (before or {}).get("host")
+        if used is None or was is None:
+            failures.append(f"{name}: the application's host is not counted in this step and the one before")
+        else:
+            for key, wanted in expect["host"].items():
+                count = used[key] - was[key]
+                least, most = wanted if isinstance(wanted, list) else (wanted, wanted)
+                if not least <= count <= most:
+                    # Which threads woke, by name: what to look at.
+                    woke = {thread: n - (was.get("threads") or {}).get(thread, 0)
+                            for thread, n in (used.get("threads") or {}).items()}
+                    woke = {thread: n for thread, n in woke.items() if n}
+                    failures.append(f"{name}: the host's {key} {count} in the step, expected {wanted}"
+                                    + (f" (threads that woke: {woke})" if key == "wakeups" else ""))
     if "processes" in expect:
         after = (before or {}).get("t_settled", 0)
         until = result.get("t_settled")
@@ -4233,6 +4698,18 @@ def check_views(index, step, result, results, failures):
             # were dropped.
             if end is not None and last != end:
                 fail(f"{who} ended at {last}, not at {end}")
+    for number, rect in expect.get("windows_placed", {}).items():
+        if placed.get(number) != rect:
+            fail(f"window {number} is at {placed.get(number)}, expected {rect}")
+    if "frame_as" in expect:
+        # A window where another was once an earlier step settled, exactly: a window reopened
+        # where its application's was (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        states = result.get("window_states") or {}
+        for number, (earlier, then_number) in expect["frame_as"].items():
+            now = (states.get(number) or {}).get("frame")
+            then = ((results[earlier - 1].get("window_states") or {}).get(then_number) or {}).get("frame")
+            if now is None or now != then:
+                fail(f"window {number} is at {now}, not where window {then_number} was after step {earlier}: {then}")
     if "windows_placed_as" in expect:
         then = results[expect["windows_placed_as"] - 1].get("windows_placed", {})
         if placed != then:
@@ -4294,7 +4771,7 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     def fail(message):
         failures.append(f"{name}: {message}")
 
-    for text in expect.get("texts", []):
+    for text in map(machine_text, expect.get("texts", [])):
         if not any(text in shown_text for shown_text in shown):
             fail(f"expected text {text!r} is not shown")
     for text in expect.get("absent", []):
@@ -4329,10 +4806,20 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
     if "react" in expect:
         got = react_events(report, start, end)
         wanted = expect["react"]
-        within = lambda count, want: count == want if isinstance(want, int) else want[0] <= count <= want[1]
+        # An event given {"turns": count} is counted by JavaScript's turns that took it: a press's
+        # motions the loop read while JavaScript was busy (behind a stall, under load) are one
+        # turn's, which it takes together, acting on the first; how many motions waited is the machine's.
+        by_turns = react_events(report, start, end, turns=True)
+        counted = {k: by_turns.get(k, 0) if isinstance(want, dict) else got.get(k, 0) for k, want in wanted.items()}
+        def within(count, want):
+            if isinstance(want, dict):
+                want = want["turns"]
+            return count == want if isinstance(want, int) else want[0] <= count <= want[1]
         # An event a range lets be absent ([0, most]) may not have come at all.
-        if not set(got) <= set(wanted) or not all(within(got.get(k, 0), want) for k, want in wanted.items()):
-            fail(f"React received {got}, expected exactly {wanted}")
+        if not set(got) <= set(wanted) or not all(within(counted[k], want) for k, want in wanted.items()):
+            shown = {k: {"turns": by_turns[k], "events": n} if isinstance(wanted.get(k), dict) else n
+                     for k, n in got.items()}
+            fail(f"React received {shown}, expected exactly {wanted}")
     if "home" in expect:
         check_home(home_root.at(end) if home_root else HomeState(), expect["home"], fail)
     if "crash_reports" in expect:
@@ -4469,10 +4956,21 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         summaries = [line for line in report if line["kind"] == "timing_summary" and start <= line["t"] <= end]
         fast_frames = [line for line in report if line["kind"] == "timing" and line["presented"] and not line["slow"]
                        and start <= line["t"] <= end]
-        if len(fast_frames) < wanted.get("fast_frames_min", 0):
+        # How many frames fit in a refresh is the machine's speed, which a loaded one does not
+        # hold (66 of 90 beside seven other scenarios at load 35): held with --speed-budgets, as
+        # perf.py runs it on the machine alone. That each frame is said slow exactly when its work
+        # passes a refresh is held always (`slow_frames`, `slow`).
+        if SPEED_BUDGETS and len(fast_frames) < wanted.get("fast_frames_min", 0):
             fail(f"{len(fast_frames)} frames within a refresh, expected at least {wanted['fast_frames_min']}")
         for key, got in (("slow", len(slow_lines)), ("slow_frames", len(slow_frames)), ("summaries", len(summaries))):
-            if key in wanted and not wanted[key][0] <= got <= wanted[key][1]:
+            # A frame the step makes slow (JavaScript holding the thread 120 ms) is slow on any
+            # machine, but one that is not may be on a loaded one (a press's frame took 18 to 49 ms
+            # beside other scenarios at load 45 to 67): how many at most is a speed budget, held
+            # with --speed-budgets; the least always.
+            if key not in wanted:
+                continue
+            most = wanted[key][1] if SPEED_BUDGETS or key == "summaries" else float("inf")
+            if not wanted[key][0] <= got <= most:
                 fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
                      f"{wanted[key][1]}: {logs}")
         if "slow_line" in wanted:
@@ -4483,6 +4981,23 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                        and float(m["work"]) >= like.get("work_min", 0)
                        and int(m["dropped"]) >= like.get("dropped_min", 0) for m in slow_lines):
                 fail(f"no slow line like {like} was written: {logs}")
+        # JavaScript's stretches on its thread longer than a refresh, and their lines.
+        slow_js_lines = [m for m in map(SLOW_JS_LINE.match, logs) if m]
+        slow_js = [line for line in report if line["kind"] == "js_timing" and line["slow"] and start <= line["t"] <= end]
+        # As the UI thread's slow frames: a stretch the step makes slow (JavaScript holding its
+        # thread 120 ms) is slow on any machine, how many at most a speed budget.
+        for key, got in (("slow_js", len(slow_js_lines)), ("slow_js_stretches", len(slow_js))):
+            if key in wanted and not wanted[key][0] <= got <= (wanted[key][1] if SPEED_BUDGETS else float("inf")):
+                fail(f"the diagnostics wrote {got} {key.replace('_', ' ')}, expected {wanted[key][0]} to "
+                     f"{wanted[key][1]}: {logs}")
+        if "slow_js_line" in wanted:
+            like = wanted["slow_js_line"]
+            if not any(("subject" not in like or re.fullmatch(like["subject"], m["subject"]))
+                       and ("skipped" not in like or int(m["skipped"] or 0) == like["skipped"])
+                       and float(m["work"]) >= like.get("work_min", 0)
+                       and int(m["frames"]) >= like.get("frames_min", 0)
+                       and int(m["dropped"]) <= like.get("dropped_max", float("inf")) for m in slow_js_lines):
+                fail(f"no line of JavaScript's like {like} was written: {logs}")
         for pattern in wanted.get("logged", []):
             if not any(re.search(pattern, text) for text in logs):
                 fail(f"no line matching {pattern!r} was written: {logs}")
@@ -4494,41 +5009,47 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if waited > wanted.get("wait_max_ms", float("inf")):
             fail(f"a frame waited {waited:.2f} ms for the compositor, expected at most {wanted['wait_max_ms']}: {logs}")
         timed = [line["latency_ms"] for line in timings if line["presented"] and line["latency_ms"] is not None]
-        if max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
+        # How long an input waited for its frame is the machine's speed (a loaded one's preempted the
+        # press's JavaScript 1.9 s in held-frames): a speed budget, held with --speed-budgets.
+        if SPEED_BUDGETS and max(timed, default=0.0) > wanted.get("latency_max_ms", float("inf")):
             fail(f"an input waited {max(timed):.2f} ms for its frame, expected at most {wanted['latency_max_ms']}")
         if len(timed) < wanted.get("timed_inputs_min", 0):
             fail(f"{len(timed)} frames timed an input, expected at least {wanted['timed_inputs_min']}")
+        if "latency_min_ms" in wanted and max(timed, default=0.0) < wanted["latency_min_ms"]:
+            fail(f"the longest input to present was {max(timed, default=0.0):.2f} ms, expected at least "
+                 f"{wanted['latency_min_ms']} (the frame showing JavaScript's answer)")
     if "js_work" in expect:
-        # The host's work in the step as its diagnostics measured it (frame-diagnostics.cpp): every
-        # frame, and the work that drew none but ran JavaScript.
-        # JavaScript's work is its time on the loop thread's CPU, which the machine's load does not
-        # lengthen (preempted, the host waits for a CPU another process has); its time blocked (on
-        # another thread, a lock, a file) is held to a bound of its own, never hidden.
+        # JavaScript's work in the step as the host's diagnostics measured it (frame-diagnostics.cpp):
+        # each stretch of it on its thread. Its time on that thread's CPU, which the machine's load
+        # does not lengthen (preempted, the thread waits for a CPU another process has); its time
+        # blocked (on another thread, a lock, a file) is held to a bound of its own, never hidden.
         wanted = expect["js_work"]
-        work = [line for line in report if line["kind"] == "timing" and start <= line["t"] <= end]
+        work = [line for line in report if line["kind"] == "js_timing" and start <= line["t"] <= end]
+        presented_frames = [line for line in report if line["kind"] == "timing" and line["presented"]
+                            and start <= line["t"] <= end]
         def js(line, measure):
-            return line[measure].get("javascript", 0)
+            return line[{"cpu": "cpu_ms", "blocked": "blocked_ms", "preempted": "preempted_ms", "parts": "work_ms"}[measure]]
         costly = max(work, key=lambda line: js(line, "cpu"), default=None)
         most = js(costly, "cpu") if costly else 0.0
         if SPEED_BUDGETS and most > wanted.get("js_ms_max", float("inf")):
-            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on the CPU"
-                 f"{'' if costly['presented'] else ' (no frame)'} ({js(costly, 'parts'):.2f} by the clock: "
-                 f"{js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} preempted), expected at most "
-                 f"{wanted['js_ms_max']}")
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on the CPU ({js(costly, 'parts'):.2f} by the "
+                 f"clock: {js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} preempted), expected at "
+                 f"most {wanted['js_ms_max']}")
         waited = max(work, key=lambda line: js(line, "blocked"), default=None)
         if SPEED_BUDGETS and waited and js(waited, "blocked") > wanted.get("js_blocked_ms_max", float("inf")):
-            fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms"
-                 f"{'' if waited['presented'] else ' (no frame)'} (waiting for another thread, a lock or a file; "
-                 f"{js(waited, 'cpu'):.2f} on the CPU), expected at most {wanted['js_blocked_ms_max']}")
-        # A backstop by the wall clock, for a gross regression only (docs/performance.mdx, "What a
-        # step re-renders"): set far above what the work takes, so that a loaded machine never
-        # reaches it.
-        slowest = max(work, key=lambda line: js(line, "parts"), default=None)
-        if not COLLECT and slowest and js(slowest, "parts") > wanted.get("js_wall_ms_max", float("inf")):
-            fail(f"{slowest['trigger']} ran {js(slowest, 'parts'):.2f} ms of JavaScript by the clock"
-                 f"{'' if slowest['presented'] else ' (no frame)'} ({js(slowest, 'cpu'):.2f} on the CPU), expected at "
-                 f"most {wanted['js_wall_ms_max']} (a backstop for a gross regression)")
-        presented = sum(1 for line in work if line["presented"])
+            fail(f"{waited['trigger']}'s JavaScript was blocked {js(waited, 'blocked'):.2f} ms (waiting for another "
+                 f"thread, a lock or a file; {js(waited, 'cpu'):.2f} on the CPU), expected at most "
+                 f"{wanted['js_blocked_ms_max']}")
+        # A backstop on its thread's CPU, for a gross regression only (docs/performance.mdx, "What a
+        # step re-renders"), held on every run: set far above what the work takes. Its time by the
+        # clock is the machine's as much as its own (preempted, the thread waits for a CPU another
+        # process has; blocked, for a page another reads in), so the clock is said, never held.
+        if not COLLECT and costly and most > wanted.get("js_ms_backstop", float("inf")):
+            fail(f"{costly['trigger']} ran {most:.2f} ms of JavaScript on its thread's CPU, expected at most "
+                 f"{wanted['js_ms_backstop']} (a backstop for a gross regression); by the clock "
+                 f"{js(costly, 'parts'):.2f}: {js(costly, 'blocked'):.2f} blocked, {js(costly, 'preempted'):.2f} "
+                 f"preempted")
+        presented = len(presented_frames)
         if "presented" in wanted and not wanted["presented"][0] <= presented <= wanted["presented"][1]:
             fail(f"{presented} frames presented, expected {wanted['presented'][0]} to {wanted['presented'][1]}")
     if "memory" in expect:
@@ -4549,6 +5070,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             if account.get("skia_gpu_purgeable", 0) > wanted.get("skia_purgeable_max", float("inf")):
                 fail(f"Skia kept {account['skia_gpu_purgeable']} MiB it could purge, expected at most "
                      f"{wanted['skia_purgeable_max']}")
+    if "closed_after_leave" in expect:
+        # How long the surface that showed the text stayed after the pointer left it, on its host's
+        # clock (its report): its last close by the step's end, and the pointer's last leave
+        # before that close.
+        wanted = expect["closed_after_leave"]
+        text, (least, most) = wanted["text"], wanted["ms"]
+        showing = {line["surface"] for line in report if line["kind"] == "frame" and line["t"] <= end
+                   and any(text in got for got in line.get("texts", []))}
+        closes = [line for line in report if line["kind"] == "popup" and line["t"] <= end
+                  and line.get("event") in ("close", "dismissed", "shell.close") and line.get("surface") in showing]
+        if not closes:
+            fail(f"what showed {text!r} did not close by the step's end")
+        else:
+            close = closes[-1]
+            leaves = [line["t"] for line in report if line["kind"] == "received" and line.get("event") == "pointer.leave"
+                      and line.get("surface") == close["surface"] and line["t"] <= close["t"]]
+            if not leaves:
+                fail(f"what showed {text!r} closed without the pointer having left it")
+            elif not least <= (close["t"] - leaves[-1]) / 1e6 <= most:
+                fail(f"what showed {text!r} closed {(close['t'] - leaves[-1]) / 1e6:.0f} ms after the pointer left it, "
+                     f"expected {least} to {most}")
     if "renders" in expect and RENDER_COUNTS:
         # What React re-rendered in the step, counted from its commits (report.h, `react_render`):
         # the components each re-render began at, exactly, the same on any machine however loaded.
@@ -4561,15 +5103,27 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             since = (line["t"] + WALL_OFFSET_NS) % 60_000_000_000
             return bool(minute) and sorted(render[0] for render in line["renders"]) == minute and since < 2_000_000_000
         counted = [line for line in commits if not on_the_minute(line)]
-        tops = sorted(render[0] for line in counted for render in line["renders"])
-        components = sum(render[1] for line in counted for render in line["renders"])
+        # What re-rendered, however JavaScript batched the step's updates into commits (#554: a
+        # loaded machine may commit them in two batches, the second rendering again what the first
+        # did; Super+M's shell rendered 29 + 29 + 111 components where unloaded it renders
+        # 29 + 111): where re-renders began, as a set, and each component counted at the most one
+        # commit rendered of it.
+        tops = sorted({render[0] for line in counted for render in line["renders"]})
+        most = collections.Counter()
+        for line in counted:
+            commit = collections.Counter()
+            for render in line["renders"]:
+                commit.update(render[2])
+            for name, n in commit.items():
+                most[name] = max(most[name], n)
+        components = sum(most.values())
         def rendered(render):
             names = sorted(render[2].items(), key=lambda item: (-item[1], item[0]))
             return f"{render[0]} ({render[1]}: " + ", ".join(f"{name} {n}" for name, n in names[:12]) + (", …" if len(names) > 12 else "") + ")"
         said = "; ".join(rendered(render) for line in counted for render in line["renders"]) or "nothing"
-        if "tops" in wanted and tops != sorted(wanted["tops"]):
+        if "tops" in wanted and tops != sorted(set(wanted["tops"])):
             fail(f"React re-rendered {said} (where each re-render began, with the components it rendered), "
-                 f"expected re-renders beginning at exactly {sorted(wanted['tops'])}")
+                 f"expected re-renders beginning at exactly {sorted(set(wanted['tops']))}")
         if components > wanted.get("components_max", float("inf")):
             fail(f"React rendered {components} components ({said}), expected at most {wanted['components_max']}")
     if "accounts_asked" in expect:
@@ -4897,7 +5451,10 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         # The menu open in each frame the compositor composed in the step (the popups of the grab
         # chain): ONE popup throughout, the same surface, whose place and size go from `from` to
         # `to` ([x, y, width, height] on the output), each coordinate monotonic between the two,
-        # through at least `frames_min` places between them (`frames_max`: at most).
+        # through at least `frames_min` places between them (`frames_max`: at most). A change at
+        # once (`frames_max` 0) may be the step's first frame composed, the application having
+        # answered the input with its whole change before the compositor composed anything else
+        # (docs/adr/0071-the-ui-thread.mdx): the popup kept is then `menu_crossfade`'s `kept`.
         wanted = expect["menu_morph"]
         composed_menus = result.get("menu_frames", [])
         surfaces = {(menu[0], menu[1]) for menus in composed_menus for menu in menus}
@@ -4910,7 +5467,8 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 if not rects or rects[-1] != rect:
                     rects.append(rect)
             start_rect, end_rect = wanted["from"], wanted["to"]
-            if not rects or rects[0] != start_rect or rects[-1] != end_rect:
+            at_once = wanted.get("frames_max") == 0 and rects == [end_rect]
+            if not rects or (rects[0] != start_rect and not at_once) or rects[-1] != end_rect:
                 fail(f"the menu went through {rects}, expected from {start_rect} to {end_rect}")
             for axis in range(4):
                 low, high = sorted((start_rect[axis], end_rect[axis]))
@@ -5255,6 +5813,15 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
             low, high = (drag.get("edges") or {}).get(edge) or [None, None]
             if low is None or low != high:
                 fail(f"the window's {edge} edge moved in the drag: {low} to {high}")
+    if "progress_frames" in expect:
+        # Frames that turned only spinning rings (progress-bar.h), any of the application's surfaces'.
+        least, most = expect["progress_frames"]
+        # How many fit in the step is the machine's rate: all of them with --speed-budgets, else two.
+        least = frames_least(least)
+        turned = sum(1 for line in report if line["kind"] == "present" and line.get("progress_only")
+                     and start < line["t"] <= end)
+        if not least <= turned <= most:
+            fail(f"{turned} frames turned only a spinner in the step, expected {least} to {most}")
     if "resize_work" in expect:
         # A window resized (`drag_paced` on an edge, a zoom): the application's host's frames in the
         # step, the work each took, the JavaScript in it and React's commits.
@@ -5295,17 +5862,31 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                      f"{wanted['zoom_presented_ms_max']}")
     if "glide" in expect:
         check_glide(expect["glide"], report, start, end, fail)
+    if "stall" in expect:
+        check_stall(expect["stall"], report, start, end, fail, refresh_hz)
     if expect.get("scroll_times") == "dispatch":
         kinds = {"scroll", "scrollBeginDrag", "scrollEndDrag", "momentumScrollBegin", "momentumScrollEnd"}
         lines = [line for line in report if start <= line["t"] <= end and line["kind"] == "deliver"
                  and line.get("event") in kinds]
         if not lines:
             fail("no scroll event was delivered")
+        # Dispatched after the host received the input behind it (its `received` line; a glide's
+        # frame has none: the last input received before it) and before the host reported it:
+        # never the device's time, which comes before the host received it. Bounds of the host's
+        # own, not a gap in time, which a loaded machine stretched past 2 ms between stamping an
+        # event and writing its line.
+        received = {line["seq"]: line["t"] for line in report if line["kind"] == "received" and "seq" in line}
+        inputs = sorted(received.values())
         for line in lines:
             stamp = line.get("timestamp")
-            if stamp is None or abs(stamp - line["t"] / 1e6) > 2:
+            behind = received.get(line.get("input_seq"))
+            if behind is None:
+                behind = max((t for t in inputs if t <= line["t"]), default=None)
+            if (stamp is None or stamp > line["t"] / 1e6 + 0.01
+                    or (behind is not None and stamp < behind / 1e6 - 0.01)):
                 fail(f"{line['event']}@{line.get('target')} carried timestamp {stamp}, dispatched at "
-                     f"{line['t'] / 1e6:.1f} ms")
+                     f"{line['t'] / 1e6:.1f} ms, after the input behind it at "
+                     f"{'none' if behind is None else f'{behind / 1e6:.1f} ms'}")
                 break
     if "stretch" in expect:
         check_stretch(expect["stretch"], report, start, end, fail)
@@ -5315,6 +5896,12 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         scrolled, wanted = result.get("scrolled") or {}, expect["scrolled"]
         if scrolled.get("presented", 0) < wanted.get("presented_min", 0):
             fail(f"the window showed {scrolled.get('presented', 0)} frames in the scroll, expected at least "
+                 f"{wanted['presented_min']}")
+    if "typed" in expect:
+        # Paced typing (`type_paced`): the frames the window showed while the keys came.
+        typed, wanted = result.get("typed") or {}, expect["typed"]
+        if typed.get("presented", 0) < wanted.get("presented_min", 0):
+            fail(f"the window showed {typed.get('presented', 0)} frames as the keys were typed, expected at least "
                  f"{wanted['presented_min']}")
     if "moved" in expect:
         # A paced pointer motion (`move_paced`): the frames the window showed while the mouse
@@ -5461,14 +6048,28 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         fail(f"minimize target: {result.get('minimize_target')}, expected {expect['minimize_target']}")
     if "window_states" in expect:
         # Every window as the shell is told of it once the step settled, by its number, exactly:
-        # each given key ("app", "workspace", "minimized", "hidden", "focused") matching, and no
-        # window more or fewer (the dock's press, ADR 0034's decision 9).
+        # each given key ("app", "workspace", "minimized", "hidden", "focused", "responding",
+        # "frame", "zoomed") matching, and no window more or fewer (the dock's press, ADR 0034's
+        # decision 9; ADR 0067; ADR 0070).
         got = result.get("window_states") or {}
         wanted = expect["window_states"]
         if set(got) != set(wanted) or any(
             got[number].get(key) != value for number, state in wanted.items() for key, value in state.items()
         ):
             fail(f"the windows are {got}, expected {wanted}")
+    if "windows_of" in expect:
+        # Each application's one window as the shell is told of it once the step settled, by its
+        # application whatever its number, each given key matching: windows opened at login, in
+        # whatever order they are ready (docs/adr/0070-windows-come-back-where-they-were.mdx).
+        states = result.get("window_states") or {}
+        for app, wanted in expect["windows_of"].items():
+            windows = [state for state in states.values() if state.get("app") == app]
+            if len(windows) != 1:
+                fail(f"{app} has {len(windows)} windows, expected one: {states}")
+                continue
+            for key, value in wanted.items():
+                if windows[0].get(key) != value:
+                    fail(f"{app}'s window: {key} = {windows[0].get(key)!r}, expected {value!r}")
     if "preferences" in expect:
         told = [line for line in report if line["kind"] == "input" and line["event"] == "preferences"
                 and line["t"] <= end]
@@ -5520,6 +6121,13 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
                 fail(f"{app}'s {name} holds {kept!r}, expected {content!r}")
     if "window_rect" in expect and result.get("window") != expect["window_rect"]:
         fail(f"window at {result.get('window')}, expected {expect['window_rect']}")
+    # Tiling (docs/adr/0016-windows.mdx, decision 12).
+    if "tile_preview" in expect and result.get("tile_preview") != expect["tile_preview"]:
+        fail(f"the tile previewed is {result.get('tile_preview')}, expected {expect['tile_preview']}")
+    if "window_configures" in expect and result.get("window_configures") != expect["window_configures"]:
+        fail(f"the window was sent {result.get('window_configures')} configures, expected {expect['window_configures']}")
+    if "companion_rect" in expect and result.get("companion_rect") != expect["companion_rect"]:
+        fail(f"the companion's window is at {result.get('companion_rect')}, expected {expect['companion_rect']}")
     if "popup_rect" in expect and result.get("popups") != [expect["popup_rect"]]:
         fail(f"popups at {result.get('popups')}, expected [{expect['popup_rect']}]")
     if "popup_rects" in expect and result.get("popups", []) != expect["popup_rects"]:
@@ -5615,13 +6223,24 @@ def check_step(index, step, result, report, start, failures, through_devices=Fal
         if not expect.get("texts"):
             raise ValueError(f"{name}: content_ms_max needs the step's texts")
         result["content_ms"] = shown_ms = content_shown_ms(report, expect["texts"])
-        if not COLLECT:
+        if SPEED_BUDGETS and not COLLECT:
             if shown_ms is None:
                 fail(f"launch to content: {expect['texts']} never all shown in the run "
                      f"(the {expect['content_ms_max']} ms budget from the host's start)")
             elif shown_ms > expect["content_ms_max"]:
                 fail(f"launch to content: {expect['texts']} first all shown {shown_ms} ms after the host's "
                      f"start, over the {expect['content_ms_max']} ms budget")
+    if "content_cpu_ms_max" in expect:
+        if not expect.get("texts"):
+            raise ValueError(f"{name}: content_cpu_ms_max needs the step's texts")
+        result["content_cpu_ms"] = cpu_ms = content_shown_cpu_ms(report, expect["texts"])
+        if not COLLECT:
+            if cpu_ms is None:
+                fail(f"launch to content on the CPU: {expect['texts']} never all shown in the run "
+                     f"(the {expect['content_cpu_ms_max']} ms budget)")
+            elif cpu_ms > expect["content_cpu_ms_max"]:
+                fail(f"launch to content on the CPU: the host spent {cpu_ms} ms of CPU before {expect['texts']} "
+                     f"were first all shown, over the {expect['content_cpu_ms_max']} ms budget")
     return end
 
 
@@ -5696,7 +6315,8 @@ class Machine:
         """The development registry (`applications/`) in `into`: each packaged application's entry the
         one oxyos-installd writes for it where its package is now (`oxyos-pack entry`, beside the
         offscreen compositor; the packages may have been built elsewhere and copied), with the
-        development registry's place in the dock; any other entry as it is, its icon where its is."""
+        development registry's place in the dock and whether it is listed (`NoDisplay`, About This
+        Computer's); any other entry as it is, its icon where its is."""
         source = pathlib.Path(__file__).resolve().parent / "applications" / "oxyos" / "applications"
         target = into / "oxyos" / "applications"
         target.mkdir(parents=True, exist_ok=True)
@@ -5708,7 +6328,7 @@ class Machine:
                     raise SystemExit(f"{pack} is not built: the registry's entries for the packages are its")
                 lines = subprocess.run([str(pack), "entry", str(self.by_id[entry.stem]["dir"])], check=True,
                                        capture_output=True, text=True).stdout.splitlines()
-                lines += [line for line in text if line.startswith("X-OxyOS-Pinned=")]
+                lines += [line for line in text if line.startswith(("X-OxyOS-Pinned=", "NoDisplay="))]
             else:
                 lines = [("Icon=" + str((source / line[5:]).resolve()))
                          if line.startswith("Icon=") and not line[5:].startswith("/") else line
@@ -5744,14 +6364,14 @@ def install_service(spec, machine, offscreen):
     me = pwd.getpwuid(os.getuid())
     (base / "passwd").write_text(f"{me.pw_name}:x:{me.pw_uid}:{me.pw_gid}::{me.pw_dir}:/bin/sh\n")
     logs = open(base / "installd.log", "w")
-    processes = [subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
+    processes = [played(subprocess.Popen([str(installd), "--fetch", "--development", "--repository",
                                    f"file://{repository}", "--socket", str(base / "f")],
-                                  stdout=logs, stderr=logs)]
+                                  stdout=logs, stderr=logs))]
     wait_for(base / "f")
     service = [str(installd), "--development", "--state", str(state), "--anchor",
                str(repository / "metadata/1.root.json"), "--runtimes", str(machine.runtimes), "--socket",
                str(base / "i"), "--fetcher", str(base / "f"), "--passwd", str(base / "passwd")]
-    processes.append(subprocess.Popen(service, stdout=logs, stderr=logs))
+    processes.append(played(subprocess.Popen(service, stdout=logs, stderr=logs)))
     wait_for(base / "i")
     # Installed before the run, as an account that installed it earlier has it.
     for id in spec.get("installed", []):
@@ -5771,8 +6391,8 @@ def install_service(spec, machine, offscreen):
         first.terminate()
         first.wait(timeout=5)
         (base / "i").unlink(missing_ok=True)
-        processes.append(subprocess.Popen(service + ["--available", str(spec["available"])],
-                                          stdout=logs, stderr=logs))
+        processes.append(played(subprocess.Popen(service + ["--available", str(spec["available"])],
+                                          stdout=logs, stderr=logs)))
         wait_for(base / "i")
     # Versions the store publishes afterwards: the same package's files, its manifest's
     # versionCode, version and capabilities changed, packed and signed with the same key.
@@ -5823,10 +6443,10 @@ def backup_service(spec, home_root, out, offscreen):
     disk.mkdir(parents=True)
     (disk / ".oxyos-label").write_text(spec.get("disk", "Backup Disk"))
     log = open(out / "backupd.log", "w")
-    process = subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
+    process = played(subprocess.Popen([str(backupd), "--development", "--state", str(base / "state"),
                                 "--volumes", str(base / "volumes"), "--cache", str(base / "cache"),
                                 "--source", str(home_root), "--socket", str(base / "s")],
-                               stdout=log, stderr=log)
+                               stdout=log, stderr=log))
 
     def stop():
         process.terminate()
@@ -6152,6 +6772,33 @@ def check_installd(wanted, failures):
             failures.append(f"the install service read the store {got} times, expected {wanted['store_reads']}")
 
 
+# The processes played beside the session for a run (a bus, a played daemon or service): each run's
+# own stop ends them once the director has run, and whatever is still running when regress exits
+# (a run failing at once, before the director, raised past those stops and left its played power
+# services running) is ended then.
+PLAYED = []
+
+
+def played(process):
+    """`process`, a service played beside the session, ended as regress exits if still running."""
+    PLAYED.append(process)
+    return process
+
+
+@atexit.register
+def end_played():
+    """Ends what is still running of the services played for runs (`played`)."""
+    running = [process for process in PLAYED if process.poll() is None]
+    for process in running:
+        process.terminate()
+    for process in running:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    PLAYED.clear()
+
+
 def wait_for(path, seconds=10):
     deadline = time.monotonic() + seconds
     while not path.exists():
@@ -6164,11 +6811,14 @@ def counts_match(got, wanted):
     """Whether what the compositor delivered (`got`: by window, each event's count) is `wanted`
     exactly: the same windows and events, each count the same, or within the [least, most] a step
     gives for it (a pinch through libinput, which reports as many updates as it recognized frames
-    of the fingers)."""
+    of the fingers); an event given [0, most] may not have come at all."""
     if isinstance(wanted, list) and len(wanted) == 2 and isinstance(got, int):
         return wanted[0] <= got <= wanted[1]
     if isinstance(wanted, dict) and isinstance(got, dict):
-        return wanted.keys() == got.keys() and all(counts_match(got[key], wanted[key]) for key in wanted)
+        absent = lambda want: isinstance(want, list) and len(want) == 2 and want[0] == 0
+        return (got.keys() <= wanted.keys()
+                and all(key in got or absent(want) for key, want in wanted.items())
+                and all(counts_match(got.get(key, 0), want) for key, want in wanted.items()))
     return got == wanted
 
 
@@ -6196,14 +6846,14 @@ def network_daemon(spec, out, offscreen):
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
     # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-networkmanager"
     log = open(base / "daemon.log", "w")
-    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
-                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    daemon = played(subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log))
     wait_for(base / "state.json")
 
     def stop():
@@ -6225,14 +6875,14 @@ def bluetooth_daemon(spec, out, offscreen):
     shutil.rmtree(base, ignore_errors=True)
     base.mkdir(parents=True)
     # An abstract socket (`tmpdir`): a run's directory is too deep for a socket's path.
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     (base / "machine.json").write_text(json.dumps(spec))
     fake = pathlib.Path(offscreen).resolve().parent / "oxyos-fake-bluez"
     log = open(base / "bluez.log", "w")
-    daemon = subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
-                               "--state", str(base / "state.json")], stdout=log, stderr=log)
+    daemon = played(subprocess.Popen([str(fake), "--address", address, "--machine", str(base / "machine.json"),
+                               "--state", str(base / "state.json")], stdout=log, stderr=log))
     wait_for(base / "state.json")
 
     def stop():
@@ -6287,9 +6937,9 @@ def played_backup_service(spec, out, offscreen, home):
     sockets = pathlib.Path(tempfile.mkdtemp(prefix="oxyos-backup-"))
     socket = sockets / "socket"
     log = open(base / "service.log", "w")
-    service = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
+    service = played(subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-backup", str(base / "state"),
                                 str(volumes), str(socket), str(base / "cache"), str(home)],
-                               env=env, stdout=log, stderr=log)
+                               env=env, stdout=log, stderr=log))
     wait_for(socket)
 
     def stop():
@@ -6318,12 +6968,12 @@ def power_services(spec, out, offscreen):
     machine = dict(spec)
     machine.setdefault("sysfs", str(sysfs))
     (base / "machine.json").write_text(json.dumps(machine))
-    bus = subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
-                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True)
+    bus = played(subprocess.Popen(["dbus-daemon", "--session", "--nofork", "--print-address=1",
+                            "--address=unix:tmpdir=/tmp"], stdout=subprocess.PIPE, text=True))
     address = bus.stdout.readline().strip()
     log = open(base / "services.log", "w")
-    services = subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
-                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log)
+    services = played(subprocess.Popen([str(pathlib.Path(offscreen).resolve()), "--play-power", address,
+                                 str(base / "machine.json"), str(base / "ready")], stdout=log, stderr=log))
     wait_for(base / "ready")
 
     def stop():
@@ -6335,6 +6985,38 @@ def power_services(spec, out, offscreen):
                 process.kill()
         log.close()
     return ["--power-bus", address], stop
+
+
+def desktop_quoted(word):
+    """`word` as an `Exec` key holds one word (oxyos-apps' `exec`): quoted, a backslash and a quote
+    escaped, `%` doubled."""
+    escaped = str(word).replace(BACKSLASH, BACKSLASH * 2).replace('"', BACKSLASH + '"').replace("%", "%%")
+    return f'"{escaped}"'
+
+
+BACKSLASH = chr(92)
+
+
+def also_launch_registry(apps, into, machine, offscreen):
+    """The development registry of a scenario's `also_launch` in `into`: each {"id", "name"} with
+    "exec" (a program and its arguments, "{offscreen}" in them the development compositor, whose
+    `--load` is the benchmark's loads) or "module" (a Bloom module of the packages or the probes,
+    run with its runtime), and "minimized" for one whose window is minimized once shown."""
+    target = into / "oxyos" / "applications"
+    shutil.rmtree(into, ignore_errors=True)
+    target.mkdir(parents=True)
+    for app in apps:
+        lines = ["[Desktop Entry]", "Type=Application", f"Name={app.get('name', app['id'])}"]
+        if "exec" in app:
+            program = str(pathlib.Path(offscreen).resolve())
+            lines.append("Exec=" + " ".join(desktop_quoted(str(word).replace("{offscreen}", program))
+                                            for word in app["exec"]))
+        else:
+            host, bundle, _ = machine.run(app["module"])
+            lines += [f"X-OxyOS-Bloom-Module={app['module']}", f"X-OxyOS-Bloom-Bundle={bundle}",
+                      f"X-OxyOS-Runtime={host.parent.name}"]
+        (target / f"{app['id']}.desktop").write_text("\n".join(lines) + "\n")
+    return into
 
 
 def install_arguments(scenario, out, machine=None, offscreen=None):
@@ -6402,10 +7084,10 @@ def main():
                              "runs, as they are after an application's first launch (perf.py's cold start: Ganesh's "
                              "compiled pipelines among them); afresh in the run's output by default")
     parser.add_argument("--collect", action="store_true",
-                        help="enforce no budget on time (latency_ms, content_ms_max, js_work's and resize_work's, the backstops): the "
+                        help="enforce no budget on time (latency_ms, content_ms_max, content_cpu_ms_max, js_work's and resize_work's, the backstops): the "
                              "caller measures them over its runs and judges them at the median (perf.py)")
     parser.add_argument("--speed-budgets", action="store_true",
-                        help="hold the steps' budgets on how fast the work runs too (`js_work`'s js_ms_max and "
+                        help="hold the steps' budgets on how fast the work runs too (`content_ms_max`, `js_work`'s js_ms_max and "
                              "js_blocked_ms_max, `resize_work`'s js_ms_p95_max and busy_refreshes_p95_max): perf.py's "
                              "runs, on the hardware the budgets describe; never the load-sensitive deploy gate")
     options = parser.parse_args()
@@ -6701,6 +7383,15 @@ def main():
         # The shell's applications are the development registry's alone (ADR 0013), not the
         # machine's, each packaged one from its package.
         env["XDG_DATA_DIRS"] = str(machine.registry(out / "registry", options.offscreen))
+    if scenario.get("also_launch"):
+        # Applications the session starts once the window is shown, through its launcher as the
+        # dock starts them (`--also-launch`): the saturation benchmark's loads (perf.py), each a
+        # development entry of the run's own, in front of the registry.
+        also = also_launch_registry(scenario["also_launch"], out / "also-registry", machine, options.offscreen)
+        env["XDG_DATA_DIRS"] = os.pathsep.join([str(also)] + ([env["XDG_DATA_DIRS"]] if scenario.get("shell") else []))
+        command[2:2] = ["--also-launch", ",".join(app["id"] + (":minimized" if app.get("minimized") else "")
+                                                   for app in scenario["also_launch"]),
+                        "--also-launch-lead", str(scenario.get("also_launch_lead_ms", 0))]
     # The application's title and id, as a session's launch records give them (ADR 0009).
     for key, name in (("title", "OXYOS_APP_TITLE"), ("id", "OXYOS_APP_ID")):
         if key in scenario.get("app", {}):
@@ -6737,6 +7428,8 @@ def main():
         # The probe opens every request at once; socketserver's backlog of 5 would drop the rest's
         # connections for TCP to retry a second later, longer than a step takes to settle.
         ThreadingHTTPServer.request_queue_size = 64
+        ProbeServer.cues = out / "cues"
+        ProbeServer.cues.unlink(missing_ok=True)
         server = ThreadingHTTPServer(("127.0.0.1", port), ProbeServer)
         server.daemon_threads = True
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -6765,6 +7458,22 @@ def main():
         env["OXYOS_WALLPAPER_NOW"] = str(wallpaper["now"])
     if login is not None:
         env.update(login[3])
+    # How the last session ended, as the login program tells the session (docs/adr/0065): at a login
+    # screen, `last_session` "problem" (it ended because of one); in a session,
+    # `session_ended` ("signal 11 3600 1762790000": how, the seconds it ran, when).
+    if scenario.get("last_session") == "problem":
+        env["OXYOS_LAST_SESSION_ENDED"] = "problem"
+    if scenario.get("session_ended"):
+        env["OXYOS_SESSION_ENDED"] = scenario["session_ended"]
+    # The accounts of kernel panics oxyos-recovery wrote after a restart (docs/adr/0068): `panics`
+    # ({NAME: TEXT}), written into a folder of the run's own, never the machine's.
+    problems = out / "problems"
+    shutil.rmtree(problems, ignore_errors=True)
+    if scenario.get("panics"):
+        problems.mkdir(parents=True)
+        for name, text in scenario["panics"].items():
+            (problems / name).write_text(text)
+    env["OXYOS_PROBLEMS"] = str(problems.resolve())
     if "store" in scenario:
         env.update(store_fixture(scenario["store"], out))
         if scenario["store"].get("offline_when_shown"):
@@ -6829,6 +7538,9 @@ def main():
     # "grant-first" or "popup-focus-first" (docs/adr/0039-keyboard-access.mdx, decision 26); or an
     # application window's host, between a modal's own focus and the host following the modal
     # coming: "window-focus-first" (decision 27).
+    env.pop("OXYOS_HOST_PROGRESS_PHASE_MS", None)
+    if "progress_phase_ms" in scenario:
+        env["OXYOS_HOST_PROGRESS_PHASE_MS"] = str(float(scenario["progress_phase_ms"]))
     env.pop("OXYOS_HOST_TEST_ORDER", None)
     if "host_order" in scenario:
         if scenario["host_order"] not in ("focus-first", "grant-first", "popup-focus-first", "window-focus-first"):
@@ -6867,7 +7579,15 @@ def main():
     # at any time, even as the run ended and whatever the steps said, fails the run, its backtrace
     # said: a crash is never a pass, and the run that saw it is the one that can say where.
     logged = run.stderr.splitlines()
-    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")]
+    # A signal the scenario sent the shell itself (a `signal` step: the host says the signal was
+    # "sent by process", never a fault of its own) is the step's, not a crash.
+    numbers = {"SEGV": 11, "ABRT": 6}
+    sent = {numbers[step["do"][1][0]] for step in scenario.get("steps", [])
+            if step.get("do", [None])[0] == "signal" and step["do"][1][1] == "shell"
+            and step["do"][1][0] in numbers}
+    crashes = [at for at, line in enumerate(logged) if line.startswith("[host] fatal signal")
+               and not (" sent by process " in line
+                        and any(line.startswith(f"[host] fatal signal {number} ") for number in sent))]
     for at in crashes:
         print(f"FAIL: a host crashed; see {out / 'director.log'}")
         print("\n".join(logged[at:at + 24]))
@@ -7009,6 +7729,9 @@ def main():
         # Launch to content, each step holding it (`content_ms_max`): its number -> ms (None: never shown).
         "content_ms": {str(index + 1): s["content_ms"] for index, s in enumerate(summary["steps"])
                        if "content_ms" in s},
+        # And on the CPU (`content_cpu_ms_max`): its number -> ms (None: never shown).
+        "content_cpu_ms": {str(index + 1): s["content_cpu_ms"] for index, s in enumerate(summary["steps"])
+                           if "content_cpu_ms" in s},
         "failures": len(failures),
         "out": str(out),
     }

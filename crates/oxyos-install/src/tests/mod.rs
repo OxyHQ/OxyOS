@@ -91,6 +91,8 @@ pub struct Pkg {
     pub notes: Vec<(&'static str, &'static str)>,
     /// The store listing it belongs to, the store's.
     pub listing: Option<&'static str>,
+    /// The store's statement says it is one of Oxy's own applications (`firstParty`).
+    pub first_party: bool,
 }
 
 impl Pkg {
@@ -118,6 +120,7 @@ impl Pkg {
             lineage: Lineage::default(),
             notes: vec![("en", "Faster."), ("es", "Más rápida.")],
             listing: Some("notes"),
+            first_party: false,
         }
     }
 
@@ -191,7 +194,10 @@ impl Pkg {
     pub fn custom(&self, manifest: &[u8]) -> Value {
         let signature: DeveloperSignature = key(self.signer).sign_manifest(manifest);
         let statement = match Manifest::parse(manifest) {
-            Ok(parsed) => ReleaseStatement::of(&parsed, manifest, Architecture::Any, &signature),
+            Ok(parsed) => ReleaseStatement {
+                first_party: self.first_party,
+                ..ReleaseStatement::of(&parsed, manifest, Architecture::Any, &signature)
+            },
             // A manifest the package format refuses still gets a statement, as a store that
             // erred would sign one: the install service must refuse it itself.
             Err(_) => ReleaseStatement {
@@ -205,6 +211,7 @@ impl Pkg {
                 manifest_sha256: Sha256::of(manifest),
                 manifest_length: manifest.len() as u64,
                 developer_key_id: signature.key_id.clone(),
+                first_party: self.first_party,
             },
         };
         crate::repository::release_custom(

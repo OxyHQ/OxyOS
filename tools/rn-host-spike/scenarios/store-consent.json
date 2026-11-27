@@ -16,7 +16,7 @@
       "updates"
     ]
   },
-  "about": "An update needing the account's consent (docs/adr/0030-installing-applications.mdx, decisions 10 and 16): Inbox 1 installed, the store publishes 2, which adds network and oxy-account. A check finds it waiting for consent; Update All leaves it and, once the update is staged, the sheet asks (the step waits for the sheet itself, which comes after the update's first answer) and has the keyboard: a key typed while it asks never reaches the store behind it; Cancelar keeps 1, and so does Escape; Actualizar switches to 2, the previous kept until 2 shows a window.",
+  "about": "An update needing the account's consent (docs/adr/0030-installing-applications.mdx, decisions 10 and 16): Inbox 1 installed, the store publishes 2, which adds network and oxy-account, as a third party's release (the development store's statement says no firstParty: Oxy's own would be granted oxy-account unasked). A check finds it waiting for consent; Update All leaves it and, once the update is staged, the sheet asks (the step waits for the sheet itself, which comes after the update's first answer) and has the keyboard: a key typed while it asks never reaches the store behind it; Cancelar keeps 1, and so does Escape; Actualizar switches to 2, the previous kept until 2 shows a window.",
   "installd": {
     "publish": [
       "so.oxy.inbox"
@@ -94,7 +94,7 @@
             "Inbox pide más acceso",
             "La versión 0.2.0 usa:",
             "Internet",
-            "Tu cuenta Oxy",
+            "Tu cuenta de Oxy",
             "Cancelar",
             "Actualizar"
           ]
@@ -126,7 +126,7 @@
             "Inbox pide más acceso",
             "La versión 0.2.0 usa:",
             "Internet",
-            "Tu cuenta Oxy",
+            "Tu cuenta de Oxy",
             "Cancelar",
             "Actualizar"
           ]
@@ -186,7 +186,7 @@
             "Inbox pide más acceso",
             "La versión 0.2.0 usa:",
             "Internet",
-            "Tu cuenta Oxy",
+            "Tu cuenta de Oxy",
             "Cancelar",
             "Actualizar"
           ]
@@ -239,7 +239,7 @@
             "Inbox pide más acceso",
             "La versión 0.2.0 usa:",
             "Internet",
-            "Tu cuenta Oxy",
+            "Tu cuenta de Oxy",
             "Cancelar",
             "Actualizar"
           ]

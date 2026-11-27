@@ -158,8 +158,8 @@
         "popup_rect": [
           440,
           232,
-          266,
-          206
+          192,
+          166
         ],
         "focus_surface": 2,
         "focus_input": "line",
@@ -369,8 +369,8 @@
         "popup_rect": [
           469,
           232,
-          266,
-          206
+          192,
+          166
         ],
         "focus_surface": 3,
         "focus_input": "line",

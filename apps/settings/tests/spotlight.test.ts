@@ -54,7 +54,7 @@ test("a kind the preferences do not name is shown, and the index's state is a li
   assert.equal(shown(preferences, "image"), false);
   assert.equal(shown(preferences, "pdf"), true);
   assert.equal(statusLine({ indexing: true, items: 1, partial: false }, en), "Indexing… 1 item so far");
-  assert.equal(statusLine({ indexing: false, items: 1200, partial: true }, en), "1,200 items indexed. Some folders couldn't be indexed.");
+  assert.equal(statusLine({ indexing: false, items: 1200, partial: true }, en), "1,200 items indexed. Some folders couldn’t be indexed.");
   assert.equal(statusLine({ indexing: false, items: 3, partial: false }, es), "3 ítems indexados");
 });
 

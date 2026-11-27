@@ -98,7 +98,7 @@
             {
               "role": "Button",
               "name": "Copias de seguridad",
-              "value": "Todavía no hay copias de seguridad"
+              "value": "Aún no hay copias de seguridad"
             }
           ]
         },
@@ -126,7 +126,7 @@
         "react": {},
         "in_shell": {
           "texts": [
-            "Todavía no hay copias de seguridad",
+            "Aún no hay copias de seguridad",
             "Esperando a que se desactive el modo de bajo consumo",
             "Hacer copia de seguridad ahora",
             "Explorar copias de seguridad",
@@ -164,7 +164,13 @@
               "name": "Explorar copias de seguridad"
             }
           ]
-        }
+        },
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1
       }
     },
     {
@@ -276,7 +282,7 @@
         "react": {},
         "in_shell": {
           "texts": [
-            "Todavía no hay copias de seguridad",
+            "Aún no hay copias de seguridad",
             "Hacer copia de seguridad ahora"
           ]
         }
@@ -359,7 +365,13 @@
       ],
       "expect": {
         "react": {},
-        "focus_input": "line"
+        "focus_input": "line",
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1
       }
     },
     {
@@ -429,7 +441,13 @@
       ],
       "expect": {
         "react": {},
-        "focus_input": "line"
+        "focus_input": "line",
+        "delivered": {
+          "1": {
+            "focus.in": 1
+          }
+        },
+        "focus_surface": 1
       }
     },
     {

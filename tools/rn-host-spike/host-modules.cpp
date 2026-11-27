@@ -41,6 +41,43 @@ namespace oxyos {
 
 namespace {
 
+// A window's layouts by their names in sample/oxyos/platform/src/shell.ts and Bloom's
+// PlatformWindowLayout (docs/adr/0016-windows.mdx, decision 12): the shell's Window menu's and an
+// application's zoom control's, the same OXYOS_WINDOW_LAYOUT_*.
+const std::map<std::string, uint8_t>& windowLayouts() {
+  static const std::map<std::string, uint8_t> layouts = {
+      {"fill", OXYOS_WINDOW_LAYOUT_FILL},
+      {"center", OXYOS_WINDOW_LAYOUT_CENTER},
+      {"left", OXYOS_WINDOW_LAYOUT_LEFT},
+      {"right", OXYOS_WINDOW_LAYOUT_RIGHT},
+      {"top", OXYOS_WINDOW_LAYOUT_TOP},
+      {"bottom", OXYOS_WINDOW_LAYOUT_BOTTOM},
+      {"topLeft", OXYOS_WINDOW_LAYOUT_TOP_LEFT},
+      {"topRight", OXYOS_WINDOW_LAYOUT_TOP_RIGHT},
+      {"bottomLeft", OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT},
+      {"bottomRight", OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT},
+      {"leftAndRight", OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT},
+      {"rightAndLeft", OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT},
+      {"topAndBottom", OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM},
+      {"bottomAndTop", OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP},
+      {"quarters", OXYOS_WINDOW_LAYOUT_QUARTERS},
+      {"returnToPreviousSize", OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE},
+      {"zoom", OXYOS_WINDOW_LAYOUT_ZOOM},
+      // Bloom's names for the arrangements and Return to Previous Size.
+      {"leftRight", OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT},
+      {"rightLeft", OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT},
+      {"topBottom", OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM},
+      {"bottomTop", OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP},
+      {"returnToPrevious", OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE},
+  };
+  return layouts;
+}
+
+}  // namespace
+
+
+namespace {
+
 jsi::Value call(jsi::Runtime& rt, const jsi::Value& callback, const jsi::Value& argument) {
   if (callback.isObject() && callback.asObject(rt).isFunction(rt)) {
     callback.asObject(rt).asFunction(rt).call(rt, argument);
@@ -516,6 +553,16 @@ class ExpoImageRefHandle : public jsi::HostObject {
 }  // namespace
 
 // A promise resolved with `value`.
+jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method) {
+  if (!method.isObject() || !method.getObject(rt).isFunction(rt)) return method;
+  auto inner = std::make_shared<jsi::Function>(method.getObject(rt).getFunction(rt));
+  return jsi::Function::createFromHostFunction(
+      rt, name, 0, [inner](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+        HostCall call;
+        return inner->call(rt, args, count);
+      });
+}
+
 jsi::Value resolved(jsi::Runtime& rt, const jsi::Value& value) {
   return rt.global().getPropertyAsObject(rt, "Promise").getPropertyAsFunction(rt, "resolve").call(rt, value);
 }
@@ -726,6 +773,10 @@ std::shared_ptr<TurboModule> createHostModule(
              // The window's application (docs/adr/0024-system-shortcuts.mdx).
              {"hideApplication", OXYOS_MANAGE_HIDE_APPLICATION, true},
              {"quitApplication", OXYOS_MANAGE_QUIT_APPLICATION, true},
+             // Hide Others (every application but the window's; 0: every one) and Show All
+             // (docs/adr/0021-menu-bar.mdx).
+             {"hideOtherApplications", OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS, true},
+             {"showAllApplications", OXYOS_MANAGE_SHOW_ALL_APPLICATIONS, false},
              {"moveWindowToWorkspace", OXYOS_MANAGE_MOVE, true},
              {"activateWorkspace", OXYOS_MANAGE_ACTIVATE_WORKSPACE, false},
              {"addWorkspace", OXYOS_MANAGE_ADD_WORKSPACE, false},
@@ -752,6 +803,16 @@ std::shared_ptr<TurboModule> createHostModule(
                                                                       size_t count) {
       ready(rt);
       return jsi::Value(services.shell.forceQuitApplication(number(rt, args, count, 0)));
+    });
+    // The Window menu (docs/adr/0016-windows.mdx, decision 12): `layOutWindow(window, layout)`, the
+    // layout by its name in sample/oxyos/platform/src/shell.ts, true if sent.
+    module->method("layOutWindow", [&services, ready, number](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      const auto& layouts = windowLayouts();
+      if (count < 2 || !args[1].isString()) throw jsi::JSError(rt, "OxyOSShell.layOutWindow: a window and a layout");
+      auto layout = layouts.find(args[1].asString(rt).utf8(rt));
+      if (layout == layouts.end()) throw jsi::JSError(rt, "OxyOSShell.layOutWindow: an unknown layout");
+      return jsi::Value(services.shell.layOutWindow && services.shell.layOutWindow(number(rt, args, count, 0), layout->second));
     });
     module->method("setApplicationList", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
       ready(rt);
@@ -1068,7 +1129,7 @@ std::shared_ptr<TurboModule> createHostModule(
       if (!services.window.state) throw jsi::JSError(rt, "OxyOSWindow: only an application's window has it");
     };
     module->constants(folly::dynamic::object("available", services.applicationWindow)(
-        "metrics", folly::dynamic::object("controls", folly::dynamic::object("start", 14)("top", 16)("width", 68)(
+        "layouts", services.windowLayouts)("metrics", folly::dynamic::object("controls", folly::dynamic::object("start", 14)("top", 16)("width", 68)(
                                                           "height", 20))("room", folly::dynamic::object("top", 52)(
                                                           "leading", 88))("radius", 16)));
     module->method("getState", [&services, ready](jsi::Runtime& rt, const jsi::Value*, size_t) {
@@ -1091,6 +1152,24 @@ std::shared_ptr<TurboModule> createHostModule(
       ready(rt);
       auto at = [&](size_t i) { return count > i && args[i].isNumber() ? static_cast<uint32_t>(args[i].asNumber()) : 0u; };
       services.window.setSizeLimits(at(0), at(1), at(2), at(3));
+      return jsi::Value::undefined();
+    });
+    // Its zoom control's layouts (decision 12): `layOut(layout)` by Bloom's PlatformWindowLayout
+    // name, `moveToDesktop(desktop)` from 0.
+    module->method("layOut", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isString()) throw jsi::JSError(rt, "OxyOSWindow.layOut: a layout");
+      auto layout = windowLayouts().find(args[0].asString(rt).utf8(rt));
+      if (layout == windowLayouts().end()) throw jsi::JSError(rt, "OxyOSWindow.layOut: an unknown layout");
+      services.window.layOut(layout->second);
+      return jsi::Value::undefined();
+    });
+    module->method("moveToDesktop", [&services, ready](jsi::Runtime& rt, const jsi::Value* args, size_t count) {
+      ready(rt);
+      if (count < 1 || !args[0].isNumber() || args[0].asNumber() < 0) {
+        throw jsi::JSError(rt, "OxyOSWindow.moveToDesktop: a desktop, from 0");
+      }
+      services.window.moveToWorkspace(static_cast<uint32_t>(args[0].asNumber()));
       return jsi::Value::undefined();
     });
     module->listeners();
@@ -1141,7 +1220,8 @@ std::shared_ptr<TurboModule> createHostModule(
         json.resize(static_cast<size_t>(length));
         try {
           for (const auto& app : folly::parseJson(json)) {
-            if (app.isObject() && app.count("id") && app.count("name")) {
+            // An application never listed (NoDisplay) is in none of Settings' lists either.
+            if (app.isObject() && app.count("id") && app.count("name") && app.getDefault("shown", true) != false) {
               applications.push_back(folly::dynamic::object("id", app["id"])("name", app["name"]));
             }
           }
@@ -1262,7 +1342,7 @@ std::shared_ptr<TurboModule> createHostModule(
     module->listeners();
   } else if (name == "OxyOSMenuBar") {
     // The application window's menus (sample/oxyos/platform-surface.js, docs/adr/0021-menu-bar.mdx):
-    // `setMenus([{ parent, kind, flags, label, shortcut }])` sends them as a new commit and returns
+    // `setMenus([{ parent, kind, flags, role, label, shortcut }])` sends them as a new commit and returns
     // its serial; `OxyOSMenuActivated` ({ serial, index }) is a choice in the shell's bar. The
     // adapter keeps Bloom's ids for each commit's indices: the compositor never sees them.
     module->constants(folly::dynamic::object("available", services.applicationWindow));
@@ -1279,6 +1359,10 @@ std::shared_ptr<TurboModule> createHostModule(
                                                                     : OXYOS_NO_MENU_PARENT;
         entry.kind = static_cast<uint8_t>(item.getDefault("kind", 0).asInt());
         entry.flags = static_cast<uint8_t>(item.getDefault("flags", 0).asInt());
+        // The application's About or Settings… (OXYOS_MENU_ROLE_*), which the shell shows in its
+        // own menu.
+        auto role = item.getDefault("role", 0);
+        entry.role = role.isNumber() ? static_cast<uint8_t>(role.asInt()) : OXYOS_MENU_ROLE_NONE;
         auto label = item.getDefault("label", "");
         auto shortcut = item.getDefault("shortcut", "");
         if (label.isString()) entry.label = label.getString();
@@ -1318,10 +1402,14 @@ std::shared_ptr<TurboModule> createHostModule(
       if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isFunction(rt)) {
         throw jsi::JSError(rt, "OxyOSKeyboard.setListener: a function");
       }
-      services.keyboard.runtime = &rt;
       services.keyboard.listener = std::make_shared<jsi::Function>(args[0].asObject(rt).asFunction(rt));
       return jsi::Value::undefined();
     });
+  } else if (name == "OxyOSMaterial") {
+    // The platform's material (sample/oxyos/platform-surface.js, Bloom's `material` capability;
+    // docs/adr/0069-the-platforms-material.mdx): whether the compositor blurs beneath a surface's
+    // material regions, which the host's OxyOSMaterialView tells it.
+    module->constants(folly::dynamic::object("available", services.materialAvailable));
   } else if (name == "OxyOSDrag") {
     // Dragging the application's content to another application (sample/oxyos/platform-surface.js,
     // Bloom's usePlatformDrag; docs/adr/0035-drag-and-drop.mdx): from the press it holds, the

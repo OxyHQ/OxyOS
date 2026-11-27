@@ -57,7 +57,14 @@ step's expected result) and measures, from what the processes report and from /p
   application's index.hbc) is resident and shared (docs/adr/0030-installing-applications.mdx,
   decision 17); and the host's own account (its report's `memory` line): Hermes' heap, malloc's,
   Skia's caches and the painter's buffers. --check holds each host's footprint and PSS to
-  MEMORY_BUDGETS.
+  MEMORY_BUDGETS;
+- saturation (not among the parts run by default): input to present while the machine is busy
+  (saturation.py, docs/adr/0066-quality-of-service.mdx): each interaction (a list scrolled, the
+  pointer over a window following it, a window dragged, keys typed) under each load S0 to S7, every
+  input's latency from its device's time to the frame answering it, the compositor's wait to run,
+  pressure and each load's progress, in a control group delegated to the run where it makes the
+  tree a session's machine has. --check holds every load's p95 to the unloaded one's plus a refresh,
+  and a drag to no late frame.
 
 The development compositor turns every 5 ms when nothing wakes it, so its own idle numbers say
 nothing of a session's (oxyos-session waits on its devices and clients); the hosts' do.
@@ -76,6 +83,9 @@ Usage: perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs
                [interactions] [responses] [shell] [cold-start] [idle] [memory] [refresh] [genie]
        perf.py --offscreen BIN [--out DIR] [--check] search
        perf.py [--out DIR] [--check] session
+       perf.py --offscreen BIN --runtimes DIR --packages DIR [--out DIR] [--runs N] [--gpu-only]
+               [--loads S0,...] [--interactions scroll,...] [--check] saturation
+               (in a delegated control group: tools/rn-host-spike/perf-saturation.sh, perf-device.sh)
 
 `responses` needs packages built with DROPSEA_DIR (docs/react-native-android-adaptation.mdx).
 """
@@ -96,7 +106,9 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 SCENARIOS = HERE / "scenarios"
 sys.path.insert(0, str(HERE))
+from regress import measure_stall, stall_held  # noqa: E402  (beside this file)
 from regress import animated_values, content_shown_ms, display_hz  # noqa: E402  (beside this file)
+import saturation  # noqa: E402  (beside this file)
 
 
 def refresh_ms(scenario):
@@ -136,6 +148,10 @@ REFRESH = [
     ("windows at 60 Hz", "refresh-60-windows.json"),
     ("animations at 120 Hz", "refresh-120-animations.json"),
 ]
+
+# JavaScript held 500 ms while something moves (docs/adr/0071-the-ui-thread.mdx): perf-stall.json's
+# steps that hold it, each motion's frames through the block.
+STALL = "perf-stall.json"
 
 # The genie (docs/adr/0043-the-genie.mdx): (name, scenario, the steps measured (1-based), what
 # happens): the steps whose window goes into the dock or comes out of it on the compositor's own
@@ -321,6 +337,13 @@ def process_name(pid):
         return None
     program = os.path.basename(argv[0].decode(errors="replace"))
     if program == "oxyos-offscreen":
+        # The development compositor itself, or this program run again as something else: a
+        # saturation benchmark's load (`--load KIND`), the search service.
+        flag = argv[1].decode(errors="replace") if len(argv) > 1 else ""
+        if flag == "--load" and len(argv) > 2:
+            return f"load {argv[2].decode(errors='replace')}"
+        if flag.startswith("--") and flag not in ("--launch", "--out"):
+            return f"oxyos-offscreen {flag}"
         return "compositor"
     if program == "oxyos-bloom-host" and len(argv) > 2:
         return argv[2].decode(errors="replace")
@@ -385,10 +408,11 @@ def read_report(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def run_scenario(options, scenario, out, during=None, app_cache=None):
+def run_scenario(options, scenario, out, during=None, app_cache=None, cgroup=None):
     """Runs a scenario (a path) through regress.py into `out` while sampling its processes, with
     `during(sampler, out)` called meanwhile, the applications' caches in `app_cache` when given
-    (kept across runs). Returns (summary, app report, shell report, sampler)."""
+    (kept across runs), in the control group `cgroup` when given (`saturation`'s session). Returns
+    (summary, app report, shell report, sampler)."""
     command = [sys.executable, str(HERE / "regress.py"), str(scenario), "--offscreen", options.offscreen,
                "--runtimes", options.runtimes, "--packages", options.packages, "--out", str(out),
                # A run measuring speed never counts what React re-renders (regress.py): the count's
@@ -403,6 +427,8 @@ def run_scenario(options, scenario, out, during=None, app_cache=None):
         command += ["--renderer", options.renderer]
     if app_cache:
         command += ["--app-cache", str(app_cache)]
+    if cgroup:
+        command = saturation.placed(cgroup, command)
     run = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     sampler = Sampler(run.pid)
     sampler.start()
@@ -445,11 +471,12 @@ def measure_steps(scenario, summary, report, shell):
         end = result["t_settled"]
         expect = step.get("expect", {})
         for host, wanted, lines in (("app", expect, report), ("shell", expect.get("in_shell", {}), shell)):
-            work = [line for line in lines if line["kind"] == "timing" and start <= line["t"] <= end]
-            for budget, measure in (("js_ms_max", "cpu"), ("js_blocked_ms_max", "blocked"), ("js_wall_ms_max", "parts")):
+            # Each stretch of JavaScript's work on its thread (js-thread.h), as regress.py holds it.
+            work = [line for line in lines if line["kind"] == "js_timing" and start <= line["t"] <= end]
+            for budget, measure in (("js_ms_max", "cpu_ms"), ("js_blocked_ms_max", "blocked_ms"),
+                                    ("js_ms_backstop", "cpu_ms")):
                 if budget in wanted.get("js_work", {}):
-                    measured[(index, host, budget)] = max(
-                        (line.get(measure, line["parts"]).get("javascript", 0) for line in work), default=0.0)
+                    measured[(index, host, budget)] = max((line[measure] for line in work), default=0.0)
             resize = wanted.get("resize_work", {})
             if resize:
                 begun = result.get("t_inject") or start
@@ -565,6 +592,35 @@ def refresh(options, name, scenario, out):
         summary, report, _, _ = run_scenario(options, SCENARIOS / scenario, out / f"{slug(name)}-{run + 1}")
         runs.append(rate_claims(json.loads((SCENARIOS / scenario).read_text()), summary, report))
     return judged(scenario, runs)
+
+
+def stall(options, out):
+    """Each step of perf-stall.json holding JavaScript (its `stall`): in each run, the window's frames
+    through the block and its motion's own (regress.py's measure_stall), and the gaps between the
+    frames in refreshes."""
+    scenario = json.loads((SCENARIOS / STALL).read_text())
+    hz = display_hz(scenario)
+    steps = {}
+    for run in range(options.runs):
+        summary, report, _, _ = run_scenario(options, SCENARIOS / STALL, out / f"stall-{run + 1}")
+        start = summary["t_launch"]
+        for index, (step, result) in enumerate(zip(scenario["steps"], summary["steps"])):
+            wanted = step.get("expect", {}).get("stall")
+            if wanted:
+                measured = measure_stall(wanted, report, start, result["t_settled"], hz)
+                entry = steps.setdefault(index, {"step": index + 1, "motion": wanted["motion"], "runs": []})
+                if measured and measured["gaps_ms"]:
+                    held, p95 = stall_held(measured, strict=True)
+                    refresh = measured["refresh_ms"]
+                    entry["runs"].append({"block_ms": round(measured["block_ms"], 1), "frames": measured["frames"],
+                                          "motion": measured["motion"], "refreshes": round(measured["refreshes"], 1),
+                                          "gap_p50": round(statistics.median(measured["gaps_ms"]) / refresh, 2),
+                                          "gap_p95": round(p95 / refresh, 2),
+                                          "gap_max": round(measured["gaps_ms"][-1] / refresh, 2), "held": held})
+                else:
+                    entry["runs"].append(None)
+            start = result["t_settled"]
+    return list(steps.values())
 
 
 def genie(options, name, scenario, steps, what, out):
@@ -691,8 +747,8 @@ def responses(options, name, scenario, out):
 
 def shell_responses(options, name, scenario, out):
     """Each step of `scenario` that holds the shell to a `js_work` budget, over every run: the most
-    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `timing`
-    lines, frames and work that drew none), as regress.py holds it to the budget, that piece's
+    JavaScript one piece of the shell's work ran in it on the shell's CPU (its report's `js_timing`
+    lines, each stretch of work on JavaScript's thread), as regress.py holds it to the budget, that piece's
     JavaScript by the wall clock and blocked, and the frames the shell presented."""
     path = SCENARIOS / scenario
     steps = json.loads(path.read_text())["steps"]
@@ -701,18 +757,21 @@ def shell_responses(options, name, scenario, out):
         summary, _, shell, _ = run_scenario(options, path, out / f"{slug(name)}-{run + 1}")
         start = summary["t_launch"]
         for index, (step, result) in enumerate(zip(steps, summary["steps"])):
-            # From the step before's end, as regress.py checks it: the input and what followed.
-            work = [line for line in shell if line["kind"] == "timing" and start <= line["t"] <= result["t_settled"]]
+            # From the step before's end, as regress.py checks it: the input and what followed. Each
+            # stretch of JavaScript's work on its thread (js-thread.h), and the frames presented.
+            work = [line for line in shell if line["kind"] == "js_timing" and start <= line["t"] <= result["t_settled"]]
+            frames = [line for line in shell if line["kind"] == "timing" and line["presented"]
+                      and start <= line["t"] <= result["t_settled"]]
             start = result["t_settled"]
             budget = step["expect"].get("in_shell", {}).get("js_work", {}).get("js_ms_max")
             if budget is None:
                 continue
             entry = measured.setdefault(index, {"name": step["name"], "budget_ms": budget, "js": [], "wall": [],
                                                 "blocked": [], "frames": []})
-            costly = max(work, key=lambda line: line["cpu"].get("javascript", 0), default=None)
-            for key, measure in (("js", "cpu"), ("wall", "parts"), ("blocked", "blocked")):
-                entry[key].append(costly[measure].get("javascript", 0) if costly else 0.0)
-            entry["frames"].append(sum(1 for line in work if line["presented"]))
+            costly = max(work, key=lambda line: line["cpu_ms"], default=None)
+            for key, measure in (("js", "cpu_ms"), ("wall", "work_ms"), ("blocked", "blocked_ms")):
+                entry[key].append(costly[measure] if costly else 0.0)
+            entry["frames"].append(len(frames))
     return [{"step": entry["name"], "budget_ms": entry["budget_ms"], "js_ms": percentiles(entry["js"]),
              "js_wall_ms": percentiles(entry["wall"]), "js_blocked_ms": percentiles(entry["blocked"]),
              "frames": percentiles(entry["frames"])} for _, entry in sorted(measured.items())]
@@ -875,14 +934,14 @@ def minimal_pdf(words):
 class SearchService:
     """The search service as the program runs it, its control socket ours, asking as the shell."""
 
-    def __init__(self, offscreen, root):
+    def __init__(self, offscreen, root, prefix=()):
         import socket
         self.root = root
         ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
         environment = dict(os.environ, HOME=str(root / "home"), XDG_CACHE_HOME=str(root / "cache"),
                            XDG_DATA_HOME=str(root / "data"), XDG_CONFIG_HOME=str(root / "config"),
                            USER="perf")
-        self.process = subprocess.Popen([offscreen, "--search-service"], stdin=theirs.fileno(),
+        self.process = subprocess.Popen([*prefix, offscreen, "--search-service"], stdin=theirs.fileno(),
                                         env=environment, stderr=open(root / "service.log", "w"))
         theirs.close()
         self.socket = ours
@@ -1320,8 +1379,20 @@ def show(results):
                            "threads that woke (a second)"]))
     elif "session" in results:
         print("session idle: no oxyos-session of this user is running")
+    if "stall" in results:
+        rows = []
+        for entry in results["stall"]:
+            for run, r in enumerate(entry["runs"], 1):
+                rows.append([entry["step"], entry["motion"], run, "—" if not r else r["block_ms"],
+                             "—" if not r else f"{r['frames']} / {r['refreshes']}", "—" if not r else r["motion"],
+                             "—" if not r else f"{r['gap_p50']} / {r['gap_p95']} / {r['gap_max']}",
+                             "yes" if r and r["held"] else "NO"])
+        print(table(rows, ["step", "what moves", "run", "JavaScript held ms", "frames / refreshes in it",
+                           "its own lines", "gaps in refreshes p50 / p95 / max", "a frame each refresh"]))
     if "search" in results:
         show_search(results["search"])
+    if "saturation" in results:
+        saturation.show(results["saturation"], table)
 
 
 def show_search(r):
@@ -1356,6 +1427,8 @@ def check(results):
             over.append(f"search: {r['idle_rss_mib']} MiB resident idle")
         if r["index_bytes_per_file"] > SEARCH_BUDGETS["index_bytes_per_file"]:
             over.append(f"search: the index takes {r['index_bytes_per_file']} bytes a file")
+    if "saturation" in results:
+        over += saturation.check(results["saturation"])
     for name, r in results.get("interactions", {}).items():
         refresh = r["refresh_ms"]
         if r["compose_ms"] and r["compose_ms"]["p95"] > BUDGETS["compose_refreshes_p95"] * refresh:
@@ -1403,6 +1476,13 @@ def check(results):
             if not e["held"]:
                 over.append(f"{name} step {e['step']}: {e['claim']} {e['measured']}, the median of the runs "
                             f"{e['runs']}, outside {e['least']} to {e['most']}")
+    # JavaScript held while something moves: a frame each refresh in every run (regress.py's stall_held).
+    for entry in results.get("stall", []):
+        for run, r in enumerate(entry["runs"], 1):
+            if not r or not r["held"]:
+                over.append(f"{STALL} step {entry['step']} ({entry['motion']}) run {run}: "
+                            f"{'no block measured' if not r else r} (a frame each refresh: gaps p95 within 1.5 "
+                            f"refreshes, none over 2, 90 % of the block's refreshes drawn)")
     for who, m in results.get("memory", {}).items():
         for key, limit in MEMORY_BUDGETS.get(who, {}).items():
             if m[key] > limit:
@@ -1419,9 +1499,11 @@ def check(results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("parts", nargs="*",
-                        help="interactions, responses, shell, cold-start, idle, memory, refresh, genie (all "
+                        help="interactions, responses, shell, cold-start, idle, memory, refresh, genie, stall (all "
                              "by default), search (the search service, only when named, needs --offscreen "
-                             "alone) and session (the running session idle, only when named)")
+                             "alone), session (the running session idle, only when named) and saturation "
+                             "(input to present under loads, only when named, in a delegated control group: "
+                             "perf-saturation.sh, perf-device.sh)")
     parser.add_argument("--offscreen")
     parser.add_argument("--runtimes", help="the runtimes (regress.py)")
     parser.add_argument("--packages", help="the applications' packages and the probes (regress.py)")
@@ -1431,10 +1513,13 @@ def main():
     parser.add_argument("--renderer", choices=["cpu", "gpu"], default=None,
                         help="the hosts' painter (docs/adr/0031-gpu-buffers.mdx); by default the GPU's where offered")
     parser.add_argument("--check", action="store_true", help="exit 1 when a budget is exceeded")
+    parser.add_argument("--loads", default=None, help="saturation: only these loads (S0,S1,...; all by default)")
+    parser.add_argument("--interactions", default=None,
+                        help="saturation: only these interactions (scroll,pointer,drag,typing; all by default)")
     options = parser.parse_args()
-    every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie"]
+    every = ["interactions", "responses", "shell", "cold-start", "idle", "memory", "refresh", "genie", "stall"]
     parts = options.parts or every
-    if not set(parts) <= set(every) | {"session", "search"}:
+    if not set(parts) <= set(every) | {"session", "search", "saturation"}:
         parser.error(f"unknown parts {parts}")
     if set(parts) - {"session", "search"} and not (options.offscreen and options.runtimes and options.packages):
         parser.error("--offscreen, --runtimes and --packages are needed for every part but session and search")
@@ -1465,10 +1550,14 @@ def main():
     if "genie" in parts:
         results["genie"] = {name: genie(options, name, scenario, steps, what, out)
                             for name, scenario, steps, what in GENIE}
+    if "stall" in parts:
+        results["stall"] = stall(options, out)
     if "session" in parts:
         results["session"] = session_idle(SESSION_WINDOW_S)
     if "search" in parts:
         results["search"] = search(options, out)
+    if "saturation" in parts:
+        results["saturation"] = saturation.run(options, out, run_scenario, (SearchService, search_home))
     results["budgets"] = step_budgets()
     (out / "perf.json").write_text(json.dumps(results, indent=1))
     show(results)

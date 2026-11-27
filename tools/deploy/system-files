@@ -26,8 +26,13 @@ tools/oxyos-login/oxyos-login.sysusers                                  /usr/lib
 tools/oxyos-login/oxyos-login.tmpfiles                                  /usr/lib/tmpfiles.d/oxyos-login.conf            0644
 tools/oxyos-accountd/oxyos-accountd.tmpfiles                            /usr/lib/tmpfiles.d/oxyos-accountd.conf         0644
 config/includes.chroot_after_packages/etc/sysctl.d/10-oxyos-ptrace.conf /etc/sysctl.d/10-oxyos-ptrace.conf              0644
+config/includes.chroot_after_packages/etc/sysctl.d/10-oxyos-panic.conf /etc/sysctl.d/10-oxyos-panic.conf               0644
+config/includes.chroot_after_packages/etc/systemd/coredump.conf.d/oxyos.conf /etc/systemd/coredump.conf.d/oxyos.conf 0644
+config/includes.chroot_after_packages/etc/systemd/system.conf.d/oxyos-watchdog.conf /etc/systemd/system.conf.d/oxyos-watchdog.conf 0644
 target/release/oxyos-recovery                                           /usr/sbin/oxyos-recovery                        0755
 tools/oxyos-recovery/package/usr/lib/kernel/install.d/91-oxyos-safe-mode.install /usr/lib/kernel/install.d/91-oxyos-safe-mode.install 0755
+tools/oxyos-recovery/package/usr/lib/systemd/system/oxyos-panic-report.service /usr/lib/systemd/system/oxyos-panic-report.service 0644
+tools/oxyos-recovery/package/usr/lib/systemd/system/systemd-pstore.service.d/oxyos.conf /usr/lib/systemd/system/systemd-pstore.service.d/oxyos.conf 0644
 config/includes.chroot_after_packages/etc/polkit-1/rules.d/50-oxyos-boot-loader-entry.rules /etc/polkit-1/rules.d/50-oxyos-boot-loader-entry.rules 0644
 target/release/oxyos-backupd                                            /usr/libexec/oxyos-backupd                      0755
 tools/oxyos-backupd/oxyos-backupd.service                               /usr/lib/systemd/system/oxyos-backupd.service   0644

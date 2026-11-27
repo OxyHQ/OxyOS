@@ -1,0 +1,14 @@
+{
+ "about": "What the saturation benchmark stands on (perf.py saturation, docs/performance.mdx; docs/adr/0066-quality-of-service.mdx). Applications the session starts once the window is shown, through its launcher as the dock starts them (`also_launch`): a program that computes without rest (`oxyos-offscreen --load spin`) and a Bloom application animating without end, its window minimized once shown, the probe's window then the active one again. Then a field focused and twelve keys typed at a person's pace (`type_paced`, ten a second), each injected when its time comes and carrying that time: the field has every key, the window showed frames for them, and each key's latency from its device's time is in the step's record (`device_latency_ms`).",
+ "module": "EditingProbe",
+ "window": [800, 480],
+ "also_launch": [
+  {"id": "so.oxy.perf.spin", "name": "Spin", "exec": ["{offscreen}", "--load", "spin", "1"]},
+  {"id": "so.oxy.perf.animation", "name": "Animation", "module": "LoadAnimationProbe", "minimized": true}
+ ],
+ "also_launch_lead_ms": 500,
+ "steps": [
+  {"name": "focus the line, the hidden application's window not shown", "do": ["press", [400, 42]], "expect": {"texts": ["Line: \"\" [0,0]"], "focus_input": "line", "window_shown": true}},
+  {"name": "twelve keys at ten a second, each answered", "do": ["type_paced", ["hello paced.", 10]], "expect": {"texts": ["Line: \"hello paced.\" [12,12]"], "typed": {"presented_min": 6}}}
+ ]
+}

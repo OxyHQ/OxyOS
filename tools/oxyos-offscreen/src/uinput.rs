@@ -54,6 +54,40 @@ fn place(points: &[(i32, i32)]) -> Vec<InputEvent> {
     events
 }
 
+// An `input_event` as `emit_frames` writes it, a 64-bit Linux's: its time (seconds and
+// microseconds, each a `long`), type, code and value, 24 bytes.
+const _: () = assert!(std::mem::size_of::<InputEvent>() == 24);
+
+/// Writes `frames` to `device` in one write, each ended by its SYN_REPORT and stamped `apart`
+/// after the one before, the last now: the kernel takes an injected event's time when it is not in
+/// the future (Linux 6.3), so libinput reads the frames that far apart however late the write was,
+/// and none of its timers can fire between them. A kernel that ignores the times stamps them all
+/// now, which still keeps them together.
+fn emit_frames(
+    device: &VirtualDevice,
+    frames: &[Vec<InputEvent>],
+    apart: Duration,
+) -> io::Result<()> {
+    use std::io::Write as _;
+    use std::os::fd::AsFd as _;
+    let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+    let now = Duration::new(now.tv_sec as u64, now.tv_nsec as u32);
+    let mut bytes = Vec::new();
+    for (index, frame) in frames.iter().enumerate() {
+        let before = u32::try_from(frames.len() - 1 - index).map_err(io::Error::other)?;
+        let at = now.saturating_sub(apart * before);
+        let syn = InputEvent::new(0, 0, 0);
+        for event in frame.iter().chain(std::iter::once(&syn)) {
+            bytes.extend((at.as_secs() as i64).to_ne_bytes());
+            bytes.extend(i64::from(at.subsec_micros()).to_ne_bytes());
+            bytes.extend(event.event_type().0.to_ne_bytes());
+            bytes.extend(event.code().to_ne_bytes());
+            bytes.extend(event.value().to_ne_bytes());
+        }
+    }
+    std::fs::File::from(device.as_fd().try_clone_to_owned()?).write_all(&bytes)
+}
+
 pub struct Devices {
     keyboard: VirtualDevice,
     pointer: VirtualDevice,
@@ -334,8 +368,14 @@ impl Devices {
     /// Scrolls with two fingers on the touchpad, 20 mm apart across its middle: both move down
     /// (up for a negative `dy`) as far as libinput scrolls `dy` logical pixels for, steadily over
     /// `frames` frames 10 ms apart, rest 150 ms (so nothing is flung) and lift; `sent` is called
-    /// after each frame. libinput tells the scroll from a pinch by itself, and turns it as the
-    /// device's natural scrolling says: content following the fingers, or the view.
+    /// after each frame written. libinput tells the scroll from a pinch by itself, and turns it as
+    /// the device's natural scrolling says: content following the fingers, or the view.
+    ///
+    /// Two fingers still for 40 ms are a hold to libinput (its quick hold, which stops a glide), so
+    /// the fingers land with the frames that tell it a scroll, in one write, each stamped 10 ms
+    /// after the one before (`emit_frames`): libinput reads them 10 ms apart however late the
+    /// director wrote them, and the scroll is never a hold first. The frames after are written as
+    /// their time comes.
     pub fn two_fingers(&mut self, dy: i32, frames: u32, mut sent: impl FnMut()) -> io::Result<()> {
         let abs = |code: AbsoluteAxisCode, value| InputEvent::new(EV_ABS, code.0, value);
         let key = |code: KeyCode, down: bool| InputEvent::new(EV_KEY, code.0, i32::from(down));
@@ -345,8 +385,10 @@ impl Devices {
             PAD.0 / 2 + 10 * PAD_RESOLUTION,
         );
         let top = f64::from(PAD.1) / 2.0 - travel / 2.0;
+        let y_at =
+            |frame: u32| (top + travel * f64::from(frame) / f64::from(frames.max(1))).round();
         let fingers = |frame: u32| {
-            let y = (top + travel * f64::from(frame) / f64::from(frames.max(1))).round() as i32;
+            let y = y_at(frame) as i32;
             vec![
                 abs(AbsoluteAxisCode::ABS_MT_SLOT, 0),
                 abs(AbsoluteAxisCode::ABS_MT_POSITION_X, left),
@@ -369,9 +411,20 @@ impl Devices {
             key(KeyCode::BTN_TOUCH, true),
             key(KeyCode::BTN_TOOL_DOUBLETAP, true),
         ]);
-        self.touchpad.emit(&down)?;
+        // The first frame both fingers have moved far enough by for libinput to tell a scroll
+        // (1.5 mm, its threshold; 2 to be clear of it), or the last.
+        let moved = |frame: u32| (y_at(frame) - y_at(0)).abs() / f64::from(PAD_RESOLUTION);
+        let told = (1..=frames)
+            .find(|&frame| moved(frame) >= 2.0)
+            .unwrap_or(frames);
+        // Landing, written as its frames' time comes: the last of them now.
+        std::thread::sleep(Duration::from_millis(10) * told);
+        let landing: Vec<Vec<InputEvent>> = std::iter::once(down)
+            .chain((1..=told).map(fingers))
+            .collect();
+        emit_frames(&self.touchpad, &landing, Duration::from_millis(10))?;
         sent();
-        for frame in 1..=frames {
+        for frame in told + 1..=frames {
             std::thread::sleep(Duration::from_millis(10));
             self.touchpad.emit(&fingers(frame))?;
             sent();

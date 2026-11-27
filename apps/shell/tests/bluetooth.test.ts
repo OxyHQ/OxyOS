@@ -91,14 +91,14 @@ test("a device's state and charge, shown", () => {
 });
 
 test("the view says why it has no list: no BlueZ, the machine's switch, off, nothing paired", () => {
-  assert.equal(bluetoothEmptyText(state({}, { available: false }), EN), "Bluetooth isn't available.");
-  assert.equal(bluetoothEmptyText(state(null), EN), "Bluetooth isn't available.");
+  assert.equal(bluetoothEmptyText(state({}, { available: false }), EN), "Bluetooth isn’t available.");
+  assert.equal(bluetoothEmptyText(state(null), EN), "Bluetooth isn’t available.");
   assert.equal(
     bluetoothEmptyText(state({ powered: false, blocked: true }), EN),
     "Bluetooth is turned off by a hardware switch or airplane mode.",
   );
   assert.equal(bluetoothEmptyText(state({ powered: false }), EN), "Bluetooth is off.");
-  assert.equal(bluetoothEmptyText(state({ powered: false }), ES), "Bluetooth está desactivado.");
+  assert.equal(bluetoothEmptyText(state({ powered: false }), ES), "El Bluetooth está desactivado.");
   assert.equal(bluetoothEmptyText(state({}, { devices: [device("Altavoz", { paired: false })] }), EN), "No Devices");
   assert.equal(bluetoothEmptyText(state(), EN), undefined);
 });

@@ -5,8 +5,10 @@
 //!   session: the login screen has ended). Closing it ends the worker, and the session it holds.
 //! - **worker → login program:** `a` accepted, `r` rejected, `f` failed (PAM did not answer), `s`
 //!   the session is open and its program started (and its process id, four bytes little-endian,
-//!   which the login program kills if the worker cannot stop it). The worker's exit is the
-//!   session's end.
+//!   which the login program kills if the worker cannot stop it), `e` how the session ended
+//!   (docs/adr/0065: `x` and its exit status, `g` and the signal that ended it, `h` hung, `a`
+//!   asked to end; then how long it ran, in seconds, four bytes little-endian). The worker's exit
+//!   is the session's end.
 
 use oxyos_auth::Secret;
 use rustix::fd::{AsFd, BorrowedFd, OwnedFd};
@@ -28,6 +30,58 @@ pub enum FromWorker {
     Rejected,
     Failed,
     Started(u32),
+    /// How the session ended, and how many seconds it ran.
+    Ended(End, u32),
+}
+
+/// How a session ended, as its worker saw it (docs/adr/0065-the-session-ending-because-of-a-problem.mdx).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum End {
+    /// It exited with this status: 0 is the person signing out (or the session's own orderly end).
+    Exited(u8),
+    /// A signal nobody sent on the login program's behalf ended it (a crash: `SIGSEGV`, `SIGABRT`…).
+    Signal(u8),
+    /// It stopped answering its heartbeat and was ended for it.
+    Hung,
+    /// The login program asked it to end (it is stopping, the machine shutting down).
+    Asked,
+}
+
+impl End {
+    /// Whether it ended because of a problem: what the login screen and the next session say.
+    pub fn problem(self) -> bool {
+        matches!(self, End::Exited(1..) | End::Signal(_) | End::Hung)
+    }
+
+    /// As a session is told it (`OXYOS_SESSION_ENDED`, with how long it ran): `exit 1`,
+    /// `signal 11`, `hang`.
+    pub fn word(self) -> String {
+        match self {
+            End::Exited(status) => format!("exit {status}"),
+            End::Signal(signal) => format!("signal {signal}"),
+            End::Hung => "hang".into(),
+            End::Asked => "asked".into(),
+        }
+    }
+
+    fn encode(self) -> [u8; 2] {
+        match self {
+            End::Exited(status) => [b'x', status],
+            End::Signal(signal) => [b'g', signal],
+            End::Hung => [b'h', 0],
+            End::Asked => [b'a', 0],
+        }
+    }
+
+    fn decode(kind: u8, value: u8) -> Option<Self> {
+        match kind {
+            b'x' => Some(End::Exited(value)),
+            b'g' => Some(End::Signal(value)),
+            b'h' => Some(End::Hung),
+            b'a' => Some(End::Asked),
+            _ => None,
+        }
+    }
 }
 
 pub struct Channel {
@@ -75,6 +129,11 @@ impl Channel {
             FromWorker::Started(pid) => {
                 let pid = pid.to_le_bytes();
                 self.send(&[b's', pid[0], pid[1], pid[2], pid[3]])
+            }
+            FromWorker::Ended(end, ran) => {
+                let [kind, value] = end.encode();
+                let ran = ran.to_le_bytes();
+                self.send(&[b'e', kind, value, ran[0], ran[1], ran[2], ran[3]])
             }
         }
     }
@@ -129,6 +188,13 @@ impl Channel {
             [b's', a, b, c, d] => Ok(Some(FromWorker::Started(u32::from_le_bytes([
                 *a, *b, *c, *d,
             ])))),
+            [b'e', kind, value, a, b, c, d] => match End::decode(*kind, *value) {
+                Some(end) => Ok(Some(FromWorker::Ended(
+                    end,
+                    u32::from_le_bytes([*a, *b, *c, *d]),
+                ))),
+                None => Err(io::Error::new(io::ErrorKind::InvalidData, "not an end")),
+            },
             _ => Err(io::Error::new(io::ErrorKind::InvalidData, "not a message")),
         }
     }
@@ -163,6 +229,11 @@ mod tests {
             FromWorker::Rejected,
             FromWorker::Failed,
             FromWorker::Started(4321),
+            FromWorker::Ended(End::Exited(0), 3600),
+            FromWorker::Ended(End::Exited(1), 2),
+            FromWorker::Ended(End::Signal(11), 70_000),
+            FromWorker::Ended(End::Hung, 12),
+            FromWorker::Ended(End::Asked, 5),
         ] {
             worker.tell(message).unwrap();
             assert_eq!(manager.heard().unwrap(), Some(message));
@@ -172,6 +243,18 @@ mod tests {
             worker.next().unwrap_err().kind(),
             io::ErrorKind::UnexpectedEof
         );
+    }
+
+    #[test]
+    fn a_problem_is_a_crash_a_hang_or_a_failure_never_signing_out_or_being_asked() {
+        assert!(End::Signal(11).problem());
+        assert!(End::Hung.problem());
+        assert!(End::Exited(1).problem());
+        assert!(!End::Exited(0).problem());
+        assert!(!End::Asked.problem());
+        assert_eq!(End::Signal(6).word(), "signal 6");
+        assert_eq!(End::Exited(1).word(), "exit 1");
+        assert_eq!(End::Hung.word(), "hang");
     }
 
     /// The last message before an end is read before it, each way: what a worker says as it

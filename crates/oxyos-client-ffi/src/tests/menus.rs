@@ -2,7 +2,7 @@
 //! events field by field, and menus and choices sent through a socket.
 
 use super::*;
-use oxyos_protocol::{MenuField, NO_MENU_PARENT};
+use oxyos_protocol::{MenuField, MenuRole, NO_MENU_PARENT};
 
 #[test]
 fn the_header_matches_the_menu_bar_abi() {
@@ -34,6 +34,21 @@ fn the_header_matches_the_menu_bar_abi() {
         ("OXYOS_MENU_LABEL", OXYOS_MENU_LABEL.into()),
         ("OXYOS_MENU_SHORTCUT", OXYOS_MENU_SHORTCUT.into()),
         ("OXYOS_NO_MENU_PARENT", OXYOS_NO_MENU_PARENT.into()),
+        (
+            "OXYOS_EVENT_MENU_BAR_ROLE",
+            OXYOS_EVENT_MENU_BAR_ROLE.into(),
+        ),
+        ("OXYOS_MENU_ROLE_NONE", OXYOS_MENU_ROLE_NONE.into()),
+        ("OXYOS_MENU_ROLE_ABOUT", OXYOS_MENU_ROLE_ABOUT.into()),
+        ("OXYOS_MENU_ROLE_SETTINGS", OXYOS_MENU_ROLE_SETTINGS.into()),
+        (
+            "OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS",
+            OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS.into(),
+        ),
+        (
+            "OXYOS_MANAGE_SHOW_ALL_APPLICATIONS",
+            OXYOS_MANAGE_SHOW_ALL_APPLICATIONS.into(),
+        ),
     ] {
         assert_eq!(define(name), value, "{name}");
     }
@@ -69,6 +84,21 @@ fn the_header_matches_the_menu_bar_abi() {
         [OXYOS_MENU_LABEL, OXYOS_MENU_SHORTCUT]
     );
     assert_eq!(NO_MENU_PARENT, OXYOS_NO_MENU_PARENT);
+    assert_eq!(
+        [MenuRole::About as u8, MenuRole::Settings as u8],
+        [OXYOS_MENU_ROLE_ABOUT, OXYOS_MENU_ROLE_SETTINGS]
+    );
+    assert_eq!(
+        u32::from(
+            Event::MenuBarItemRole {
+                window: 0,
+                index: 0,
+                role: MenuRole::About
+            }
+            .opcode()
+        ),
+        OXYOS_EVENT_MENU_BAR_ROLE
+    );
     let opcodes = [
         Event::MenuBar {
             window: 0,
@@ -96,12 +126,13 @@ fn the_header_matches_the_menu_bar_abi() {
     let item = fields("OxyOSMenuItem");
     assert_eq!(
         names(&item),
-        ["parent", "kind", "flags", "label", "shortcut"]
+        ["parent", "kind", "flags", "role", "label", "shortcut"]
     );
     let rust = [
         offset_of!(OxyOSMenuItem, parent),
         offset_of!(OxyOSMenuItem, kind),
         offset_of!(OxyOSMenuItem, flags),
+        offset_of!(OxyOSMenuItem, role),
         offset_of!(OxyOSMenuItem, label),
         offset_of!(OxyOSMenuItem, shortcut),
     ];
@@ -164,6 +195,21 @@ fn menu_bar_events_convert_field_by_field() {
         (OXYOS_EVENT_MENU_BAR_TEXT, 7, 4, OXYOS_MENU_SHORTCUT)
     );
     assert_eq!(&text.text[..6], b"Mod+N\0");
+    let role = convert(&Event::MenuBarItemRole {
+        window: 7,
+        index: 4,
+        role: MenuRole::Settings,
+    })
+    .unwrap();
+    assert_eq!(
+        (role.kind, role.code, role.detail, role.height),
+        (
+            OXYOS_EVENT_MENU_BAR_ROLE,
+            7,
+            4,
+            u32::from(OXYOS_MENU_ROLE_SETTINGS)
+        )
+    );
     let committed = convert(&Event::MenuBarCommitted { window: 7 }).unwrap();
     assert_eq!(
         (committed.kind, committed.code),
@@ -235,6 +281,7 @@ fn menus_and_choices_through_the_c_abi() {
         parent,
         kind,
         flags,
+        role: OXYOS_MENU_ROLE_NONE,
         label: label.as_ptr(),
         shortcut,
     };
@@ -246,7 +293,10 @@ fn menus_and_choices_through_the_c_abi() {
             &file,
             std::ptr::null(),
         ),
-        entry(0, OXYOS_MENU_ITEM, 0, &new, chord.as_ptr()),
+        OxyOSMenuItem {
+            role: OXYOS_MENU_ROLE_SETTINGS,
+            ..entry(0, OXYOS_MENU_ITEM, 0, &new, chord.as_ptr())
+        },
         OxyOSMenuItem {
             label: std::ptr::null(),
             ..entry(0, OXYOS_MENU_SEPARATOR, 0, &file, std::ptr::null())
@@ -283,6 +333,14 @@ fn menus_and_choices_through_the_c_abi() {
         );
         assert_eq!(
             oxyos_client_set_menus(client, 1, 1, std::ptr::null(), 2),
+            OXYOS_ERROR
+        );
+        let role = [OxyOSMenuItem {
+            role: 9,
+            ..entry(0, OXYOS_MENU_ITEM, 0, &new, std::ptr::null())
+        }];
+        assert_eq!(
+            oxyos_client_set_menus(client, 1, 1, role.as_ptr(), 1),
             OXYOS_ERROR
         );
         assert_eq!(
@@ -330,6 +388,7 @@ fn menus_and_choices_through_the_c_abi() {
         // Each entry's texts, as sent.
         let mut texts: std::collections::BTreeMap<(u32, u8), String> = Default::default();
         let mut kinds = Vec::new();
+        let mut roles = Vec::new();
         for request in &requests {
             match request {
                 Request::MenuItem {
@@ -345,6 +404,7 @@ fn menus_and_choices_through_the_c_abi() {
                     .entry((*index, *field as u8))
                     .or_default()
                     .push_str(text.as_str()),
+                Request::MenuItemRole { index, role, .. } => roles.push((*index, *role)),
                 _ => {}
             }
         }
@@ -370,6 +430,8 @@ fn menus_and_choices_through_the_c_abi() {
         assert_eq!(texts[&(3, label)], "é".repeat(64));
         assert!(!texts.contains_key(&(2, label)));
         assert!(!texts.contains_key(&(3, shortcut)));
+        // New's role, after its texts.
+        assert_eq!(roles, [(1, MenuRole::Settings)]);
     }
     std::fs::remove_dir_all(directory).unwrap();
 }

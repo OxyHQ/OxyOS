@@ -1,0 +1,47 @@
+---
+title: "ADR 0067: Hangs and Force Quit"
+description: What OxyOS does when an application stops answering, as a Mac does — the compositor's own wait cursor over it after two seconds, "Not Responding" in the Dock, Mission Control and App Exposé, Force Quit Applications on Super+Alt+Escape and in the Oxy menu, and a hang's report, with the application's stack, written before it is ended.
+order: 76
+---
+
+# ADR 0067: Hangs and Force Quit
+
+Status: **accepted; implemented** (the scene, the force-quit part shared by the session and the development compositor, the Bloom host's hang report, the shell, the scenarios). Decided on 10 November 2026, at the platform author's request for a Mac's "nothing ever breaks". Builds on [ADR 0034](./0034-the-dock) (Ping, `responding`, the Dock's Force Quit), [ADR 0024](./0024-system-shortcuts) (amended: Super+Alt+Escape), [ADR 0061](./0061-crashes-and-resetting-an-application) (reports, amended: a hang's) and [ADR 0064](./0064-sleep-restart-shut-down-and-log-out) (the Oxy menu, the session's sheets).
+
+**11 November 2026: Force Quit always ends the application.** A session started by something that ignores SIGQUIT (a shell's background job, as POSIX has it; a service manager told to) handed that on to every application, since an ignored signal survives `exec`: Force Quit's request for a hung native program's report then did nothing. The launcher now starts every application with each signal's disposition at its default and none blocked (`oxyos_apps::command`, sigaction(2) and sigprocmask(2) between fork and exec, as `posix_spawn`'s `POSIX_SPAWN_SETSIGDEF` and `POSIX_SPAWN_SETSIGMASK` would; a handler never survives `exec`, so nothing of the session's is left), and a hung application is killed `HANG_REPORT_WAIT` after its report was asked for whatever it did with the request, and at once if it cannot even be asked (`ForceQuit::end_unanswered`). Tests: `oxyos-apps`' `tests/inherited_signals.rs` (the session ignoring SIGQUIT, SIGINT, SIGHUP and SIGTERM and blocking SIGQUIT, the application starts with none ignored and none blocked, and SIGQUIT ends it), and `force_quit/tests.rs` (an application that ignores SIGQUIT itself is killed once the wait is up).
+
+## Problem
+
+A hung application looked like OxyOS freezing. The compositor already noticed it (a `Ping` after a press, a key, a touch, a close request or an activation, and a client not responding after 5 s), but the only consequence was "Not Responding" in the Dock's menu. The pointer kept the hung application's cursor; nothing was said in Mission Control or App Exposé; there was no Force Quit window and no ⌥⌘⎋ (ADR 0024 left Super+Alt+Esc out); the only ways out were a long press on the Dock's icon or Activity Monitor, and a force quit was a bare `SIGKILL` that left no trace of where the application was stuck. Hangs are far more common than crashes in a React Native application (a long JavaScript task, a synchronous read, a deadlocked native module).
+
+A Mac's window server, not the application, notices an application that stopped reading its events: it shows the spinning wait cursor over its windows after a moment (about two seconds is the usual figure; Apple does not document it), marks it "(Not Responding)" in red in Force Quit, the Dock and Activity Monitor, opens Force Quit Applications on ⌥⌘⎋ whatever the application does, and keeps a spindump of a hang.
+
+## Decision
+
+1. **The compositor shows the wait cursor over a client that does not answer** (`Scene::busy`, `scene/dock.rs`).
+   - The pointer coming onto a client's surface and moving over it pings it too (one `Ping` outstanding at a time, as before), so hovering a hung window reveals it without a press.
+   - A client that has left a `Ping` unanswered for [`BUSY_AFTER`] (2 s) is busy: while the pointer is over any of its surfaces the compositor shows its own wait cursor (`PointerShape::Wait`, the cursor theme's busy one), whatever the client asked for (its shape or its own image), and drops it as the client answers. The compositor never waits on the client; its turn wakes at the 2 s mark, then at the 5 s one (`next_ping_deadline`).
+   - At 5 s it is not responding, as before (`PING_TIMEOUT`, Mutter's).
+2. **Force Quit Applications** (`oxyos_compositor::force_quit`, the session's and the development compositor's).
+   - **Super+Alt+Escape** (a Mac's ⌥⌘⎋) is a system shortcut the compositor takes before the input method and every application, never reaching them (`take_force_quit_shortcut`); locked, nothing, as every system shortcut. **Force Quit…** in the shell's Oxy menu, with its chord, before Sleep, as the Apple menu has it, asks the same (`{"forceQuit": {}}`, the `shell` grant, citing the press).
+   - The session's system sheet `{"kind": "force-quit", "applications": [{"id", "name", "responding"}], "chosen": N}`: *Force Quit Applications*, *If an app doesn’t respond for a while, select its name and click Force Quit.*, the applications the session launched once each in launch order, one that does not answer marked *Not Responding* in red, the frontmost chosen; ↑ ↓ choose, **Force Quit** the default button (Return), **Cancel** (Escape). Spanish: *Forzar salida de las aplicaciones*, *Forzar salida*, *No responde*. With none open, *No apps are open.* and Cancel alone. The shell answers with the application chosen (`{"forceQuitApplication": {"sheet": N, "id": ID}}`, citing the press or key, only for the sheet shown), and the sheet goes.
+   - The Dock's Force Quit (ADR 0034) ends through the same part.
+3. **"Not Responding" where the person looks**: the Dock's menu (as before), and after the window's title in Mission Control and App Exposé (*Hang Probe (Not Responding)*, *(No responde)*), read by the assistive technology with it.
+4. **A hang's report before the end.**
+   - Every process the session started for the application is ended. One that answers is ended at once (`SIGKILL`), as a Mac's Force Quit. One that does not is first asked for its report: `SIGQUIT` (`Launcher::end_hung`), as Java's thread dump. The Bloom host's handler takes it on the JavaScript thread (`oxyos-js`, js-thread.h; the first thread to receive it notes who asked and hands it to that thread with `tgkill`) and writes that thread's stack, async-signal-safely, into the log and the report file the session gave it (`OXYOS_CRASH_REPORT`, ADR 0061), then goes on. Hermes' JavaScript stack is not read: walking its frames from a signal is not safe while it runs. A native program without a handler ends on `SIGQUIT` with a core, whose backtrace is systemd-coredump's ([ADR 0068](./0068-crash-evidence-and-kernel-panics)).
+   - [`HANG_REPORT_WAIT`] (500 ms) later on the program's clock, never blocking its turn, it is killed. Its report is written as a crash's (`Crashes::note_hang`): *Hang Probe stopped responding and was force quit.*, its reason *hang: no response for 7 seconds; force quit by the person*, then what it reported (the stack). The person is told nothing more: they asked; and its end is no unexpected quit (`Exited::asked`).
+
+## Tests
+
+- **Scene** (`scene/tests/dock.rs`, `scene/tests/session_end.rs`): the pointer coming over a window pings it once and moving pings no more; at 2 s the shape is `Wait` and the client's image none, the turn waking then and at 5 s; answered, its own shape at once; off the window, the arrow. Super+Alt+Escape handed over once, reaching no application; Escape alone the application's; with Shift nothing; locked nothing.
+- **`oxyos-apps`**: `end_hung` signals only what the launcher started, which ends asked (a `sleep` ends on `SIGQUIT`: status signal 3, never abnormal).
+- **Crashes**: a hang's report says so, how long, and what the host wrote.
+- **Shell** (`apps/shell/tests/power.test.ts`, `expose.test.ts`): the Oxy menu's Force Quit… with Alt+Super+Esc before Sleep, in both languages; the sheet's words, its rows (the hung one in red, said), Force Quit the default, none open; titles marked in both languages.
+- **Scenarios** `app-hang` and `app-hang-scaled` (1.25), with `so.oxy.hangprobe` (`sample/HangProbe.tsx`, installed, its button running its JavaScript thread for 30 s): opened from the Dock, its button pressed, the pointer over it: the application's cursor, then after 2 s the wait cursor; at 5 s not responding (`window_states`); Super+Alt+Escape: the sheet with Hang Probe *Not Responding*, chosen; Return: it ends, its report says the hang and the JavaScript thread's stack, and no "quit unexpectedly" is said. And its 4.5 s button (`app-hang-brief`): the wait cursor comes and goes with its answer, it is never not responding, and nothing is written.
+
+## Not in this decision
+
+- **The shell hanging.** The shell is a client like any other, so a hung shell shows the wait cursor; the session's watch ends and restarts it ([ADR 0061](./0061-crashes-and-resetting-an-application), its note of 10 November 2026). A Force Quit window the compositor draws itself while the shell is gone is its own step.
+- **Relaunching the shell from Force Quit**, as a Mac relaunches Finder.
+- **The JavaScript stack in the report**, which needs Hermes to stop at a safe point on request.
+- **The menu bar's application name marked**: a Mac's is not.

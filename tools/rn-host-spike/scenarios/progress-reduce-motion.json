@@ -1,0 +1,33 @@
+{
+ "about": "React Native's ActivityIndicator with Reduce Motion on (issue #559; progress-bar.h, docs/adr/0019-settings.mdx): the ring goes on turning, as a Mac's spinners go on spinning while their work is under way, but its arc no longer grows and shrinks: it is held at three quarters of a turn. sample/ProgressProbe.tsx's indicator, its rings held 133.3 ms into their animation (`progress_phase_ms`), where without Reduce Motion the arc is a short one from about 1 o'clock to 2 (the pixels at 6 and 9 o'clock background, and this fails): here it runs from about 1 o'clock round to 10, past 6 and 9.",
+ "module": "ProgressProbe",
+ "window": [
+  480,
+  240
+ ],
+ "preferences": {
+  "reduce_motion": "true"
+ },
+ "progress_phase_ms": 133.3,
+ "steps": [
+  {
+   "name": "The indicator's arc three quarters of a turn long, still turning",
+   "do": [
+    "wait",
+    1000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "progress_frames": [
+     10,
+     100000
+    ],
+    "pixels": {
+     "240,108": "#d03030",
+     "225,94": "#d03030",
+     "240,80": "#ffffff"
+    }
+   }
+  }
+ ]
+}

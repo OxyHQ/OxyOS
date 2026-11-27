@@ -15,7 +15,6 @@ import { Dialog } from "@oxy.so/bloom/dialog";
 import { GroupedSection, GroupedSectionItem } from "@oxy.so/bloom/grouped-section";
 import { RiAddLine, RiSubtractLine } from "@oxy.so/bloom/icons";
 import { Switch } from "@oxy.so/bloom/switch";
-import { useTheme } from "@oxy.so/bloom/theme";
 import { Text } from "@oxy.so/bloom/typography";
 import {
   addableApplications,
@@ -28,35 +27,24 @@ import {
 } from "./login-items";
 import type { Messages } from "./messages";
 import type { SettingsActions, SettingsSnapshot } from "./model";
+import { ListRow, ListRowDetail, ListRowTitle, useListRowInk } from "./ListRow";
 
 type Props = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const ROW_OPTION = { alignItems: "stretch", borderRadius: 10, paddingHorizontal: 4 } as const;
 
 /** One application's row, drawn: its name and its kind, as a Mac's list shows them. Decorative: the
     list's option is the control, named by its label. */
 function ItemRow({ name, kind, selected }: { name: string; kind: string; selected: boolean }) {
-  const theme = useTheme();
-  const ink = selected ? theme.colors.primaryForeground : theme.colors.text;
+  const { ink, detail } = useListRowInk(selected);
   return (
-    <View
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        paddingHorizontal: 10,
-        paddingVertical: 7,
-        borderRadius: 10,
-        backgroundColor: selected ? theme.colors.primary : "transparent",
-      }}
-    >
-      <Text numberOfLines={1} style={{ color: ink, fontSize: 14, flexShrink: 1 }}>
+    <ListRow selected={selected} style={{ justifyContent: "space-between" }}>
+      <ListRowTitle color={ink} style={{ flexShrink: 1 }}>
         {name}
-      </Text>
-      <Text style={{ color: selected ? ink : theme.colors.textSecondary, fontSize: 12 }}>{kind}</Text>
-    </View>
+      </ListRowTitle>
+      <ListRowDetail color={detail}>{kind}</ListRowDetail>
+    </ListRow>
   );
 }
 
@@ -232,6 +220,7 @@ function BackgroundActivity({ snapshot, actions, strings, locale }: Props) {
             rightElement={
               // Named with its application, as the switch is reached alone (Tab, the reader's focus).
               <Switch
+                size="xs"
                 checked={row.allowed}
                 onCheckedChange={(allowed: boolean) => act.decide(row.id, "background", allowed)}
                 accessibilityLabel={words.allowFor(row.name)}

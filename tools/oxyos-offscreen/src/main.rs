@@ -15,11 +15,13 @@ mod displays;
 mod ime;
 mod input_sources;
 mod launch;
+mod load;
 mod lock;
 mod passkeys;
 mod pasteboard;
 mod played_network;
 mod png;
+mod progress;
 mod reader;
 mod uinput;
 
@@ -74,6 +76,17 @@ impl Drop for TempDir {
 
 struct Children(Vec<Child>);
 
+impl Children {
+    /// The application's exit, if it ended: the first child, when there is one (a login screen
+    /// has none).
+    fn application_exited(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self.0.first_mut() {
+            Some(application) => application.try_wait(),
+            None => Ok(None),
+        }
+    }
+}
+
 impl Drop for Children {
     fn drop(&mut self) {
         for child in &mut self.0 {
@@ -81,6 +94,18 @@ impl Drop for Children {
                 let _ = child.kill();
             }
             let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for Session {
+    /// A run that ends on an error ends what its launcher started too, as `finish` does at a run's
+    /// end: a load the saturation benchmark launched (`--also-launch`) left running would hold the
+    /// run's output open, and regress.py waits for it to close (a run of S6 that missed a step's
+    /// deadline waited 22 minutes). Nothing is left to end after `finish`.
+    fn drop(&mut self) {
+        if let Some(launcher) = self.launcher.as_mut() {
+            launcher.end(std::time::Duration::from_secs(2));
         }
     }
 }
@@ -121,12 +146,23 @@ struct Session {
     pasteboard: Option<pasteboard::Pasteboard>,
     /// With `--launch`: the assistive technology the session plays (reader.rs).
     reader: reader::Reader,
+    /// The frames that only turn a spinner, which a step's settling leaves aside (progress.rs).
+    progress: progress::ProgressFrames,
     /// With `--launch --shell`: the applications the shell asks for, started from the registry
     /// (docs/adr/0013-launching-applications.mdx), as the session starts them.
     launcher: Option<oxyos_apps::Launcher>,
     /// Applications that quit unexpectedly and resetting one (docs/adr/0061-crashes-and-resetting-
     /// an-application.mdx), as the session has them: the reports in the run's own state folder.
     pub crashes: oxyos_compositor::crashes::Crashes,
+    /// Resume (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 3), as the
+    /// session keeps it, in the run's own state folder.
+    pub resume: Option<oxyos_compositor::resume::Resume>,
+    /// At a login screen (`--login`): whether the login program said the last session ended
+    /// because of a problem (`OXYOS_LAST_SESSION_ENDED`), which the login screen asks.
+    pub last_session_problem: Option<bool>,
+    /// Force Quit Applications and hung applications' reports, as the session has them
+    /// (docs/adr/0067-hangs-and-force-quit.mdx).
+    pub force_quit: oxyos_compositor::force_quit::ForceQuit,
     /// The application the director started itself, by pid, and its id (`OXYOS_APP_ID`): a
     /// launch of its own, recorded as the session records one.
     app: Option<(u32, String)>,
@@ -144,6 +180,12 @@ struct Session {
     /// With `--launch --shell`: the applications' login items and background activity, as the
     /// session serves them (docs/adr/0060-login-items-and-background-activity.mdx).
     pub background: Option<oxyos_compositor::background::BackgroundActivity>,
+    /// With `--shell`: the session's shells, watched and started again as the session keeps its
+    /// own (docs/adr/0061, decision 6).
+    pub shells: Option<launch::Shells>,
+    /// With `--launch --shell`: windows coming back where they were, the record in the run's own
+    /// state folder (docs/adr/0070-windows-come-back-where-they-were.mdx).
+    pub places: Option<oxyos_compositor::places::Places>,
     /// The processes the session ended for their background activity since a step last took them
     /// (each its application's id).
     pub background_ended: Vec<String>,
@@ -337,17 +379,23 @@ impl Session {
             ime: None,
             pasteboard: None,
             reader: reader::Reader::default(),
+            progress: progress::ProgressFrames::new(launch::CLIENT),
             launcher: None,
             crashes: oxyos_compositor::crashes::Crashes::new(
                 oxyos_compositor::crashes::Reports::of_user(),
                 oxyos_compositor::crashes::system_description(),
             ),
+            resume: None,
+            last_session_problem: None,
+            force_quit: Default::default(),
             app: None,
             settings: oxyos_compositor::settings::Settings::from_file(None),
             grant_settings: None,
             grants: Vec::new(),
             installs: None,
             background: None,
+            shells: None,
+            places: None,
             background_ended: Vec::new(),
             installs_waker: None,
             trash_waker: None,
@@ -777,6 +825,45 @@ impl Session {
         )
     }
 
+    /// The director's application's host, for a step's result (regress.py's `host`): the times
+    /// its threads were switched out (each a wakeup) and the CPU they ran since they started, so
+    /// a step can hold a host with nothing to do to silence (the displays off, its frame held);
+    /// and each thread's wakeups by its name (threads of one name summed), to say which woke.
+    pub fn host_use(&self) -> String {
+        let Some((pid, _)) = self.app.as_ref() else {
+            return "null".into();
+        };
+        let Ok(entries) = std::fs::read_dir(
+            std::path::Path::new("/proc")
+                .join(pid.to_string())
+                .join("task"),
+        ) else {
+            return "null".into();
+        };
+        let mut wakeups = 0;
+        let mut cpu = 0;
+        let mut threads = std::collections::BTreeMap::<String, u64>::new();
+        for task in entries.flatten() {
+            let path = task.path();
+            let woke = switches(&path);
+            wakeups += woke;
+            cpu += run_ns(&path);
+            let name = std::fs::read_to_string(path.join("comm")).unwrap_or_default();
+            *threads.entry(name.trim().to_string()).or_default() += woke;
+        }
+        let threads: Vec<String> = threads
+            .iter()
+            .map(|(name, woke)| {
+                format!("{}:{woke}", serde_json::to_string(name).unwrap_or_default())
+            })
+            .collect();
+        format!(
+            "{{\"wakeups\":{wakeups},\"cpu_ms\":{},\"threads\":{{{}}}}}",
+            cpu / 1_000_000,
+            threads.join(",")
+        )
+    }
+
     /// Sleep, restart, shut down and log out (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx):
     /// the part made at the first turn (the login screen's at a login), logind's calls made in the
     /// turn on the played bus, so a step's answer is settled with it.
@@ -874,6 +961,12 @@ impl Session {
                     search.forget_application(id);
                 }
             }
+            // Where its windows were goes with it (docs/adr/0070).
+            if let Some(places) = self.places.as_mut() {
+                for id in &served.reset {
+                    places.forget(id, std::time::Instant::now());
+                }
+            }
             for id in served.open {
                 match launcher.launch(&id) {
                     Ok(pid) => {
@@ -920,6 +1013,10 @@ impl Session {
         // Sleep, restart, shut down and log out (ADR 0064), before the install service takes what
         // is left.
         self.serve_session_end();
+        // The login screen's question of how the last session ended (docs/adr/0065).
+        if let Some(problem) = self.last_session_problem {
+            oxyos_compositor::login::answer_last_session(&mut self.compositor.scene, problem);
+        }
         // Battery and energy (ADR 0057), before the install service takes what is left.
         self.serve_power();
         // Backups (ADR 0059), before the install service takes what is left.
@@ -1090,9 +1187,20 @@ impl Session {
             .map(|(client, _)| *client)
     }
 
+    /// The shells' turn: watched, one that ended noticed and started again after its wait.
+    fn serve_shells(&mut self) {
+        if let Some(mut shells) = self.shells.take() {
+            if let Err(error) = shells.serve(self) {
+                eprintln!("[shell] {error}");
+            }
+            self.shells = Some(shells);
+        }
+    }
+
     /// Starts the applications the shell asked for that the registry lists, and answers it;
     /// names the windows of what was started (ADR 0013), and grants them what their records give.
     fn serve_launches(&mut self) {
+        self.serve_shells();
         self.serve_choosers();
         let (launcher, app) = (&self.launcher, &self.app);
         let companion = self.companion.zip(self.companion_app.clone());
@@ -1131,6 +1239,11 @@ impl Session {
                 application: id,
             })
         });
+        // A window of what it started opens where its application's was, and the record follows
+        // the windows, as the session does (docs/adr/0070).
+        if let Some(places) = self.places.as_mut() {
+            places.serve(&mut self.compositor.scene, std::time::Instant::now());
+        }
         for client in self.compositor.peers.keys() {
             // The director's own application is client 1 (launch.rs's CLIENT).
             if *client != 1 && self.compositor.scene.application(*client).is_some() {
@@ -1156,6 +1269,23 @@ impl Session {
         }
         // Those that quit unexpectedly, as the session tells the person (docs/adr/0061).
         self.crashes.exited(&mut self.compositor.scene, &exits);
+        // Those force-quit while hung: their reports (docs/adr/0067).
+        self.force_quit.exited(&mut self.crashes, &exits);
+        // Resume follows what runs, and takes the person's answer to reopening again (ADR 0065).
+        if let Some(resume) = self.resume.as_mut() {
+            resume.serve(
+                &mut self.compositor.scene,
+                launcher,
+                self.settings.preferences(),
+                std::time::Instant::now(),
+            );
+            // Reopened on the person's answer: back whole where it was (docs/adr/0070).
+            if let Some(places) = self.places.as_mut() {
+                for id in resume.take_opened() {
+                    places.opened_at_login(&id);
+                }
+            }
+        }
         // A notification pressed while its application ran nowhere (ADR 0026).
         for id in self.compositor.scene.take_notification_launches() {
             if let Err(error) = launcher.launch(&id) {
@@ -1226,11 +1356,11 @@ impl Session {
                 .scene
                 .launched(request.client, request.serial, opened);
         }
-        for pid in self.compositor.take_force_quits() {
-            if launcher.force_quit(pid) {
-                eprintln!("[launch] force quit {pid}");
-            }
-        }
+        // The person's force quits, as the session ends them (docs/adr/0067-hangs-and-force-
+        // quit.mdx): the dock's, Super+Alt+Escape's and the Oxy menu's; a hung one asked for its
+        // report first.
+        self.force_quit
+            .serve(&mut self.compositor, launcher, std::time::Instant::now());
         // Files dropped on an application's icon in the dock (ADR 0034), opened with it as the
         // session opens them: from the run's own home.
         let requests = self.compositor.scene.take_open_files();
@@ -1305,6 +1435,10 @@ impl Session {
     /// Closes every connection, waits for the clients to exit, and checks that no scene
     /// resource or descriptor remains.
     fn finish(mut self, children: &mut Children) -> Result<()> {
+        // Where the windows were as it ends, written now, as the session writes it (docs/adr/0070).
+        if let Some(places) = self.places.as_mut() {
+            places.flush();
+        }
         let clients: Vec<ClientId> = self.compositor.peers.keys().copied().collect();
         for client in clients {
             self.compositor.disconnect(client);
@@ -1679,6 +1813,15 @@ pub fn backup_holds(wanted: &serde_json::Value, state: &serde_json::Value) -> bo
 }
 
 fn main() -> Result<()> {
+    // A load of the saturation benchmark (load.rs, perf.py saturation), run as an application or a
+    // process the benchmark places.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|flag| flag == "--load")
+    {
+        let args: Vec<_> = std::env::args_os().skip(2).collect();
+        return load::main(&args).map_err(|error| error.to_string().into());
+    }
     // The search service (docs/adr/0051-search.mdx, decision 1): this program run again as its
     // child, its standard input the socket the compositor brokers questions over.
     if std::env::args_os()
@@ -1729,7 +1872,7 @@ fn main() -> Result<()> {
         [flag, state, volumes, socket, cache, sources @ ..]
             if flag == "--play-backup" && !sources.is_empty() =>
         {
-            oxyos_backupd::run(oxyos_backupd::Arguments {
+            oxyos_backup::daemon::run(oxyos_backup::daemon::Arguments {
                 development: true,
                 state: state.into(),
                 socket: Some(socket.into()),

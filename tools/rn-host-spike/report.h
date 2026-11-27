@@ -48,7 +48,10 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -77,17 +80,19 @@ class Report {
   // `presented` is what the surface still shows with a change that drew nothing (a new focus).
   void frame(uint32_t surface, int width, int height, double renderMs, const std::vector<std::string>& texts,
              const std::string& focus, double damaged = 1.0, bool presented = true);
-  // The host loop's work (bloom-host.cpp): what it did between beginTurn and endTurn, never its
-  // waiting, is written with the next frame as `busy_ms`, the work since the frame before, and
-  // `js_ms`, the part of it running JavaScript (React's runtime and the worklets' UI runtime:
-  // rendering, Fabric's commit and Yoga's layout among it); the rest is native (mounting,
+  // The host's work (bloom-host.cpp), never its waiting, written with the next frame: `busy_ms`, the
+  // work since the frame before, the loop's (what it did between beginTurn and endTurn) and
+  // JavaScript's on its own thread (js-thread.h), each thread's time working; and `js_ms`, the part
+  // of it running JavaScript (React's runtime on its thread, and the worklets' UI runtime on the
+  // loop's: rendering, Fabric's commit and Yoga's layout among it); the rest is native (mounting,
   // drawing, presenting, the compositor's events). Both by the wall clock; of `js_ms`, `js_cpu_ms`
-  // is the loop thread's CPU time (thread-clock.h), the measure of JavaScript's work however
-  // loaded the machine, and `js_blocked_ms` the time it was blocked (waiting for another thread, a
-  // lock, a file), so that a wait is said, not hidden in the CPU's time.
+  // is the CPU time of the thread it ran on (thread-clock.h), the measure of JavaScript's work
+  // however loaded the machine, and `js_blocked_ms` the time it was blocked (waiting for another
+  // thread, a lock, a file), so that a wait is said, not hidden in the CPU's time. `onItsThread`:
+  // the span is JavaScript's thread's, outside the loop's turns.
   void beginTurn();
   void endTurn();
-  void javascript(const ThreadSpan& span);
+  void javascript(const ThreadSpan& span, bool onItsThread = false);
   // React's commits (each render React finished, whether or not it changed a view), written with
   // the next frame as `react_commits`, those since the frame before: React's renderers announce
   // their commits to the global hook its DevTools install, which this installs in `runtime`
@@ -143,6 +148,9 @@ class Report {
   class Handling {
    public:
     explicit Handling(const OxyOSEvent& event);
+    // An event received before others it is handled after (a key that waited for JavaScript's answer,
+    // and the events held behind it): `seq`, the number `received` gave it (receivedSeq).
+    Handling(const OxyOSEvent& event, uint64_t seq);
     ~Handling();
     Handling(const Handling&) = delete;
     Handling& operator=(const Handling&) = delete;
@@ -155,7 +163,16 @@ class Report {
   };
   // The name `received` gives an input event, or null for an event that is not the person's input.
   static const char* inputKind(const OxyOSEvent& event);
-  // An event delivered to React (touch, text, scroll, …) on `view`.
+  // The number `received` gave the event it wrote last.
+  uint64_t receivedSeq() const { return received_; }
+  // An event delivered to React (touch, text, scroll, …) on `view`. Each delivery says the turn of
+  // JavaScript's it reaches JavaScript in (`turn`): the loop's work is handed over in batches, one
+  // whenever JavaScript's thread is idle (JsThread::batch, which `turns` gives), and what one batch
+  // holds JavaScript takes together. While JavaScript works, what the loop's turns deliver goes into
+  // the one batch waiting for it, so a press's motions the loop read while JavaScript took the first
+  // (behind a stall, under load) are one turn's (regress.py's `react` turns), however many turns of
+  // the loop's read them.
+  void countTurnsBy(std::function<uint64_t()> turns);
   void deliver(const std::string& event, uint32_t surface, const facebook::react::ShadowView& view,
                const folly::dynamic& extra = folly::dynamic::object());
   // An event delivered to JavaScript that no view is the target of (a choice in the shell's menu
@@ -192,7 +209,10 @@ class Report {
   void modalPresented(const char* event, const std::string& within, float offset, float alpha, float height);
   // Props Animated's native driver set on `view` between commits (native-animated.h), as computed
   // for a frame: what the view is drawn with next.
-  void animated(const facebook::react::ShadowView& view, const folly::dynamic& props);
+  // `sampledNs`: when the frame that set them was sampled (CLOCK_MONOTONIC), when known: the line
+  // can come later (the thread preempted between the frame's values and their props).
+  void animated(const facebook::react::ShadowView& view, const folly::dynamic& props,
+                std::optional<int64_t> sampledNs = std::nullopt);
   // Views with a testID whose opacity, translation or top corners' radii a mounted transaction
   // changed, as committed (React's commits, a JavaScript-driven Animated's and Reanimated's among
   // them): `props` as the native driver's lines have them, the radii as drawn.
@@ -231,10 +251,14 @@ class Report {
   Report();
   void write(folly::dynamic&& line);
   std::FILE* file_ = nullptr;
+  // Written to by the loop and by JavaScript's thread (js-thread.h).
+  std::recursive_mutex mutex_;
   std::map<uint32_t, folly::dynamic> accessibility_;  // the tree last written per surface
   std::chrono::steady_clock::time_point turn_{};  // when the work not yet counted began
   bool turning_ = false;
-  double busyMs_ = 0;  // work since the last frame written
+  double busyMs_ = 0;  // the loop's work since the last frame written
+  double jsThreadMs_ = 0;  // JavaScript's on its thread since the last frame written
+  std::function<uint64_t()> turns_;  // the batch of the loop's work JavaScript takes next
   ThreadSpan js_;      // JavaScript since the last frame written
   int reactCommits_ = 0;          // React's commits since the last frame written
   // The input event being handled (Handling): its kind, serial and surface; null for none.

@@ -28,8 +28,8 @@
 #   4. with a GPU (a render node and a Vulkan device that is not the CPU): the one-GPU checks (ADR
 #      0031, decision 14: the device chosen on fake sysfs trees, the painter never opening a decoy
 #      driver, and only the render nodes of a GPU driving a display opened here), gpu-client with
-#      tools/oxyos-gpu-client as its client, and the session's scenarios composed on the GPU alone
-#      (--gpu-only). Without one this is said and skipped.
+#      tools/oxyos-gpu-client as its client, and it and the session's scenarios composed on the GPU
+#      alone (--gpu-only). Without one this is said and skipped.
 # Left out: astro* (an Astro engine: a deploy's ASTRO_PACKAGE), terminal (a real display, --kms),
 # fidelity-thresholds (fidelity.py's settings, not a scenario).
 set -eu
@@ -83,7 +83,7 @@ phase "native parts built"
 # runs), installed as runtime 1, its framework, then every package built against it.
 HOST=$W/host-$(printf '%s' "$TREE" | sha256sum | cut -c1-12)
 step cmake.log env CC="$W/clang/usr/bin/clang-19" CXX="$W/clang/usr/bin/clang++-19" "$W/tools/bin/cmake" -S tools/rn-host-spike -B "$HOST" -G Ninja \
-  $(sed 's/^/-D/' "$W/cmake-vars.txt") -DOXYOS_CLIENT_LIB="$T/liboxyos_client_ffi.a"
+  $(sed 's/^/-D/' "$OXYOS_CMAKE_VARS") -DOXYOS_CLIENT_LIB="$T/liboxyos_client_ffi.a"
 step ninja.log "$W/tools/bin/ninja" -C "$HOST" -j "${JOBS:-12}" oxyos-bloom-host oxyos-turbo-module-cache-test
 # The runtime's TurboModules (turbo-module-cache.h): one per name, and what is said of a missing one.
 step turbo-module-cache.log "$HOST/oxyos-turbo-module-cache-test"
@@ -126,7 +126,9 @@ rm -rf \$out.failed; mv \$out \$out.failed 2>/dev/null; mkdir -p \$out.failed; m
 exit 1
 EOF
 mkdir -p "$R/scenarios"; : > "$R/failed"
-said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3 | cut -c1-240; }
+# A failure's first three lines, whole: what was said, committed or received against what was
+# expected is at their end, and the records stay on the runner, which only the CI user reads.
+said() { grep FAIL "$R/scenarios/$1.failed/regress.txt" 2>/dev/null | head -3; }
 
 grep -vE '^(perf|refresh)-' "$R/list" | xargs -P "$GATE_JOBS" -I{} sh -c "sh '$R/run-one.sh' {} --renderer cpu || echo {} >> '$R/failed'"
 phase "$(grep -vcE '^(perf|refresh)-' "$R/list") scenarios run, $GATE_JOBS at a time: $(wc -l < "$R/failed") failed"
@@ -195,8 +197,13 @@ else
     echo "$allowed" | grep -qx "${p##*/}" || echo "$p"; done)
   [ -z "$bad" ] || fail "a GPU that drives no display was opened: $bad"
   phase "one GPU: only $(echo $allowed | tr '\n' ' ')opened"
-  sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client" \
-    || { said gpu-client; sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client"; } || { said gpu-client; fail "gpu-client failed twice"; }
+  # The native GPU client against a compositor composing on that GPU alone, as the session does
+  # (--gpu-only): it names the GPU, offers its tiled modifiers, and imports without mapping. On
+  # the CPU it names no GPU, and the client's Vulkan on the CPU (Mesa's lavapipe, which on Debian
+  # trixie exports no DMA-BUF with a modifier) drew into shared memory; composing on both
+  # (--gpu), the CPU's side cannot map an amdgpu DMA-BUF (#616).
+  sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client" --gpu-only \
+    || { said gpu-client; sh "$R/run-one.sh" gpu-client --client "$T/oxyos-gpu-client" --gpu-only; } || { said gpu-client; fail "gpu-client failed twice"; }
   for n in $GPU_ONLY_SCENARIOS; do
     sh "$R/run-one.sh" "$n@gpu-only" --gpu-only || { said "$n@gpu-only"; sh "$R/run-one.sh" "$n@gpu-only" --gpu-only; } \
       || { said "$n@gpu-only"; fail "scenario $n failed twice composed on the GPU alone"; }

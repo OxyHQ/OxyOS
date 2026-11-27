@@ -19,7 +19,7 @@
   },
   "steps": [
     {
-      "name": "the Oxy menu: Sleep, Restart…, Shut Down…, Lock Screen and Log Out Ada Lovelace…; the application not asked anything, the power key's inhibitor held",
+      "name": "the Oxy menu, a Mac's Apple menu: About This Computer, System Settings…, Force Quit… (Alt+Super+Esc), Sleep, Restart…, Shut Down…, Lock Screen (Ctrl+Super+Q) and Log Out Ada Lovelace… (Shift+Super+Q), never Launchpad's or Mission Control's; the application not asked anything, the power key's inhibitor held",
       "do": [
         "press_named",
         "Oxy Menu"
@@ -32,11 +32,21 @@
         ],
         "in_shell": {
           "texts": [
+            "About This Computer",
+            "System Settings…",
+            "Force Quit…",
+            "Alt+Super+Esc",
             "Sleep",
             "Restart…",
             "Shut Down…",
             "Lock Screen",
-            "Log Out Ada Lovelace…"
+            "Ctrl+Super+Q",
+            "Log Out Ada Lovelace…",
+            "Shift+Super+Q"
+          ],
+          "absent": [
+            "Applications",
+            "Show Desktops"
           ]
         },
         "power": {
@@ -66,7 +76,7 @@
         "in_shell": {
           "texts": [
             "Are you sure you want to restart your computer now?",
-            "Reopen windows when logging back in",
+            "Reopen windows when signing back in",
             "Cancel",
             "Restart"
           ],
@@ -159,7 +169,7 @@
         "in_shell": {
           "texts": [
             "Are you sure you want to shut down your computer now?",
-            "Reopen windows when logging back in",
+            "Reopen windows when signing back in",
             "Restart",
             "Sleep",
             "Cancel",
@@ -211,7 +221,7 @@
         ]
       ],
       "until_named": [
-        "Are you sure you want to quit all applications and log out now?",
+        "Are you sure you want to quit all apps and log out now?",
         15000
       ],
       "expect": {
@@ -220,8 +230,8 @@
         ],
         "in_shell": {
           "texts": [
-            "Are you sure you want to quit all applications and log out now?",
-            "Reopen windows when logging back in",
+            "Are you sure you want to quit all apps and log out now?",
+            "Reopen windows when signing back in",
             "Cancel",
             "Log Out"
           ],
@@ -248,7 +258,7 @@
         ],
         "in_shell": {
           "absent": [
-            "Are you sure you want to quit all applications and log out now?"
+            "Are you sure you want to quit all apps and log out now?"
           ]
         }
       }
@@ -278,7 +288,7 @@
             "“Allo” canceled log out."
           ],
           "absent": [
-            "Are you sure you want to quit all applications and log out now?"
+            "Are you sure you want to quit all apps and log out now?"
           ]
         },
         "power": {
@@ -343,10 +353,16 @@
       "expect": {
         "in_shell": {
           "texts": [
+            "About This Computer",
+            "System Settings…",
             "Restart",
             "Shut Down",
+            "Force Quit…",
+            "Alt+Super+Esc",
             "Sleep",
-            "Log Out Ada Lovelace"
+            "Log Out Ada Lovelace",
+            "Alt+Shift+Super+Q",
+            "Ctrl+Super+Q"
           ],
           "absent": [
             "Restart…",
@@ -367,9 +383,15 @@
       "expect": {
         "in_shell": {
           "texts": [
+            "About This Computer",
+            "System Settings…",
             "Restart…",
             "Shut Down…",
-            "Log Out Ada Lovelace…"
+            "Log Out Ada Lovelace…",
+            "Shift+Super+Q"
+          ],
+          "absent": [
+            "Alt+Shift+Super+Q"
           ]
         }
       }
@@ -388,7 +410,7 @@
         "in_shell": {
           "texts": [
             "Are you sure you want to shut down your computer now?",
-            "Reopen windows when logging back in",
+            "Reopen windows when signing back in",
             "Cancel",
             "Shut Down"
           ],

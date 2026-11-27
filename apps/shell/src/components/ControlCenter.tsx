@@ -11,7 +11,7 @@ import { RiBatteryLine } from "@oxy.so/bloom/icons/RiBatteryLine";
 import { RiNotificationOffFill } from "@oxy.so/bloom/icons/RiNotificationOffFill";
 import { RiArrowRightSLine } from "@oxy.so/bloom/icons/RiArrowRightSLine";
 import { Box, PressArea } from "../primitives";
-import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
+import { FACE, INK, QUIET, card } from "./control-style";
 import { batteryLabel, bluetoothLabel, wifiLabel, wifiOn } from "../controls";
 import type { ShellControl, ShellControls, ShellLevel } from "../model";
 import { hasWifiView } from "../network";
@@ -22,14 +22,18 @@ import { SoundPanel } from "./SoundPanel";
 import { BluetoothPanel } from "./BluetoothPanel";
 import { LevelSlider, type Icon } from "./LevelSlider";
 import { useShellMessages } from "../useShellMessages";
-import { useReducedTransparency } from "@oxy.so/bloom/theme";
-import { glass } from "./glass";
+import { BloomColorScope, useTheme } from "@oxy.so/bloom/theme";
+import { useAccent } from "./accent";
+import { GlassMaterial, useGlass } from "./GlassMaterial";
 
 /** What the Control Center shows: its modules, or Wi-Fi's (docs/adr/0038-networks.mdx), Sound's
     (docs/adr/0056-sound-devices.mdx) or Bluetooth's (docs/adr/0055-bluetooth.mdx) view. */
 export type ControlCenterPage = "modules" | "wifi" | "sound" | "bluetooth";
 
 export const CONTROL_CENTER_WIDTH = 320;
+// Its glass's fill, and its shape, which the material under it takes.
+const CONTROL_CENTER_GLASS = "#eef1f6eb";
+const CONTROL_CENTER_SHAPE = { borderRadius: 22 } as const;
 
 /** A round button with a title and what it is, as a Mac's Control Center modules: on, it is
     the accent's. `onPress` absent, it only says (Bluetooth, where the session told only its
@@ -59,10 +63,11 @@ const Module = memo(function Module({
   testID: string;
 }) {
   const Glyph = icon;
+  const accent = useTheme().colors.primary;
   const face = (
     <Box
       className="items-center justify-center rounded-full"
-      style={{ width: 32, height: 32, backgroundColor: on ? ACCENT : FACE }}
+      style={{ width: 32, height: 32, backgroundColor: on ? accent : FACE }}
     >
       <Glyph width={17} height={17} fill={on ? "#ffffff" : INK} />
     </Box>
@@ -220,7 +225,9 @@ export const ControlCenter = memo(function ControlCenter({
   /** Do Not Disturb as the session says it is, and its switch (a change of the preference). */
   doNotDisturb?: { on: boolean; set: (enabled: boolean) => void };
 }) {
-  const reduced = useReducedTransparency();
+  // Its glass: the platform's material under its fill, or the fill alone (GlassMaterial.tsx).
+  const panelGlass = useGlass(CONTROL_CENTER_GLASS);
+  const accentPreset = useAccent();
   // Opened, it looks at the machine again: what another program changed shows.
   useEffect(() => {
     controls.refresh?.();
@@ -265,7 +272,9 @@ export const ControlCenter = memo(function ControlCenter({
       soundView ? { label: words.outputDevices, value: outputName, open: () => showPage?.("sound") } : undefined,
     [soundView, words, outputName, showPage],
   );
+  // In the person's accent, as a Mac's Control Center draws a control that is on.
   return (
+    <BloomColorScope colorPreset={accentPreset} asChild>
     <Box className="absolute inset-0">
       <PressArea
         testID="control-center-outside"
@@ -286,10 +295,11 @@ export const ControlCenter = memo(function ControlCenter({
           padding: 10,
           gap: 10,
           borderRadius: 22,
-          backgroundColor: glass("#eef1f6eb", reduced),
+          backgroundColor: panelGlass.backgroundColor,
           boxShadow: "0 22px 70px #0b183a40, 0 0 0 .5px #0b183a1f",
         }}
       >
+        <GlassMaterial testID="control-center-material" fill={CONTROL_CENTER_GLASS} shape={CONTROL_CENTER_SHAPE} />
         {wifiView && page === "wifi" ? (
           <WifiPanel state={networks} controls={controls} back={() => showPage?.("modules")} close={close} />
         ) : soundView && page === "sound" ? (
@@ -406,5 +416,6 @@ export const ControlCenter = memo(function ControlCenter({
         )}
       </Box>
     </Box>
+    </BloomColorScope>
   );
 });

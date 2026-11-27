@@ -1,0 +1,69 @@
+{
+ "about": "The login screen after a session that ended because of a problem (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decision 2): the login program saw the last session crash or hang and says so to the login screen's session (OXYOS_LAST_SESSION_ENDED=problem), which the login screen asks as it is shown ({\"lastSession\": {}}). It says, quietly under its field, \"Your session ended because of a problem.\", a text the assistive technology reads with the screen; the person signs in as always. Without the word, the same login screen says nothing of it (login-screen, login-power).",
+ "shell": "OxyOSLogin",
+ "login": {
+  "password": "oxyos.correcta",
+  "accounts": [
+   {
+    "accountId": "0123456789abcdef01234567",
+    "user": "oxy-aaaaaaaaaaaaaaaaaaaa",
+    "uid": 1001,
+    "name": "Ada Lovelace"
+   }
+  ],
+  "record": [
+   "session would start for oxy-aaaaaaaaaaaaaaaaaaaa (user session): "
+  ]
+ },
+ "last_session": "problem",
+ "steps": [
+  {
+   "name": "the login screen says the last session ended because of a problem, under the field, read by the assistive technology",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "shell": {
+     "locked": true,
+     "signed_in": false
+    },
+    "in_shell": {
+     "texts": [
+      "Ada Lovelace",
+      "Your session ended because of a problem."
+     ]
+    },
+    "at": {
+     "shell": [
+      {
+       "name": "Your session ended because of a problem."
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "the person signs in as always: accepted, the splash, the login program would start the session",
+   "do": [
+    "keyboard",
+    "oxyos.correcta\n"
+   ],
+   "expect": {
+    "shell": {
+     "locked": true,
+     "signed_in": true
+    },
+    "in_shell": {
+     "never": [
+      "oxyos.correcta"
+     ]
+    },
+    "never": [
+     "oxyos.correcta"
+    ]
+   }
+  }
+ ]
+}

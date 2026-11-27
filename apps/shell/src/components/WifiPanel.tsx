@@ -19,7 +19,8 @@ import {
   type NetworkState,
   type WifiNetwork,
 } from "../network";
-import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
+import { FACE, INK, QUIET, card } from "./control-style";
+import { useTheme } from "@oxy.so/bloom/theme";
 import { WifiArcs } from "./WifiArcs";
 import { useShellMessages } from "../useShellMessages";
 
@@ -40,6 +41,7 @@ function NetworkRow({
 }) {
   const messages = useShellMessages();
   const [hovered, setHovered] = useState(false);
+  const accent = useTheme().colors.primary;
   const busy = networkJoining(network, state);
   return (
     <PressArea
@@ -65,7 +67,7 @@ function NetworkRow({
       <SubtleHover native active={hovered} style={{ borderRadius: 8 }} />
       <Box
         className="items-center justify-center rounded-full"
-        style={{ width: 26, height: 26, backgroundColor: network.current ? ACCENT : FACE }}
+        style={{ width: 26, height: 26, backgroundColor: network.current ? accent : FACE }}
       >
         <WifiArcs
           arcs={signalArcs(network.signal)}

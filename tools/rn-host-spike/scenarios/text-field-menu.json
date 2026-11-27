@@ -460,11 +460,11 @@
     {
       "name": "Paste chosen with the pointer: \"mundo\" replaces the selection",
       "do": [
-        "press_popup",
-        [
-          40,
-          147
-        ]
+        "press_named",
+        {
+          "role": "MenuItem",
+          "name": "Pegar"
+        }
       ],
       "expect": {
         "popups": 0,
@@ -817,11 +817,11 @@
     {
       "name": "Cut, with the pointer",
       "do": [
-        "press_popup",
-        [
-          40,
-          87
-        ]
+        "press_named",
+        {
+          "role": "MenuItem",
+          "name": "Cortar"
+        }
       ],
       "expect": {
         "popups": 0,

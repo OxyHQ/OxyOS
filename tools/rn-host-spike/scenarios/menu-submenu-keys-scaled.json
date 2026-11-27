@@ -19,8 +19,8 @@
         "popups": 1,
         "focus_surface": 2,
         "popup_size": [
-          266,
-          222
+          125,
+          166
         ],
         "absent": [
           "Copy link"
@@ -49,7 +49,7 @@
       }
     },
     {
-      "name": "ArrowRight on it opens its submenu beside it: a popup of its own, a child of the menu's, its top at the row's and one 2px seam right of the menu, with the keyboard; the row expanded",
+      "name": "ArrowRight on it opens its submenu beside it: a popup of its own, a child of the menu's, its top at the row's and one 2px seam beside the menu (on its left: the menu, at its trigger's right, leaves no room on the output to its right), with the keyboard; the row expanded",
       "do": [
         "key",
         106
@@ -88,16 +88,16 @@
         },
         "popup_rects": [
           [
-            745,
+            1123,
             513,
-            266,
-            222
+            125,
+            166
           ],
           [
-            1013,
-            700,
-            266,
-            72
+            1001,
+            651,
+            120,
+            56
           ]
         ]
       }
@@ -135,10 +135,10 @@
         },
         "popup_rects": [
           [
-            745,
+            1123,
             513,
-            266,
-            222
+            125,
+            166
           ]
         ]
       }
@@ -190,8 +190,8 @@
         "popups": 1,
         "focus_surface": 4,
         "popup_size": [
-          266,
-          222
+          125,
+          166
         ],
         "react": {
           "touchStart@open-menu": 1,
@@ -233,16 +233,16 @@
         "focus_surface": 5,
         "popup_rects": [
           [
-            745,
+            1123,
             513,
-            266,
-            222
+            125,
+            166
           ],
           [
-            1013,
-            700,
-            266,
-            72
+            1001,
+            651,
+            120,
+            56
           ]
         ]
       }
@@ -267,10 +267,10 @@
         },
         "popup_rects": [
           [
-            745,
+            1123,
             513,
-            266,
-            222
+            125,
+            166
           ]
         ]
       }
@@ -295,16 +295,16 @@
         "focus_surface": 6,
         "popup_rects": [
           [
-            745,
+            1123,
             513,
-            266,
-            222
+            125,
+            166
           ],
           [
-            1013,
-            700,
-            266,
-            72
+            1001,
+            651,
+            120,
+            56
           ]
         ]
       }

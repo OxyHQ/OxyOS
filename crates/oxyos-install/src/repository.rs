@@ -355,7 +355,8 @@ impl Repository {
     }
 
     /// Publishes a packed package (a directory with `manifest.json`, `manifest.sig` and its
-    /// files): its files and manifest, the store's statement signed by the targets key, the
+    /// files): its files and manifest, the store's statement signed by the targets key (a third
+    /// party's: it says no `firstParty`), the
     /// developer's signature and `developer`'s public key, the store `listing` it belongs to if
     /// any, then the next metadata.
     pub fn publish_package(

@@ -40,7 +40,7 @@
     "react": {},
     "spoken": [
      {
-      "text": "Launchpad, diálogo",
+      "text": "Aplicaciones, diálogo",
       "interrupting": true
      },
      {
@@ -53,7 +53,7 @@
      "shell": [
       {
        "role": "Dialog",
-       "name": "Launchpad"
+       "name": "Aplicaciones"
       },
       {
        "role": "Search",
@@ -264,7 +264,7 @@
     "texts": [],
     "in_shell": {
      "texts": [
-      "No hay aplicaciones que coincidan con «allz»."
+      "No hay apps que coincidan con “allz”."
      ]
     },
     "spoken": [
@@ -273,14 +273,14 @@
       "interrupting": true
      },
      {
-      "text": "Ningún resultado",
+      "text": "No hay resultados",
       "interrupting": false
      }
     ],
     "announcements": [
      {
       "politeness": "polite",
-      "text": "Ningún resultado",
+      "text": "No hay resultados",
       "live": true
      }
     ]

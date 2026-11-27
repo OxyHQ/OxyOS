@@ -1,0 +1,80 @@
+---
+title: Wording
+description: The one glossary the system's words follow in English and Spanish, across the shell, Settings, the login window and the system's apps, and why.
+order: 10
+---
+
+# Wording
+
+OxyOS says the same thing the same way wherever it says it: the shell (`apps/shell/src/messages.ts`), Settings, the login window and Activity Monitor each keep one catalogue ([ADR 0040](./adr/0040-language-and-region), decision 5), and every catalogue follows this page. The reference is macOS: its English, and its Spanish as Apple writes it for Spain (Apple's Spanish support pages and menus where they settle a word). A new string follows the rules below; one that cannot is a reason to change this page first.
+
+`apps/shell/tests/wording.test.ts` renders every catalogue whole and fails on what these rules rule out (a straight apostrophe, « », British spelling, a fixed plural, a word of the system's internals, a retired term), and checks the one wrong-password message, Done and OK by role, and the pane names in "Ajustes de X…".
+
+## Both languages
+
+- **Typography.** Apostrophes and quotes are typeset: ’ and “ ” (in Spanish too: “ ”, never « »), as Apple's. A name quoted in a sentence is in “ ”.
+- **Ellipsis.** "…" (one character) ends a menu item or button exactly when choosing it asks for more before acting: a sheet, a question, a field. *Empty Trash…* / *Vaciar la Papelera…* asks first, so it has one; *Back Up Now* acts at once, so it has none.
+- **Counts.** Every count goes through `Intl.PluralRules` in the catalogue's language (`f.plural` in the shell, `plural` in Settings and the login window), never a fixed plural and never `count === 1`: "1 second", "1 app", "1 segundo".
+- **Errors** say what happened, then what to do: "Incorrect password. Try again." A catch-all that knows nothing more says what to do ("Try again in a moment."), under a title that says what failed; never "Something went wrong" alone.
+- **Plain words.** No part of the system's machinery reaches a person: not NetworkManager, apt, logind, pings or `otpauth://`, not "the power service". Say what the person sees: "the system didn't respond", "a setup link", "doesn't answer checks".
+- **One wrong-password message,** wherever a password is asked (the lock screen and the login window, Settings' Passwords, PIN & Password and Erase, a Wi-Fi network's sheet, a passkey's sheet): "Incorrect password. Try again." / "Contraseña incorrecta. Vuelve a intentarlo." A PIN: "Incorrect PIN. Try again." / "PIN incorrecto. Vuelve a intentarlo." A lockout adds its wait: "Incorrect password. Try again in 30 s".
+- **Empty states** are a short Title Case line, no period: "No Results", "No Items", "No Apps" / "No hay resultados", "No hay ítems", "No hay apps". A sentence that explains is a sentence.
+
+## English
+
+US English, as macOS: color, gray, center, canceled, anymore.
+
+**Capitalization.** Title Case for window, sheet, page and section titles that are not sentences, menu items and buttons ("Set Up a PIN", "Change Your PIN", "Backup Disks"); a title that is a question or a sentence keeps sentence case, as Apple's alerts ("Are you sure you want to restart your computer now?", "Remove your PIN?"). Rows, switches and descriptions in Settings are sentence case, as System Settings' ("Show previews", "Play sound for notifications"); a row's value that reads as a sentence keeps sentence case ("No backups yet").
+
+**Session and account.** The words for the session and for the Oxy account are kept apart, because in OxyOS signing in to the computer is signing in with the Oxy account:
+
+| Act | Words | Where |
+| --- | --- | --- |
+| Starting the session at the login window | **sign in**, signing in | the login window, setup, "Reopen windows when signing back in", "When signing in", "These items open automatically when you sign in" |
+| Ending the session | **Log Out**, log out | the Oxy menu's Log Out *name*…, Settings › Oxy Account's Log Out…, the countdown ("you will be logged out") |
+| The account's own state on this computer | **signed in**, **signed out** | "This account was signed out of this computer from another device", the keychain's devices |
+| Apple's fixed names | **login** | the **login window** (never "login screen"), **Open at Login**, **Login Items & Extensions**, "At login" |
+
+Never "Login" as a verb, never "sign-in" as a noun ("Sign-In on This Computer" is **PIN & Password**, after macOS's Touch ID & Password).
+
+**Apps.** "app" and "apps" in every sentence and label ("quit all apps", "App Not Responding", "App Switcher", "App notifications"). "Application" is said only as a kind (Spotlight's and Finder's Kind, a login item's kind). **Applications** is the one name of the view of every app (the Oxy menu's Applications, View › Show Applications, the Dock's Open Applications, its search and its dialog, the trackpad's pinch); "Launchpad" is not shown.
+
+**Settings.** The app is **Settings**; the Oxy menu's row and Spotlight's section are **System Settings**, as on a Mac.
+
+## Spanish
+
+Spain's Spanish, as Apple writes it for es-ES.
+
+| English | Spanish | Not |
+| --- | --- | --- |
+| System Settings | **Ajustes del Sistema** (both capitals) | Ajustes del sistema, Configuración del Sistema |
+| Settings (the app, and settings) | **Ajustes**, ajustes | configuración (which is a setup: "configurar una cuenta") |
+| *X* Settings… | **Ajustes de *X*…**, *X* as the sidebar names the pane: Ajustes de Batería…, Ajustes de Sonido…, Ajustes de Wi-Fi…, Ajustes de Bluetooth…, Ajustes de Red…; in a sentence "Abrir ajustes de Teclado…" | Ajustes de sonido… |
+| login window | **ventana de inicio de sesión** | pantalla de inicio (reads as the Home Screen) |
+| sign in / log out | **iniciar sesión** / **cerrar la sesión**, "Cerrar sesión de *nombre*…" | — |
+| Appearance; Light, Dark, Auto | **Apariencia**; **Claro, Oscuro, Automático** (the mode) | aspecto for the setting, Clara/Oscura |
+| look (the setup's "Choose Your Look") | **aspecto** ("Elige tu aspecto") | — |
+| Wallpaper | **Fondo de pantalla** | Fondo de escritorio |
+| Trash | **Papelera**, always capitalized: Trasladar a la Papelera, Vaciar la Papelera… | papelera |
+| Control Center, Notification Center | **Centro de control**, **Centro de notificaciones** as a title; **centro de control** in a sentence, as Apple's es-ES pages write it | — |
+| item | **ítem**, ítems | elemento |
+| app, apps | **app**, **apps** in sentences and labels; **Aplicación** as a kind; **Aplicaciones** as the view's name | aplicaciones in a sentence |
+| Oxy account | **cuenta de Oxy** | cuenta Oxy |
+| Enter Password (placeholder) | **Introducir contraseña**, **Introducir PIN** | Introduce la contraseña |
+| No Results | **No hay resultados** | Ningún resultado, Sin resultados |
+| OK (acknowledge an alert) | **Aceptar** | — |
+| Done (finish a sheet) | **OK**, as macOS's Spanish | Listo, Aceptar |
+| Try Again (button) | **Reintentar** | — |
+| try again (in a sentence) | **Vuelve a intentarlo** ("…en 30 segundos", "…en un momento") | Inténtalo de nuevo |
+| On, Off (a state) | **Activado**, **Desactivado** | Sí, No |
+| Close (a banner) | **Cerrar** | Ocultar (which is Hide) |
+| No backups yet | **Aún no hay copias de seguridad** | Todavía no hay… |
+
+**Agreement.** An adjective agrees with what it describes: the Wi-Fi and a network are feminine ("La Wi-Fi está desactivada", a network "conectada, protegida"); the computer, a device, Ethernet and Bluetooth are masculine ("Conectado a *red*" is said of the computer, "El Bluetooth está desactivado"). A password or a passkey kept in the keychain is "cifrada". "Permitir a *app* *hacer*…" or "¿Permitir que *app* *haga*…?", never "Permitir *app*…".
+
+**Capitalization.** Sentence case for titles, menu items and buttons, as Apple's Spanish ("Ajustes del Sistema", "Vaciar la Papelera…" keep their names' capitals); proper names (Papelera, Dock, Spotlight, the panes) keep theirs.
+
+## Not decided here
+
+- The chord notation in menus (Ctrl+Super+Q versus symbols) is the owner's ([ADR 0021](./adr/0021-menu-bar)).
+- Whether the Settings app is named "System Settings", as a Mac's, is a rename of the app, not of its words.

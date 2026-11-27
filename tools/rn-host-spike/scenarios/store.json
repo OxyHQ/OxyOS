@@ -41,7 +41,7 @@
         "in_shell": {
           "texts": [
             "No se puede instalar la app",
-            "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
+            "El servicio que instala las apps en este ordenador no está funcionando. Vuelve a intentarlo cuando vuelva a estar disponible.",
             "Aceptar"
           ],
           "absent": [

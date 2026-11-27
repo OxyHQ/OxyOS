@@ -19,7 +19,7 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "OxyOS",
+          "Escritorio",
           "Ver"
         ],
         "pixels": {

@@ -1,0 +1,123 @@
+{
+  "about": "The shell hanging while the session is locked (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6, amended): the person must never be locked out, nor shown what is under the lock. Locked with Ctrl+Super+Q, the shell (its lock screen) stops answering (SIGSTOP). The session ends it after 8 s without an answer and starts it again; meanwhile nothing of Allo is shown, and the new shell shows the lock screen again: the password unlocks, and Allo has the keyboard. Without the watch the lock screen stays dead and the person is locked out. At 1 (1280 × 720).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "notes.txt": "keep me"
+    }
+  },
+  "lock_password": "oxyos.correct",
+  "steps": [
+    {
+      "name": "Allo's window",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "Ctrl+Super+Q locks",
+      "do": [
+        "strokes",
+        [
+          [
+            29,
+            125,
+            16
+          ]
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "window_shown": false
+      }
+    },
+    {
+      "name": "the lock screen stops answering (SIGSTOP)",
+      "do": [
+        "signal",
+        [
+          "STOP",
+          "shell"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": true
+        },
+        "window_shown": false
+      }
+    },
+    {
+      "name": "8 s without an answer: ended and started again; still locked, nothing of Allo shown, the new lock screen up",
+      "do": [
+        "wait",
+        25000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": true
+        },
+        "window_shown": false,
+        "delivered": {},
+        "crash_reports": [
+          {
+            "application": "so.oxy.shell",
+            "contains": [
+              "OxyOS stopped responding and was started again.",
+              "Reason:       hang: no response for 8 seconds; ended by the session"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "the password unlocks: Allo is back with the keyboard",
+      "do": [
+        "keyboard",
+        "oxyos.correct\n"
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "shell": {
+          "locked": false
+        },
+        "window_shown": true,
+        "focus_surface": 1
+      }
+    }
+  ]
+}

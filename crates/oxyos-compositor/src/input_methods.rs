@@ -531,6 +531,20 @@ impl InputMethods {
         if !self.connected {
             return;
         }
+        // A composition the field still holds as the engine's is committed as it shows, as a Mac
+        // commits marked text when the input source changes. The engine commits it too as it
+        // switches, but its commit and its Switched come back in either order: told Switched first,
+        // the frontend left before the commit came, and the composition was lost (ime-sources-scaled,
+        // steps 3, 8 and 12 on seldon: the source changed, the field never had ni or か). Its commit
+        // coming after this finds nothing connected, so it is never doubled.
+        if let Some(preedit) = self.preedit.clone().filter(|_| self.field.active) {
+            let change = Change {
+                delete: None,
+                commit: preedit.text(),
+                preedit: None,
+            };
+            self.apply(&mut compositor.scene, &change);
+        }
         if self.field.active {
             self.service.send(Command::Deactivate);
         }

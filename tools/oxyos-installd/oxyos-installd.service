@@ -28,6 +28,9 @@ RestartMaxDelaySec=10s
 # silent this long (wedged, or stopped), systemd ends it with SIGABRT and starts it again.
 WatchdogSec=30s
 NotifyAccess=main
+# Its crash leaves its backtrace (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): it holds
+# no secret, and systemd-coredump keeps no core.
+LimitCORE=infinity
 UMask=0022
 
 # Its own: /var/lib/oxyos/apps (0755: the registry reads the entries and the applications' files)

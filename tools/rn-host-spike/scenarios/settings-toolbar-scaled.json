@@ -159,11 +159,11 @@
   {
    "name": "Wallpaper, from the sidebar: visited, so Back is enabled; nothing ahead",
    "do": [
-    "press",
-    [
-     136,
-     150
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Wallpaper"
+    }
    ],
    "expect": {
     "at_group": [
@@ -279,11 +279,11 @@
   {
    "name": "Displays, from the sidebar",
    "do": [
-    "press",
-    [
-     136,
-     310
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Displays"
+    }
    ],
    "expect": {
     "at_group": [
@@ -993,11 +993,11 @@
   {
    "name": "A page chosen with pages ahead drops them: Accessibility, nothing ahead",
    "do": [
-    "press",
-    [
-     136,
-     350
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Accessibility"
+    }
    ],
    "expect": {
     "at_group": [

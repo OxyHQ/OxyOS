@@ -94,7 +94,7 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Applications",
+          "Apps",
           "Allo",
           "Settings"
         ],
@@ -145,7 +145,7 @@
         "in_shell": {
           "texts": [
             "Reset “Allo”?",
-            "Allo's data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.",
+            "Allo’s data and settings on this computer will be erased, and it will open as new. Your documents and files, and your passwords, are kept.",
             "Cancel",
             "Reset"
           ]

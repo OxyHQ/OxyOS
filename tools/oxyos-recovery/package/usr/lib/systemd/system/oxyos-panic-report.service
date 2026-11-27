@@ -1,0 +1,21 @@
+# After a kernel panic, the panic's account for the person (docs/adr/0068-crash-evidence-and-kernel-panics.mdx,
+# decision 3): once systemd-pstore has moved what the firmware kept of it (efi-pstore) into
+# /var/lib/systemd/pstore, each new record's account, without an address, is written to
+# /var/lib/oxyos/problems/<record>.panic, which the person's session tells them of at their next login:
+# "Your computer restarted because of a problem." Pulled in by systemd-pstore.service (its drop-in).
+[Unit]
+Description=Tell the person OxyOS restarted because of a problem
+Documentation=https://github.com/OxyHQ/OxyOS/blob/main/docs/adr/0068-crash-evidence-and-kernel-panics.mdx
+After=systemd-pstore.service
+ConditionDirectoryNotEmpty=/var/lib/systemd/pstore
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/oxyos-recovery panic-report
+StateDirectory=oxyos/problems
+StateDirectoryMode=0755
+ProtectSystem=strict
+ProtectHome=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

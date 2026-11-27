@@ -31,6 +31,8 @@ POLKIT = "config/includes.chroot_after_packages/etc/polkit-1/rules.d"
 BACKUPS = ("oxyos-backupd", "target/release/oxyos-backupd", "/usr/libexec/oxyos-backupd")
 BACKUP_UNITS = "tools/oxyos-backupd"
 BACKUP_PACKAGES = ("restic", "rclone")
+# Crash evidence (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): a native crash's backtrace.
+EVIDENCE_PACKAGES = ("systemd-coredump",)
 IMAGE_MANIFEST = "config/package-lists/live.list.chroot"
 
 
@@ -87,7 +89,8 @@ def backup_errors():
             if start != BACKUPS[2]:
                 errors.append(f"{path.relative_to(ROOT)} starts {start}, not {BACKUPS[2]}")
     image = {line.strip() for line in (ROOT / IMAGE_MANIFEST).read_text().splitlines() if not line.startswith("#")}
-    errors += [f"{package} is not in {IMAGE_MANIFEST}" for package in BACKUP_PACKAGES if package not in image]
+    errors += [f"{package} is not in {IMAGE_MANIFEST}" for package in BACKUP_PACKAGES + EVIDENCE_PACKAGES
+               if package not in image]
     return errors
 
 
@@ -148,6 +151,8 @@ def main():
         print(" ".join(f"-p {package}" for package in (*STACKS, RECOVERY[0], BACKUPS[0])))
     elif sys.argv[1:] == ["--apt"]:
         print(" ".join(BACKUP_PACKAGES))
+    elif sys.argv[1:] == ["--apt-evidence"]:
+        print(" ".join(EVIDENCE_PACKAGES))
     else:
         print(f"tools/deploy/system-files: {len(entries)} files, as the tree has them")
 

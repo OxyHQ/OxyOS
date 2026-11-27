@@ -101,13 +101,17 @@
   ],
   "steps": [
     {
-      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window, once Atlas shows it",
       "do": [
         "press_output",
         [
           680,
           773
         ]
+      ],
+      "until_named": [
+        "Discover",
+        30000
       ],
       "expect": {
         "in_shell": {
@@ -145,7 +149,7 @@
       }
     },
     {
-      "name": "the storefront: Notes' and Mention's icons, SVG documents the store names as a path and a file URL, drawn in Bloom's squircle",
+      "name": "the storefront: Notes' and Mention's icons, SVG documents the store names as a path and a file URL, drawn in Bloom's squircle, once they are drawn",
       "do": [
         "wait_named",
         [
@@ -154,6 +158,7 @@
         ]
       ],
       "allow_unchanged": true,
+      "until_output_pixels": 30000,
       "expect": {
         "in_launched": {
           "texts": [
@@ -166,11 +171,11 @@
         "output_pixels": {
           "431,696": "#ffffff",
           "431,701": "#ff9f0a",
-          "396,701": "#ffb90a",
-          "392,662": "#fff7f9",
+          "396,696": "#ffb90a",
+          "394,656": "#f9f9f9",
           "431,805": "#ffffff",
           "397,805": "#2f6fed",
-          "392,766": "#fff7f9",
+          "392,766": "#f9f9f9",
           "446,488": "#ff9f0a",
           "1012,493": "#ffffff",
           "990,493": "#2f6fed"

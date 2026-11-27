@@ -43,14 +43,8 @@
   "include": [
     "src",
     "vite.config.ts",
-    "../../apps/shell/src",
-    "../../apps/shell/tests",
-    "../../apps/login/src",
-    "../../apps/login/tests",
-    "../../apps/settings/src",
-    "../../apps/settings/tests",
-    "../../apps/activity-monitor/src",
-    "../../apps/activity-monitor/tests",
+    "../../apps/*/src",
+    "../../apps/*/tests",
     "../rn-host-spike/sample/oxyos/platform/specs",
     "../rn-host-spike/sample/oxyos/platform/src",
     "../rn-host-spike/sample/oxyos/platform/tests"

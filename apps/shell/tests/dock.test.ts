@@ -104,7 +104,7 @@ test("Option held, or an application not responding, makes Quit Force Quit", () 
   assert.equal(shown(dockMenu(running, "allo", ALL, ES, true)).at(-1), "Forzar salida");
   const stuck = snapshot([window("1", "allo", { responding: false })]);
   const menu = shown(dockMenu(stuck, "allo", ALL, ES));
-  assert.equal(menu[0], "(La aplicación no responde)");
+  assert.equal(menu[0], "(La app no responde)");
   assert.equal(menu.at(-1), "Forzar salida");
   // Where the platform cannot force-quit, Quit stays.
   assert.equal(shown(dockMenu(stuck, "allo", { ...ALL, forceQuit: false }, ES)).at(-1), "Salir");
@@ -142,7 +142,7 @@ test("keeping in the dock and opening at login change the lists in their order",
 test("the Trash offers emptying only while it holds anything", () => {
   assert.deepEqual(trashMenu(0, true, ES), [
     { id: "open", label: "Abrir", enabled: true },
-    { id: "empty", label: "Vaciar Papelera", enabled: false },
+    { id: "empty", label: "Vaciar la Papelera…", enabled: false },
   ]);
   assert.equal(trashMenu(3, true, ES)[1]?.enabled, true);
   assert.deepEqual(

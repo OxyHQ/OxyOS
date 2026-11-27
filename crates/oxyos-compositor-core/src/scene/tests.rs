@@ -551,6 +551,89 @@ fn popup_depth_and_surface_quotas_are_bounded() {
     h.toplevel(APP, 1, 10, 10);
 }
 
+/// The serial of the latest `Enter` the pointer's moves delivered to `client`, once pumped.
+fn entered(events: &[(ClientId, Event)], client: ClientId) -> Option<u64> {
+    events.iter().rev().find_map(|(to, event)| match event {
+        Event::Pointer {
+            kind: PointerKind::Enter,
+            serial,
+            ..
+        } if *to == client => Some(*serial),
+        _ => None,
+    })
+}
+
+#[test]
+fn the_client_the_pointer_rests_on_grabs_a_hover_menu_with_its_entry() {
+    // A menu opened by the pointer resting on its trigger (a hover menu, the zoom control's
+    // layouts, ADR 0016 decision 12) has no press behind it: the client the pointer entered, and
+    // has not left, grabs with that entry's serial, even after another client's press elsewhere,
+    // as a Mac's green button opens its menu under the pointer whatever was clicked before.
+    let mut h = Harness::new();
+    // OTHER's small window sits on top in the middle of APP's, which the pointer can rest on
+    // around it.
+    let window = h.toplevel(APP, 1, 400, 300);
+    let other = h.toplevel(OTHER, 1, 100, 100);
+    // The person presses OTHER (the shell's Mission Control, another window): the latest press is
+    // not APP's. The pointer then comes onto APP's window, where it rests.
+    let other_rect = h.rect(other);
+    h.press(other_rect.x + 40, other_rect.y + 60);
+    h.scene.pointer_button(BUTTON, false);
+    h.pump();
+    let rect = h.rect(window);
+    h.scene.pointer_motion(rect.x + 20, rect.y + 20);
+    let events = h.pump();
+    let enter = entered(&events, APP).expect("the pointer entered APP's window");
+    let popup = h.popup(window, 2, menu(Rect::new(0, 0, 10, 10), 50, 50));
+    h.request(
+        APP,
+        Request::GrabPopup {
+            surface: 2,
+            serial: enter,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.dismissed(popup), None);
+    assert_eq!(h.scene.grab_chain(), [popup]);
+}
+
+#[test]
+fn an_entry_the_pointer_has_left_authorizes_no_grab() {
+    let mut h = Harness::new();
+    let other = h.toplevel(OTHER, 1, 1200, 800);
+    let window = h.toplevel(APP, 1, 400, 300);
+    let rect = h.rect(window);
+    h.scene.pointer_motion(rect.x + 20, rect.y + 20);
+    let events = h.pump();
+    let enter = entered(&events, APP).expect("the pointer entered APP's window");
+    // The pointer leaves for OTHER's window: APP's entry no longer stands.
+    let other_rect = h.rect(other);
+    h.scene.pointer_motion(other_rect.x + 10, other_rect.y + 10);
+    let events = h.pump();
+    let theirs = entered(&events, OTHER).expect("the pointer entered OTHER's window");
+    let popup = h.popup(window, 2, menu(Rect::new(0, 0, 10, 10), 50, 50));
+    h.request(
+        APP,
+        Request::GrabPopup {
+            surface: 2,
+            serial: enter,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.dismissed(popup), Some(DismissReason::GrabDenied));
+    // Nor does OTHER's entry authorize APP: it is OTHER the pointer rests on.
+    let popup = h.popup(window, 3, menu(Rect::new(0, 0, 10, 10), 50, 50));
+    h.request(
+        APP,
+        Request::GrabPopup {
+            surface: 3,
+            serial: theirs,
+        },
+    )
+    .unwrap();
+    assert_eq!(h.dismissed(popup), Some(DismissReason::GrabDenied));
+}
+
 #[test]
 fn grabs_need_the_latest_press_on_the_parent_chain() {
     let mut h = Harness::new();
@@ -8423,6 +8506,8 @@ mod choosers;
 mod controls;
 mod displays;
 mod dock;
+/// The dock hiding automatically (ADR 0034, 10 November 2026).
+mod dock_hiding;
 mod drag;
 /// Mission Control and App Exposé (ADR 0045).
 mod expose;
@@ -8430,6 +8515,8 @@ mod expose;
 mod input_sources;
 /// Key repeat (ADR 0036).
 mod key_repeat;
+/// A surface's material regions (docs/adr/0069-the-platforms-material.mdx).
+mod material;
 /// The menu bar (ADR 0021).
 mod menus;
 /// Where each window minimizes into (ADR 0011's genie).
@@ -8446,6 +8533,8 @@ mod shortcuts;
 /// System sounds (docs/adr/0044-system-sounds.mdx).
 mod sounds;
 mod system;
+/// Window tiling (ADR 0016, decision 12).
+mod tiling;
 // ---- windows shown live on the shell's surfaces (ADR 0022) ----------------------------------
 
 /// The shell's overview: an overlay over the whole output.

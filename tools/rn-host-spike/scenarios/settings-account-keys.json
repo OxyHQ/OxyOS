@@ -39,7 +39,30 @@
       }
     },
     {
-      "name": "Tab: the sidebar's selected row, Appearance, second after the account",
+      "name": "Tab: the sidebar's search field first, as a Mac's System Settings has it at the sidebar's top, said once",
+      "do": [
+        "key",
+        [
+          15
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "keyboard_focus": {
+          "target": "settings-search",
+          "ring": true
+        },
+        "spoken": [
+          {
+            "text": "Buscar en Ajustes, campo de búsqueda",
+            "interrupting": true
+          }
+        ],
+        "announcements": []
+      }
+    },
+    {
+      "name": "Tab again: the sidebar's selected row, Appearance, second after the account",
       "do": [
         "key",
         [
@@ -54,10 +77,6 @@
         },
         "at": {
           "window": [
-            {
-              "role": "Heading",
-              "name": "Cuenta de Oxy"
-            },
             {
               "role": "ListItem",
               "name": "Ada Lovelace",
@@ -75,7 +94,7 @@
         },
         "spoken": [
           {
-            "text": "Apariencia, seleccionado, 2 de 21",
+            "text": "Apariencia, seleccionado, 2 de 22",
             "interrupting": true
           }
         ],
@@ -103,7 +122,7 @@
         ],
         "spoken": [
           {
-            "text": "Ada Lovelace, seleccionado, 1 de 21",
+            "text": "Ada Lovelace, seleccionado, 1 de 22",
             "interrupting": true
           }
         ],
@@ -246,7 +265,7 @@
       "expect": {
         "texts": [
           "¿Cerrar sesión en OxyOS?",
-          "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la pantalla de inicio, incluso sin conexión."
+          "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la ventana de inicio de sesión, incluso sin conexión."
         ],
         "spoken": [
           {
@@ -254,7 +273,7 @@
             "interrupting": true
           },
           {
-            "text": "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la pantalla de inicio, incluso sin conexión.",
+            "text": "Las apps se cierran y la sesión termina. Puedes volver a iniciar sesión en la ventana de inicio de sesión, incluso sin conexión.",
             "interrupting": false
           },
           {

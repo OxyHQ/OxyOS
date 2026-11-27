@@ -46,7 +46,7 @@
           }
         },
         "output_pixels": {
-          "1158,202": "#2a1132"
+          "1158,202": "#1b1b1b"
         },
         "delivered": {
           "companion": {
@@ -79,7 +79,7 @@
           "react": {}
         },
         "output_pixels": {
-          "1158,202": "#e9dce3"
+          "1158,202": "#dfdfdf"
         },
         "delivered": {
           "1": {
@@ -118,7 +118,7 @@
           "210,339": "#c5d5ff"
         },
         "output_pixels": {
-          "1158,202": "#e9dce3"
+          "1158,202": "#dfdfdf"
         },
         "field": {
           "text": "hello world",
@@ -158,7 +158,7 @@
           "210,339": "#dcdcdc"
         },
         "output_pixels": {
-          "1158,202": "#2a1132"
+          "1158,202": "#1b1b1b"
         },
         "field": null,
         "delivered": {
@@ -196,7 +196,7 @@
           "210,339": "#c5d5ff"
         },
         "output_pixels": {
-          "1158,202": "#e9dce3"
+          "1158,202": "#dfdfdf"
         },
         "field": {
           "text": "hello world",
@@ -237,7 +237,7 @@
           "210,339": "#c5d5ff"
         },
         "output_pixels": {
-          "1158,202": "#e9dce3"
+          "1158,202": "#dfdfdf"
         },
         "delivered": {
           "1": {
@@ -277,7 +277,7 @@
           "210,339": "#c5d5ff"
         },
         "output_pixels": {
-          "1158,202": "#e9dce3"
+          "1158,202": "#dfdfdf"
         },
         "field": {
           "text": "hello world",

@@ -656,6 +656,55 @@ fn capabilities_are_sorted_with_a_purpose_and_agree_with_opens() {
 }
 
 #[test]
+fn a_manifest_may_declare_the_size_its_window_opens_at() {
+    let window = |width: u64, height: u64| {
+        json::object(vec![
+            ("width", json::Value::Integer(width)),
+            ("height", json::Value::Integer(height)),
+        ])
+    };
+    let declared = manifest_with(|m| set(m, "window", window(780, 560)), "Notes");
+    let manifest = Manifest::parse(&declared).unwrap();
+    assert_eq!(
+        manifest.window,
+        Some(crate::WindowSize {
+            width: 780,
+            height: 560
+        })
+    );
+    assert_eq!(manifest.to_canonical(), declared);
+    // Without it, none: the session's size.
+    assert_eq!(
+        Manifest::parse(&manifest_with(|_| {}, "Notes"))
+            .unwrap()
+            .window,
+        None
+    );
+    for (width, height, field) in [
+        (199, 560, "window.width"),
+        (780, 8193, "window.height"),
+        (0, 560, "window.width"),
+        (u64::from(u32::MAX) + 1, 560, "window.width"),
+    ] {
+        assert_eq!(
+            Manifest::parse(&manifest_with(
+                |m| set(m, "window", window(width, height)),
+                "Notes"
+            )),
+            Err(Error::OutOfRange(field))
+        );
+    }
+    let unknown = json::object(vec![
+        ("width", json::Value::Integer(780)),
+        ("height", json::Value::Integer(560)),
+        ("x", json::Value::Integer(0)),
+    ]);
+    assert!(Manifest::parse(&manifest_with(|m| set(m, "window", unknown), "Notes")).is_err());
+    let missing = json::object(vec![("width", json::Value::Integer(780))]);
+    assert!(Manifest::parse(&manifest_with(|m| set(m, "window", missing), "Notes")).is_err());
+}
+
+#[test]
 fn json_limits_hold() {
     let deep = "[".repeat(40) + &"]".repeat(40);
     assert_eq!(Manifest::parse(deep.as_bytes()), Err(Error::TooDeep));
@@ -909,6 +958,71 @@ fn the_stores_statement_verifies_and_matches() {
     let statement = SignedRelease::verify(&release.to_canonical(), &[store.public_key()]).unwrap();
     assert_eq!(statement, release.statement);
     statement.matches(&manifest, &bytes, &signature).unwrap();
+}
+
+#[test]
+fn only_the_stores_signature_says_a_release_is_oxys_own() {
+    let store = SigningKey::from_seed(&STORE);
+    let (_, _, _, release) = signed_release(&store);
+    // Without `firstParty`, a third party's; its bytes are as they were before the field.
+    assert!(!release.statement.first_party);
+    let text = String::from_utf8(release.to_canonical()).unwrap();
+    assert!(!text.contains("firstParty"), "{text}");
+    // Signed by the store as Oxy's own: said, and read back.
+    let own = store.sign_release(ReleaseStatement {
+        first_party: true,
+        ..release.statement.clone()
+    });
+    let own_text = String::from_utf8(own.to_canonical()).unwrap();
+    assert!(own_text.contains("\"firstParty\":true"), "{own_text}");
+    assert!(
+        SignedRelease::verify(own_text.as_bytes(), &[store.public_key()])
+            .unwrap()
+            .first_party
+    );
+    // Added to a third party's statement after the store signed it: refused.
+    let claimed = text.replacen(
+        "\"manifestLength\"",
+        "\"firstParty\":true,\"manifestLength\"",
+        1,
+    );
+    assert_ne!(claimed, text);
+    assert_eq!(
+        SignedRelease::verify(claimed.as_bytes(), &[store.public_key()]),
+        Err(Error::BadSignature)
+    );
+    // Anything but a boolean is no answer.
+    let mut odd = release.statement.to_value();
+    if let json::Value::Object(members) = &mut odd {
+        members.push(("firstParty".into(), json::string("yes")));
+    }
+    let signature = store.sign_raw(
+        &[
+            b"oxyos-package release v1\0".as_slice(),
+            &json::canonical(&odd),
+        ]
+        .concat(),
+    );
+    let document = json::canonical(&json::object(vec![
+        ("algorithm", json::string("ed25519")),
+        ("keyId", json::string(store.public_key().key_id().as_str())),
+        ("signature", json::string(&base64url::encode(&signature))),
+        ("statement", odd),
+    ]));
+    assert_eq!(
+        SignedRelease::verify(&document, &[store.public_key()]),
+        Err(Error::WrongType("firstParty"))
+    );
+}
+
+#[test]
+fn only_the_oxy_account_is_oxys_own() {
+    let own: Vec<&str> = Capability::ALL
+        .iter()
+        .filter(|c| c.oxys_own())
+        .map(Capability::name)
+        .collect();
+    assert_eq!(own, ["oxy-account"]);
 }
 
 #[test]

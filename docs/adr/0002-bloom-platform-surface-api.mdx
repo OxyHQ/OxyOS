@@ -96,6 +96,7 @@ interface PopupSurfaceProps {
 `BloomProvider platform={adapter}` registers it, following the `scrollAdapter`, `back` and `imageResolver` pattern. Native `DropdownMenu` content is `floating/PopupPanel` (the web menu chrome) in it when `popup-surface` is reported; otherwise it keeps the sheet. The other menu families can adopt the same panel.
 
 The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It renders the `OxyOSPopupView` host component with the anchor's tag, and the host (`popup.cpp`) does the rest:
+- lays the popup's content out as a Yoga root of its own, its width and height not given, so the popup is as wide and as tall as what it holds (amended 10 November 2026, below);
 - leaves the popup subtree out of the window;
 - opens a protocol popup with the positioner in the table above (flip on the side axis, slide on both), grabbed with the serial of the press that opened it;
 - draws the subtree in premultiplied ARGB;
@@ -104,6 +105,15 @@ The OxyOS adapter is `tools/rn-host-spike/sample/oxyos/platform-surface.js`. It 
 - while the popup is open, gives the pointer's movement over the surface it hangs from only to the view `trackingRef` names (`trackingTag`): a menu bar's titles, so crossing onto another title opens its menu in place of the open one, as on a Mac ([ADR 0001](./0001-native-platform-boundaries#input-focus-and-grabs)). A popup that replaces another (same parent) is opened before that one is destroyed, so the compositor passes the grab straight on.
 
 `oxyos-offscreen --launch … --expect-popup` checks that the popup extends beyond the window.
+
+### A popup's content is laid out as its own root (amended 10 November 2026)
+
+The popup view stays in the application's React tree, so Bloom's contract holds: providers, theme, locale and state reach the panel as they reach any child. Mounted where its owner renders it, inside its anchor, it is a child in the window's Yoga tree, and a child is laid out inside the box it is mounted in: `position: absolute` frees it from the flow but not from its containing block's width. Whatever could shrink did. Bloom's desktop menus are as wide as their widest row, and their labels may shrink under a `maxWidth`, so each menu came out at its 120px floor with its labels cut: the dock's "Mostrar toda…" inside a dock icon's width. Before Bloom 17.42 every menu had a 266px floor, which hid this.
+
+A popup is a surface of its own, so its layout is too. `OxyOSPopupViewShadowNode` (`popup.h`) is a layout root, as React Native's Modal is: after its parent's pass has placed it, it lays its subtree out again with Yoga as a root, its width and height undefined. That is a Fabric surface's layout with no maximum, the content's own size. It keeps the origin its parent gave it, since the compositor places the surface, and hands its children their metrics from that layout. Nothing in the adapter or in Bloom works around it. A cap the content asks for (a menu's or a tooltip's `maxWidth`, Bloom's `maxHeight`) still holds, because it is the content's own style. Rejected:
+- a style keyword (`width: 'max-content'`): React Native parses it, but Yoga lays it out as `auto`, so it changed nothing;
+- a box wider than any output for the popup to be laid out in: a layout trick, not the popup's own constraints;
+- a Fabric surface of its own per popup: a second React root, which would break the one-tree contract above.
 
 ## Consequences
 

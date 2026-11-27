@@ -213,11 +213,11 @@
   {
    "name": "how often it changes: its menu",
    "do": [
-    "press",
-    [
-     905,
-     280
-    ]
+    "press_named",
+    {
+     "role": "Button",
+     "name": "Cambiar imagen"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

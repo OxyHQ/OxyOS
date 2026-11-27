@@ -4,6 +4,7 @@
 //! windows to its neighbour.
 
 use super::{DismissReason, Role, Scene, SurfaceKey};
+use oxyos_protocol::{ErrorCode, Event};
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -139,6 +140,60 @@ impl Scene {
         self.nodes.get_mut(&key).expect("live").workspace = index;
         self.apply(before);
         true
+    }
+
+    /// A toplevel's own request to go to another workspace (`MoveSurfaceToWorkspace`, ADR 0016,
+    /// decision 12: its zoom control's Move to): as the shell's MoveWindowToWorkspace moves it, a
+    /// workspace there is, while unlocked. Only a toplevel: anything else of the client's is an
+    /// error, as `SetMaximized` is.
+    pub(super) fn move_surface_to_workspace(
+        &mut self,
+        key: SurfaceKey,
+        workspace: u32,
+    ) -> Result<(), ErrorCode> {
+        let node = self.live(key).ok_or(ErrorCode::UnknownSurface)?;
+        if node.role != Role::Toplevel {
+            return Err(ErrorCode::InvalidRole);
+        }
+        self.move_to_workspace(key, workspace);
+        Ok(())
+    }
+
+    /// Tells each toplevel's client the workspaces and the one it is on (`SurfaceWorkspaces`), as
+    /// it gets its role and whenever either changes, for its zoom control's Move to.
+    pub(super) fn tell_surface_workspaces(&mut self) {
+        let count = self.workspaces.count;
+        let mut told = Vec::new();
+        for (key, node) in &mut self.nodes {
+            if node.role != Role::Toplevel || node.dismissed {
+                continue;
+            }
+            let now = (count, node.workspace);
+            if node.told_workspaces != Some(now) {
+                node.told_workspaces = Some(now);
+                told.push((*key, now));
+            }
+        }
+        for (key, (count, workspace)) in told {
+            self.emit(
+                key.client,
+                Event::SurfaceWorkspaces {
+                    surface: key.id,
+                    count,
+                    workspace,
+                },
+            );
+        }
+    }
+
+    /// The desktops the person had as their last session ended, before any window opens
+    /// (docs/adr/0070-windows-come-back-where-they-were.mdx): there are `count` (at least one, at
+    /// most [`MAX_WORKSPACES`]), the first shown. Never fewer than there are.
+    pub fn restore_desktops(&mut self, count: u32) {
+        let count = count.clamp(1, MAX_WORKSPACES);
+        if count > self.workspaces.count {
+            self.workspaces.count = count;
+        }
     }
 
     /// Adds a workspace after the others; its number, or none at the limit.

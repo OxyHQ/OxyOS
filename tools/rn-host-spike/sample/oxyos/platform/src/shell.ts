@@ -32,6 +32,26 @@ const SHELL_EVENTS = {
 } as const;
 export type ShellEvent = keyof typeof SHELL_EVENTS;
 
+/** Where the Window menu asks the compositor to put a window (ADR 0016, decision 12). */
+export type WindowLayout =
+  | 'fill'
+  | 'center'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'topLeft'
+  | 'topRight'
+  | 'bottomLeft'
+  | 'bottomRight'
+  | 'leftAndRight'
+  | 'rightAndLeft'
+  | 'topAndBottom'
+  | 'bottomAndTop'
+  | 'quarters'
+  | 'returnToPreviousSize'
+  | 'zoom';
+
 /** The shell's intents on the compositor and the session, each the host's OxyOSShell method of the
     same name (docs/adr/0009-session-shell.mdx and the ADRs each names): fire and forget, the next
     state saying what came of it; where it answers, whether it was sent (or a serial, 0: not sent). */
@@ -46,8 +66,18 @@ export interface ShellIntents {
   hideApplication(window: number): void;
   /** Quits the application of the window `window`. */
   quitApplication(window: number): void;
+  /** Hides every application but the one of the window `window` (0: every one), as a Mac's
+      Hide Others (docs/adr/0021-menu-bar.mdx). */
+  hideOtherApplications(window: number): void;
+  /** Shows every hidden application again, the active window staying the active one, as a
+      Mac's Show All. */
+  showAllApplications(): void;
   /** Has the session end the application of the window `window` (ADR 0034). */
   forceQuitApplication(window: number): boolean;
+  /** Has the compositor lay out the window `window`, as the Window menu asks (ADR 0016, decision
+      12): Fill, Center, a half or quarter, an arrangement, Return to Previous Size, or Zoom (and
+      back). Whether it was sent. */
+  layOutWindow(window: number, layout: WindowLayout): boolean;
   /** Moves the window `window` to the workspace `workspace`. */
   moveWindowToWorkspace(window: number, workspace: number): void;
   /** Shows the workspace `workspace`. */
@@ -127,7 +157,10 @@ const INTENTS: readonly (keyof ShellIntents)[] = [
   'minimizeWindow',
   'hideApplication',
   'quitApplication',
+  'hideOtherApplications',
+  'showAllApplications',
   'forceQuitApplication',
+  'layOutWindow',
   'moveWindowToWorkspace',
   'activateWorkspace',
   'addWorkspace',
@@ -296,6 +329,13 @@ export function createShell(
       ask({ endSession: { action, confirm } }, options),
     /** Sleeps the computer at once (`{sleeping}`). */
     sleep: (options?: CallOptions) => ask({ sleep: {} }, options),
+    /** Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx): the session shows its
+        sheet, citing the press or key that asked. */
+    forceQuit: (options?: CallOptions) => ask({ forceQuit: {} }, options),
+    /** Force Quit Applications' answer: the application chosen in the sheet `sheet`, which the
+        session ends (a hung one after its report), citing the press or key. */
+    forceQuitApplication: (sheet: number, id: string, options?: CallOptions) =>
+      ask({ forceQuitApplication: { sheet, id } }, options),
   };
 }
 

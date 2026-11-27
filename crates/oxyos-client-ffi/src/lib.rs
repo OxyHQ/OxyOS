@@ -14,9 +14,9 @@ use oxyos_client::{
 };
 use oxyos_protocol::{
     AccessibleActions, AccessibleRole, AccessibleState, Adjust, Anchor, CaptureDestination,
-    CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, PanelEdge, Politeness,
-    Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
-    TextContentType, TextHints, TextPurpose, FULL_LEVEL, TEXT_CHUNK_BYTES,
+    CaptureKind, Control, Event, Format, Gravity, MenuFlags, MenuKind, MenuRole, PanelEdge,
+    Politeness, Positioner, PreeditText, Rect, Request, SecretChunk, ShellKind, Size, TextChunk,
+    TextContentType, TextHints, TextPurpose, WindowLayout, FULL_LEVEL, TEXT_CHUNK_BYTES,
 };
 use rustix::fd::{AsFd, AsRawFd};
 use std::cell::RefCell;
@@ -78,6 +78,10 @@ pub const OXYOS_EVENT_WINDOW_TITLE: u32 = 38;
 pub const OXYOS_EVENT_WINDOW_APP_ID: u32 = 39;
 pub const OXYOS_EVENT_WINDOW_CLOSED: u32 = 40;
 pub const OXYOS_EVENT_WORKSPACES: u32 = 41;
+/// To a toplevel's client (ADR 0016, decision 12, version 50): the session's workspaces (detail:
+/// how many) and the one the window `surface` is on (code, from 0), as it gets its role and
+/// whenever either changes, for its zoom control's Move to.
+pub const OXYOS_EVENT_SURFACE_WORKSPACES: u32 = 151;
 /// To the session's shell (ADR 0022): a window's size in logical pixels (code: the window;
 /// width, height), when it is first told and whenever it changes.
 pub const OXYOS_EVENT_WINDOW_SIZE: u32 = 80;
@@ -140,6 +144,10 @@ pub const OXYOS_EVENT_MENU_BAR_TEXT: u32 = 72;
 pub const OXYOS_EVENT_MENU_BAR_COMMITTED: u32 = 73;
 /// To an application: a command of its menus chosen in the shell's bar.
 pub const OXYOS_EVENT_MENU_ITEM_ACTIVATED: u32 = 74;
+/// To the session's shell (version 43): an entry of the menus being told is one of the
+/// application's standard commands (code: the window; detail: the entry; height:
+/// OXYOS_MENU_ROLE_*), after its MENU_BAR_ITEM and before MENU_BAR_COMMITTED.
+pub const OXYOS_EVENT_MENU_BAR_ROLE: u32 = 75;
 /// What a menu entry is (`OxyOSMenuItem.kind`, a MENU_BAR_ITEM's `height`).
 pub const OXYOS_MENU_MENU: u8 = 1;
 pub const OXYOS_MENU_ITEM: u8 = 2;
@@ -154,6 +162,11 @@ pub const OXYOS_MENU_LABEL: u32 = 1;
 pub const OXYOS_MENU_SHORTCUT: u32 = 2;
 /// `parent` of a menu of the bar.
 pub const OXYOS_NO_MENU_PARENT: u32 = u32::MAX;
+/// Which of the application's standard commands an entry is (`OxyOSMenuItem.role`, a
+/// MENU_BAR_ROLE's `height`): none, its About, its Settings….
+pub const OXYOS_MENU_ROLE_NONE: u8 = 0;
+pub const OXYOS_MENU_ROLE_ABOUT: u8 = 1;
+pub const OXYOS_MENU_ROLE_SETTINGS: u8 = 2;
 /// A CONFIGURE's `flag` bits: the window fills its output, or is zoomed to its work area.
 pub const OXYOS_CONFIGURE_FULLSCREEN: u8 = 1;
 pub const OXYOS_CONFIGURE_MAXIMIZED: u8 = 2;
@@ -215,6 +228,31 @@ pub const OXYOS_MANAGE_QUIT_APPLICATION: u8 = 9;
 /// Force-quits the application of the window: the session ends the processes it started for it
 /// (docs/adr/0034-the-dock.mdx). Refused to a compositor of a version before 8.
 pub const OXYOS_MANAGE_FORCE_QUIT_APPLICATION: u8 = 10;
+/// Hides every application but the window's (window 0: every one), and shows every application
+/// hidden again (ADR 0021: Hide Others and Show All). Refused to a compositor of a version before
+/// 43.
+pub const OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS: u8 = 11;
+pub const OXYOS_MANAGE_SHOW_ALL_APPLICATIONS: u8 = 12;
+/// Where the session's shell asks the compositor to put a window (`oxyos_client_lay_out_window`,
+/// ADR 0016, decision 12: the Window menu): Fill, Center, the halves, the quarters, the
+/// arrangements with the windows behind it, Return to Previous Size, and Zoom (and back).
+pub const OXYOS_WINDOW_LAYOUT_FILL: u8 = 1;
+pub const OXYOS_WINDOW_LAYOUT_CENTER: u8 = 2;
+pub const OXYOS_WINDOW_LAYOUT_LEFT: u8 = 3;
+pub const OXYOS_WINDOW_LAYOUT_RIGHT: u8 = 4;
+pub const OXYOS_WINDOW_LAYOUT_TOP: u8 = 5;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM: u8 = 6;
+pub const OXYOS_WINDOW_LAYOUT_TOP_LEFT: u8 = 7;
+pub const OXYOS_WINDOW_LAYOUT_TOP_RIGHT: u8 = 8;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM_LEFT: u8 = 9;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM_RIGHT: u8 = 10;
+pub const OXYOS_WINDOW_LAYOUT_LEFT_AND_RIGHT: u8 = 11;
+pub const OXYOS_WINDOW_LAYOUT_RIGHT_AND_LEFT: u8 = 12;
+pub const OXYOS_WINDOW_LAYOUT_TOP_AND_BOTTOM: u8 = 13;
+pub const OXYOS_WINDOW_LAYOUT_BOTTOM_AND_TOP: u8 = 14;
+pub const OXYOS_WINDOW_LAYOUT_QUARTERS: u8 = 15;
+pub const OXYOS_WINDOW_LAYOUT_RETURN_TO_PREVIOUS_SIZE: u8 = 16;
+pub const OXYOS_WINDOW_LAYOUT_ZOOM: u8 = 17;
 /// To the session's shell (ADR 0024): a system shortcut it shows (serial: a user input of its
 /// own, which oxyos_client_focus_shell_surface may cite; detail: OXYOS_SHORTCUT_*; code: the
 /// output to show it on; flag: OXYOS_SHORTCUT_INTENT_*, version 25), and how recently a window was active (code: the window; detail: its
@@ -338,6 +376,13 @@ pub const OXYOS_LIST_CHOSEN: u8 = 2;
 /// To the session's shell (docs/adr/0034-the-dock.mdx): how many items the user's Trashes hold
 /// (code), when it connects and whenever it changes.
 pub const OXYOS_EVENT_TRASH_ITEMS: u32 = 232;
+/// The compositor's Ping (serial), given only to a client that answers pings itself
+/// (`oxyos_client_answer_pings_itself`), which answers with `oxyos_client_pong`.
+pub const OXYOS_EVENT_PING: u32 = 230;
+/// The compositor asks whether the client has handled everything it was sent before (serial),
+/// given only to a client that answers pings itself, which answers with `oxyos_client_pong` once it
+/// has, never waiting for it to be idle besides (protocol version 49).
+pub const OXYOS_EVENT_PING_HANDLED: u32 = 233;
 /// Drag and drop (docs/adr/0035-drag-and-drop.mdx). To a target: the drag entered one of its
 /// surfaces (surface; serial: the entering, which oxyos_client_accept_drag cites; code: the offer;
 /// x, y: surface-local, as a POINTER's; detail: the source's actions, OXYOS_DRAG_*; width: how many
@@ -489,6 +534,11 @@ pub const OXYOS_QUIT_REQUESTS_VERSION: u32 = oxyos_protocol::QUIT_REQUESTS_VERSI
 /// The first version whose compositor takes `oxyos_client_set_sudden_termination`
 /// (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
 pub const OXYOS_SUDDEN_TERMINATION_VERSION: u32 = oxyos_protocol::SUDDEN_TERMINATION_VERSION as u32;
+/// The first version whose compositor takes `oxyos_client_set_material_regions`
+/// (docs/adr/0069-the-platforms-material.mdx).
+pub const OXYOS_MATERIAL_VERSION: u32 = oxyos_protocol::MATERIAL_VERSION as u32;
+/// The most material regions a surface has.
+pub const OXYOS_MAX_MATERIAL_REGIONS: u32 = oxyos_protocol::MAX_MATERIAL_REGIONS as u32;
 pub const OXYOS_EVENT_KEYBOARD_LAYOUT: u32 = 180;
 /// The session's locale (ADR 0040, protocol version 17), in chunks as the keyboard layout.
 pub const OXYOS_EVENT_LOCALE: u32 = 181;
@@ -665,6 +715,9 @@ pub struct OxyOSMenuItem {
     pub kind: u8,
     /// OXYOS_MENU_DISABLED, _CHECKABLE, _CHECKED bits.
     pub flags: u8,
+    /// OXYOS_MENU_ROLE_NONE, or which of the application's standard commands it is
+    /// (OXYOS_MENU_ROLE_ABOUT, _SETTINGS): a command without a check, each role once.
+    pub role: u8,
     /// NUL-terminated UTF-8; NULL for none (a separator).
     pub label: *const c_char,
     /// A command's key chord, NUL-terminated; NULL for none.
@@ -1423,8 +1476,8 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 ..out
             }
         }
-        // The library answers it itself (oxyos-client).
-        Event::Ping { .. } => return None,
+        // The library answers it itself (oxyos-client), unless the client does (oxyos_client_poll).
+        Event::Ping { .. } | Event::PingHandled { .. } => return None,
         Event::TrashItems { items } => {
             out = OxyOSEvent {
                 kind: OXYOS_EVENT_TRASH_ITEMS,
@@ -1736,6 +1789,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 code: window,
                 width: size.width,
                 height: size.height,
+                ..out
+            }
+        }
+        Event::SurfaceWorkspaces {
+            surface,
+            count,
+            workspace,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_SURFACE_WORKSPACES,
+                surface,
+                detail: count,
+                code: workspace,
                 ..out
             }
         }
@@ -2075,6 +2141,19 @@ pub fn convert(event: &Event) -> Option<OxyOSEvent> {
                 code: window,
                 detail: index,
                 height: field as u32,
+                ..out
+            }
+        }
+        Event::MenuBarItemRole {
+            window,
+            index,
+            role,
+        } => {
+            out = OxyOSEvent {
+                kind: OXYOS_EVENT_MENU_BAR_ROLE,
+                code: window,
+                detail: index,
+                height: role as u32,
                 ..out
             }
         }
@@ -3249,7 +3328,9 @@ pub unsafe extern "C" fn oxyos_client_name_window(
 
 /// What the session's shell asks of windows and workspaces (ADR 0009, the `shell` grant):
 /// OXYOS_MANAGE_FOCUS, _CLOSE (the application is asked), _MINIMIZE or _MOVE (to `workspace`)
-/// `window`; _ACTIVATE_WORKSPACE, _ADD_WORKSPACE or _REMOVE_WORKSPACE. 0 on success.
+/// `window`; _ACTIVATE_WORKSPACE, _ADD_WORKSPACE or _REMOVE_WORKSPACE; _HIDE_APPLICATION,
+/// _QUIT_APPLICATION, _FORCE_QUIT_APPLICATION or _HIDE_OTHER_APPLICATIONS by `window`;
+/// _SHOW_ALL_APPLICATIONS. 0 on success.
 ///
 /// # Safety
 /// `client` is a live pointer from `oxyos_client_connect`.
@@ -3272,10 +3353,34 @@ pub unsafe extern "C" fn oxyos_client_manage(
         OXYOS_MANAGE_HIDE_APPLICATION => Request::HideApplication { window },
         OXYOS_MANAGE_QUIT_APPLICATION => Request::QuitApplication { window },
         OXYOS_MANAGE_FORCE_QUIT_APPLICATION => Request::ForceQuitApplication { window },
+        OXYOS_MANAGE_HIDE_OTHER_APPLICATIONS => Request::HideOtherApplications { window },
+        OXYOS_MANAGE_SHOW_ALL_APPLICATIONS => Request::ShowAllApplications {},
         _ => return fail("unknown action"),
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// The session's shell lays out a window (the `shell` grant; ADR 0016, decision 12: the Window
+/// menu), by its number: `layout` is an OXYOS_WINDOW_LAYOUT_*. The compositor tiles it, centres it,
+/// arranges it with the windows behind it, returns it to its size before, or zooms it and back;
+/// a window gone since, full screen or hidden is left as it is. Refused to a compositor of a
+/// version before 48. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_lay_out_window(
+    client: *mut OxyOSClient,
+    window: u32,
+    layout: u8,
+) -> c_int {
+    let Some(layout) = WindowLayout::from_raw(layout) else {
+        return fail("unknown layout");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::LayOutWindow { window, layout }) }
 }
 
 /// A window a shell surface shows live (docs/adr/0022-window-views.mdx): the window's number,
@@ -3515,6 +3620,49 @@ pub unsafe extern "C" fn oxyos_client_set_maximized(
     unsafe { send(client, Request::SetMaximized { surface, enabled }) }
 }
 
+/// A toplevel lays out its own window (ADR 0016, decision 12: its zoom control's menu, a Mac's
+/// green button): `layout` is an OXYOS_WINDOW_LAYOUT_*, as the shell's `oxyos_client_lay_out_window`
+/// takes, Zoom zooming it or back. Only the client's own toplevel; nothing while locked. Refused to
+/// a compositor of a version before 50. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_lay_out_surface(
+    client: *mut OxyOSClient,
+    surface: u32,
+    layout: u8,
+) -> c_int {
+    let Some(layout) = WindowLayout::from_raw(layout) else {
+        return fail("unknown layout");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::LayOutSurface { surface, layout }) }
+}
+
+/// A toplevel moves its own window to another of the session's workspaces, numbered from 0
+/// (ADR 0016, decision 12: its zoom control's Move to, `OXYOS_EVENT_SURFACE_WORKSPACES`): one there
+/// is, while unlocked. Refused to a compositor of a version before 50. 0 on success.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_move_surface_to_workspace(
+    client: *mut OxyOSClient,
+    surface: u32,
+    workspace: u32,
+) -> c_int {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        send(
+            client,
+            Request::MoveSurfaceToWorkspace { surface, workspace },
+        )
+    }
+}
+
 /// Minimizes a toplevel, as the shell does: into the dock (ADR 0016). 0 on success.
 ///
 /// # Safety
@@ -3550,6 +3698,72 @@ pub unsafe extern "C" fn oxyos_client_set_size_limits(
     };
     // SAFETY: forwarded caller contract.
     unsafe { send(client, request) }
+}
+
+/// A surface's material regions for its next Submit (docs/adr/0069-the-platforms-material.mdx):
+/// `count` rounded rectangles in its buffer pixels, five values each in `regions` (x, y, width,
+/// height, radius), under which the compositor blurs what it has composed beneath the surface;
+/// `count` 0: none. Kept until another list replaces it. 0 on success; an error, sending nothing,
+/// past OXYOS_MAX_MATERIAL_REGIONS, with a negative size or radius, or to a compositor of a version
+/// before OXYOS_MATERIAL_VERSION.
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`; `regions` holds `count` × 5 values
+/// (it may be null when `count` is 0).
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_set_material_regions(
+    client: *mut OxyOSClient,
+    surface: u32,
+    regions: *const i32,
+    count: usize,
+) -> c_int {
+    if count > oxyos_protocol::MAX_MATERIAL_REGIONS {
+        return fail("too many material regions");
+    }
+    if count > 0 && regions.is_null() {
+        return fail("null material regions");
+    }
+    let values: &[i32] = if count == 0 {
+        &[]
+    } else {
+        // SAFETY: the caller's contract: `regions` holds `count` × 5 values.
+        unsafe { std::slice::from_raw_parts(regions, count * 5) }
+    };
+    let mut requests = Vec::with_capacity(count.max(1));
+    for (index, region) in values.chunks_exact(5).enumerate() {
+        let (Ok(width), Ok(height), Ok(radius)) = (
+            u32::try_from(region[2]),
+            u32::try_from(region[3]),
+            u32::try_from(region[4]),
+        ) else {
+            return fail("a negative material region size or radius");
+        };
+        requests.push(Request::MaterialRegion {
+            surface,
+            index: index as u8,
+            last: index + 1 == count,
+            rect: Rect::new(region[0], region[1], width, height),
+            radius,
+        });
+    }
+    if requests.is_empty() {
+        requests.push(Request::MaterialRegion {
+            surface,
+            index: 0,
+            last: true,
+            rect: Rect::new(0, 0, 0, 0),
+            radius: 0,
+        });
+    }
+    for request in requests {
+        // SAFETY: forwarded caller contract.
+        let sent = unsafe { send(client, request) };
+        if sent != 0 {
+            return sent;
+        }
+    }
+    0
 }
 
 /// Limits where a surface takes pointer and touch input to a surface-local logical rectangle
@@ -3755,8 +3969,9 @@ pub unsafe extern "C" fn oxyos_client_publish_accessibility_detailed(
 
 /// Declares a toplevel's menus (ADR 0021), replacing its last: `count` entries in order, each
 /// parent before what it holds, as the commit `serial` (above every earlier one of the window;
-/// a MENU_ITEM_ACTIVATED names it with the chosen entry's index). A label longer than the
-/// protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
+/// a MENU_ITEM_ACTIVATED names it with the chosen entry's index), each entry's role told only to
+/// a compositor of version 43 or newer (an older one's shell shows it where it is declared). A
+/// label longer than the protocol allows is cut at a character; a shortcut longer is left out, since a cut chord would
 /// be another. More entries, an unknown kind or flags: OXYOS_ERROR, and nothing is sent. 0 on
 /// success.
 ///
@@ -3790,11 +4005,16 @@ pub unsafe extern "C" fn oxyos_client_set_menus(
     };
     let mut menus = Vec::with_capacity(items.len());
     for item in items {
-        let (Some(kind), Some(flags), Some(label), Some(shortcut)) = (
+        let role = match item.role {
+            OXYOS_MENU_ROLE_NONE => Some(None),
+            role => MenuRole::from_raw(role).map(Some),
+        };
+        let (Some(kind), Some(flags), Some(label), Some(shortcut), Some(role)) = (
             MenuKind::from_raw(item.kind),
             MenuFlags::new(item.flags),
             text(item.label),
             text(item.shortcut),
+            role,
         ) else {
             return fail("invalid menu entry");
         };
@@ -3804,6 +4024,7 @@ pub unsafe extern "C" fn oxyos_client_set_menus(
             flags,
             label,
             shortcut,
+            role,
         });
     }
     // SAFETY: forwarded caller contract.
@@ -4966,6 +5187,22 @@ pub unsafe extern "C" fn oxyos_client_poll(
     };
     loop {
         match client.poll() {
+            Ok(Poll::Event(Event::Ping { serial })) if client.answers_pings_itself() => {
+                *out = OxyOSEvent {
+                    kind: OXYOS_EVENT_PING,
+                    serial: serial.into(),
+                    ..OxyOSEvent::default()
+                };
+                return OXYOS_POLL_EVENT;
+            }
+            Ok(Poll::Event(Event::PingHandled { serial })) if client.answers_pings_itself() => {
+                *out = OxyOSEvent {
+                    kind: OXYOS_EVENT_PING_HANDLED,
+                    serial: serial.into(),
+                    ..OxyOSEvent::default()
+                };
+                return OXYOS_POLL_EVENT;
+            }
             Ok(Poll::Event(event)) => {
                 if let Some(event) = convert(&event).or_else(|| gpu_change(client)) {
                     *out = event;
@@ -4977,6 +5214,38 @@ pub unsafe extern "C" fn oxyos_client_poll(
             Err(error) => return fail(error),
         }
     }
+}
+
+/// From now on the client answers the compositor's pings itself: `oxyos_client_poll` gives each
+/// as OXYOS_EVENT_PING (serial) instead of the library answering it as it reads, and the client
+/// answers with `oxyos_client_pong` once it handled what came before it (a runtime whose events
+/// are handled on another thread than the one reading them, docs/adr/0071-the-ui-thread.mdx).
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_answer_pings_itself(client: *mut OxyOSClient) -> c_int {
+    // SAFETY: forwarded caller contract.
+    let Some(client) = (unsafe { self::client(client) }) else {
+        return fail("null client");
+    };
+    client.answer_pings_itself();
+    0
+}
+
+/// Answers the compositor's Ping `serial` (an OXYOS_EVENT_PING's).
+///
+/// # Safety
+/// `client` is a live pointer from `oxyos_client_connect`.
+#[allow(unsafe_code)]
+#[no_mangle]
+pub unsafe extern "C" fn oxyos_client_pong(client: *mut OxyOSClient, serial: u64) -> c_int {
+    let Ok(serial) = u32::try_from(serial) else {
+        return fail("not a ping's serial");
+    };
+    // SAFETY: forwarded caller contract.
+    unsafe { send(client, Request::Pong { serial }) }
 }
 
 /// Tells the compositor about the text field focused in `surface` (ADR 0008), or that none is

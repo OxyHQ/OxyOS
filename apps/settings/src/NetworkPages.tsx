@@ -70,7 +70,7 @@ import type { SettingsActions, SettingsSnapshot } from "./model";
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 type Words = Messages["wifi"];
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const TRAILING = { flexDirection: "row", alignItems: "center", gap: 12 } as const;
 
 /** A network's signal in three arcs, as the shell's top bar draws it; the arcs it does not reach
@@ -448,6 +448,7 @@ export function WifiPage({ snapshot, actions, strings, locale }: PageProps) {
           testID="wifi"
           rightElement={
             <Switch
+              size="xs"
               checked={wifi.enabled}
               onCheckedChange={act.setWifi}
               accessibilityLabel={words.wifi}

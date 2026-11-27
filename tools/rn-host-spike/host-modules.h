@@ -6,6 +6,7 @@
 #include "migration.h"
 #include "network.h"
 #include "renderer.h"
+#include "ui-thread.h"
 
 #include <oxyos_client.h>
 
@@ -35,7 +36,29 @@ using facebook::react::CallInvoker;
 using facebook::react::TurboModule;
 namespace jsi = facebook::jsi;
 
-// A TurboModule whose methods are host lambdas.
+// A module's method, as JavaScript calls it on its thread, made to hold the UI thread's state while it
+// runs (ui-thread.h): every method of the host's modules reaches that state (the window, the view tree,
+// the services), so none runs while the loop works. A value that is no function is returned as is.
+jsi::Value uiLockedMethod(jsi::Runtime& rt, const jsi::PropNameID& name, jsi::Value method);
+
+// The UI thread's state held for a call into the host.
+class HostCall {
+ private:
+  UiThread::Lock lock_;
+};
+
+// A module of React Native's codegen (a NativeOxyOS*CxxSpec) whose methods hold the UI thread's state.
+template <typename Module>
+class UiLocked : public Module {
+ public:
+  using Module::Module;
+  jsi::Value create(jsi::Runtime& rt, const jsi::PropNameID& prop) override {
+    return uiLockedMethod(rt, prop, Module::create(rt, prop));
+  }
+};
+
+// A TurboModule whose methods are host lambdas, each holding the UI thread's state while it runs
+// (ui-thread.h).
 class HostModule : public TurboModule {
  public:
   using Method = std::function<jsi::Value(jsi::Runtime&, const jsi::Value*, size_t)>;
@@ -90,6 +113,7 @@ class HostModule : public TurboModule {
     auto fn = it->second;
     return jsi::Function::createFromHostFunction(
         rt, prop, 0, [fn](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
+          HostCall call;
           return fn(rt, args, count);
         });
   }
@@ -169,6 +193,9 @@ struct ShellService {
   // application that opens its scheme, citing the latest input: the request's serial, 0 if it could
   // not be sent (`OxyOSShellLaunch` answers). False if not sent.
   std::function<bool(uint32_t window)> forceQuitApplication;
+  // The Window menu (docs/adr/0016-windows.mdx, decision 12): the compositor lays out a window
+  // (OXYOS_WINDOW_LAYOUT_*). False if not sent.
+  std::function<bool(uint32_t window, uint8_t layout)> layOutWindow;
   std::function<bool(uint32_t list, const std::vector<std::string>& ids)> setApplicationList;
   std::function<uint32_t(const std::string& url)> openUrl;
   // The Trash emptied, citing the latest input: the session asks the person first.
@@ -204,7 +231,8 @@ struct NotificationsService {
 // says what the person chose in the shell's bar. Unset without an application window.
 struct MenuEntry {
   uint32_t parent = OXYOS_NO_MENU_PARENT;
-  uint8_t kind = 0, flags = 0;
+  // role: OXYOS_MENU_ROLE_* (the application's About or Settings…, Bloom's `action`).
+  uint8_t kind = 0, flags = 0, role = OXYOS_MENU_ROLE_NONE;
   std::string label, shortcut;
 };
 struct MenuBarService {
@@ -234,6 +262,10 @@ struct WindowService {
   // Moves the window with the pointer from the press being handled (false if there is none).
   std::function<bool()> startMove;
   std::function<void(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight)> setSizeLimits;
+  // Its zoom control's layouts (docs/adr/0016-windows.mdx, decision 12, protocol version 50): laid
+  // out as `layout` (OXYOS_WINDOW_LAYOUT_*), and moved to another of the session's workspaces.
+  std::function<void(uint8_t layout)> layOut;
+  std::function<void(uint32_t workspace)> moveToWorkspace;
 };
 
 // The session's preferences (docs/adr/0019-settings.mdx): those every client draws by (`drawing`:
@@ -253,10 +285,10 @@ struct SettingsService {
 };
 
 // The window's key presses for Bloom's `PlatformKeyboard` (key-chords.h): JavaScript's one
-// listener, called with each press before the focused view, which returns whether it took the key
-// (a menu's shortcut ran). Set by JavaScript in an application's window; never in the shell.
+// listener, called on its thread with each press before the focused view, which returns whether it
+// took the key (a menu's shortcut ran). Set by JavaScript in an application's window; never in the
+// shell.
 struct KeyboardService {
-  jsi::Runtime* runtime = nullptr;
   std::shared_ptr<jsi::Function> listener;
 };
 
@@ -343,6 +375,9 @@ struct HostServices {
   // Whether the host runs an application in a window of its own (not the shell, not offscreen):
   // known before JavaScript starts, so Bloom's adapter reports the `window` capability from it.
   bool applicationWindow = false;
+  // Whether its compositor lays the window out at its own request (protocol version 50 or newer,
+  // docs/adr/0016-windows.mdx, decision 12): Bloom's adapter reports `window-layout` from it.
+  bool windowLayouts = false;
   // Whether it runs the session's shell, whose surfaces' keys are offered to JavaScript too
   // (Launchpad's arrows and Return, docs/adr/0009-session-shell.mdx).
   bool shellWindow = false;
@@ -371,6 +406,8 @@ struct HostServices {
   // docs/adr/0044-system-sounds.mdx), citing the latest input: whether it was asked for.
   std::function<bool(const std::string& sound)> playSystemSound;
   bool soundsAvailable = false;
+  // Whether the compositor takes material regions (protocol version 45, OxyOSMaterial).
+  bool materialAvailable = false;
   // AccessibilityInfo.announceForAccessibility (ADR 0003): to assistive technologies, from the
   // window; unset without one.
   std::function<void(const std::string& text)> announce;

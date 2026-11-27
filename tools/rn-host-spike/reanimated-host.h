@@ -12,7 +12,9 @@
 #include <folly/dynamic.h>
 
 #include <chrono>
+#include <atomic>
 #include <functional>
+#include <mutex>
 #include <memory>
 #include <optional>
 #include <string>
@@ -62,9 +64,14 @@ class ReanimatedHost {
   const DisplayRefresh& refresh_;
   std::function<bool()> reducedMotion_;
   std::shared_ptr<reanimated::ReanimatedModuleProxy> proxy_;
-  std::shared_ptr<std::vector<std::function<void(double)>>> renders_;
+  // The render callbacks asked for: on the UI thread, or by a worklet JavaScript's thread runs at once.
+  struct Renders {
+    std::mutex mutex;
+    std::vector<std::function<void(double)>> callbacks;
+  };
+  std::shared_ptr<Renders> renders_;
   double lastFrame_ = 0;
-  bool wanted_ = true;
+  std::atomic<bool> wanted_ = true;
 };
 
 }  // namespace oxyos

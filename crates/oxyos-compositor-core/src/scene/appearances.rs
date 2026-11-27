@@ -59,6 +59,11 @@ pub enum Change {
     /// and its source having said so (ADR 0035, 6 November 2026), as an item dragged out of a
     /// Mac's Dock: its centre at (`x`, `y`), global, logical.
     Vanished { x: i32, y: i32 },
+    /// The shell's dock, hiding automatically, coming up from its output's bottom edge
+    /// (docs/adr/0034-the-dock.mdx, 10 November 2026).
+    EdgeShown,
+    /// The same dock sliding down off the output.
+    EdgeHidden,
     /// A window's frame changed at once (zoomed, restored from a zoom, maximized or tiled by the
     /// shell), not by hand (docs/adr/0016-windows.mdx): it stays on the screen, its frame
     /// animated from where it was drawn to where it is configured.
@@ -78,7 +83,7 @@ impl Appearance {
     pub fn arrived(&self) -> bool {
         matches!(
             self.change,
-            Change::Arrived | Change::Restored | Change::WorkspaceIn { .. }
+            Change::Arrived | Change::Restored | Change::WorkspaceIn { .. } | Change::EdgeShown
         )
     }
 }

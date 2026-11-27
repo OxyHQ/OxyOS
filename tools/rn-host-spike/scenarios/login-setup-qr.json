@@ -27,8 +27,7 @@
         "deviceSecret": "played-device-secret-1"
       },
       "qr": {
-        "approve": "socket",
-        "approve_after_ms": 7500
+        "approve": "cue"
       }
     },
     "enroll": {
@@ -104,8 +103,12 @@
     {
       "name": "a phone approves the QR: the session claimed once, the PIN page at once, its field focused, step 2 of 4; no password asked or offered",
       "do": [
-        "wait",
-        4000
+        "cue",
+        "qr-approve"
+      ],
+      "until_named": [
+        "Create a PIN",
+        20000
       ],
       "allow_unchanged": true,
       "expect": {
@@ -119,7 +122,7 @@
         "in_shell": {
           "texts": [
             "Create a PIN",
-            "You'll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
+            "You’ll use it to sign in and unlock this computer, even offline. It stays here: Oxy never sees it.",
             "Step 2 of 4",
             "Back"
           ],
@@ -157,7 +160,7 @@
         "in_shell": {
           "texts": [
             "Enter Your PIN Again",
-            "To be sure it's the one you meant.",
+            "To be sure it’s the one you meant.",
             "Step 2 of 4"
           ],
           "absent": [

@@ -55,6 +55,9 @@ StateDirectoryMode=0700
 # without CAP_IPC_LOCK. A key that cannot be locked keeps its keychain locked, so the limit is set
 # well above what it needs. Nothing it holds is ever written to a core file.
 LimitMEMLOCK=16M
+# Its crash is logged with its signal and nothing of its memory, not even a backtrace read from it
+# (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): it holds every account's tokens and
+# keychain keys.
 LimitCORE=0
 RuntimeDirectory=oxyos/accountd
 RuntimeDirectoryMode=0755

@@ -119,13 +119,17 @@
   ],
   "steps": [
     {
-      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window, once Atlas shows it",
       "do": [
         "press_output",
         [
           680,
           693
         ]
+      ],
+      "until_named": [
+        "Discover",
+        30000
       ],
       "expect": {
         "in_shell": {
@@ -163,7 +167,7 @@
       }
     },
     {
-      "name": "the storefront: Notes' and Mention's icons, an SVG document and a PNG cloud.oxy.so serves, fetched with Atlas's network and drawn in Bloom's squircle",
+      "name": "the storefront: Notes' and Mention's icons, an SVG document and a PNG cloud.oxy.so serves, fetched with Atlas's network and drawn in Bloom's squircle, once they are drawn",
       "do": [
         "wait_named",
         [
@@ -172,6 +176,7 @@
         ]
       ],
       "allow_unchanged": true,
+      "until_output_pixels": 30000,
       "expect": {
         "in_launched": {
           "texts": [
@@ -184,12 +189,12 @@
         "output_pixels": {
           "345,554": "#ffffff",
           "345,559": "#ff9f0a",
-          "318,560": "#ffb90a",
-          "314,528": "#fff7f9",
+          "318,556": "#ffb90a",
+          "315,523": "#f9f9f9",
           "810,395": "#2f6fed",
           "792,395": "#2f6fed",
-          "787,372": "#fae2f9",
-          "356,389": "#ff9f0a"
+          "787,370": "#f4e3f9",
+          "356,390": "#ff9f0a"
         }
       }
     }

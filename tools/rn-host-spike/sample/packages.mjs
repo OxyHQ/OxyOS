@@ -31,13 +31,14 @@ const framework = path.join(runtime, 'framework', 'framework.json');
 if (!fs.existsSync(framework)) throw new Error(`${runtime} has no framework: build it with framework.mjs`);
 if (!fs.existsSync(key)) execFileSync(pack, ['key', key], { stdio: 'inherit' });
 
-// Each application's icon, the artwork the registry already shows for it; the shell and the login
-// screen, which the dock never shows, carry the OS's mark.
+// Each application's icon, the artwork the registry already shows for it; the shell, the login
+// screen and About This Computer, which the dock never shows, carry the OS's mark.
 const repository = path.resolve(here, '../../..');
 const icons = {
   'so.oxy.shell': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.login': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.settings': 'tools/shell-preview/assets/apps/settings.png',
+  'so.oxy.aboutthiscomputer': 'config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos/mark-1200.png',
   'so.oxy.activitymonitor': 'tools/shell-preview/assets/apps/activity-monitor.png',
   'so.oxy.inbox': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.allo': 'tools/shell-preview/assets/apps/allo.png',
@@ -46,6 +47,7 @@ const icons = {
   'so.oxy.permissionprobe': 'tools/shell-preview/assets/apps/inbox.png',
   'so.oxy.backgroundprobe': 'tools/shell-preview/assets/apps/allo.png',
   'so.oxy.crashprobe': 'tools/shell-preview/assets/apps/inbox.png',
+  'so.oxy.hangprobe': 'tools/shell-preview/assets/apps/allo.png',
 };
 // Each application's declared searchable items (docs/adr/0051-search.mdx): `searchable.json` at its
 // package's root, beside `manifest.json` and `index.hbc`, listed in the manifest as every file is.
@@ -59,6 +61,7 @@ const entries = {
   'so.oxy.shell': 'entries/shell.js',
   'so.oxy.login': 'entries/login.js',
   'so.oxy.settings': 'entries/settings.js',
+  'so.oxy.aboutthiscomputer': 'entries/about-this-computer.js',
   'so.oxy.activitymonitor': 'entries/activity-monitor.js',
   'so.oxy.inbox': 'entries/inbox.js',
   'so.oxy.allo': 'entries/allo.js',
@@ -70,6 +73,8 @@ const entries = {
   // An application that quits unexpectedly while its data is corrupt (docs/adr/0061), installed by
   // the crash scenarios.
   'so.oxy.crashprobe': 'entries/crash.js',
+  // An application that hangs (docs/adr/0067), installed by the hang scenarios.
+  'so.oxy.hangprobe': 'entries/hang.js',
 };
 // The applications built from their own checkouts (docs/react-native-android-adaptation.mdx), each
 // named by its variable and built when it is given: the runtime's entry (oxyos/application.js)

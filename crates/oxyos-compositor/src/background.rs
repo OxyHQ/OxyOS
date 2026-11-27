@@ -72,7 +72,7 @@ pub fn added_notification(spanish: bool, name: &str) -> (&'static str, String) {
         (
             "Ítems en segundo plano añadidos",
             format!(
-                "«{name}» ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
+                "“{name}” ha añadido un ítem que puede ejecutarse en segundo plano. Puedes gestionarlo en Ítems de inicio y extensiones."
             ),
         )
     } else {

@@ -11,8 +11,8 @@
 
 use super::{ClientId, Role, Scene, SurfaceKey};
 use oxyos_protocol::{
-    ErrorCode, Event, MenuField, MenuFlags, MenuKind, TextChunk, MAX_MENU_DEPTH, MAX_MENU_ITEMS,
-    MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES, NO_MENU_PARENT,
+    ErrorCode, Event, MenuField, MenuFlags, MenuKind, MenuRole, TextChunk, MAX_MENU_DEPTH,
+    MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES, MAX_MENU_SHORTCUT_BYTES, NO_MENU_PARENT,
 };
 use std::collections::BTreeMap;
 
@@ -27,6 +27,9 @@ pub struct MenuEntry {
     pub label: String,
     /// A command's key chord, as the bar shows it (empty: none).
     pub shortcut: String,
+    /// Which of the application's standard commands it is (its About, its Settings…), which the
+    /// shell shows in the application's own menu.
+    pub role: Option<MenuRole>,
 }
 
 /// A window's menus as one commit declared them.
@@ -141,6 +144,7 @@ impl Scene {
             flags,
             label: String::new(),
             shortcut: String::new(),
+            role: None,
         });
         pending.depths.push(depth);
         Ok(())
@@ -168,6 +172,32 @@ impl Scene {
             return Err(ErrorCode::QuotaExceeded);
         }
         target.push_str(text.as_str());
+        Ok(())
+    }
+
+    /// An entry received is one of the application's standard commands: only a command without
+    /// a check, each role once in a commit and an entry at most one.
+    pub(super) fn menu_item_role(
+        &mut self,
+        key: SurfaceKey,
+        index: u32,
+        role: MenuRole,
+    ) -> Result<(), ErrorCode> {
+        let pending = self.pending_menus(key)?;
+        if index as usize >= pending.entries.len() {
+            return Err(ErrorCode::InvalidOrder);
+        }
+        if pending.entries.iter().any(|entry| entry.role == Some(role)) {
+            return Err(ErrorCode::InvalidMessage);
+        }
+        let entry = &mut pending.entries[index as usize];
+        if entry.kind != MenuKind::Item
+            || entry.flags.contains(MenuFlags::CHECKABLE)
+            || entry.role.is_some()
+        {
+            return Err(ErrorCode::InvalidMessage);
+        }
+        entry.role = Some(role);
         Ok(())
     }
 
@@ -367,6 +397,18 @@ impl Scene {
                             },
                         );
                     }
+                }
+                // Its role, which a shell of version 39 is never told (it shows the entry where
+                // the application declared it).
+                if let Some(role) = entry.role {
+                    self.emit(
+                        client,
+                        Event::MenuBarItemRole {
+                            window,
+                            index,
+                            role,
+                        },
+                    );
                 }
             }
             self.emit(client, Event::MenuBarCommitted { window });

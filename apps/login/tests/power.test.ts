@@ -28,11 +28,11 @@ test("a refusal is said with why; what is happening says nothing", () => {
   assert.equal(loginPowerRefusal("sleep", { sleeping: {} }, en), null);
   assert.equal(
     loginPowerRefusal("shutDown", { refused: { reason: "notPermitted" } }, en),
-    "Your computer can't shut down now. Someone else is logged in to this computer, or an application is keeping it on. An administrator must shut it down.",
+    "Your computer can’t shut down now. Someone else is signed in to this computer, or an app is keeping it on. An administrator must shut it down.",
   );
   assert.equal(
     loginPowerRefusal("restart", { failed: { reason: "unavailable" } }, es),
-    "El ordenador no puede reiniciarse ahora. OxyOS no ha podido conectar con el servicio de energía del sistema.",
+    "El ordenador no puede reiniciarse ahora. El sistema no ha respondido. Vuelve a intentarlo en un momento.",
   );
 });
 

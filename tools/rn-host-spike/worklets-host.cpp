@@ -2,6 +2,7 @@
 
 #include "host-modules.h"
 #include "report.h"
+#include "ui-thread.h"
 
 #include <cxxreact/JSBigString.h>
 
@@ -34,16 +35,19 @@ namespace oxyos {
 
 namespace {
 
-// The UI thread is the host's loop. While JavaScript's thread takes turns with it (js-thread.h), never
-// running at once, what runs on either is the UI thread's as far as worklets ask: Reanimated's layout
-// animations take a mount pulled on JavaScript's thread as the UI thread's, as on the one thread.
+// The UI thread is the host's loop (ui-thread.h): a job JavaScript's thread schedules on it (runOnUI)
+// wakes it, and it runs the job as it turns.
 class LoopUIScheduler : public worklets::UIScheduler {
  public:
   // Whether UI jobs are queued for the next triggerUI.
   bool pending() { return !uiJobs_.empty(); }
+  void scheduleOnUI(std::function<void()> job) override {
+    worklets::UIScheduler::scheduleOnUI(std::move(job));
+    if (!UiThread::isCurrent()) UiThread::wake();
+  }
 
  protected:
-  bool queryIsOnUIThread() const override { return true; }
+  bool queryIsOnUIThread() const override { return UiThread::isCurrent(); }
 };
 
 // Networking from worklet runtimes has no OxyOS backend yet: every request fails explicitly.
@@ -61,8 +65,8 @@ class UnsupportedNetworking : public worklets::NetworkingBackend {
 WorkletsHost::WorkletsHost(const DisplayRefresh& refresh, std::string compiled, std::function<bool()> onJsThread)
     : refresh_(refresh),
       ui_(std::make_shared<LoopUIScheduler>()),
-      frames_(std::make_shared<std::vector<std::function<void(double)>>>()),
-      wanted_(std::make_shared<bool>(true)),
+      frames_(std::make_shared<Frames>()),
+      wanted_(std::make_shared<std::atomic<bool>>(true)),
       compiled_(std::move(compiled)),
       onJsThread_(std::move(onJsThread)) {}
 
@@ -77,10 +81,16 @@ std::shared_ptr<react::TurboModule> WorkletsHost::module(
     auto frames = frames_;
     auto bindings = std::make_shared<worklets::RuntimeBindings>(worklets::RuntimeBindings{
         .requestAnimationFrame = [this, frames](std::function<void(const double)>&& callback) {
-          frames->push_back(std::move(callback));
+          {
+            std::lock_guard lock(frames->mutex);
+            frames->callbacks.push_back(std::move(callback));
+          }
           // Worklets' frame loop starts as the UI runtime sets its frame queue up, which is when
           // its requestAnimationFrame is there to watch.
           if (!watching_) watchRequests();
+          // Asked on JavaScript's thread (a worklet run there at once, runOnUISync): the loop is
+          // told, as it may be asleep.
+          if (!UiThread::isCurrent()) UiThread::wake();
         },
         .nativeLoggingHook =
             [](jsi::Runtime& rt, const jsi::Value&, const jsi::Value* args, size_t count) {
@@ -192,20 +202,28 @@ bool WorkletsHost::tick() {
   ui_->triggerUI();
   if (ran) *wanted_ = true;
   double now = nowMs();
-  if (!frames_->empty() && (*wanted_ || !watched_) && now - lastFrame_ >= refresh_.periodMs()) {
-    lastFrame_ = now;
-    // What the frame asks for wants the one after it.
-    *wanted_ = false;
-    auto callbacks = std::move(*frames_);
-    frames_->clear();
-    for (auto& callback : callbacks) callback(now);
-    ran = true;
+  std::vector<std::function<void(double)>> callbacks;
+  {
+    std::lock_guard lock(frames_->mutex);
+    if (!frames_->callbacks.empty() && (*wanted_ || !watched_) && now - lastFrame_ >= refresh_.periodMs()) {
+      lastFrame_ = now;
+      // What the frame asks for wants the one after it.
+      *wanted_ = false;
+      callbacks.swap(frames_->callbacks);
+    }
   }
-  return ran;
+  if (callbacks.empty()) return ran;
+  for (auto& callback : callbacks) callback(now);
+  return true;
 }
 
 std::optional<std::chrono::steady_clock::time_point> WorkletsHost::nextFrame() const {
-  if (frames_->empty() || (watched_ && !*wanted_)) return std::nullopt;
+  bool waiting;
+  {
+    std::lock_guard lock(frames_->mutex);
+    waiting = !frames_->callbacks.empty();
+  }
+  if (!waiting || (watched_ && !*wanted_)) return std::nullopt;
   double wait = std::max(0.0, lastFrame_ + refresh_.periodMs() - nowMs());
   return std::chrono::steady_clock::now() +
          std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(wait));

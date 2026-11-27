@@ -292,6 +292,15 @@ impl Capability {
                 | Capability::LoginItem
         )
     }
+
+    /// An Oxy thing rather than the device's or the person's: granted to Oxy's own applications
+    /// without asking, so their install and update sheets never list it; a third party's
+    /// application shows it at install, as Oxy's consent screen (decision 8's table; Oxy ADR
+    /// 0066). Which application is Oxy's own is the store's statement's to say
+    /// ([`ReleaseStatement::first_party`](crate::ReleaseStatement::first_party)).
+    pub fn oxys_own(&self) -> bool {
+        matches!(self, Capability::OxyAccount)
+    }
 }
 
 /// A capability with its purpose, in the person's languages.
@@ -310,6 +319,19 @@ pub struct Opens {
     /// URL schemes (`mailto`), sorted and unique.
     pub schemes: Vec<String>,
 }
+
+/// The size an application's window opens at, in layout pixels (`window`): as a Mac's application
+/// opens its window at the size its own bundle gives it. Each side in [`WINDOW_SIDES`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The sides a package's window may declare: no smaller than a window's controls and a line of
+/// content, no larger than any display a session drives (`oxyos_apps` reads the same range from
+/// the entry the install service writes, `X-OxyOS-Window-Size`).
+pub const WINDOW_SIDES: std::ops::RangeInclusive<u32> = 200..=8192;
 
 /// A package's manifest, read from its canonical bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -333,6 +355,8 @@ pub struct Manifest {
     /// Sorted by capability, each once.
     pub capabilities: Vec<CapabilityRequest>,
     pub opens: Opens,
+    /// The size its window opens at (`window`), when it declares one; else the session's.
+    pub window: Option<WindowSize>,
     /// Every other file, sorted by path.
     pub files: Vec<FileEntry>,
 }
@@ -612,6 +636,22 @@ impl Manifest {
             }
             None => Opens::default(),
         };
+        let window = match fields.optional("window") {
+            Some(value) => {
+                let mut w = Fields::of("window", value)?;
+                let side = |value: u64, field: &'static str| {
+                    u32::try_from(value)
+                        .ok()
+                        .filter(|side| WINDOW_SIDES.contains(side))
+                        .ok_or(Error::OutOfRange(field))
+                };
+                let width = side(w.integer("width")?, "window.width")?;
+                let height = side(w.integer("height")?, "window.height")?;
+                w.finish()?;
+                Some(WindowSize { width, height })
+            }
+            None => None,
+        };
         let declares = |c: Capability| capabilities.iter().any(|r| r.capability == c);
         if opens.types.is_empty() == declares(Capability::OpenFiles) {
             return Err(Error::OpensMismatch("opens.types"));
@@ -669,6 +709,7 @@ impl Manifest {
             architectures,
             capabilities,
             opens,
+            window,
             files,
         })
     }
@@ -768,6 +809,15 @@ impl Manifest {
                 opens.push(("schemes", strings(&self.opens.schemes)));
             }
             members.push(("opens", json::object(opens)));
+        }
+        if let Some(window) = self.window {
+            members.push((
+                "window",
+                json::object(vec![
+                    ("width", Value::Integer(window.width.into())),
+                    ("height", Value::Integer(window.height.into())),
+                ]),
+            ));
         }
         json::object(members)
     }

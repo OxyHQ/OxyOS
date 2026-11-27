@@ -743,6 +743,10 @@
     "type",
     "packa"
    ],
+   "until_named": [
+    "package-lock.json",
+    60000
+   ],
    "expect": {
     "focus_input": "search",
     "texts": [

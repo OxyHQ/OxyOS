@@ -134,11 +134,11 @@
   {
    "name": "Wi-Fi: twelve networks nearby, as the reference ThinkPad sees, more than the window shows: the page scrolls",
    "do": [
-    "press",
-    [
-     136,
-     110
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Wi-Fi"
+    }
    ],
    "expect": {
     "texts": [

@@ -95,11 +95,11 @@
   {
    "name": "Wi-Fi",
    "do": [
-    "press",
-    [
-     136,
-     110
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Wi-Fi"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
@@ -195,7 +195,7 @@
    "do": [
     "wait_named",
     [
-     "Couldn't forget the network",
+     "Couldn’t forget the network",
      5000
     ]
    ],

@@ -63,7 +63,7 @@ export type {
   TaggedItem,
   TrashedItem,
 } from './files.ts';
-export type { ShellEvent, ShellIntents, SystemSheet } from './shell.ts';
+export type { ShellEvent, ShellIntents, SystemSheet, WindowLayout } from './shell.ts';
 export type { KeyEvent, MenuEntry, Modifiers } from './windows.ts';
 export type { DragAction, DragData, DragEndReason, DragOutcome, DragRequest, WindowDragEvent } from './drag.ts';
 export {

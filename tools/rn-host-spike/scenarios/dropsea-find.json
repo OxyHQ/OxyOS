@@ -1,0 +1,207 @@
+{
+ "about": "Dropsea's Edit menu and Find…, as Finder's (OxyHQ/Dropsea#61; docs/adr/0021-menu-bar.mdx): Edit holds Cut, Copy and Paste, the standard editing actions, disabled with no field focused (Dropsea keeps no clipboard of files), and Find… (Ctrl+F), which gives the toolbar's search field the keyboard with its text selected to type over. Ctrl+F in the window finds without the bar; Find… from the bar, its field already holding text, selects that text (Cut and Copy then enabled), so what is typed next replaces it and searches again.",
+ "module": "Dropsea",
+ "window": [
+  1000,
+  640
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.dropsea",
+  "title": "Dropsea"
+ },
+ "home": {
+  "items": {
+   "Documents/": "",
+   "Documents/Informe trimestral.pdf": "%PDF-1.4",
+   "Documents/informe de viaje.txt": "Sevilla en tren",
+   "Projects/": "",
+   "Projects/informe.md": "# Informe",
+   "Music/": "",
+   "notes.txt": "nothing here"
+  }
+ },
+ "steps": [
+  {
+   "name": "Dropsea opens at the home: Edit in the bar, its Cut, Copy and Paste disabled (no field has focus), Find… enabled with Ctrl+F",
+   "do": [
+    "wait_named",
+    [
+     "Documents",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": null,
+    "menus": {
+     "Edit > Cut": {
+      "disabled": true
+     },
+     "Edit > Copy": {
+      "disabled": true
+     },
+     "Edit > Paste": {
+      "disabled": true
+     },
+     "Edit > Find…": {
+      "disabled": false,
+      "shortcut": "Mod+F"
+     }
+    }
+   }
+  },
+  {
+   "name": "Ctrl+F in the window: the toolbar's search field has the keyboard, with no bar",
+   "do": [
+    "key",
+    [
+     29,
+     33
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "what is typed goes to the field and searches the whole computer",
+   "do": [
+    "type",
+    "inform"
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "the three reports, from three folders; Select All, Cut and Copy now the field's",
+   "do": [
+    "wait_named",
+    [
+     "informe.md",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search",
+    "at": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "Informe trimestral.pdf"
+      },
+      {
+       "role": "ListItem",
+       "name": "informe de viaje.txt"
+      },
+      {
+       "role": "ListItem",
+       "name": "informe.md"
+      }
+     ]
+    },
+    "at_absent": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "notes.txt"
+      }
+     ]
+    },
+    "menus": {
+     "Edit > Select All": {
+      "disabled": false
+     }
+    }
+   }
+  },
+  {
+   "name": "Edit opens in the shell's bar, each command's chord as Ctrl; the field keeps focus",
+   "do": [
+    "press_named",
+    "Edit"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search",
+    "in_shell": {
+     "texts": [
+      "Cut",
+      "Ctrl+X",
+      "Copy",
+      "Ctrl+C",
+      "Paste",
+      "Ctrl+V",
+      "Find…",
+      "Ctrl+F"
+     ]
+    }
+   }
+  },
+  {
+   "name": "Find… from the bar: the keyboard is the window's again, the field's text selected, the command run once",
+   "do": [
+    "press_named",
+    "Find…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search",
+    "delivered": {
+     "1": {
+      "enter": 1,
+      "focus.in": 1,
+      "menu.activated": 1
+     }
+    },
+    "menus": {
+     "Edit > Cut": {
+      "disabled": false
+     },
+     "Edit > Copy": {
+      "disabled": false
+     }
+    }
+   }
+  },
+  {
+   "name": "what is typed next replaces the selected text: viaje finds the trip's report alone",
+   "do": [
+    "type",
+    "viaje"
+   ],
+   "expect": {
+    "focus_input": "search"
+   }
+  },
+  {
+   "name": "informe de viaje.txt alone",
+   "do": [
+    "wait_named",
+    [
+     "informe de viaje.txt",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "focus_input": "search",
+    "at_absent": {
+     "window": [
+      {
+       "role": "ListItem",
+       "name": "informe.md"
+      },
+      {
+       "role": "ListItem",
+       "name": "Informe trimestral.pdf"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

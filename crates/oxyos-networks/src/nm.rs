@@ -1252,9 +1252,10 @@ async fn next_of(
 /// no other signal is delivered: the daemon's own state and Wi-Fi's switches, its devices' states
 /// and properties (a cable, the access point joined; not a scan's list of access points, read
 /// whole as a scan asked for ends), the saved connections, its name's owner, and the strength of
-/// the access point joined, which `changed` names after each change. Changes that come together
-/// are one call, `settle` after the first; a strength alone is told at once. Without the bus,
-/// returns the error; returns when the bus closes.
+/// the access point joined, which `changed` names after each change (its signal is delivered
+/// whatever it names, as a match reads no dictionary: a scan's "last seen" alone wakes the thread
+/// once and is no call). Changes that come together are one call, `settle` after the first; a
+/// strength alone is told at once. Without the bus, returns the error; returns when the bus closes.
 pub fn watch(
     address: Option<&str>,
     settle: Duration,

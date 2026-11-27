@@ -353,6 +353,9 @@ pub enum Launch {
         module: String,
         bundle: Option<PathBuf>,
         runtime: Option<u32>,
+        /// The size its window opens at, in layout pixels (`X-OxyOS-Window-Size`, `780x560`), as
+        /// a Mac's application opens its window at its own size; without one, the session's.
+        window: Option<(u32, u32)>,
     },
 }
 
@@ -374,6 +377,16 @@ pub struct Application {
     pub origin: Origin,
     /// The media types it opens (`MimeType`, docs/adr/0028-file-access.mdx, decision 6).
     pub opens: Vec<String>,
+    /// Its version as people read it (`X-OxyOS-Version`, its package's `version`: "1.2.0") and
+    /// its build (`X-OxyOS-Package-Version`, the package's version code), which the standard About
+    /// panel shows (docs/adr/0021-menu-bar.mdx); none where its entry does not say.
+    pub version: Option<String>,
+    pub build: Option<u64>,
+    /// Whether the places that list applications for the person show it (Launchpad, Spotlight,
+    /// the dock, the switcher, Settings' lists): false for an entry with `NoDisplay`, which, as
+    /// the Desktop Entry Specification has it, exists and is started (by its id, by a type or a
+    /// scheme it opens) but is never listed. About This Computer is one: the Oxy menu opens it.
+    pub shown: bool,
 }
 
 /// Where an application's entry comes from (docs/adr/0030-installing-applications.mdx,
@@ -588,7 +601,8 @@ fn exec(value: &str) -> Result<Vec<String>, Error> {
 /// The application an entry describes: `id`, the entry's `text`, in `directory`, named in
 /// `languages` (the most wanted first, as `es_ES`, `es`). An entry grants nothing: an
 /// `X-OxyOS-Grants` in it is not read (system grants are the policy's, [`Policy`]). None for an
-/// entry not to list (`NoDisplay`, `Hidden`, not an application).
+/// entry that is no application (`Hidden`, which the specification makes a deleted one, or not an
+/// application); one with `NoDisplay` is an application never listed ([`Application::shown`]).
 pub fn parse(
     id: &str,
     text: &str,
@@ -613,7 +627,7 @@ pub fn parse(
     if keys.get("Type").map(String::as_str) != Some("Application") {
         return Ok(None);
     }
-    if flag("NoDisplay") || flag("Hidden") {
+    if flag("Hidden") {
         return Ok(None);
     }
     let name = languages
@@ -660,6 +674,16 @@ pub fn parse(
                         })?,
                 ),
             },
+            window: match keys.get("X-OxyOS-Window-Size") {
+                None => None,
+                Some(size) => Some(window_size(size).ok_or_else(|| {
+                    Error(format!(
+                        "{id}'s X-OxyOS-Window-Size is not WIDTHxHEIGHT, each from {} to {}",
+                        WINDOW_SIDES.start(),
+                        WINDOW_SIDES.end()
+                    ))
+                })?),
+            },
         },
         (None, Some(value)) => Launch::Exec(exec(value)?),
         (None, None) => return Err(Error(format!("{id} has neither Exec nor a Bloom module"))),
@@ -672,6 +696,15 @@ pub fn parse(
         launch,
         pinned,
         origin: Origin::Development,
+        version: keys
+            .get("X-OxyOS-Version")
+            .map(|version| version.trim())
+            .filter(|version| !version.is_empty())
+            .map(str::to_owned),
+        build: keys
+            .get("X-OxyOS-Package-Version")
+            .and_then(|code| code.parse::<u64>().ok())
+            .filter(|&code| code > 0),
         opens: keys
             .get("MimeType")
             .map(|types| {
@@ -683,7 +716,38 @@ pub fn parse(
                     .collect()
             })
             .unwrap_or_default(),
+        shown: !flag("NoDisplay"),
     }))
+}
+
+/// The size `application`'s window opens at: a file chooser's at a chooser's; else the size its
+/// entry declares (`X-OxyOS-Window-Size`), as a Mac's application opens its window at its own;
+/// else the session's.
+fn opening_size(application: &Application, runtime: &Runtime, chooser: bool) -> (u32, u32) {
+    match &application.launch {
+        _ if chooser => CHOOSER_WINDOW,
+        Launch::Bloom {
+            window: Some(size), ..
+        } => *size,
+        _ => runtime.window,
+    }
+}
+
+// The sides a window an entry declares may have: a package's (`oxyos_package::WINDOW_SIDES`),
+// which the install service writes into its entry.
+use oxyos_package::WINDOW_SIDES;
+
+/// `X-OxyOS-Window-Size`'s value: `WIDTHxHEIGHT`, two whole numbers in [`WINDOW_SIDES`].
+fn window_size(value: &str) -> Option<(u32, u32)> {
+    let (width, height) = value.split_once('x')?;
+    let side = |text: &str| {
+        Some(text)
+            .filter(|text| !text.is_empty() && !text.starts_with('0'))
+            .filter(|text| text.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|text| text.parse::<u32>().ok())
+            .filter(|side| WINDOW_SIDES.contains(side))
+    };
+    Some((side(width)?, side(height)?))
 }
 
 /// What the trust rule asks of a file or directory, as `lstat` gives it (a link is not followed).
@@ -1222,7 +1286,7 @@ pub fn script_url(bundle: &Path) -> PathBuf {
 
 /// How `application` is started in `runtime`: the program, its arguments and its environment:
 /// the compositor's socket, its id and name (its window's, until launch records give them), never
-/// another display's.
+/// another display's; and every signal at its default, none blocked ([`default_signals`]).
 pub fn command(
     application: &Application,
     runtime: &Runtime,
@@ -1237,6 +1301,7 @@ pub fn command(
             module,
             bundle,
             runtime: abi,
+            ..
         } => {
             let host = match abi {
                 Some(abi) => {
@@ -1278,7 +1343,43 @@ pub fn command(
         .env("OXYOS_APP_TITLE", &application.name)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY");
+    default_signals(&mut command);
     Ok(command)
+}
+
+/// The process `command` starts begins with every signal's disposition at its default and none
+/// blocked, whatever the session's own (docs/adr/0067-hangs-and-force-quit.mdx), as
+/// `posix_spawn`'s `POSIX_SPAWN_SETSIGDEF` and `POSIX_SPAWN_SETSIGMASK` would have it. An ignored
+/// signal survives `exec` (POSIX), so a session started by something that ignores SIGQUIT (a
+/// shell's background job, a service manager told to) would hand that on, and Force Quit's request
+/// for a hung application's report (`Launcher::end_hung`) would do nothing to a program without a
+/// handler of its own. A handler never survives `exec`, so resetting each disposition to the
+/// default here leaves nothing of the session's.
+#[allow(unsafe_code)]
+fn default_signals(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt;
+    // Read before the fork: glibc's SIGRTMAX is a call, the child's hook makes only system calls.
+    let last = libc::SIGRTMAX();
+    // SAFETY: the hook runs in the child between fork and exec, where only async-signal-safe
+    // functions may be called: it calls sigaction(2), sigemptyset(3) and sigprocmask(2), all
+    // async-signal-safe (signal-safety(7)), on values on its own stack and `last`, copied into the
+    // closure before the fork; it allocates nothing and takes no lock. Signals the kernel refuses
+    // (SIGKILL, SIGSTOP, those glibc keeps for itself) are skipped or fail harmlessly.
+    unsafe {
+        command.pre_exec(move || {
+            let mut default: libc::sigaction = std::mem::zeroed();
+            default.sa_sigaction = libc::SIG_DFL;
+            for signal in 1..=last {
+                if signal != libc::SIGKILL && signal != libc::SIGSTOP {
+                    libc::sigaction(signal, &default, std::ptr::null_mut());
+                }
+            }
+            let mut none: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut none);
+            libc::sigprocmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+            Ok(())
+        });
+    }
 }
 
 /// A process a session started, while it runs: its application's id and what it may do.
@@ -1821,6 +1922,16 @@ impl Launcher {
         self.signal(pid, rustix::process::Signal::KILL)
     }
 
+    /// Asks a process it started that stopped answering for its hang's report (SIGQUIT,
+    /// docs/adr/0067-hangs-and-force-quit.mdx, decision 4): the Bloom host writes its JavaScript
+    /// thread's stack into its report file and goes on; a program without a handler ends with a
+    /// core, its backtrace systemd-coredump's. The session asked it to end: its end is no
+    /// unexpected quit. The caller kills it ([`Launcher::kill`]) once the host has had its moment
+    /// to write. False for a process it did not start.
+    pub fn end_hung(&mut self, pid: u32) -> bool {
+        self.signal(pid, rustix::process::Signal::QUIT)
+    }
+
     /// Asks every process it started for the application `id` to end (SIGTERM), as the session
     /// ending does: a quit before its data is erased (docs/adr/0061-crashes-and-resetting-an-
     /// application.mdx, decision 5), every one of its processes by its launch record, never by a
@@ -1902,9 +2013,11 @@ impl Launcher {
             }
         }
         let mut runtime = self.runtime.clone();
-        if let Start::Chooser { .. } = how {
-            runtime.window = CHOOSER_WINDOW;
-        }
+        runtime.window = opening_size(
+            &application,
+            &self.runtime,
+            matches!(how, Start::Chooser { .. }),
+        );
         let (mut command, grants) = match system {
             Some(system) => {
                 let (pinned, runtime) =

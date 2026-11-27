@@ -8,7 +8,7 @@ description: Building the Bloom host and Hermes with AddressSanitizer, ThreadSan
 A crash in the Bloom host is found with the tools that make it certain, not by retrying: a host
 and a Hermes built with a sanitizer, each in a build directory of its own beside the toolchain
 (`W=$OXYOS_TOOLCHAIN`, `~/.cache/oxyos/toolchain` by default, with the host's CMake variables in
-`$W/cmake-vars.txt`: [Developing OxyOS](./developing), `tools/dev/bootstrap`). None of this is installed or shipped: a sanitized
+`$OXYOS_CMAKE_VARS`, the toolchain's `cmake-vars` file for this Bloom checkout: [Developing OxyOS](./developing), `tools/dev/bootstrap`). None of this is installed or shipped: a sanitized
 runtime is a runtime directory the regression scenarios run (`regress.py --runtimes`).
 
 ## The crash report
@@ -52,10 +52,10 @@ runtime the two must share. The sanitizer runtimes and `llvm-symbolizer` are Deb
 
 ```sh
 . tools/dev/env.sh; W=$OXYOS_TOOLCHAIN; export PATH=$W/tools/bin:$PATH
-HERMES_SRC=$(sed -n 's/^HERMES_SRC=//p' $W/cmake-vars.txt) \
+HERMES_SRC=$(sed -n 's/^HERMES_SRC=//p' $OXYOS_CMAKE_VARS) \
   tools/rn-host-spike/build-hermes.sh $BLOOM_DIR/node_modules/react-native $W hermes-build-tsan \
   -DHERMES_ENABLE_THREAD_SANITIZER=ON
-args="$(sed "s|^HERMES_BUILD=.*|HERMES_BUILD=$W/hermes-build-tsan|; s|^|-D|" $W/cmake-vars.txt | tr '\n' ' ') \
+args="$(sed "s|^HERMES_BUILD=.*|HERMES_BUILD=$W/hermes-build-tsan|; s|^|-D|" $OXYOS_CMAKE_VARS | tr '\n' ' ') \
   -DOXYOS_CLIENT_LIB=$PWD/target/release/liboxyos_client_ffi.a"
 CC=$W/clang/usr/bin/clang-19 CXX=$W/clang/usr/bin/clang++-19 cmake -S tools/rn-host-spike -B $W/host-tsan \
   -G Ninja $args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DOXYOS_SANITIZE=thread

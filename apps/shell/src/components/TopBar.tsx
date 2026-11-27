@@ -87,6 +87,8 @@ function MenuEntries({
           return (
             <MenubarCheckboxItem
               key={item.id}
+              // Named by its label alone, as the Oxy menu's rows: its chord is drawn beside it.
+              accessibilityLabel={item.label}
               checked={item.checked}
               disabled={item.enabled === false}
               trailing={chord}
@@ -99,6 +101,7 @@ function MenuEntries({
         return (
           <MenubarItem
             key={item.id}
+            accessibilityLabel={item.label}
             disabled={item.enabled === false}
             trailing={chord}
             onPress={() => onCommand(item.id)}
@@ -757,8 +760,6 @@ const Clock = memo(function Clock({
  */
 const BarMenus = memo(function BarMenus({
   menus,
-  overview,
-  launcher,
   canLock,
   onCommand,
   keyboardRequest,
@@ -767,18 +768,16 @@ const BarMenus = memo(function BarMenus({
   returnKeyboard,
   powerActions,
   userName,
-  keyboard,
+  store,
 }: {
   menus: readonly ShellMenu[];
-  overview: () => void;
-  launcher: () => void;
   canLock: boolean;
   /** Sleep, restart, shut down and log out, where the session does them (docs/adr/0064). */
   powerActions?: ShellPowerActions;
   /** The session's user, as Log Out names them. */
   userName?: string;
-  /** The keys the open menu receives: Alt held shows the alternates. */
-  keyboard?: ShellKeyboard;
+  /** The App Store's name, where it is installed: the Oxy menu's row for it. */
+  store?: string;
   onCommand: (id: string) => void;
   keyboardRequest: number;
   keyboardLost: number;
@@ -835,44 +834,14 @@ const BarMenus = memo(function BarMenus({
   };
   const command = (id: string) => choose(() => onCommand(id))();
   const messages = useShellMessages();
-  // Option (Alt) held while the Oxy menu is open: Restart, Shut Down and Log Out lose their
-  // question, as a Mac's alternates (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
-  // decision 2). Followed from the keys the open menu receives and from the pointer's flags over
-  // it; forgotten as the menu closes.
-  const [option, setOption] = useState(false);
-  const optionHeld = useRef(false);
-  const holdOption = useCallback((held: boolean) => {
-    optionHeld.current = held;
-    setOption((was) => (was === held ? was : held));
-  }, []);
-  const oxyOpen = open === OXY;
-  useEffect(() => {
-    if (!oxyOpen) {
-      holdOption(false);
-      return undefined;
-    }
-    if (!keyboard) return undefined;
-    // The modifiers as they change, as a Mac's flagsChanged: Option down shows the alternates and
-    // Option up hides them, the instant it happens; told as the menu takes the keyboard too, so a
-    // menu opened with Option held opens on them.
-    const flags = keyboard.subscribeModifiers?.((held) => holdOption(held.altKey));
-    // A key's press says whether Alt is held with it, where the platform tells no modifiers.
-    const keys = keyboard.subscribe((event) => {
-      holdOption(event.key === "Alt" || !!event.altKey);
-      return false;
-    });
-    return () => {
-      flags?.();
-      keys();
-    };
-  }, [oxyOpen, keyboard, holdOption]);
-  const systemRows = systemMenuRows(messages, { canLock, power: !!powerActions, name: userName, option });
+  // Restart, Shut Down and Log Out each with its alternate, which Bloom shows in its place while
+  // Option (Alt) is held, as a Mac's (docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx,
+  // decision 2): the modifiers as the compositor tells them, as they change.
+  const systemRows = systemMenuRows(messages, { canLock, power: !!powerActions, name: userName, store });
   const systemCommand = (id: SystemMenuCommand, confirm: boolean) => {
     switch (id) {
-      case "view.launcher":
-        return choose(launcher)();
-      case "view.overview":
-        return choose(overview)();
+      case "system.forceQuit":
+        return choose(() => powerActions?.forceQuit?.())();
       case "power.sleep":
         return choose(() => powerActions?.sleep())();
       case "power.restart":
@@ -890,6 +859,10 @@ const BarMenus = memo(function BarMenus({
   return (
     <Menubar
       label={messages.topBar.menuBar}
+      // The bar's rows run no chords of their own (each shows the chord the application or the
+      // compositor runs), so a closed menu mounts nothing but its title, as a Mac's bar builds a
+      // menu as it opens: the Window menu's rows cost nothing while it is closed (Bloom 19.8.0).
+      declareClosedMenus={false}
       value={open}
       onValueChange={setOpen}
       focusValue={focused}
@@ -909,38 +882,32 @@ const BarMenus = memo(function BarMenus({
           />
         </MenubarTrigger>
         <MenubarContent label="Oxy" sideOffset={MENU_SIDE_OFFSET}>
-          {/* Option held over the menu (a pointer event's altKey, as a Mac's menu follows the
-              flags as the pointer moves) shows the alternates. */}
-          <Box
-            onPointerMove={(event: { nativeEvent?: { altKey?: boolean } }) => holdOption(!!event.nativeEvent?.altKey)}
-            onPointerDown={(event: { nativeEvent?: { altKey?: boolean } }) => holdOption(!!event.nativeEvent?.altKey)}
-          >
-            {systemRows.map((row) =>
-              row.kind === "separator" ? (
-                <React.Fragment key={row.id}>
-                  <MenubarSeparator />
-                </React.Fragment>
-              ) : (
-                <MenubarItem
-                  key={row.id}
-                  testID={`system-menu-${row.id}`}
-                  // Named by its label alone: its chord is drawn beside it.
-                  accessibilityLabel={row.label}
-                  trailing={row.chord ? <MenubarShortcut>{row.chord}</MenubarShortcut> : undefined}
-                  // Option-clicked (its press's flags, followed synchronously), or held as the
-                  // menu showed its alternates: no question.
-                  onPress={() => systemCommand(row.id, row.confirm !== false && !optionHeld.current)}
-                >
-                  {row.label}
-                </MenubarItem>
-              ),
-            )}
-          </Box>
+          {systemRows.map((row) =>
+            row.kind === "separator" ? (
+              <React.Fragment key={row.id}>
+                <MenubarSeparator />
+              </React.Fragment>
+            ) : (
+              <MenubarItem
+                key={row.key}
+                testID={`system-menu-${row.id}`}
+                // Named by its label alone: its chord is drawn beside it.
+                accessibilityLabel={row.label}
+                trailing={row.chord ? <MenubarShortcut>{row.chord}</MenubarShortcut> : undefined}
+                alternate={row.alternate}
+                // An alternate (Option held as it is chosen) asks no question.
+                onPress={() => systemCommand(row.id, row.confirm !== false)}
+              >
+                {row.label}
+              </MenubarItem>
+            ),
+          )}
         </MenubarContent>
       </MenubarMenu>
       {menus.map((menu, index) => {
         const value = menuValue(index, menu);
-        const weight = index === 0 ? ("600" as const) : ("400" as const);
+        // The first is the active application's own menu, its name in bold, as a Mac's.
+        const weight = index === 0 ? ("700" as const) : ("400" as const);
         return (
           <MenubarMenu key={value} value={value}>
             <MenubarTrigger asChild label={menu.label} style={[{ borderRadius: 4 }, highlight(value)]}>
@@ -974,12 +941,11 @@ export const TopBar = memo(function TopBar({
   safeMode = false,
   menus,
   now,
-  overview,
   launcher,
   canLock = false,
   powerActions,
   userName,
-  menuKeyboard,
+  store,
   onCommand,
   power,
   network,
@@ -1007,7 +973,6 @@ export const TopBar = memo(function TopBar({
   safeMode?: boolean;
   menus: readonly ShellMenu[];
   now: Date;
-  overview: () => void;
   launcher: () => void;
   /** Whether the session can be locked from here (the platform has a lock). */
   canLock?: boolean;
@@ -1017,8 +982,9 @@ export const TopBar = memo(function TopBar({
   /** The session's user, as the Oxy menu's Log Out names them: their full name, else their user
       name. */
   userName?: string;
-  /** The keys a menu of the bar receives while open (Alt held shows the Oxy menu's alternates). */
-  menuKeyboard?: ShellKeyboard;
+  /** The App Store's name as the registry gives it, where it is installed (Atlas): the Oxy menu's
+      row for it, as a Mac's App Store…. */
+  store?: string;
   onCommand: (id: string) => void;
   /** The battery and Wi-Fi as the session says they are
       (docs/adr/0025-hardware-keys-and-control-center.mdx): only what it said is shown. */
@@ -1121,12 +1087,10 @@ export const TopBar = memo(function TopBar({
     >
       <BarMenus
         menus={menus}
-        overview={overview}
-        launcher={launcher}
         canLock={canLock}
         powerActions={powerActions}
         userName={userName}
-        keyboard={menuKeyboard}
+        store={store}
         onCommand={onCommand}
         keyboardRequest={keyboardRequest}
         keyboardLost={keyboardLost}

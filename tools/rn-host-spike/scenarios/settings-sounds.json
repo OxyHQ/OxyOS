@@ -50,11 +50,11 @@
     {
       "name": "turned off: the session keeps ui_sounds = false",
       "do": [
-        "press",
-        [
-          890,
-          100
-        ]
+        "press_named",
+        {
+          "role": "Switch",
+          "name": "Play user interface sound effects"
+        }
       ],
       "expect": {
         "at": {
@@ -83,7 +83,7 @@
       "allow_unchanged": true,
       "expect": {
         "texts": [
-          "Application notifications",
+          "App Notifications",
           "Allo",
           "Play sound for notifications"
         ],
@@ -91,7 +91,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Play sound for Allo's notifications",
+              "name": "Play sound for Allo’s notifications",
               "state": [
                 "checked"
               ]
@@ -106,7 +106,7 @@
         "a11y-action",
         [
           "activate",
-          "Play sound for Allo's notifications"
+          "Play sound for Allo’s notifications"
         ]
       ],
       "expect": {
@@ -114,7 +114,7 @@
           "window": [
             {
               "role": "Switch",
-              "name": "Play sound for Allo's notifications",
+              "name": "Play sound for Allo’s notifications",
               "state": []
             }
           ]

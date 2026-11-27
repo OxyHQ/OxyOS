@@ -3,7 +3,7 @@
 use super::*;
 use crate::scene::MenuEntry;
 use oxyos_protocol::{
-    MenuField, MenuFlags, MenuKind, MAX_MENU_DEPTH, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES,
+    MenuField, MenuFlags, MenuKind, MenuRole, MAX_MENU_DEPTH, MAX_MENU_ITEMS, MAX_MENU_LABEL_BYTES,
     MAX_MENU_SHORTCUT_BYTES, NO_MENU_PARENT,
 };
 
@@ -102,7 +102,19 @@ fn bars(events: &[(ClientId, Event)], client: ClientId) -> Vec<Bar> {
                     flags,
                     label: String::new(),
                     shortcut: String::new(),
+                    role: None,
                 });
+            }
+            Event::MenuBarItemRole {
+                window,
+                index,
+                role,
+            } => {
+                let (at, _, _, entries) = receiving.as_mut().expect("begun");
+                assert_eq!(*at, window);
+                let entry = &mut entries[index as usize];
+                assert_eq!(entry.role, None, "a role told twice");
+                entry.role = Some(role);
             }
             Event::MenuBarText {
                 window,
@@ -139,8 +151,91 @@ fn entries(declared: &[Entry<'_>]) -> Vec<MenuEntry> {
             flags: MenuFlags::new(*flags).unwrap(),
             label: label.to_string(),
             shortcut: shortcut.to_string(),
+            role: None,
         })
         .collect()
+}
+
+/// The requests declaring `entries` with `roles` (index, role), each after its entry.
+fn requests_with_roles(
+    surface: u32,
+    serial: u32,
+    entries: &[Entry<'_>],
+    roles: &[(u32, MenuRole)],
+) -> Vec<Request> {
+    let mut out = requests(surface, serial, entries);
+    let commit = out.pop().expect("the commit");
+    out.extend(roles.iter().map(|(index, role)| Request::MenuItemRole {
+        surface,
+        index: *index,
+        role: *role,
+    }));
+    out.push(commit);
+    out
+}
+
+#[test]
+fn the_applications_about_and_settings_are_told_to_the_shell_with_its_menus() {
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    // About on Open…, Settings on New: whichever commands the application says.
+    for request in requests_with_roles(
+        1,
+        1,
+        &sample(),
+        &[(2, MenuRole::About), (1, MenuRole::Settings)],
+    ) {
+        h.request(APP, request).unwrap();
+    }
+    let a = h.scene.window_number(window).unwrap();
+    let mut expected = entries(&sample());
+    expected[1].role = Some(MenuRole::Settings);
+    expected[2].role = Some(MenuRole::About);
+    assert_eq!(bars(&logged(&mut h), SHELL).last(), Some(&(a, 1, expected)));
+    // Chosen, Settings… reaches the application as any command does, once.
+    assert_eq!(chosen(&choose(&mut h, a, 1, 1)), [(APP, 1, 1, 1)]);
+    // A recommit without roles has none.
+    declare(&mut h, window, 2, &sample()).unwrap();
+    assert_eq!(bars(&logged(&mut h), SHELL), [(a, 2, entries(&sample()))]);
+
+    // Malformed: an entry not received yet, a role on anything but a plain command, a role
+    // twice in a commit, two roles on one entry, a role outside a commit.
+    let malformed: Vec<(Vec<(u32, MenuRole)>, ErrorCode)> = vec![
+        (vec![(10, MenuRole::About)], ErrorCode::InvalidOrder),
+        (vec![(0, MenuRole::About)], ErrorCode::InvalidMessage),
+        (vec![(3, MenuRole::Settings)], ErrorCode::InvalidMessage),
+        (vec![(4, MenuRole::Settings)], ErrorCode::InvalidMessage),
+        (vec![(5, MenuRole::Settings)], ErrorCode::InvalidMessage),
+        (
+            vec![(1, MenuRole::About), (2, MenuRole::About)],
+            ErrorCode::InvalidMessage,
+        ),
+        (
+            vec![(1, MenuRole::About), (1, MenuRole::Settings)],
+            ErrorCode::InvalidMessage,
+        ),
+    ];
+    for (roles, error) in malformed {
+        let mut h = Harness::new();
+        h.toplevel(APP, 1, 400, 300);
+        let result = requests_with_roles(1, 1, &sample(), &roles)
+            .into_iter()
+            .try_for_each(|request| h.request(APP, request));
+        assert_eq!(result, Err(error), "{roles:?}");
+    }
+    let mut h = Harness::new();
+    h.toplevel(APP, 1, 400, 300);
+    assert_eq!(
+        h.request(
+            APP,
+            Request::MenuItemRole {
+                surface: 1,
+                index: 0,
+                role: MenuRole::About,
+            }
+        ),
+        Err(ErrorCode::InvalidOrder)
+    );
 }
 
 fn choose(h: &mut Harness, window: u32, serial: u32, index: u32) -> Vec<(ClientId, Event)> {

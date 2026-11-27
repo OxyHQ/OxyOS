@@ -37,7 +37,7 @@ export default function FieldDescriptionProbe() {
             />
           </TextField>
         </Field>
-        <Tooltip visible={tip} onVisibleChange={setTip} position="bottom">
+        <Tooltip visible={tip} onVisibleChange={setTip} position="bottom" delay={0}>
           <TooltipTrigger>
             <Button testID="check" onPress={() => setTaken((shown) => !shown)}>
               Comprobar

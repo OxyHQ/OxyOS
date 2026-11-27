@@ -65,12 +65,16 @@
     {
       "name": "todo.txt dragged onto the sidebar's Yellow: it takes the tag, and stays where it is (OxyHQ/Dropsea#48)",
       "do": [
-        "drag_paced",
+        "drag_paced_named",
         [
-          857,
-          168,
-          198,
-          650,
+          {
+            "role": "ListItem",
+            "name": "todo.txt"
+          },
+          {
+            "role": "Button",
+            "name": "Yellow"
+          },
           30,
           30
         ]

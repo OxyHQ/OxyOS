@@ -5,9 +5,11 @@
 # ~/.cache/oxyos by default), nothing system-wide:
 #   node/, bun/           Node and bun at tools/dev/pins' versions, checked by SHA-256
 #   ~/.cargo, ~/.rustup   rustup, when the machine has no cargo (rust-toolchain.toml picks the Rust)
-#   src/Bloom, src/Dropsea, src/Atlas
-#                         the applications at tools/dev/pins' commits, their packages installed
-#                         (unless tools/dev/local.conf names checkouts of the developer's own)
+#   checkouts/            the applications at tools/dev/pins' commits, their packages installed
+#                         (unless tools/dev/local.conf names checkouts of the developer's own):
+#                         NAME.git, one clone, and NAME/COMMIT, a worktree of it for each commit a
+#                         tree pinned, never changed once made; one unused for
+#                         OXYOS_CHECKOUT_KEEP_DAYS (3) is removed
 #   toolchain/            the Bloom host's toolchain (tools/rn-host-spike/toolchain.sh): Clang,
 #                         cmake, ninja, Skia, Hermes and what follows Bloom's React Native
 #   input-methods/        the input methods' engine (tools/input-methods/build.sh)
@@ -15,7 +17,6 @@
 set -eu
 OXYOS_TREE=$(cd "$(dirname "$0")/../.." && pwd)
 . "$OXYOS_TREE/tools/dev/env.sh"
-. "$OXYOS_TREE/tools/dev/pins"
 [ "$OXYOS_ARCH" != unsupported ] || { echo "bootstrap: OxyOS builds on amd64 and arm64 (docs/adr/0032-arm.mdx)" >&2; exit 1; }
 say() { echo "bootstrap: $*"; }
 mkdir -p "$OXYOS_CACHE/downloads" "$OXYOS_CACHE/.locks"
@@ -61,33 +62,57 @@ fi
 (cd "$OXYOS_TREE" && rustup toolchain install >/dev/null 2>&1)
 say "node $(node -v), bun $(bun -v), $(cd "$OXYOS_TREE" && cargo --version)"
 
-# The applications at their pins, each with its packages installed once per lockfile.
+# The applications at their pins: each commit a checkout of its own (checkouts/NAME/COMMIT, a worktree
+# of one clone, checkouts/NAME.git), its packages installed once, never changed after, so a build of
+# a tree pinning another commit never switches a checkout under a running one (a gate's packages
+# failed when another tree's bootstrap moved the one shared checkout to its pin mid-build).
+# NAME/COMMIT.ready says it is complete (made and installed); NAME/COMMIT.used, when a bootstrap
+# last named it.
 checkout() { # NAME REPO COMMIT
-  dir=$OXYOS_CACHE/src/$1
-  [ -d "$dir/.git" ] || git init -q "$dir"
-  if [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$3" ]; then
-    git -C "$dir" fetch -q --depth 1 "$2" "$3"
-    git -C "$dir" checkout -q --force --detach FETCH_HEAD
-    git -C "$dir" clean -q -ffd
+  repo=$OXYOS_CHECKOUTS/$1.git dir=$OXYOS_CHECKOUTS/$1/$3
+  mkdir -p "$OXYOS_CHECKOUTS/$1"
+  [ -d "$repo" ] || git init -q --bare "$repo"
+  if [ ! -f "$dir.ready" ]; then
+    # One left half made (a bootstrap stopped) is made again.
+    rm -rf "$dir"
+    git -C "$repo" worktree prune
+    git -C "$repo" fetch -q --depth 1 "$2" "$3"
+    git -C "$repo" worktree add -q --detach "$dir" "$3"
+    (cd "$dir" && bun install --frozen-lockfile > "$dir.install.log" 2>&1) \
+      || { tail -20 "$dir.install.log"; say "$1's packages did not install"; exit 1; }
+    : > "$dir.ready"
   fi
-  stamp=$(cat "$dir/bun.lock" "$dir/package.json" | sha256sum | cut -c1-64)
-  if [ "$(cat "$dir/node_modules/.oxyos-bootstrap" 2>/dev/null)" != "$stamp" ]; then
-    (cd "$dir" && bun install --frozen-lockfile > "$OXYOS_CACHE/src/$1.install.log" 2>&1) \
-      || { tail -20 "$OXYOS_CACHE/src/$1.install.log"; say "$1's packages did not install"; exit 1; }
-    echo "$stamp" > "$dir/node_modules/.oxyos-bootstrap"
-  fi
+  touch "$dir.used"
   say "$1 $(git -C "$dir" rev-parse --short HEAD)"
 }
-[ "$BLOOM_DIR" != "$OXYOS_CACHE/src/Bloom" ] || checkout Bloom "$BLOOM_REPO" "$BLOOM_COMMIT"
-[ "$DROPSEA_DIR" != "$OXYOS_CACHE/src/Dropsea/packages/frontend" ] || checkout Dropsea "$DROPSEA_REPO" "$DROPSEA_COMMIT"
-[ "$ATLAS_DIR" != "$OXYOS_CACHE/src/Atlas/packages/frontend" ] || checkout Atlas "$ATLAS_REPO" "$ATLAS_COMMIT"
+[ "$BLOOM_DIR" != "$OXYOS_CHECKOUTS/Bloom/$BLOOM_COMMIT" ] || checkout Bloom "$BLOOM_REPO" "$BLOOM_COMMIT"
+[ "$DROPSEA_DIR" != "$OXYOS_CHECKOUTS/Dropsea/$DROPSEA_COMMIT/packages/frontend" ] || checkout Dropsea "$DROPSEA_REPO" "$DROPSEA_COMMIT"
+[ "$ATLAS_DIR" != "$OXYOS_CHECKOUTS/Atlas/$ATLAS_COMMIT/packages/frontend" ] || checkout Atlas "$ATLAS_REPO" "$ATLAS_COMMIT"
+# The checkouts no bootstrap named for OXYOS_CHECKOUT_KEEP_DAYS (3 by default) go, with what only they
+# used (their toolchain's cmake-vars, the clone's objects): a build lasts hours, so none still uses
+# one, and a tree pinning it again has it made again. This tree's pins were just named.
+keep_days=${OXYOS_CHECKOUT_KEEP_DAYS:-3}
+for repo in "$OXYOS_CHECKOUTS"/*.git; do
+  [ -d "$repo" ] || continue
+  name=$(basename "$repo" .git) removed=
+  for used in $(find "$OXYOS_CHECKOUTS/$name" -maxdepth 1 -name '*.used' -mtime +"$keep_days" 2>/dev/null); do
+    dir=${used%.used}
+    git -C "$repo" worktree remove --force "$dir" 2>/dev/null || rm -rf "$dir"
+    [ "$name" != Bloom ] || rm -f "$OXYOS_TOOLCHAIN/cmake-vars/$(printf '%s' "$dir" | sha256sum | cut -c1-16).txt"
+    rm -f "$dir.used" "$dir.ready" "$dir.install.log"
+    say "$name $(basename "$dir" | cut -c1-7): unused for $keep_days days, removed"
+    removed=1
+  done
+  [ -z "$removed" ] || { git -C "$repo" worktree prune; git -C "$repo" gc -q --prune=now; }
+done
 for d in "$BLOOM_DIR/node_modules/react-native" "$DROPSEA_DIR" "$ATLAS_DIR"; do
   [ -e "$d" ] || { say "$d is missing (a checkout named in tools/dev/local.conf needs bun install)"; exit 1; }
 done
 
 # The host's toolchain for this Bloom's React Native.
 mkdir -p "$OXYOS_TOOLCHAIN"
-"$OXYOS_TREE/tools/rn-host-spike/toolchain.sh" "$OXYOS_TOOLCHAIN" "$BLOOM_DIR" "$OXYOS_TOOLCHAIN/cmake-vars.txt" \
+mkdir -p "$(dirname "$OXYOS_CMAKE_VARS")"
+"$OXYOS_TREE/tools/rn-host-spike/toolchain.sh" "$OXYOS_TOOLCHAIN" "$BLOOM_DIR" "$OXYOS_CMAKE_VARS" \
   > "$OXYOS_TOOLCHAIN/toolchain.log" 2>&1 || { tail -30 "$OXYOS_TOOLCHAIN/toolchain.log"; say "the toolchain failed (log: $OXYOS_TOOLCHAIN/toolchain.log)"; exit 1; }
 say "$(tail -1 "$OXYOS_TOOLCHAIN/toolchain.log")"
 

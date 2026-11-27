@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <optional>
 
@@ -47,7 +48,9 @@ class AnimationFrames {
   std::optional<Clock::time_point> nextFrame(bool ready) const;
 
  private:
+  // Asked for on JavaScript's thread, begun on the UI thread's frame clock (ui-thread.h).
   struct State {
+    std::mutex mutex;
     uint32_t next = 1;
     // Callbacks waiting for the next frame, and those of the frame running, by their handle.
     std::map<uint32_t, std::shared_ptr<facebook::jsi::Function>> waiting, running;

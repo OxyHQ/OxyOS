@@ -165,6 +165,8 @@ impl Settings {
                 desktops: fewest(gestures.desktops),
                 launchpad: gestures.launchpad,
             });
+        // Automatically hide and show the Dock (docs/adr/0034-the-dock.mdx, 10 November 2026).
+        compositor.scene.set_dock_hiding(preferences.dock_autohide);
         // Play user interface sound effects (docs/adr/0044-system-sounds.mdx).
         if let Some(sounds) = compositor.sounds.as_mut() {
             sounds.interface = preferences.ui_sounds;
@@ -278,6 +280,16 @@ impl Settings {
     /// screen reader).
     pub fn serve(&mut self, compositor: &mut Compositor, now: i64) -> Vec<String> {
         let mut changed = Vec::new();
+        // Super+Alt+D, a Mac's ⌥⌘D (docs/adr/0034-the-dock.mdx, 10 November 2026): the dock's
+        // automatic hiding turned over, kept as Settings' switch keeps it, once for each press.
+        for _ in 0..compositor.scene.take_dock_hiding_toggles() {
+            let value = (!self.preferences.dock_autohide).to_string();
+            match self.change("dock_autohide", &value) {
+                Ok(true) => changed.push("dock_autohide".to_owned()),
+                Ok(false) => {}
+                Err(error) => eprintln!("[preferences] dock_autohide={value} refused: {error}"),
+            }
+        }
         for change in compositor.scene.take_preference_changes() {
             let made = match change.key.as_str() {
                 "wallpaper" | "wallpaper_all_desktops" => {
@@ -998,6 +1010,43 @@ mod tests {
         let again = Settings::load(Some(file), None);
         assert_eq!(again.preferences(), settings.preferences());
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn super_alt_d_turns_the_docks_hiding_over_as_settings_switch_does() {
+        let mut compositor = compositor();
+        let mut settings = Settings::new(Preferences::default(), None, None);
+        settings.apply(&mut compositor, DAY);
+        assert!(!compositor.scene.dock_hiding());
+        let chord = |compositor: &mut Compositor| {
+            for (code, down) in [
+                (125, true),
+                (56, true),
+                (32, true),
+                (32, false),
+                (56, false),
+                (125, false),
+            ] {
+                compositor.scene.keyboard(code, down, None);
+            }
+        };
+        // Super+Alt+D: kept as the person's preference and applied to the scene.
+        chord(&mut compositor);
+        assert_eq!(settings.serve(&mut compositor, DAY), ["dock_autohide"]);
+        assert!(settings.preferences().dock_autohide);
+        assert!(compositor.scene.dock_hiding());
+        // Settings' switch, the same preference: off.
+        ask(&mut compositor, 1, "dock_autohide=false");
+        assert_eq!(settings.serve(&mut compositor, DAY), ["dock_autohide"]);
+        assert!(!compositor.scene.dock_hiding());
+        // Twice in a turn: over and back.
+        chord(&mut compositor);
+        chord(&mut compositor);
+        assert_eq!(
+            settings.serve(&mut compositor, DAY),
+            ["dock_autohide", "dock_autohide"]
+        );
+        assert!(!settings.preferences().dock_autohide && !compositor.scene.dock_hiding());
     }
 
     #[test]

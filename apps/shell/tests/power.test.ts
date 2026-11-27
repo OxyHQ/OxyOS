@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { shellMessages } from "../src/messages.ts";
-import { chordLabel, systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
-import { sheetView, startsOnAnswer } from "../src/sheet.ts";
+import { shownRows, systemMenuRows, type SystemMenuRow } from "../src/system-menu.ts";
+import { chordLabel } from "../src/chord.ts";
+import { sheetView, startsOnAnswer, type SheetText } from "../src/sheet.ts";
 
 const en = shellMessages("en-US");
 const es = shellMessages("es-ES");
@@ -13,11 +14,14 @@ function read(rows: SystemMenuRow[]): string[] {
 }
 
 test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in order", () => {
-  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate Isern" });
+  const rows = shownRows(systemMenuRows(en, { canLock: true, power: true, name: "Nate Isern" }), false);
   assert.deepEqual(read(rows), [
-    "System Settings",
-    "Applications",
-    "Show Desktops",
+    "About This Computer",
+    "—",
+    "System Settings…",
+    "—",
+    // Force Quit… in its own part, before the session's ends, as a Mac's (docs/adr/0067).
+    "Force Quit… Alt+Super+Esc",
     "—",
     "Sleep",
     "Restart…",
@@ -30,9 +34,55 @@ test("the Oxy menu is a Mac's Apple menu: its rows, separators and chords in ord
   assert.ok(rows.every((row) => row.kind === "separator" || row.confirm !== false));
 });
 
+test("each alternate is declared right after its item, with Option's modifiers, a key of its own and no question", () => {
+  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate" });
+  const alternates = rows.flatMap((row, index) =>
+    row.kind === "item" && row.alternate ? [{ row, before: rows[index - 1] }] : [],
+  );
+  assert.deepEqual(
+    alternates.map(({ row, before }) => [before?.kind === "item" ? before.label : "—", row.label, row.alternate]),
+    [
+      ["Restart…", "Restart", "Alt"],
+      ["Shut Down…", "Shut Down", "Alt"],
+      ["Log Out Nate…", "Log Out Nate", "Alt"],
+    ],
+  );
+  assert.ok(alternates.every(({ row, before }) => row.confirm === false && before?.kind === "item" && before.id === row.id));
+  const keys = rows.map((row) => (row.kind === "item" ? row.key : row.id));
+  assert.equal(new Set(keys).size, keys.length);
+});
+
+test("About This Computer first, then System Settings… and the App Store where it is installed, as a Mac's", () => {
+  const rows = shownRows(systemMenuRows(en, { canLock: true, power: true, name: "Nate", store: "Atlas" }), false);
+  assert.deepEqual(read(rows).slice(0, 5), ["About This Computer", "—", "System Settings…", "Atlas…", "—"]);
+  assert.deepEqual(
+    rows.slice(0, 4).map((row) => row.id),
+    ["system.aboutThisComputer", "system.separator", "system.settings", "system.store"],
+  );
+  // Launchpad and Mission Control are the dock's, their keys' and the desktop's View menu's, never
+  // the Oxy menu's, as a Mac's Apple menu has neither.
+  for (const option of [false, true]) {
+    const labels = read(shownRows(systemMenuRows(en, { canLock: true, power: true, store: "Atlas" }), option));
+    assert.ok(!labels.includes("Applications") && !labels.includes("Show Desktops"));
+  }
+  assert.deepEqual(read(shownRows(systemMenuRows(es, { canLock: true, power: true, name: "Nate", store: "Atlas" }), false)).slice(0, 4), [
+    "Acerca de este ordenador",
+    "—",
+    "Ajustes del Sistema…",
+    "Atlas…",
+  ]);
+  // Option changes none of them.
+  assert.deepEqual(
+    read(shownRows(systemMenuRows(en, { canLock: true, power: true, store: "Atlas" }), true)).slice(0, 4),
+    ["About This Computer", "—", "System Settings…", "Atlas…"],
+  );
+});
+
 test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear pantalla, Cerrar sesión de…", () => {
-  const rows = systemMenuRows(es, { canLock: true, power: true, name: "Nate Isern" });
-  assert.deepEqual(read(rows).slice(4), [
+  const rows = shownRows(systemMenuRows(es, { canLock: true, power: true, name: "Nate Isern" }), false);
+  assert.deepEqual(read(rows).slice(0, 4), ["Acerca de este ordenador", "—", "Ajustes del Sistema…", "—"]);
+  assert.deepEqual(read(rows).slice(4, 5), ["Forzar salida… Alt+Super+Esc"]);
+  assert.deepEqual(read(rows).slice(6), [
     "Reposo",
     "Reiniciar…",
     "Apagar equipo…",
@@ -43,8 +93,8 @@ test("in Spanish, as a Mac's: Reposo, Reiniciar…, Apagar equipo…, Bloquear p
 });
 
 test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q", () => {
-  const rows = systemMenuRows(en, { canLock: true, power: true, name: "Nate", option: true });
-  assert.deepEqual(read(rows).slice(4), [
+  const rows = shownRows(systemMenuRows(en, { canLock: true, power: true, name: "Nate" }), true);
+  assert.deepEqual(read(rows).slice(6), [
     "Sleep",
     "Restart",
     "Shut Down",
@@ -56,7 +106,7 @@ test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q
   assert.ok(ends.length === 2 && ends.every((row) => row.kind === "item" && row.confirm === false));
   const logOut = rows.find((row) => row.kind === "item" && row.id === "session.logOut");
   assert.equal(logOut?.kind === "item" && logOut.confirm, false);
-  assert.deepEqual(read(systemMenuRows(es, { canLock: true, power: true, name: "Nate", option: true })).slice(4), [
+  assert.deepEqual(read(shownRows(systemMenuRows(es, { canLock: true, power: true, name: "Nate" }), true)).slice(6), [
     "Reposo",
     "Reiniciar",
     "Apagar equipo",
@@ -69,30 +119,30 @@ test("Option held shows the alternates: no ellipsis, no question, and ⌥⇧⌘Q
 test("Log Out always names the person, as a Mac's: an account with no name is the Oxy Account, never the Unix user", () => {
   for (const name of [undefined, "", "  "]) {
     assert.equal(
-      read(systemMenuRows(en, { canLock: true, power: true, name })).at(-1),
+      read(shownRows(systemMenuRows(en, { canLock: true, power: true, name }), false)).at(-1),
       "Log Out Oxy Account… Shift+Super+Q",
     );
     assert.equal(
-      read(systemMenuRows(en, { canLock: true, power: true, name, option: true })).at(-1),
+      read(shownRows(systemMenuRows(en, { canLock: true, power: true, name }), true)).at(-1),
       "Log Out Oxy Account Alt+Shift+Super+Q",
     );
     assert.equal(
-      read(systemMenuRows(es, { canLock: true, power: true, name })).at(-1),
+      read(shownRows(systemMenuRows(es, { canLock: true, power: true, name }), false)).at(-1),
       "Cerrar sesión de Cuenta de Oxy… Mayús+Super+Q",
     );
   }
 });
 
 test("without the session's power or lock the menu offers neither, and no stray separator", () => {
-  assert.deepEqual(read(systemMenuRows(en, { canLock: false, power: false })), [
-    "System Settings",
-    "Applications",
-    "Show Desktops",
+  assert.deepEqual(read(shownRows(systemMenuRows(en, { canLock: false, power: false }), false)), [
+    "About This Computer",
+    "—",
+    "System Settings…",
   ]);
-  assert.deepEqual(read(systemMenuRows(en, { canLock: true, power: false })), [
-    "System Settings",
-    "Applications",
-    "Show Desktops",
+  assert.deepEqual(read(shownRows(systemMenuRows(en, { canLock: true, power: false }), false)), [
+    "About This Computer",
+    "—",
+    "System Settings…",
     "—",
     "Lock Screen Ctrl+Super+Q",
   ]);
@@ -110,14 +160,14 @@ test("the question to shut down, restart and log out, its countdown and its defa
     [shutDown.defaultAnswer, shutDown.focusAnswer, shutDown.destructive, shutDown.checkbox?.checked],
     [true, true, false, true],
   );
-  assert.equal(shutDown.checkbox?.label, "Reopen windows when logging back in");
+  assert.equal(shutDown.checkbox?.label, "Reopen windows when signing back in");
   const restart = sheetView({ kind: "end-session", action: "restart", seconds: 59, reopenWindows: false }, en);
   assert.equal(restart.title, "Are you sure you want to restart your computer now?");
   assert.equal(restart.body, "If you do nothing, the computer will restart automatically in 59 seconds.");
   assert.equal(restart.accept, "Restart");
   assert.equal(restart.checkbox?.checked, false);
   const logOut = sheetView({ kind: "end-session", action: "logOut", seconds: 60, reopenWindows: true }, en);
-  assert.equal(logOut.title, "Are you sure you want to quit all applications and log out now?");
+  assert.equal(logOut.title, "Are you sure you want to quit all apps and log out now?");
   assert.equal(logOut.body, "If you do nothing, you will be logged out automatically in 60 seconds.");
   assert.equal(logOut.accept, "Log Out");
 });
@@ -161,18 +211,18 @@ test("what kept an end from happening: the application named, as a Mac says it",
   assert.equal(sheetView({ kind: "end-session-cancelled", action: "shutDown", application: "Pages" }, es).title, "“Pages” ha cancelado el apagado.");
   assert.equal(sheetView({ kind: "end-session-cancelled", action: "logOut", application: "Pages" }, es).title, "“Pages” ha cancelado el cierre de sesión.");
   const timedOut = sheetView({ kind: "end-session-timed-out", action: "restart", application: "Pages" }, en);
-  assert.equal(timedOut.title, "Restart has timed out because the application “Pages” failed to quit.");
+  assert.equal(timedOut.title, "Restart has timed out because the app “Pages” failed to quit.");
   assert.equal(timedOut.body, "To try again, quit Pages and restart again.");
   const failed = sheetView({ kind: "end-session-failed", action: "shutDown", reason: "notPermitted" }, en);
-  assert.equal(failed.title, "Your computer can't shut down now.");
+  assert.equal(failed.title, "Your computer can’t shut down now.");
   assert.equal(
     failed.body,
-    "Someone else is logged in to this computer, or an application is keeping it on. An administrator must shut it down.",
+    "Someone else is signed in to this computer, or an app is keeping it on. An administrator must shut it down.",
   );
-  assert.equal(sheetView({ kind: "end-session-failed", action: "sleep", reason: "unavailable" }, en).title, "Your computer can't sleep now.");
+  assert.equal(sheetView({ kind: "end-session-failed", action: "sleep", reason: "unavailable" }, en).title, "Your computer can’t sleep now.");
   assert.equal(
     sheetView({ kind: "end-session-failed", action: "restart", reason: "failed" }, es).body,
-    "OxyOS no ha podido conectar con el servicio de energía del sistema.",
+    "El sistema no ha respondido. Vuelve a intentarlo en un momento.",
   );
 });
 
@@ -182,4 +232,37 @@ test("the keyboard starts on the default button of every power sheet, and on Can
   assert.ok(startsOnAnswer({ kind: "end-session-cancelled", action: "restart", application: "Pages" }));
   assert.ok(!startsOnAnswer({ kind: "empty-trash", items: 2 }));
   assert.ok(startsOnAnswer({ kind: "crash", id: "a", name: "A", times: 1, report: "", show: "notice" }));
+});
+
+// Force Quit Applications (docs/adr/0067-hangs-and-force-quit.mdx), as a Mac's ⌥⌘⎋ window: the
+// session's launched apps, the hung one marked in red and said, the frontmost chosen, Force Quit the
+// default button (Return), Cancel (Escape).
+test("Force Quit Applications: its apps, the hung one marked, the frontmost chosen", () => {
+  const sheet: SheetText = {
+    kind: "force-quit",
+    applications: [
+      { id: "so.oxy.inbox", name: "Inbox", responding: true },
+      { id: "so.oxy.hangprobe", name: "Hang Probe", responding: false },
+    ],
+    chosen: 1,
+  };
+  const view = sheetView(sheet, en);
+  assert.equal(view.title, "Force Quit Applications");
+  assert.equal(view.body, "If an app doesn’t respond for a while, select its name and click Force Quit.");
+  assert.deepEqual(view.choices?.rows, [
+    { title: "Inbox", detail: "", alert: false },
+    { title: "Hang Probe", detail: "Not Responding", alert: true },
+  ]);
+  assert.equal(view.accept, "Force Quit");
+  assert.equal(view.refuse, "Cancel");
+  assert.ok(view.defaultAnswer && startsOnAnswer(sheet));
+  const spanish = sheetView(sheet, es);
+  assert.equal(spanish.title, "Forzar salida de las aplicaciones");
+  assert.equal(spanish.accept, "Forzar salida");
+  assert.equal(spanish.choices?.rows[1].detail, "No responde");
+  // None open: said, and nothing to force quit.
+  const none = sheetView({ kind: "force-quit", applications: [] }, en);
+  assert.equal(none.body, "No apps are open.");
+  assert.equal(none.accept, "");
+  assert.equal(none.choices, undefined);
 });

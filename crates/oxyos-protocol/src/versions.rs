@@ -85,7 +85,19 @@ const GROWN: &[(u16, u8, &[u8])] = &[
 /// modifiers held told to the surface with the keyboard as they change (`Modifiers`);
 /// version 39, a text field telling its text is empty (`TextInputEmpty`, ADR 0008);
 /// version 40, an application telling whether it may be ended at once as the session ends
-/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10).
+/// (`SuddenTermination`, docs/adr/0064-sleep-restart-shut-down-and-log-out.mdx, decision 10);
+/// versions 41, 42 and 44 are other changes' in flight (OxyOS #536, #548, #500);
+/// version 43, the application's own menu (ADR 0021): which commands of a window's menus are its
+/// About and its Settings… (`MenuItemRole`, `MenuBarItemRole`), both ways, the shell told them
+/// with the menus, and the shell hiding the other applications and showing every one
+/// (`HideOtherApplications`, `ShowAllApplications`);
+/// version 45, a surface's material regions (`MaterialRegion`, docs/adr/0069-the-platforms-material.mdx);
+/// versions 46 and 47 are other changes' in flight (OxyOS #553, #545);
+/// version 48, the shell laying out a window (`LayOutWindow`, ADR 0016, decision 12: the Window
+/// menu's tiling and Zoom); version 49, a Ping answered once the client has handled what came
+/// before it, never waiting for it to be idle besides (`PingHandled`); version 50, a toplevel's
+/// own layouts (`LayOutSurface`, `MoveSurfaceToWorkspace`, `SurfaceWorkspaces`, ADR 0016,
+/// decision 12: its zoom control's menu), both ways.
 type Added = &'static [(u16, std::ops::RangeInclusive<u8>)];
 const EVENTS_ADDED: Added = &[
     (3, 170..=174),
@@ -109,6 +121,9 @@ const EVENTS_ADDED: Added = &[
     (36, 166..=166),
     (37, 167..=167),
     (38, 168..=169),
+    (43, 75..=75),
+    (49, 233..=233),
+    (50, 151..=151),
 ];
 const REQUESTS_ADDED: Added = &[
     (3, 170..=174),
@@ -134,6 +149,11 @@ const REQUESTS_ADDED: Added = &[
     (38, 168..=168),
     (39, 70..=70),
     (40, 169..=169),
+    (43, 85..=85),
+    (43, 113..=114),
+    (45, 71..=71),
+    (48, 115..=115),
+    (50, 177..=178),
 ];
 
 fn since(added: Added, opcode: u8) -> u16 {

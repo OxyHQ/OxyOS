@@ -1,0 +1,46 @@
+---
+title: "ADR 0068: Crash evidence and kernel panics"
+description: What every crash of OxyOS's own native parts leaves behind (its backtrace, never its memory), and what happens when the kernel itself fails — it restarts by itself, a hardware watchdog restarts a machine that stopped altogether, the panic's text survives the restart, and at the next login the person is told "Your computer restarted because of a problem", as a Mac does.
+order: 77
+---
+
+# ADR 0068: Crash evidence and kernel panics
+
+Status: **accepted; implemented** (the image's and the deploy's configuration, the panic's account, the session's notification, the scenario). The QEMU acceptance of a real panic is described below and run only in QEMU, never on a person's machine. Decided on 10 November 2026, at the platform author's request for a Mac's "nothing ever breaks". Builds on [ADR 0061](./0061-crashes-and-resetting-an-application) (reports and notifications), [ADR 0065](./0065-the-session-ending-because-of-a-problem) (the session's own end), [ADR 0054](./0054-recovery-and-erasing) and [ADR 0023](./0023-installing-oxyos) (the image).
+
+## Problem
+
+On the ThinkPad, `kernel.core_pattern` was `core`, every process's core limit 0, systemd-coredump not installed and accountd's unit `LimitCORE=0`: a native crash of the session, the login program or a service left only an exit status. Bloom applications write their own report (ADR 0061); nothing else did. `kernel.panic` was 0 (a panic waits for ever), `panic_on_oops` 0, systemd's `RuntimeWatchdogUSec` 0 though the machine has an Intel TCO watchdog (`iTCO_wdt`, `/dev/watchdog0`), and nothing told the person after a restart. On 1 November 2026 the machine froze hard (the documented nouveau/NVIDIA freeze) and stayed frozen until the power button, leaving no trace.
+
+A Mac keeps a report with a backtrace for every crashing process (ReportCrash), restarts by itself after a kernel panic, keeps the panic's text across the restart and, at the next login, says *Your computer restarted because of a problem*, offering the report. Its watchdog restarts a machine whose window server stopped checking in.
+
+## Decision
+
+1. **Every native crash leaves its backtrace, never its memory.**
+   - **systemd-coredump** is in the image's manifest and installed by the deploy (`tools/deploy/system-files.py --apt-evidence`): every crash reaches it (`kernel.core_pattern`).
+   - **No core is kept** (`coredump.conf.d/oxyos.conf`: `Storage=none`): systemd-coredump reads the core, logs the crash with its signal, its program, its unit and its backtrace to the journal, and lets the core go. A core holds everything the process held (a password being typed, keychain keys); a backtrace holds frames. A process larger than 2 GB is logged without its backtrace (`ProcessSizeMax=2G`).
+   - **Who has a backtrace is decided by what it holds** (the core limit, which systemd-coredump honours):
+     - the person's session raises its own soft limit to its hard one as it starts (`raise_core_limit`), and what it starts inherits it: the shell, the reader, applications;
+     - installd and its fetcher hold no secret: `LimitCORE=infinity`;
+     - **accountd** (every account's tokens and keychain keys) keeps `LimitCORE=0`; its crash is logged with its signal and nothing read of its memory, not even a backtrace. The login program and the login screen's session (passwords as typed) and backupd (a repository's password) keep the default soft limit of 0, likewise.
+2. **The kernel restarts by itself.**
+   - `sysctl.d/10-oxyos-panic.conf`: `kernel.panic = 10` (restart ten seconds after a panic) and `kernel.panic_on_oops = 1` (an oops is a panic: what the kernel broke is unknown). Soft lockups and hung tasks are not made panics: a slow disk or a GPU's long reset would restart the machine under the person's hands, worse than the stall.
+   - `system.conf.d/oxyos-watchdog.conf`: systemd keeps the hardware watchdog (`RuntimeWatchdogSec=30s`; a restart that hangs is forced after `RebootWatchdogSec=10min`). A machine that stopped altogether, with no panic to report it (the freeze of 1 November), is restarted by the watchdog's own hardware 30 seconds later. A machine without one is unaffected.
+   - **efi-pstore** keeps the panic's text in the firmware across the restart; systemd-pstore (enabled by systemd, which loads `efi_pstore` itself) moves it into `/var/lib/systemd/pstore` at the next boot.
+3. **"Your computer restarted because of a problem."**
+   - At boot, `oxyos-panic-report.service` (pulled in by `systemd-pstore.service`'s drop-in) runs `oxyos-recovery panic-report`, which writes each new record's **account for the person** to `/var/lib/oxyos/problems/<record>.panic`, readable by everyone (`oxyos_recovery::panics`): from the log's first sign of a problem (a panic, an oops, `BUG:`, a general protection fault, a call trace), the lines that say what happened, by name, at most 8 KiB, **with every long hexadecimal number replaced and the registers' and code's lines left out** — `kernel.dmesg_restrict` keeps the kernel's log from unprivileged users because its addresses defeat the kernel's address layout randomisation.
+   - At the next login, the person's session tells them once (`Crashes::restarted`): the newest account they were not told of (`~/.local/state/oxyos/restarts-told` names the last), its report written into their crash reports (`so.oxy.system_<time>.crash`), and the session's notification *Your computer restarted because of a problem.* (*Tu ordenador se reinició debido a un problema.*) with *Report…*, which (or the notification itself) shows the account in the crash sheet. Resume ([ADR 0065](./0065-the-session-ending-because-of-a-problem)) reopens what ran.
+4. **The deploy** installs the same files on a converted machine (`tools/deploy/system-files`), installs systemd-coredump, applies the kernel's settings at once (`sysctl --system`) and checks them; the watchdog is systemd's from the next boot: the machine's first process is never re-executed under a signed-in person, and no panic or watchdog is ever tested on a person's machine.
+
+## Tests
+
+- **`oxyos-recovery`** (`panics.rs`): a panic's account says what happened (the panic's reason, the trace by name) from its first sign of a problem, with no address (a register's value, the kernel's offset) and no register or code line; a log with no problem is no account; a long one is cut; each new record written once, readable by everyone; no pstore no error.
+- **`tools/deploy/system-files.py`**: the files are in the deploy's manifest where the image installs them, and systemd-coredump in the image's manifest.
+- **Scenario `restarted-after-panic`**: a session after a panic's account (`panics`): the notification once with *Report…*, the report in the crash reports, the account named as told, and *Report…* showing what the kernel said.
+- **QEMU** (`tools/image/acceptance`, only there): a booted image's `echo c > /proc/sysrq-trigger` restarts by itself within 20 seconds, and the next boot has the panic's record and its account.
+
+## Not in this decision
+
+- **The backtrace in the session's reports.** The journal holds every crash's backtrace (`coredumpctl info`); reading it into a report needs the journal's API in the session, which is its own step.
+- **Symbolised frames.** Without the build's debug information, frames are offsets into each program.
+- **Sending reports anywhere.** As ADR 0061: nothing leaves the computer.

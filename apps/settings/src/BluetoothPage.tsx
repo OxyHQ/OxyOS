@@ -56,7 +56,7 @@ import type { Messages } from "./messages";
 type Props = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 type Words = Messages["bluetooth"];
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const TRAILING = { flexDirection: "row", alignItems: "center", gap: 10 } as const;
 /** A device's round face, as a Mac's Bluetooth list draws one. */
 const FACE = 28;
@@ -131,32 +131,14 @@ function Battery({ device, words, locale }: { device: BluetoothDevice; words: Wo
   );
 }
 
-/** A section's heading, drawn as Bloom's section headings are. Discovery runs as long as the page
-    is open, so nothing beside it spins: an animation for as long as discovery would draw a frame
-    every refresh while the page sits open (docs/performance.mdx, *Idle*); "Searching…" says it
-    while nothing is found. */
-function SectionHeading({ title }: { title: string }) {
-  const theme = useTheme();
-  return (
-    <View style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: 6 }}>
-      <Text
-        variant="caption-2-semibold"
-        accessibilityRole="header"
-        style={{ textTransform: "uppercase", letterSpacing: 0.6, color: theme.colors.textSecondary }}
-      >
-        {title}
-      </Text>
-    </View>
-  );
-}
-
-/** A section's footer, as Bloom's own, with a name scenarios can find it by. */
+/** A section's footer, as Bloom's compact sections draw theirs (aligned with their rows' text, in
+    the secondary label's colour), with a name scenarios can find it by. */
 function SectionFooter({ text, testID }: { text: string; testID: string }) {
   const theme = useTheme();
   return (
     <Text
       variant="caption-1-regular"
-      style={{ paddingHorizontal: 20, paddingTop: 6, color: theme.colors.textTertiary }}
+      style={{ paddingHorizontal: 10, paddingTop: 6, color: theme.colors.textSecondary }}
       testID={testID}
     >
       {text}
@@ -415,14 +397,15 @@ export function BluetoothPage({ snapshot, actions, strings, locale }: Props) {
       : { text: words.off, testID: "bluetooth-off" };
   return (
     <View style={PAGE}>
-      <View style={{ marginBottom: 16 }}>
-        <GroupedSection style={{ marginBottom: 0 }}>
+      <View>
+        <GroupedSection>
           <GroupedSectionItem
             title={words.bluetooth}
             icon={<RiBluetoothLine />}
             testID="bluetooth"
             rightElement={
               <Switch
+                size="xs"
                 checked={on}
                 disabled={adapter.blocked}
                 onCheckedChange={(checked) => {
@@ -472,8 +455,10 @@ export function BluetoothPage({ snapshot, actions, strings, locale }: Props) {
       ) : null}
       {on ? (
         <View>
-          <SectionHeading title={words.nearby} />
-          <GroupedSection>
+          {/* Discovery runs as long as the page is open, so nothing beside the title spins: an
+              animation for as long as discovery would draw a frame every refresh while the page
+              sits open (docs/performance.mdx, *Idle*); "Searching…" says it while nothing is found. */}
+          <GroupedSection title={words.nearby}>
             {nearby.length === 0 ? (
               <GroupedSectionItem title={words.searching} testID="bluetooth-searching" />
             ) : (

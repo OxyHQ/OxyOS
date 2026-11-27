@@ -59,7 +59,7 @@ const AUTOMATIC = "-automatic";
 /** The selection ring: its width and its gap from the picture, as a Mac's. */
 const RING = 2.5;
 const GAP = 2;
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 const ROW = { flexDirection: "row", flexWrap: "wrap", gap: 10 } as const;
 const BUTTONS = { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 } as const;
 /** A tile's own radio: none of the chip's pill, the tile draws itself. */
@@ -330,8 +330,9 @@ function Frame({ chosen, children }: { chosen: boolean; children: React.ReactNod
   );
 }
 
-/** A section's heading as Bloom's grouped sections draw theirs, with an action at its end (*Show
-    All*, as a Mac's Wallpaper settings place it). */
+/** A section's heading as Bloom's compact grouped sections draw theirs (the headline style, as it is
+    written, aligned with their rows' text), with an action at its end (*Show All*, as a Mac's
+    Wallpaper settings place it). */
 function SectionHeading({ title, children }: { title: string; children?: React.ReactNode }) {
   const theme = useTheme();
   return (
@@ -340,16 +341,13 @@ function SectionHeading({ title, children }: { title: string; children?: React.R
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingLeft: 20,
+        paddingLeft: 10,
         paddingRight: 8,
         minHeight: 28,
         marginBottom: 2,
       }}
     >
-      <Text
-        variant="caption-2-semibold"
-        style={{ color: theme.colors.textSecondary, textTransform: "uppercase", letterSpacing: 0.6 }}
-      >
+      <Text variant="body-bold" style={{ color: theme.colors.text }}>
         {title}
       </Text>
       {children}
@@ -862,6 +860,7 @@ export function WallpaperPage({ snapshot, actions, strings }: Props) {
           testID="wallpaper-all-desktops"
           rightElement={
             <Switch
+              size="xs"
               checked={snapshot.preferences.wallpaperAllDesktops}
               onCheckedChange={(on) => actions.setPreference("wallpaperAllDesktops", on)}
               accessibilityLabel={words.allDesktops}

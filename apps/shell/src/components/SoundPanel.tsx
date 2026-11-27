@@ -12,7 +12,8 @@ import { RiVolumeUpLine } from "@oxy.so/bloom/icons/RiVolumeUpLine";
 import { Box, PressArea, Scroll } from "../primitives";
 import type { ShellControls } from "../model";
 import { soundDeviceName, type SoundDevice, type SoundKind, type SoundState } from "../sound";
-import { ACCENT, FACE, INK, QUIET, card } from "./control-style";
+import { FACE, INK, QUIET, card } from "./control-style";
+import { useTheme } from "@oxy.so/bloom/theme";
 import { LevelSlider, type Icon } from "./LevelSlider";
 import { useShellMessages } from "../useShellMessages";
 
@@ -41,6 +42,7 @@ function deviceIcon(device: SoundDevice): Icon {
 function DeviceRow({ device, choose }: { device: SoundDevice; choose: (id: string) => void }) {
   const messages = useShellMessages();
   const [hovered, setHovered] = useState(false);
+  const accent = useTheme().colors.primary;
   const Glyph = deviceIcon(device);
   return (
     <PressArea
@@ -66,7 +68,7 @@ function DeviceRow({ device, choose }: { device: SoundDevice; choose: (id: strin
       <SubtleHover native active={hovered} style={{ borderRadius: 8 }} />
       <Box
         className="items-center justify-center rounded-full"
-        style={{ width: 26, height: 26, backgroundColor: device.selected ? ACCENT : FACE }}
+        style={{ width: 26, height: 26, backgroundColor: device.selected ? accent : FACE }}
       >
         <Glyph width={15} height={15} fill={device.selected ? "#ffffff" : INK} />
       </Box>

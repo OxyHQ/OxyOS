@@ -8,6 +8,9 @@ publish.workspace = true
 [dependencies]
 # Asking an application's process to stop (SIGTERM).
 rustix = { version = "1.1.6", default-features = false, features = ["std", "process", "fs"] }
+# An application starts with every signal at its default and none blocked: sigaction(2) and
+# sigprocmask(2) between fork and exec, which rustix does not expose.
+libc = "0.2"
 # The image's policy of system applications (docs/adr/0030-installing-applications.mdx), JSON.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -18,5 +21,14 @@ oxyos-package = { path = "../oxyos-package" }
 # The install service's layout, which the registry's second source must be (tests only).
 oxyos-install = { path = "../oxyos-install" }
 
-[lints]
-workspace = true
+# The workspace forbids `unsafe`. Starting an application resets its signals through libc between
+# fork and exec, so this crate denies it instead and allows it item by item; every unsafe block
+# states why it is sound.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

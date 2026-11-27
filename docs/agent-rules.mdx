@@ -1,0 +1,42 @@
+---
+title: Agent rules
+description: The detailed rules for working in OxyOS that the root AGENTS.md summarises.
+order: 20
+---
+
+# Agent rules
+
+`AGENTS.md` holds the short, checkable form of these rules. This page keeps the context behind them.
+
+## Session and compositor
+
+- The root Rust workspace is the foundation. The development compositor (`oxyos-offscreen --launch --kms`) can show a live Bloom app on a real output through DRM/KMS, but it is a fixture with scripted input, not a session.
+- The session program is `oxyos-session` (the `oxyos-compositor` library on a logind seat, run from a terminal login or by the login program `oxyos-login`, ADR 0020). Neither is in the image, and `oxyos-login --dev` never starts a session.
+- Never install `oxyos-offscreen`, `oxyos-kms-show` or the headless probe as a compositor or session. `oxyos-offscreen` is a CPU fixture, not DRM/KMS.
+- Bloom's application-layout compositor is distinct from the OS display compositor. Preserve existing Bloom APIs and the layout engine; do not create Petal or lookalike replacements. Metal/macOS code from Astro is not a required backend. Issue #9's Wayland/Petal choices are superseded.
+- The website is https://oxy.so/os, served by OxyHQ/website.
+
+## Names
+
+What belongs to the OS uses the `oxyos` prefix: crates and binaries `oxyos-*`, the C ABI `oxyos_*`, `OxyOS*` and `OXYOS_*`, environment variables `OXYOS_*`, the host's namespace `oxyos`. Plain `oxy`/`Oxy` means the Oxy ecosystem (accounts, the `oxy` SDK, `@oxy.so/*`); never use it for OS parts.
+
+## Merging and the gate
+
+`gh pr merge N --auto` puts a pull request in the merge queue once its fast checks pass. The queue's **Scenarios** run of the combined tree is the gate (`tools/gate/run-scenarios.sh`), and a failing run takes the pull request out with its failure; the `gate` label runs it on a pull request first. A machine from nothing, the gate, deploys (`tools/deploy/deploy.sh`) and the gate's machine are in [developing](./developing). `tools/dev/bootstrap` fetches everything at `tools/dev/pins`; machine-specific values go in `tools/dev/local.conf` (git-ignored), never in the repo.
+
+## Checks
+
+- Native: fmt, test, clippy, `scripts/check-native-boundary.py`, `oxyos-platform-probe`. Use `rust-toolchain.toml`; root `target/` is generated. Add real modules as functionality arrives, not empty scaffolds.
+- TS/JS: Biome (`biome.jsonc`: lint only, existing violations baselined to `warn`; formatting lands per directory later).
+- Python: ruff (`ruff.toml`: lint only, baseline per file; formatting lands later).
+- Image: `scripts/check-image-config.py` checks `config/` and workflows (the boundary script audits Cargo). Locally, never in CI: `tools/image/build.sh` builds the console base in a privileged Trixie container under `oxyos-build` in the home directory (never `/tmp`) and runs `scripts/check-image-contents.py`, the built image's audit. `python3 tools/image/acceptance ISO [--firmware uefi|secureboot|bios]` boot-tests it in QEMU (`--recovery`: install, recovery and erase on a virtual disk). See [iso-build](./iso-build). Installing: ADR 0023; recovery and erasing: ADR 0054. Destructive steps (install, erase) run only in QEMU disk images, never on a real disk.
+
+## Image rules (`config/`)
+
+- `config/` is a live-build config for a console-only Debian Trixie base. It is not the OxyOS desktop and is never published as one.
+- No workflow builds or publishes an ISO. Image publication returns only with a real compositor/runtime, boot acceptance tests and a final package-contents audit. No fake binaries, placeholder login, missing-binary success, fallback session or compatibility launcher.
+- Never add X.org, XWayland, Wayland compositors, greeters, GTK/Qt/WebKit runtimes or desktop apps to the manifest, and never export `DISPLAY`/`WAYLAND_DISPLAY`/`GDK_BACKEND`/`QT_QPA_PLATFORM` from session or build paths. The retired React/Tauri shell is gone; recover history from `6c35e60`, do not reintroduce it ([retired-desktop-stack](./retired-desktop-stack)).
+- `package-lists/live.list.chroot` is the one package manifest. PipeWire is the one audio stack.
+- `config/oxyos.conf` and `includes.chroot_after_packages/etc/oxyos/oxyos.conf` stay identical. Build identifiers use the `oxyos` prefix.
+- Hooks are POSIX `sh`; no device-group grants or pre-created accounts (live-config owns the live user).
+- The ISO build is not a bun/Node project; there is no JS in the build pipeline.

@@ -375,7 +375,7 @@
       "expect": {
         "in_shell": {
           "texts": [
-            "Esa no es la contraseña de esta cuenta de Oxy. Vuelve a intentarlo."
+            "Contraseña incorrecta. Vuelve a intentarlo."
           ],
           "focus_input": "login-setup-password"
         }

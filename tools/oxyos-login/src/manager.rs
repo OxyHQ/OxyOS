@@ -34,6 +34,7 @@
 //!   of its start, never given up on; a check it had going is abandoned. A session that ended
 //!   (signing out) brings it back at once.
 
+use crate::channel::End;
 use oxyos_auth::greeter::Verdict;
 use oxyos_auth::{Outcome, Throttle};
 use oxyos_seat::restarts::Restarts;
@@ -135,8 +136,30 @@ pub enum State {
     Session { account: String },
 }
 
+/// A session that ended because of a problem (docs/adr/0065-the-session-ending-because-of-a-problem.mdx,
+/// decision 2): whose, how, after how long and when (seconds since the epoch).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Problem {
+    pub account: String,
+    pub end: End,
+    pub ran: u32,
+    pub at: u64,
+}
+
+impl Problem {
+    /// As the person's next session is told it (`OXYOS_SESSION_ENDED`): how, how many seconds it
+    /// ran, and when, `signal 11 3600 1762790000`.
+    pub fn told(&self) -> String {
+        format!("{} {} {}", self.end.word(), self.ran, self.at)
+    }
+}
+
 pub struct Manager {
     state: State,
+    /// The last session that ended because of a problem, until its account's next session is
+    /// told; and whether the login screen says so (until someone signs in).
+    problem: Option<Problem>,
+    problem_said: bool,
     /// Each enrolled account's throttle, its password's and its PIN's (`true`), and one for every
     /// name not enrolled.
     throttles: BTreeMap<(String, bool), Throttle>,
@@ -153,6 +176,8 @@ impl Manager {
     pub fn start(now: Instant) -> (Self, Vec<Action>) {
         let manager = Self {
             state: State::Greeter { checking: None },
+            problem: None,
+            problem_said: false,
             throttles: BTreeMap::new(),
             unknown: Throttle::default(),
             greeter_started: Some(now),
@@ -416,9 +441,43 @@ impl Manager {
         Action::StartGreeter { after }
     }
 
+    /// The session's worker said how it ended, at `at` (seconds since the epoch), after `ran`
+    /// seconds: one that ended because of a problem is said on the login screen, and told to its
+    /// account's next session.
+    pub fn session_ended(&mut self, end: End, ran: u32, at: u64) {
+        let (State::Session { account } | State::Opening { account }) = &self.state else {
+            return;
+        };
+        if end.problem() {
+            self.problem = Some(Problem {
+                account: account.clone(),
+                end,
+                ran,
+                at,
+            });
+            self.problem_said = true;
+        }
+    }
+
+    /// Whether the login screen says the last session ended because of a problem.
+    pub fn problem_said(&self) -> bool {
+        self.problem_said
+    }
+
+    /// How `account`'s last session ended because of a problem, to tell the session that starts
+    /// for it (its worker is started for the attempt, before anyone knows it will sign in).
+    pub fn problem_of(&self, account: &str) -> Option<&Problem> {
+        self.problem
+            .as_ref()
+            .filter(|problem| problem.account == account)
+    }
+
     /// The worker that opened the session started it.
     pub fn session_started(&mut self) -> Vec<Action> {
         if let State::Opening { account } = &self.state {
+            // Told to it (its worker was started with it), and said no more on the login screen.
+            self.problem_said = false;
+            self.problem.take_if(|problem| problem.account == *account);
             self.state = State::Session {
                 account: account.clone(),
             };
@@ -820,6 +879,59 @@ mod tests {
                 after: Duration::ZERO
             }]
         );
+    }
+
+    #[test]
+    fn a_session_that_ends_because_of_a_problem_is_said_and_told_to_its_next_session() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        signed_in(&mut manager, now);
+        manager.greeter_ended(now);
+        manager.session_started();
+        assert!(!manager.problem_said());
+        manager.session_ended(End::Signal(11), 3600, 1_762_790_000);
+        assert_eq!(
+            manager.worker_ended(now + Duration::from_secs(3600)),
+            [Action::StartGreeter {
+                after: Duration::ZERO
+            }]
+        );
+        // The login screen says it until someone signs in; its account's next session is told.
+        assert!(manager.problem_said());
+        assert_eq!(manager.problem_of("someone-else"), None);
+        assert_eq!(
+            manager.problem_of(ADA).map(Problem::told).as_deref(),
+            Some("signal 11 3600 1762790000")
+        );
+        // A wrong password changes nothing.
+        let later = now + Duration::from_secs(7200);
+        manager.attempt(ADA, false, true, later);
+        pam(&mut manager, Checked::Rejected, later);
+        assert!(manager.problem_said());
+        assert!(manager.problem_of(ADA).is_some());
+        // Once its session starts, it was told: nothing is said or told again.
+        signed_in(&mut manager, later + Duration::from_secs(60));
+        manager.greeter_ended(later + Duration::from_secs(60));
+        manager.session_started();
+        assert!(!manager.problem_said());
+        assert_eq!(manager.problem_of(ADA), None);
+    }
+
+    #[test]
+    fn signing_out_or_being_asked_to_end_is_no_problem() {
+        let now = Instant::now();
+        let (mut manager, _) = Manager::start(now);
+        signed_in(&mut manager, now);
+        manager.greeter_ended(now);
+        manager.session_started();
+        manager.session_ended(End::Exited(0), 60, 0);
+        manager.session_ended(End::Asked, 60, 0);
+        assert!(!manager.problem_said());
+        assert_eq!(manager.problem_of(ADA), None);
+        // Nothing heard at the login screen counts either.
+        let (mut manager, _) = Manager::start(now);
+        manager.session_ended(End::Hung, 60, 0);
+        assert!(!manager.problem_said());
     }
 
     #[test]

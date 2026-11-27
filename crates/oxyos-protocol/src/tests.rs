@@ -328,8 +328,27 @@ fn requests() -> Vec<Request> {
             serial: 3,
             index: 1,
         },
+        Request::MenuItemRole {
+            surface: 1,
+            index: 1,
+            role: MenuRole::Settings,
+        },
         Request::HideApplication { window: 7 },
         Request::QuitApplication { window: 8 },
+        Request::HideOtherApplications { window: 7 },
+        Request::LayOutWindow {
+            window: 7,
+            layout: WindowLayout::BottomAndTop,
+        },
+        Request::LayOutSurface {
+            surface: 1,
+            layout: WindowLayout::TopLeft,
+        },
+        Request::MoveSurfaceToWorkspace {
+            surface: 1,
+            workspace: 2,
+        },
+        Request::ShowAllApplications {},
         Request::FocusShellSurface {
             surface: 3,
             serial: 41,
@@ -437,6 +456,13 @@ fn requests() -> Vec<Request> {
             quit: true,
         },
         Request::SuddenTermination { enabled: true },
+        Request::MaterialRegion {
+            surface: 3,
+            index: 1,
+            last: true,
+            rect: Rect::new(8, 12, 240, 160),
+            radius: 12,
+        },
         Request::AttachDmabufPlane {
             buffer: 9,
             plane: 1,
@@ -1013,6 +1039,7 @@ fn events() -> Vec<Event> {
             text: PreeditText::new(r#"{"cancelled":{}}"#).unwrap(),
         },
         Event::Ping { serial: 9 },
+        Event::PingHandled { serial: 10 },
         Event::TrashItems { items: 3 },
         Event::DragEnter {
             surface: 1,
@@ -1114,6 +1141,11 @@ fn events() -> Vec<Event> {
             text: PreeditText::new("so.oxy.inbox").unwrap(),
         },
         Event::WindowClosed { window: 7 },
+        Event::SurfaceWorkspaces {
+            surface: 1,
+            count: 3,
+            workspace: 1,
+        },
         Event::Workspaces {
             count: 2,
             active: 1,
@@ -1136,6 +1168,11 @@ fn events() -> Vec<Event> {
             index: 0,
             field: MenuField::Label,
             text: TextChunk::new("Archivo").unwrap(),
+        },
+        Event::MenuBarItemRole {
+            window: 7,
+            index: 1,
+            role: MenuRole::About,
         },
         Event::MenuBarCommitted { window: 7 },
         Event::MenuItemActivated {
@@ -1893,6 +1930,10 @@ fn an_event_is_written_for_an_older_version_as_that_version_had_it() {
     let mut nothing = Vec::new();
     assert!(!write_event_for(&mut nothing, &ping, 7).unwrap());
     assert_eq!(event_since(&ping), 8);
+    // A Ping answered once the client handled what came before it is version 49's.
+    let handled = Event::PingHandled { serial: 4 };
+    assert!(!write_event_for(&mut nothing, &handled, 48).unwrap());
+    assert_eq!(event_since(&handled), 49);
     assert_eq!(
         request_since(&Request::ForceQuitApplication { window: 1 }),
         8
@@ -3241,6 +3282,62 @@ fn version_40_sudden_termination_is_only_version_40s() {
     let told = Request::SuddenTermination { enabled: true };
     assert_eq!(request_since(&told), 40);
     assert_eq!(SUDDEN_TERMINATION_VERSION, 40);
+}
+
+#[test]
+fn version_50_window_layouts_are_only_version_50s() {
+    let laid = Request::LayOutSurface {
+        surface: 1,
+        layout: WindowLayout::Fill,
+    };
+    let moved = Request::MoveSurfaceToWorkspace {
+        surface: 1,
+        workspace: 1,
+    };
+    assert_eq!(request_since(&laid), 50);
+    assert_eq!(request_since(&moved), 50);
+    let told = Event::SurfaceWorkspaces {
+        surface: 1,
+        count: 2,
+        workspace: 0,
+    };
+    assert_eq!(event_since(&told), 50);
+    assert_eq!(WINDOW_LAYOUTS_VERSION, 50);
+    // Never written to a client of an older version.
+    let mut older = Vec::new();
+    assert!(!write_event_for(&mut older, &told, 49).unwrap());
+    assert!(older.is_empty());
+    let mut newer = Vec::new();
+    assert!(write_event_for(&mut newer, &told, 50).unwrap());
+    assert_eq!(read_event_for(&mut Cursor::new(newer), 50).unwrap(), told);
+}
+
+#[test]
+fn version_48_lay_out_window_is_only_version_48s() {
+    let asked = Request::LayOutWindow {
+        window: 1,
+        layout: WindowLayout::Fill,
+    };
+    assert_eq!(request_since(&asked), 48);
+    assert_eq!(LAYOUT_WINDOW_VERSION, 48);
+    // Every layout has its byte, and no other byte is one.
+    let every = (1..=17).filter_map(WindowLayout::from_raw).count();
+    assert_eq!(every, 17);
+    assert_eq!(WindowLayout::from_raw(0), None);
+    assert_eq!(WindowLayout::from_raw(18), None);
+}
+
+#[test]
+fn version_45_material_regions_are_only_version_45s() {
+    let region = Request::MaterialRegion {
+        surface: 1,
+        index: 0,
+        last: true,
+        rect: Rect::new(0, 0, 0, 0),
+        radius: 0,
+    };
+    assert_eq!(request_since(&region), 45);
+    assert_eq!(MATERIAL_VERSION, 45);
 }
 
 #[test]

@@ -30,6 +30,10 @@
  */
 import * as React from 'react';
 import { DeviceEventEmitter, findNodeHandle, TurboModuleRegistry } from 'react-native';
+// The zoom control's layouts (Bloom's WindowLayouts, `window-layout`, docs/adr/0016-windows.mdx,
+// decision 12): registered for WindowControls by importing them, which only a platform that lays
+// windows out does.
+import '@oxy.so/bloom/window/layouts';
 import * as NativeComponentRegistry from 'react-native/Libraries/NativeComponent/NativeComponentRegistry';
 import { homeName } from './home-name';
 import {
@@ -146,6 +150,15 @@ function createWindow() {
     // The sizes the application's layout holds together at (`SetSizeLimits`): the compositor never
     // configures the window outside them, by its edges or by zoom.
     setSizeLimits: (limits) => platformWindows.setSizeLimits(limits),
+    // Its zoom control's layouts (`window-layout`, docs/adr/0016-windows.mdx, decision 12): the
+    // compositor lays the window out and moves it to another desktop at its own request, as a
+    // Mac's green button asks the window server; the state's `desktops` say them.
+    ...(platformWindows.layouts
+      ? {
+          layOut: (layout) => platformWindows.layOut(layout),
+          moveToDesktop: (desktop) => platformWindows.moveToDesktop(desktop),
+        }
+      : null),
   };
 }
 
@@ -157,6 +170,12 @@ const MENU = { menu: 1, item: 2, submenu: 3, separator: 4 };
 const DISABLED = 1;
 const CHECKABLE = 2;
 const CHECKED = 4;
+// The application's own standard commands (Bloom's `MenubarItem action`): its About and its
+// Settings…, which the shell shows in the application's own menu (docs/adr/0021-menu-bar.mdx).
+const ROLE = new Map([
+  ['about', 1],
+  ['settings', 2],
+]);
 const MAX_ENTRIES = 256;
 const MAX_DEPTH = 4;
 // How many commits' ids are kept: a choice made just before Bloom described the menus again still
@@ -167,6 +186,8 @@ const COMMITS_KEPT = 8;
 function flatten(menus) {
   const entries = [];
   const ids = [];
+  // Each role once in a commit, on a command without a check: the first declared has it.
+  const roles = new Set();
   const add = (entry, id) => {
     if (entries.length >= MAX_ENTRIES) return -1;
     entries.push(entry);
@@ -189,7 +210,12 @@ function flatten(menus) {
         continue;
       }
       const check = typeof item.checked === 'boolean' ? CHECKABLE | (item.checked ? CHECKED : 0) : 0;
-      add({ parent, kind: MENU.item, flags: disabled | check, label: item.label, shortcut: item.shortcut ?? '' }, item.id);
+      const role = check === 0 && !roles.has(item.action) ? (ROLE.get(item.action) ?? 0) : 0;
+      if (role) roles.add(item.action);
+      add(
+        { parent, kind: MENU.item, flags: disabled | check, role, label: item.label, shortcut: item.shortcut ?? '' },
+        item.id,
+      );
     }
   };
   for (const menu of menus) {
@@ -557,6 +583,28 @@ const sounds = platformSounds.available
     }
   : undefined;
 
+// The platform's material (docs/adr/0069-the-platforms-material.mdx, Bloom's `material`): the
+// OxyOSMaterialView host component (material.h), which Bloom mounts under a floating surface's tint.
+// The host fills it with what its surface drew beneath it, blurred and saturated, and tells the
+// compositor its frame and corners, where the compositor blurs the windows and the desktop beneath
+// the surface. A compositor of protocol version 45 or later takes them (OxyOSMaterial's
+// `available`); on an older one there is no `material`, and Bloom draws its opaque fills.
+const materialAvailable = Boolean(TurboModuleRegistry.get('OxyOSMaterial')?.getConstants?.()?.available);
+
+const OxyOSMaterialView = NativeComponentRegistry.get('OxyOSMaterialView', () => ({
+  uiViewClassName: 'OxyOSMaterialView',
+  validAttributes: {},
+}));
+
+// Bloom's PlatformMaterialProps: its frame and shape (`style`) and Bloom's theme (`appearance`), for
+// which nothing differs here: the blur is the same in light and dark, and the tint over it Bloom's.
+function Material({ style, testID }) {
+  return (
+    // Never flattened away: the host finds the material's frame by its view. It takes no input.
+    <OxyOSMaterialView style={style} testID={testID} pointerEvents="none" collapsable={false} />
+  );
+}
+
 export const oxyosSurfaces = {
   platform: 'oxyos',
   capabilities: new Set([
@@ -565,9 +613,11 @@ export const oxyosSurfaces = {
     // controls take a desktop's geometry and its menus a desktop's presentation everywhere.
     'pointer',
     ...(window ? ['window'] : []),
+    ...(window?.layOut ? ['window-layout'] : []),
     ...(menuBar ? ['menu-bar'] : []),
     ...(appearance ? ['appearance'] : []),
     ...(drag ? ['drag-and-drop'] : []),
+    ...(materialAvailable ? ['material'] : []),
   ]),
   PopupSurface,
   window,
@@ -579,4 +629,5 @@ export const oxyosSurfaces = {
   search,
   sounds,
   ...(drag ? { DropTarget, drag } : {}),
+  ...(materialAvailable ? { Material } : {}),
 };

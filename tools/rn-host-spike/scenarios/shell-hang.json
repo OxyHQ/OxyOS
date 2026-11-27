@@ -1,0 +1,126 @@
+{
+  "about": "The shell hanging (docs/adr/0061-crashes-and-resetting-an-application.mdx, decision 6, amended: the shell's watch), as a Mac's window server and launchd end a Dock that stops answering: Allo has the keyboard; the shell is stopped (SIGSTOP: it answers nothing, as a shell stuck in a loop). The session pings it every 2 s whatever the person does; 8 s without an answer it asks for its report (SIGQUIT and SIGCONT: the Bloom host writes its JavaScript thread's stack), ends it half a second later and starts it again at once: its panels come back, Allo keeps the keyboard and receives nothing, and the shell's report says the hang. Without the watch the stopped shell stays, its panels dead, and no report is written. At 1 (1280 × 720).",
+  "locale": "en_US.UTF-8",
+  "module": "EditingProbe",
+  "window": [
+    600,
+    360
+  ],
+  "shell": "OxyOSShell",
+  "app": {
+    "id": "so.oxy.allo",
+    "title": "Allo"
+  },
+  "home": {
+    "items": {
+      "notes.txt": "keep me"
+    }
+  },
+  "steps": [
+    {
+      "name": "Allo has the keyboard; the shell's panels are shown",
+      "do": [
+        "wait",
+        3000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        }
+      }
+    },
+    {
+      "name": "the shell stops answering (SIGSTOP)",
+      "do": [
+        "signal",
+        [
+          "STOP",
+          "shell"
+        ]
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1
+      }
+    },
+    {
+      "name": "8 s without an answer: its report, its end, and the shell started again; Allo keeps the keyboard and receives nothing",
+      "do": [
+        "wait",
+        25000
+      ],
+      "allow_unchanged": true,
+      "expect": {
+        "focus_surface": 1,
+        "shell": {
+          "surfaces": [
+            [
+              0,
+              0,
+              1280,
+              720
+            ],
+            [
+              0,
+              0,
+              1280,
+              28
+            ],
+            [
+              0,
+              664,
+              1280,
+              56
+            ]
+          ],
+          "work_area": [
+            0,
+            28,
+            1280,
+            636
+          ],
+          "locked": false
+        },
+        "delivered": {},
+        "crash_reports": [
+          {
+            "application": "so.oxy.shell",
+            "contains": [
+              "OxyOS stopped responding and was started again.",
+              "Reason:       hang: no response for 8 seconds; ended by the session",
+              "[host] hang: asked by process"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -100,13 +100,17 @@
   ],
   "steps": [
     {
-      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window",
+      "name": "Atlas in the dock, after Dropsea: the session starts it, with its window, once Atlas shows it",
       "do": [
         "press_output",
         [
           680,
           693
         ]
+      ],
+      "until_named": [
+        "Discover",
+        30000
       ],
       "expect": {
         "in_shell": {
@@ -226,7 +230,7 @@
         "in_shell": {
           "texts": [
             "No se puede instalar la app",
-            "El servicio que instala las apps en este ordenador no está funcionando. Inténtalo de nuevo cuando vuelva a estar disponible.",
+            "El servicio que instala las apps en este ordenador no está funcionando. Vuelve a intentarlo cuando vuelva a estar disponible.",
             "Aceptar"
           ],
           "absent": [

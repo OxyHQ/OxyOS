@@ -102,7 +102,7 @@ class TextEditing {
   // a popup of it): what a command chosen in the input's context menu cites to copy and paste.
   void useInputSerial(std::function<uint64_t()> serial) { inputSerial_ = std::move(serial); }
 
-  // The platform's drag (drag.h): a drag of `text` from the press held, allowing copy and move,
+  // The platform's drag (drag.h): a drag of `text` from the latest press, allowing copy and move,
   // with `image` under the pointer; `done` receives the action the drop took, or nothing when it
   // was cancelled. False if it did not start (`done` is then called at once).
   struct DragAccess {
@@ -259,6 +259,13 @@ class TextEditing {
   // Focus moved onto an input by the keyboard (Tab, keyboard-focus.h): its whole text selected, as
   // a Mac's field is when Tab reaches it.
   void focusFromKeyboard(facebook::react::Tag tag);
+  // A primary press released on the unfocused input `tag` (PointerInput::focusesTextInputs): it
+  // takes focus, its caret where it was pressed, before the next press is read. A double click on
+  // it then changes the selection once a click, as in a focused input (the caret, then the word),
+  // however late JavaScript's own focus for the press comes; that focus finds it focused.
+  void focusFromPress(facebook::react::Tag tag) {
+    if (tag != focused_ && press_ && !contextPress_) focus(tag);
+  }
   // Focus moved off the focused input by the keyboard, onto a control that is no input.
   void unfocus() {
     if (focused_ >= 0) blur();

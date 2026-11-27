@@ -70,11 +70,11 @@
         "account_session": [],
         "in_shell": {
           "texts": [
-            "Introduce la contraseña",
+            "Introducir contraseña",
             "Usar PIN"
           ],
           "absent": [
-            "Introduce el PIN",
+            "Introducir PIN",
             "Usar contraseña"
           ],
           "focus_input": "shell-lock-password"
@@ -94,11 +94,11 @@
         },
         "in_shell": {
           "texts": [
-            "Introduce el PIN",
+            "Introducir PIN",
             "Usar contraseña"
           ],
           "absent": [
-            "Introduce la contraseña"
+            "Introducir contraseña"
           ],
           "focus_input": "shell-lock-pin-password"
         }

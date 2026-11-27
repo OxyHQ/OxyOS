@@ -71,14 +71,14 @@
     },
     "spoken": [
      {
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "interrupting": true
      }
     ],
     "announcements": [
      {
       "politeness": "assertive",
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "live": false
      }
     ],
@@ -86,7 +86,7 @@
      "shell": [
       {
        "role": "Text",
-       "name": "Contraseña incorrecta"
+       "name": "Contraseña incorrecta. Vuelve a intentarlo."
       }
      ]
     }
@@ -105,14 +105,14 @@
     },
     "spoken": [
      {
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "interrupting": true
      }
     ],
     "announcements": [
      {
       "politeness": "assertive",
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "live": false
      }
     ],
@@ -120,7 +120,7 @@
      "shell": [
       {
        "role": "Text",
-       "name": "Contraseña incorrecta"
+       "name": "Contraseña incorrecta. Vuelve a intentarlo."
       }
      ]
     }
@@ -139,14 +139,14 @@
     },
     "spoken": [
      {
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "interrupting": true
      }
     ],
     "announcements": [
      {
       "politeness": "assertive",
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "live": false
      }
     ],
@@ -154,7 +154,7 @@
      "shell": [
       {
        "role": "Text",
-       "name": "Contraseña incorrecta"
+       "name": "Contraseña incorrecta. Vuelve a intentarlo."
       }
      ]
     }
@@ -173,14 +173,14 @@
     },
     "spoken": [
      {
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "interrupting": true
      }
     ],
     "announcements": [
      {
       "politeness": "assertive",
-      "text": "Contraseña incorrecta",
+      "text": "Contraseña incorrecta. Vuelve a intentarlo.",
       "live": false
      }
     ],
@@ -188,7 +188,7 @@
      "shell": [
       {
        "role": "Text",
-       "name": "Contraseña incorrecta"
+       "name": "Contraseña incorrecta. Vuelve a intentarlo."
       }
      ]
     }

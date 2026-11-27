@@ -183,7 +183,7 @@
      "Wi-Fi: LukeSkyRouter, Vecinos",
      "VPN: Work VPN",
      "Kept, as only an administrator can remove them: Oficina.",
-     "Kept: Office static, Ethernet's configuration"
+     "Kept: Office static, the Ethernet configuration"
     ],
     "absent": [
      "Wired connection 1"
@@ -291,10 +291,14 @@
    }
   },
   {
-   "name": "Reset",
+   "name": "Reset: the press, then the daemon's answer, which opens the note",
    "do": [
     "press_named",
     "Reset"
+   ],
+   "until_named": [
+    "Network settings were reset.",
+    5000
    ],
    "allow_unchanged": true,
    "expect": {
@@ -351,11 +355,11 @@
   {
    "name": "Wi-Fi",
    "do": [
-    "press",
-    [
-     136,
-     110
-    ]
+    "press_named",
+    {
+     "role": "ListItem",
+     "name": "Wi-Fi"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

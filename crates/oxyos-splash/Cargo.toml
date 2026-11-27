@@ -1,0 +1,13 @@
+[package]
+name = "oxyos-splash"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The mark's outline, rasterized with anti-aliasing.
+oxyos-vector = { path = "../oxyos-vector" }
+
+[lints]
+workspace = true

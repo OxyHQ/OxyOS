@@ -111,6 +111,36 @@ fn super_shift_q_logs_out_asked_and_with_alt_at_once_never_while_locked() {
     assert!(h.scene.take_session_keys().is_empty());
 }
 
+/// Super+Alt+Escape is the compositor's own (docs/adr/0067-hangs-and-force-quit.mdx, decision 2):
+/// handed to the program once, its keys reaching no application; Escape alone is the
+/// application's; locked, nothing.
+#[test]
+fn super_alt_escape_asks_for_force_quit_and_reaches_no_application() {
+    const ESCAPE: u32 = 1;
+    let mut h = Harness::new();
+    let window = h.toplevel(APP, 1, 400, 300);
+    h.activate(window);
+    logged(&mut h);
+    press(&mut h, &[SUPER, ALT, ESCAPE]);
+    assert!(keys_to(&logged(&mut h), APP).is_empty());
+    assert!(h.scene.take_force_quit_shortcut());
+    assert!(!h.scene.take_force_quit_shortcut(), "once");
+    // No session end is asked for, and Escape alone is the application's.
+    assert!(h.scene.take_session_keys().is_empty());
+    press(&mut h, &[ESCAPE]);
+    assert!(keys_to(&logged(&mut h), APP)
+        .iter()
+        .any(|(key, _)| *key == ESCAPE));
+    assert!(!h.scene.take_force_quit_shortcut());
+    // With Shift or Ctrl it is nothing of it.
+    press(&mut h, &[SUPER, ALT, SHIFT, ESCAPE]);
+    assert!(!h.scene.take_force_quit_shortcut());
+    // Locked, no system shortcut acts.
+    h.scene.lock();
+    press(&mut h, &[SUPER, ALT, ESCAPE]);
+    assert!(!h.scene.take_force_quit_shortcut());
+}
+
 #[test]
 fn applications_are_the_clients_without_the_sessions_own_grants() {
     let mut h = Harness::new();

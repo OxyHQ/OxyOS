@@ -6,10 +6,11 @@ use crate::wire::{
     ApplicationListKind, AuthOutcome, BackgroundItemAction, BackgroundItemKind, BackgroundStatus,
     BatteryState, BluetoothState, CaptureDestination, CaptureKind, CaptureMode, Clock, Control,
     DismissReason, DragActions, DragCancelReason, ErrorCode, Format, GestureOverlay, GesturePhase,
-    MenuField, MenuFlags, MenuKind, NotificationField, NotificationOutcome, Outcome, PanelEdge,
-    PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText, ReaderCommand,
-    Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size, SystemShortcut,
-    SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind, WifiState, Wire,
+    MenuField, MenuFlags, MenuKind, MenuRole, NotificationField, NotificationOutcome, Outcome,
+    PanelEdge, PointerKind, PointerShape, Politeness, Positioner, PreeditStyle, PreeditText,
+    ReaderCommand, Rect, ScrollSource, SecretChunk, SessionEnd, ShellKind, ShortcutIntent, Size,
+    SystemShortcut, SystemSound, TextChunk, TextContentType, TextHints, TextPurpose, TouchKind,
+    WifiState, WindowLayout, Wire,
 };
 use crate::{invalid, MAX_PACKET_BYTES};
 use std::io;
@@ -167,6 +168,13 @@ messages! {
         // is, applied at TextInputCommit: chunks of none could not say so, and a commit keeps the
         // text it does not describe again, so a field emptied stayed told as it was.
         70 => TextInputEmpty { surface: u32 },
+        // The surface's material regions (version 45, docs/adr/0069-the-platforms-material.mdx):
+        // the rounded rectangles, in buffer pixels, under which the compositor blurs and saturates
+        // what it has composed beneath the surface before drawing it, as a Mac's vibrancy. Sent
+        // in order before the Submit they belong to: `index` 0 begins the list, `last` ends it and
+        // makes it the next Submit's. One with an empty `rect` at index 0, last, means none. At
+        // most 16; `radius` at most half the shorter side. Kept until another list replaces it.
+        71 => MaterialRegion { surface: u32, index: u8, last: bool, rect: Rect, radius: u32 },
         // A window's title and application id (ADR 0009), each in chunks of up to 32 bytes:
         // `index` 0 begins it, `last` applies it. The application id is the application's own
         // claim until launch records give it; the shell shows it, nothing is authorized by it.
@@ -206,6 +214,13 @@ messages! {
         59 => SetSizeLimits { surface: u32, min_width: u32, min_height: u32, max_width: u32, max_height: u32 },
         60 => SetMaximized { surface: u32, enabled: bool },
         61 => Minimize { surface: u32 },
+        // Version 50 (ADR 0016, decision 12): a toplevel's own layouts, as its zoom control's
+        // menu asks them (a Mac's green button): laid out as the shell's LayOutWindow lays a
+        // window out (`layout` Zoom zooms it or back), and moved to another of the session's
+        // workspaces (numbered from 0), as the shell's MoveWindowToWorkspace moves one. Only the
+        // client's own toplevels; nothing while locked.
+        177 => LayOutSurface { surface: u32, layout: WindowLayout },
+        178 => MoveSurfaceToWorkspace { surface: u32, workspace: u32 },
         // Settings (the `settings` grant, ADR 0019) changes one of the user's preferences:
         // `key=value` in chunks as SetAppId's; `serial`, its own, names the change in
         // PreferenceResult. The session validates it, keeps it and applies it.
@@ -224,6 +239,10 @@ messages! {
         // by the window's number, the commit's serial and the command's index in it, as it was
         // told them (MenuBar). Anything else is answered with nothing.
         84 => ActivateMenuItem { window: u32, serial: u32, index: u32 },
+        // Version 43: which of the application's standard commands an entry of the menus being
+        // received is (its About, its Settings…), after the entry and before MenusCommit; only a
+        // command without a check, each role at most once in a commit, an entry at most one.
+        85 => MenuItemRole { surface: u32, index: u32, role: MenuRole },
         // The session's shell (its `shell` grant, ADR 0022): the windows one of its shell surfaces
         // shows live, each by the number the compositor gave it, which the compositor draws over
         // the surface's own pixels: within `rect` (surface-local logical pixels), fitted to it
@@ -273,6 +292,14 @@ messages! {
         // as one: the same application id, launched or claimed alike.
         110 => HideApplication { window: u32 },
         111 => QuitApplication { window: u32 },
+        // Version 43 (ADR 0021): hides every application but the one of `window` (0: every
+        // application), as a Mac's Hide Others; and shows every hidden application again, as its
+        // Show All, without changing the active window.
+        113 => HideOtherApplications { window: u32 },
+        114 => ShowAllApplications {},
+        // Version 48 (ADR 0016, decision 12): the Window menu's tiling, Center, Return to Previous
+        // Size and Zoom for `window`, as Super+Alt's keys and its green bubble ask them.
+        115 => LayOutWindow { window: u32, layout: WindowLayout },
         // The session's shell gives the keyboard focus to one of its own panels or overlays (the
         // launcher's search), citing the serial of an input it received: a press, a key or a
         // SystemShortcut. One it did not receive lately is ignored.
@@ -426,7 +453,8 @@ messages! {
         // the session did not start (the shell, the login screen, the lock screen, a client
         // claiming an id) is never ended.
         230 => ForceQuitApplication { window: u32 },
-        // Any client answers Ping `serial`, as its library does while it reads events: an
+        // Any client answers Ping `serial`, as its library does while it reads events (or the
+        // client, once it handled what came before, docs/adr/0071-the-ui-thread.mdx): an
         // application that does not answer in time is not responding (WindowState).
         231 => Pong { serial: u32 },
         // The session's shell (its `shell` grant) replaces one of the person's lists of
@@ -468,9 +496,10 @@ messages! {
         // most faithful first; at most MAX_DRAG_TYPES. A type for another number begins another.
         241 => DragType { drag: u32, mime: TextChunk },
         // Starts the drag `drag` from `surface`, citing `serial`, the latest pointer press of this
-        // client on that window, its button still held, with the drag icon `icon` (0: none) and
-        // the actions it allows. The compositor owns the pointer until the drag ends; refused, the
-        // source is told DragCancelled (Refused).
+        // client on that window, its button still held (or released since, nothing pressed after
+        // it: the drag is then dropped where it was released), with the drag icon `icon` (0:
+        // none) and the actions it allows. The compositor owns the pointer until the drag ends;
+        // refused, the source is told DragCancelled (Refused).
         242 => StartDrag { drag: u32, surface: u32, icon: u32, serial: u64, actions: DragActions },
         // The source ends its drag (going on, or dropped and not yet finished).
         243 => CancelDrag { drag: u32 },
@@ -697,6 +726,10 @@ messages! {
         // To an application: the person chose one of its commands in the shell's bar, the entry
         // `index` of its commit `menus`. `serial` is the choice, a user input as a key press's is.
         74 => MenuItemActivated { surface: u32, serial: u64, menus: u32, index: u32 },
+        // Version 43, to the session's shell: an entry of the menus being told is one of the
+        // application's standard commands (MenuItemRole), after its MenuBarItem and before
+        // MenuBarCommitted. A shell of version 39 is never told it.
+        75 => MenuBarItemRole { window: u32, index: u32, role: MenuRole },
         // To the session's shell (ADR 0022): a window's size in logical pixels, when it is first
         // told and whenever it changes, so the shell shows it in its proportions.
         80 => WindowSize { window: u32, size: Size },
@@ -779,6 +812,10 @@ messages! {
         // To a connection that asked for key text (SetKeyText): a key, as Key, with what the
         // session's layout typed with it (its compose sequences included; empty for a modifier, an
         // editing key, a control character or a dead key).
+        // Version 50 (ADR 0016, decision 12): a toplevel told the session's workspaces and the one
+        // it is on (numbered from 0) as it gets its role and whenever either changes, for its zoom
+        // control's Move to; never to a client of an older version.
+        151 => SurfaceWorkspaces { surface: u32, count: u32, workspace: u32 },
         150 => KeyText { surface: u32, serial: u64, key: u32, pressed: bool, text: PreeditText, time_ns: u64 },
         // To a client with the `store`, `updates`, `privacy` or `network` grant, or the shell: the
         // session's answer to its SystemRequest `serial`, JSON text in chunks; `serial` 0 is told
@@ -876,6 +913,12 @@ messages! {
         // Is the client still responding (ADR 0034)? It answers Pong naming `serial`. Sent to a
         // client given input, asked to close or activated, while no Ping to it is unanswered.
         230 => Ping { serial: u32 },
+        // Version 49: has the client handled everything it was sent before this? It answers Pong
+        // naming `serial` once it has (its library as it reads it; a client that answers pings
+        // itself once the thread that handles its events ran them), never waiting to be idle
+        // besides: whether a step's input was taken, for the development compositor's director.
+        // It counts for nothing in whether the client is responding.
+        233 => PingHandled { serial: u32 },
         // To the session's shell (ADR 0034): one of the person's lists of applications as the
         // session keeps it, when the shell connects and whenever it changes, ids one a line in
         // chunks as SetApplicationList's. `chosen`: the person has changed it; until then the

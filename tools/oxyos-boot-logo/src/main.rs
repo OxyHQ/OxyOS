@@ -1,7 +1,7 @@
 //! The boot logo's images (docs/adr/0017-boot-logo.mdx). The Plymouth theme `oxyos`
 //! (`config/includes.chroot_after_packages/usr/share/plymouth/themes/oxyos`) shows the session's
-//! splash (`oxyos-compositor`'s `splash.rs`: the Oxy mark, white, centred on black, an eighth of
-//! the output's height) from the kernel's first frame until the session's own, so the session
+//! splash (`oxyos-splash`, the frame the compositor shows: the Oxy mark, white, centred on black,
+//! an eighth of the output's height) from the kernel's first frame until the session's own, so the session
 //! taking the display over changes no pixel. Its images are drawn here, by the session's code:
 //!
 //! - `splash-WxH.png`, for each output size in [`SIZES`]: the session's splash frame at that size,
@@ -17,7 +17,6 @@
 //!     oxyos-boot-logo THEME_DIR             writes every image of the theme into THEME_DIR
 //!     oxyos-boot-logo --frame WxH OUT.png   writes the session's whole splash frame at WxH
 
-use oxyos_protocol::Size;
 use std::path::{Path, PathBuf};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -66,11 +65,10 @@ pub struct Image {
 
 /// The session's splash frame for an output of `width` × `height`, as the session shows it.
 pub fn frame(width: u32, height: u32) -> Result<Image> {
-    let splash = oxyos_compositor::splash::splash(Size::new(width, height))
+    let splash = oxyos_splash::frame(width, height)
         .ok_or_else(|| format!("no splash at {width}x{height}"))?;
     // The frame's pixels are B, G, R, X in memory (XRGB8888).
     let rgb = splash
-        .pixels
         .chunks_exact(4)
         .flat_map(|bgrx| [bgrx[2], bgrx[1], bgrx[0]])
         .collect();

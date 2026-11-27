@@ -224,7 +224,7 @@
       "do": [
         "wait_named",
         [
-          "La contraseña no es correcta. Inténtalo de nuevo.",
+          "Contraseña incorrecta. Vuelve a intentarlo.",
           5000
         ]
       ],

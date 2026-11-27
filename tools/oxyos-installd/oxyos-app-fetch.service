@@ -30,6 +30,9 @@ DynamicUser=yes
 # Its socket's directory, /run/oxyos/app-fetch: the dynamic user's.
 RuntimeDirectory=oxyos/app-fetch
 RuntimeDirectoryMode=0755
+# Its crash leaves its backtrace (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): it holds
+# no secret, and systemd-coredump keeps no core.
+LimitCORE=infinity
 UMask=0077
 
 ProtectSystem=strict

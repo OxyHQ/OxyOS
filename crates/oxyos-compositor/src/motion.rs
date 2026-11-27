@@ -241,6 +241,9 @@ pub const NOTIFICATION_FADES_OUT: Spring = Spring::critical(200);
 /// as the session starts; the splash fades out over the shell.
 pub const LOCK_FADES: Spring = Spring::critical(300);
 pub const PANEL_FADES_IN: Spring = Spring::critical(300);
+/// The dock hiding automatically slides up from the screen's bottom edge and down off it
+/// (docs/adr/0034-the-dock.mdx, 10 November 2026), on the zoom's spring, never bouncing.
+pub const DOCK_SLIDES: Spring = Spring::critical(340);
 pub const SPLASH_FADES_OUT: Spring = Spring::critical(450);
 /// A drag's image that dropped nothing slides back to where it came from in a quarter second, as
 /// a Mac's does, fading as it arrives.

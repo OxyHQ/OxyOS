@@ -16,6 +16,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace oxyos {
@@ -42,6 +43,17 @@ class Window {
   // input and popup dismissals go to `input`. Returns false once the compositor closed the
   // connection; throws on a protocol error.
   bool dispatch(const std::function<void(const OxyOSEvent&)>& input);
+  // The compositor's pings are answered by the host (`pong`), not as dispatch reads them: its
+  // events are handled on JavaScript's thread too (docs/adr/0071-the-ui-thread.mdx), and an
+  // application is responding once that thread took what came before the ping (bloom-host.cpp), so
+  // JavaScript stuck in its work is a hang (docs/adr/0067-hangs-and-force-quit.mdx). The pings
+  // dispatch read since the last call, by serial.
+  void answerPingsItself();
+  std::vector<uint64_t> takePings() { return std::exchange(pings_, {}); }
+  // The compositor's PingHandled (protocol version 49) read since the last call, by serial: answered
+  // once JavaScript ran what came before it, never waiting for it to be idle besides.
+  std::vector<uint64_t> takeHandledPings() { return std::exchange(handledPings_, {}); }
+  void pong(uint64_t serial);
 
   struct Surface {
     uint64_t configure = 0;  // serial of the latest configure; 0 until the first
@@ -86,8 +98,10 @@ class Window {
   std::optional<std::pair<float, float>> extent(uint32_t id) const;
   // Presents a canvas drawn at the surface's configured size and scale. Popups use premultiplied
   // ARGB (rounded corners); the toplevel is opaque. `damage` (canvas pixels) is what changed
-  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx).
-  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {});
+  // since the surface's previous frame; none: everything (docs/adr/0005-damage.mdx). `onlyTurning`:
+  // nothing changed but spinning rings (progress-bar.h), as the report says of the frame.
+  void present(uint32_t id, const Canvas& canvas, const std::vector<OxyOSRect>& damage = {},
+               bool onlyTurning = false);
   // Frees the GPU buffers of its surfaces that the compositor released but the one each shows
   // (oxyos_paint_trim; memory.h, once the window is idle): the bytes freed.
   uint64_t trimBuffers();
@@ -110,6 +124,17 @@ class Window {
   void setMaximized(bool enabled);
   void minimize();
   void setSizeLimits(uint32_t minWidth, uint32_t minHeight, uint32_t maxWidth, uint32_t maxHeight);
+  // Its zoom control's layouts (decision 12, protocol version 50): laid out as `layout`
+  // (OXYOS_WINDOW_LAYOUT_*, Zoom zooming it or back), moved to another of the session's
+  // workspaces (from 0), and the workspaces as the compositor last told them (count 0: not told).
+  bool layouts() const { return protocolVersion() >= 50; }
+  void layOut(uint8_t layout);
+  void moveToWorkspace(uint32_t workspace);
+  struct Workspaces {
+    uint32_t count = 0;
+    uint32_t current = 0;
+  };
+  Workspaces workspaces() const { return workspaces_; }
   // Whether the window is zoomed or fills its output, from its latest configure, and whether it
   // is the active window, from the compositor's ACTIVATED.
   bool maximized() const { return surfaces_.at(kToplevel).states & OXYOS_CONFIGURE_MAXIMIZED; }
@@ -168,7 +193,13 @@ class Window {
   bool toplevelClosed() const { return toplevelClosed_; }
   // A surface that went with the window closed to run in the background: nothing is asked of it,
   // or the compositor would end the connection over a surface it no longer has.
-  bool closedSurface(uint32_t id) const { return toplevelClosed_ && id == kToplevel; }
+  // A surface no request may name any more: the window closed to run in the background, or a
+  // popup or shell region this client already destroyed (`destroy`) or never opened. A request
+  // naming it is a protocol error that ends the connection: the shell published the accessibility
+  // of the Oxy menu it had just destroyed as the lock closed it, and was ended (#620).
+  bool closedSurface(uint32_t id) const {
+    return (toplevelClosed_ && id == kToplevel) || surfaces_.find(id) == surfaces_.end();
+  }
   // Search (docs/adr/0051-search.mdx, protocol version 30): a request of the search index's
   // vocabulary, answered by SEARCH_TEXT events naming `serial`. False if it could not be sent.
   bool searchRequest(uint32_t serial, const std::string& text);
@@ -267,6 +298,9 @@ class Window {
   bool setApplicationList(uint32_t serial, uint32_t list, const std::string& ids);
   bool openUrl(uint32_t serial, uint64_t input, const std::string& url);
   bool forceQuitApplication(uint32_t window);
+  // Lays out the window `window` as `layout` (OXYOS_WINDOW_LAYOUT_*: the Window menu, ADR 0016,
+  // decision 12). False if not sent (a compositor before version 48, an unknown layout).
+  bool layOutWindow(uint32_t window, uint8_t layout);
   // Asks the session to empty the Trash, citing `input`: it asks the person in a system sheet.
   bool emptyTrash(uint64_t input);
   // One of the system's interface sounds (OXYOS_SYSTEM_SOUND_*), citing `input`
@@ -310,6 +344,12 @@ class Window {
   // rectangles, docs/adr/0024-system-shortcuts.mdx, decision 10): sent, before the present they go
   // with, only when they differ from what the surface last sent. True if they were sent.
   bool setSecureRegions(uint32_t id, const std::vector<OxyOSRect>& rects);
+  // A surface's material regions (docs/adr/0069-the-platforms-material.mdx, renderer.h's
+  // materialRegions: five values each in its pixels), under which the compositor blurs what it
+  // composes beneath the surface: sent, before the present they go with, only when they differ
+  // from what the surface last sent, and only to a compositor of OXYOS_MATERIAL_VERSION or later.
+  // True if they were sent.
+  bool setMaterialRegions(uint32_t id, const std::vector<int32_t>& regions);
   // Screenshots (ADR 0024, decision 10), the session's shell's: a capture of what the person chose,
   // citing the interface's serial (OXYOS_CAPTURE_*, global logical rectangle), the interface ended
   // without one, one of its shell surfaces left out of captures, and a saved screenshot opened
@@ -450,6 +490,8 @@ class Window {
   std::map<uint32_t, Surface> surfaces_;
   // The secure regions each surface last sent (setSecureRegions).
   std::map<uint32_t, std::vector<OxyOSRect>> secureRegions_;
+  // The material regions each surface last sent (setMaterialRegions).
+  std::map<uint32_t, std::vector<int32_t>> materialRegions_;
   Drawing drawing_;
   std::map<std::string, std::string> preferences_;
   std::string receiving_;  // a preference's chunks so far
@@ -467,9 +509,12 @@ class Window {
   std::map<uint32_t, Display> displays_;
   Trial trial_;
   bool active_ = false;
+  Workspaces workspaces_;
   uint64_t presented_ = 0;
   // The window went, the application running on in the background (closeToplevel).
   bool toplevelClosed_ = false;
+  std::vector<uint64_t> pings_;  // read and not yet taken (answerPingsItself)
+  std::vector<uint64_t> handledPings_;  // likewise, PingHandled's
   std::chrono::steady_clock::time_point resizedAt_{};
   uint32_t nextSurface_ = kToplevel + 1;
   std::optional<Shell> shell_;

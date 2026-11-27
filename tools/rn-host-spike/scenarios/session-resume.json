@@ -1,0 +1,77 @@
+{
+ "about": "A session after the person's last one ended because of a problem (docs/adr/0065-the-session-ending-because-of-a-problem.mdx, decisions 2 and 3): it crashed (SIGSEGV after an hour, as the login program tells it: OXYOS_SESSION_ENDED) with Inbox running, which Resume's record in the run's state folder says. As the session starts, Inbox is opened again, once, and the person is told in the session's notification, \"Your session ended unexpectedly\", \"OxyOS reopened your apps.\", with Report…; the session's report is in the crash reports folder (so.oxy.session_<time>.crash, ADR 0061's form, its reason SIGSEGV). Report… shows it. Resume's record now follows this session: Inbox running, reopened. With Resume reopening only on a person's own end, Inbox is never started and the run fails.",
+ "locale": "en_US.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "installed": [
+  {
+   "package": "so.oxy.inbox"
+  }
+ ],
+ "home": {
+  "items": {
+   ".local/state/oxyos/session": "{\"running\":[\"so.oxy.inbox\"],\"reopened\":[],\"steady\":true}"
+  }
+ },
+ "session_ended": "signal 11 3600 1762790000",
+ "applications_launched": [],
+ "steps": [
+  {
+   "name": "Inbox reopened, once; the person told how the last session ended, its report written",
+   "do": [
+    "wait_named",
+    [
+     "Report…",
+     15000
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "Your session ended unexpectedly",
+      "OxyOS reopened your apps.",
+      "Report…"
+     ]
+    },
+    "crash_reports": [
+     {
+      "application": "so.oxy.session",
+      "contains": [
+       "Your session ended unexpectedly.",
+       "Identifier:   so.oxy.session",
+       "Reason:       signal 11 (SIGSEGV)",
+       "Running for:  1 hour 0 minutes"
+      ]
+     }
+    ],
+    "home": {
+     ".local/state/oxyos/session": "{\"running\":[\"so.oxy.inbox\"],\"reopened\":[\"so.oxy.inbox\"],\"steady\":false}"
+    }
+   }
+  },
+  {
+   "name": "Report…: the session's report, in the sheet",
+   "do": [
+    "press_named",
+    "Report…"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts_matching": [
+      "Reason:\\s+signal 11 \\(SIGSEGV\\)"
+     ]
+    }
+   }
+  }
+ ]
+}

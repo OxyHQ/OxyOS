@@ -65,8 +65,10 @@ class Machine:
 
     def __init__(self, image, directory, firmware="uefi", resolution=(1920, 1200), display="std",
                  accel=None, memory=2048, cpus=None, architecture="amd64", disk=None, variables=None,
-                 smbios=(), debug_serial=False, usb_keyboard=False, external=None):
+                 smbios=(), debug_serial=False, usb_keyboard=False, external=None, restarts=False):
         self.image = pathlib.Path(image) if image else None
+        # Whether a medium alone restarts as a computer does (a panic's restart, ADR 0068).
+        self.restarts = restarts
         self.disk = pathlib.Path(disk) if disk else None
         self.external = pathlib.Path(external) if external else None
         self.variables = pathlib.Path(variables) if variables else None
@@ -105,7 +107,7 @@ class Machine:
             arguments = ["qemu-system-x86_64"]
         # A machine with a disk restarts as a computer does (an install, an erase); a medium alone
         # is booted once, and its end is QEMU's.
-        arguments += ["-nodefaults", "-display", "none"] + ([] if self.disk else ["-no-reboot"]) + [
+        arguments += ["-nodefaults", "-display", "none"] + ([] if self.disk or self.restarts else ["-no-reboot"]) + [
                       "-m", str(self.memory), "-smp", str(self.cpus), "-cpu", cpu]
         code, variables, secure = FIRMWARE[self.architecture][self.firmware]
         if code:

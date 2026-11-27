@@ -6,7 +6,7 @@
 //! zoomed or full-screen window covers it (ADR 0034).
 
 use super::{ClientId, Output, OutputId, Request, Role, Scene, SurfaceKey};
-use oxyos_protocol::{ErrorCode, Event, PreeditText, Size, TextChunk};
+use oxyos_protocol::{ErrorCode, Event, PreeditText, Rect, Size, TextChunk};
 use std::collections::BTreeMap;
 
 /// A window's title, in bytes.
@@ -49,6 +49,12 @@ pub struct ShellWindowState {
     pub minimized: bool,
     pub hidden: bool,
     pub focused: bool,
+    /// Its application answers the compositor's pings (docs/adr/0067-hangs-and-force-quit.mdx).
+    pub responding: bool,
+    /// Its frame as displayed, global and logical; zoomed or full screen, what it fills.
+    pub frame: Rect,
+    /// Zoomed to fill its display's work area (ADR 0016).
+    pub zoomed: bool,
 }
 
 #[derive(Debug, Default)]
@@ -278,6 +284,33 @@ impl Scene {
                     self.quit_application(key);
                 }
             }
+            // Hide Others and Show All (ADR 0021): every application but a window's, or every
+            // one for window 0; a window that has gone since is ignored, as for Hide.
+            Request::HideOtherApplications { window: 0 } => self.hide_other_applications(None),
+            Request::HideOtherApplications { window: number } => {
+                if let Some(key) = window(self, number) {
+                    self.hide_other_applications(Some(key));
+                }
+            }
+            Request::ShowAllApplications {} => self.show_all_applications(),
+            // The Window menu (ADR 0016, decision 12): the compositor lays the window out, as
+            // Super+Alt's keys do, or zooms it and back, as its green bubble does; a window gone
+            // since is ignored, and one that takes no layout (full screen, hidden, while locked)
+            // is left as it is.
+            Request::LayOutWindow {
+                window: number,
+                layout,
+            } => {
+                if let Some(key) = window(self, number) {
+                    match super::tiling::layout_of(layout) {
+                        Some(layout) => self.lay_out_window(key, layout),
+                        None => {
+                            let zoomed = self.is_maximized(key);
+                            self.set_maximized(key, !zoomed)?;
+                        }
+                    }
+                }
+            }
             Request::ForceQuitApplication { window: number } => {
                 if let Some(key) = window(self, number) {
                     self.force_quit_application(key)?;
@@ -312,15 +345,34 @@ impl Scene {
 
     /// Each mapped window as the shell is told of it now, by its number.
     pub fn shell_window_states(&self) -> Vec<ShellWindowState> {
+        let keys: BTreeMap<u32, SurfaceKey> = self
+            .shell_windows
+            .numbers
+            .iter()
+            .map(|(key, number)| (*number, *key))
+            .collect();
         self.shell_view()
             .into_iter()
-            .map(|(number, window)| ShellWindowState {
-                number,
-                app_id: window.names.app_id,
-                workspace: window.workspace,
-                minimized: window.minimized,
-                hidden: window.hidden,
-                focused: window.focused,
+            .map(|(number, window)| {
+                let node = keys.get(&number).and_then(|key| self.live(*key));
+                ShellWindowState {
+                    number,
+                    app_id: window.names.app_id,
+                    workspace: window.workspace,
+                    minimized: window.minimized,
+                    hidden: window.hidden,
+                    focused: window.focused,
+                    responding: window.responding,
+                    frame: node.map_or(Rect::new(0, 0, 0, 0), |node| {
+                        Rect::new(
+                            node.origin.0,
+                            node.origin.1,
+                            node.size.width,
+                            node.size.height,
+                        )
+                    }),
+                    zoomed: node.is_some_and(|node| node.maximized),
+                }
             })
             .collect()
     }

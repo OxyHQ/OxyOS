@@ -144,6 +144,7 @@ fn person_args(
     config: &Config,
     account: &str,
     passcode: bool,
+    ended: Option<String>,
     passed: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<OsString> {
     let shell = format!(
@@ -160,7 +161,12 @@ fn person_args(
         },
         account,
         "user",
-        &[("OXYOS_BLOOM_HOST", config.host.display().to_string())],
+        &[("OXYOS_BLOOM_HOST", config.host.display().to_string())]
+            .into_iter()
+            // How the account's last session ended because of a problem (docs/adr/0065): its
+            // next session writes the report and tells the person.
+            .chain(ended.map(|ended| ("OXYOS_SESSION_ENDED", ended)))
+            .collect::<Vec<_>>(),
         vec![
             config.session.clone().into(),
             "--shell".into(),
@@ -174,7 +180,11 @@ fn person_args(
 /// in its login screen mode with the login screen as its shell, given the screen reader and the
 /// wallpapers' catalog the unit names, if another (`passed`, the login program's environment):
 /// Super+F5 starts the reader there before anyone signs in (ADR 0014, decision 6).
-fn greeter_args(config: &Config, passed: &dyn Fn(&str) -> Option<String>) -> Vec<OsString> {
+fn greeter_args(
+    config: &Config,
+    problem: bool,
+    passed: &dyn Fn(&str) -> Option<String>,
+) -> Vec<OsString> {
     let shell = format!(
         "{},{},OxyOSLogin",
         config.host.display(),
@@ -191,7 +201,11 @@ fn greeter_args(config: &Config, passed: &dyn Fn(&str) -> Option<String>) -> Vec
                 "OXYOS_ACCOUNTD_SOCKET",
                 config.accountd.display().to_string(),
             ),
-        ],
+        ]
+        .into_iter()
+        // The last session ended because of a problem: the login screen says so (docs/adr/0065).
+        .chain(problem.then(|| ("OXYOS_LAST_SESSION_ENDED", "problem".to_string())))
+        .collect::<Vec<_>>(),
         vec![
             config.session.clone().into(),
             "--greeter".into(),
@@ -460,13 +474,23 @@ impl Login {
     }
 
     fn start_person(&self, account: &str, passcode: bool) -> std::io::Result<Worker> {
-        Worker::spawn(person_args(&self.config, account, passcode, &|name| {
-            std::env::var(name).ok()
-        }))
+        let ended = self
+            .manager
+            .problem_of(account)
+            .map(|problem| problem.told());
+        Worker::spawn(person_args(
+            &self.config,
+            account,
+            passcode,
+            ended,
+            &|name| std::env::var(name).ok(),
+        ))
     }
 
     fn start_greeter(&mut self) {
-        let args = greeter_args(&self.config, &|name| std::env::var(name).ok());
+        let args = greeter_args(&self.config, self.manager.problem_said(), &|name| {
+            std::env::var(name).ok()
+        });
         match Worker::spawn(args) {
             Ok(worker) => self.greeter = Some(worker),
             Err(error) => {
@@ -612,6 +636,13 @@ impl Login {
                 FromWorker::Rejected => self.manager.checked(Checked::Rejected, now),
                 FromWorker::Failed => self.manager.checked(Checked::Failed, now),
                 FromWorker::Started(_) => self.manager.session_started(),
+                FromWorker::Ended(end, ran) => {
+                    let at = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |since| since.as_secs());
+                    self.manager.session_ended(end, ran, at);
+                    Vec::new()
+                }
             });
         }
         if let Some(status) = exited {
@@ -711,7 +742,7 @@ mod tests {
             "HOME" => Some("/root".to_string()),
             _ => None,
         };
-        let args: Vec<String> = greeter_args(&config, &unit)
+        let args: Vec<String> = greeter_args(&config, false, &unit)
             .into_iter()
             .map(|arg| arg.into_string().unwrap())
             .collect();
@@ -727,7 +758,7 @@ mod tests {
         let program = &args[args.iter().position(|arg| arg == "--").unwrap() + 1..];
         assert_eq!(program[..2], ["/usr/bin/oxyos-session", "--greeter"]);
         // Without one named, none is given: Super+F5 does nothing there.
-        let args = greeter_args(&config, &|_| None);
+        let args = greeter_args(&config, false, &|_| None);
         assert!(!args
             .iter()
             .any(|arg| arg.to_string_lossy().starts_with("OXYOS_READER=")));
@@ -754,15 +785,31 @@ mod tests {
                 .map(|arg| arg.into_string().unwrap())
                 .collect()
         };
-        let greeter = strings(greeter_args(&config, &|_| None));
+        let greeter = strings(greeter_args(&config, false, &|_| None));
         assert!(greeter.contains(&format!("{HOST},{LOGIN_BUNDLE},OxyOSLogin")));
         assert!(!greeter.iter().any(|arg| arg.contains(SHELL_BUNDLE)));
-        let person = strings(person_args(&config, "oxy-a", false, &|_| None));
+        let person = strings(person_args(&config, "oxy-a", false, None, &|_| None));
         assert!(person.contains(&"oxyos-login".to_owned()));
         // A PIN is checked under its own service, the session otherwise the same.
-        let pin = strings(person_args(&config, "oxy-a", true, &|_| None));
+        let pin = strings(person_args(&config, "oxy-a", true, None, &|_| None));
         assert!(pin.contains(&"oxyos-login-pin".to_owned()));
         assert_eq!(pin.len(), person.len());
+        // A session that ended because of a problem: the login screen says it, and its account's
+        // next session is told how (docs/adr/0065).
+        assert!(!greeter.contains(&"OXYOS_LAST_SESSION_ENDED=problem".to_owned()));
+        let said = strings(greeter_args(&config, true, &|_| None));
+        assert!(said.contains(&"OXYOS_LAST_SESSION_ENDED=problem".to_owned()));
+        let told = strings(person_args(
+            &config,
+            "oxy-a",
+            false,
+            Some("hang 12 1762790000".into()),
+            &|_| None,
+        ));
+        assert!(told.contains(&"OXYOS_SESSION_ENDED=hang 12 1762790000".to_owned()));
+        assert!(!person
+            .iter()
+            .any(|arg| arg.starts_with("OXYOS_SESSION_ENDED")));
         let program = &person[person.iter().position(|arg| arg == "--").unwrap() + 1..];
         assert_eq!(
             program,

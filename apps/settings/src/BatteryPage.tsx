@@ -51,7 +51,7 @@ import type { Preferences, SettingsActions, SettingsSnapshot } from "./model";
 
 type PageProps = { snapshot: SettingsSnapshot; actions: SettingsActions; strings: Messages; locale: string };
 
-const PAGE = { gap: 24 } as const;
+const PAGE = { gap: 20 } as const;
 /** A Mac's system green, for the bins in which the battery charged. */
 const CHARGING_GREEN = "#34C759";
 const LEVEL_HEIGHT = 112;
@@ -394,6 +394,7 @@ function SwitchRow({
       testID={testID}
       rightElement={
         <Switch
+          size="xs"
           checked={value}
           onCheckedChange={onChange}
           disabled={disabled}
@@ -449,7 +450,7 @@ function OptionsDialog({
       // Done stays in view below the options, which scroll, as a Mac's sheet keeps its button.
       footer={
         <View style={{ paddingHorizontal: 20, paddingVertical: 12, alignItems: "flex-end" }}>
-          <Button onPress={onClose} testID="battery-options-done">
+          <Button onPress={onClose} accessibilityLabel={words.done} testID="battery-options-done">
             {words.done}
           </Button>
         </View>

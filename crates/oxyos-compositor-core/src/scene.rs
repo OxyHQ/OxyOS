@@ -181,6 +181,9 @@ struct Node {
     refresh_mhz: u32,
     /// The output its client was last told it is on (`SurfaceOutput`; 0: not yet).
     told_output: OutputId,
+    /// A toplevel's workspaces as its client was last told them (`SurfaceWorkspaces`: the count
+    /// and the one it is on); none yet.
+    told_workspaces: Option<(u32, u32)>,
     mapped: bool,
     hidden: bool,
     dismissed: bool,
@@ -197,6 +200,10 @@ struct Node {
     /// A toplevel zoomed to fill the work area (ADR 0016), and the frame it had before.
     maximized: bool,
     unzoomed: Option<((i32, i32), Size)>,
+    /// A toplevel tiled or centred (ADR 0016, decision 12), and the frame it had before.
+    placed: Option<tiling::Placed>,
+    /// How many configures it was sent.
+    configures: u64,
     /// The sizes a toplevel can take.
     limits: window::Limits,
     /// Local input region; `None` accepts input everywhere, an empty rectangle nowhere.
@@ -221,6 +228,9 @@ struct Node {
     /// number the scene gave it (SetPointerImage; the program running the compositor keeps its
     /// pixels).
     pointer_image: Option<u64>,
+    /// Its material regions (docs/adr/0069-the-platforms-material.mdx), by the frames they are
+    /// for.
+    material: material::Material,
 }
 
 /// What changed in a surface's frame since the frame displayed before it, in buffer pixels
@@ -348,6 +358,10 @@ struct Press {
     pointer: bool,
     /// Where the pointer was (global, logical): where a drag from it began.
     at: (i32, i32),
+    /// Its release, once its last button came up (where the pointer was, global and logical, and
+    /// the release's serial): a drag its client asks for late, as a loaded machine reads a press,
+    /// its motions and its release in one turn, is dropped there (ADR 0035, decision 2).
+    released: Option<((i32, i32), u64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -355,6 +369,9 @@ struct Move {
     surface: SurfaceKey,
     pointer: (i32, i32),
     origin: (i32, i32),
+    /// The pointer has moved since the move began: a laid-out window has taken back its size,
+    /// and a tile may be previewed (ADR 0016, decision 12).
+    moved: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -370,6 +387,10 @@ pub enum RenderItem {
     /// a copy's green plus, a link's curved arrow, in `rect` (global, logical) below and right of
     /// the pointer's tip, above everything. A move, and a drop that would be refused, show none.
     DragBadge { rect: Rect, action: DragActions },
+    /// Where a window being dragged would be tiled if released now (docs/adr/0016-windows.mdx,
+    /// decision 12): a translucent pane in `rect` (global, logical), drawn just beneath the
+    /// window, with a window's corners. It takes no input.
+    TilePreview { rect: Rect },
     /// A window the shell's surface `surface` shows live (docs/adr/0022-window-views.mdx), drawn
     /// above that surface: the window's frame scaled into `rect` (its proportions kept), only
     /// within `clip` (within `rect` and the surface), its corners rounded by `radius`, at
@@ -434,6 +455,10 @@ pub struct Scene {
     focus_before_grab: Option<SurfaceKey>,
     pointer: (i32, i32),
     pointer_focus: Option<SurfaceKey>,
+    /// The serial of the pointer's entry onto `pointer_focus`: the client the pointer rests on may
+    /// grab a popup with it while the pointer stays there (a menu opened by hover, as a Mac's
+    /// green button's), as it may with its own latest press.
+    pointer_enter_serial: u64,
     capture: Option<SurfaceKey>,
     buttons_down: u32,
     swallowed_releases: u32,
@@ -542,6 +567,8 @@ pub struct Scene {
     input_source_shortcuts: Vec<InputSourceShortcut>,
     /// The workspaces and the windows the shell is told about (ADR 0009).
     workspaces: workspaces::Workspaces,
+    /// Windows coming back where they were (docs/adr/0070-windows-come-back-where-they-were.mdx).
+    places: places::Places,
     shell_windows: shell::ShellWindows,
     /// The lock's password, given and checked (ADR 0010).
     authentication: lock::Authentication,
@@ -592,6 +619,8 @@ pub struct Scene {
     clock: std::time::Duration,
     /// Pings, force quits, the person's lists of applications and URLs the shell opens (ADR 0034).
     dock: dock::Dock,
+    /// The dock hiding automatically (docs/adr/0034-the-dock.mdx, 10 November 2026).
+    dock_hiding: dock_hiding::DockHiding,
     /// The key held and pressed again while it is (ADR 0036).
     key_repeat: key_repeat::KeyRepeat,
     /// The drag going on, the drops not finished and the shell's files for the Trash (ADR 0035).
@@ -845,7 +874,15 @@ impl Scene {
                 .map(|(serial, _, s, framing)| (serial, origin, s, framing));
         }
         self.nodes.get_mut(&key).expect("present").output = target.id;
-        self.reconfigure(key, None, size);
+        // A tiled window takes its tile on the display it goes to (ADR 0016, decision 12).
+        let retiled = self
+            .work_area(target.id)
+            .and_then(|area| self.retiled(key, area))
+            .filter(|_| !fullscreen);
+        match retiled {
+            Some((origin, size)) => self.reconfigure(key, Some(origin), size),
+            None => self.reconfigure(key, None, size),
+        }
         self.reconstrain_children(key);
     }
 
@@ -939,6 +976,8 @@ impl Scene {
             let (origin, size) = node.upcoming();
             let (origin, size) = if node.fullscreen {
                 ((rect.x, rect.y), Size::new(rect.width, rect.height))
+            } else if let Some(tiled) = self.retiled(key, area) {
+                tiled
             } else if node.maximized {
                 let size = node.limits.clamp(Size::new(area.width, area.height));
                 let size = Size::new(size.width.min(area.width), size.height.min(area.height));
@@ -957,6 +996,10 @@ impl Scene {
             node.unzoomed = node
                 .unzoomed
                 .map(|(origin, size)| within(area, origin, size));
+            if let Some(placed) = &mut node.placed {
+                let (origin, size) = placed.previous;
+                placed.previous = within(area, origin, size);
+            }
             self.reconfigure(key, Some(origin), size);
             self.reconstrain_children(key);
         }
@@ -1027,6 +1070,10 @@ impl Scene {
                 continue;
             };
             if output != id || node.dismissed || exclusive == 0 {
+                continue;
+            }
+            // A dock that hides automatically keeps no strip: it comes over the windows.
+            if edge == PanelEdge::Bottom && self.dock_hiding() {
                 continue;
             }
             let exclusive = exclusive.min(area.height / 2).min(area.width / 2);
@@ -1403,6 +1450,7 @@ impl Scene {
                 let origin = self.placed(size, output);
                 self.insert(key(surface), Role::Toplevel, None, origin, size, output);
                 self.number_window(key(surface));
+                self.window_made(key(surface));
                 Ok(())
             }
             Request::CreateDialog {
@@ -1723,6 +1771,12 @@ impl Scene {
             ),
             Request::SetMaximized { surface, enabled } => self.set_maximized(key(surface), enabled),
             Request::Minimize { surface } => self.minimize_request(key(surface)),
+            Request::LayOutSurface { surface, layout } => {
+                self.lay_out_surface(key(surface), layout)
+            }
+            Request::MoveSurfaceToWorkspace { surface, workspace } => {
+                self.move_surface_to_workspace(key(surface), workspace)
+            }
             Request::SetKeyText { enabled } => {
                 if enabled {
                     self.key_text.insert(client);
@@ -1749,6 +1803,11 @@ impl Scene {
                 field,
                 text,
             } => self.menu_text(key(surface), index, field, text),
+            Request::MenuItemRole {
+                surface,
+                index,
+                role,
+            } => self.menu_item_role(key(surface), index, role),
             Request::MenusCommit { surface } => self.menus_commit(key(surface)),
             Request::ActivateMenuItem {
                 window,
@@ -1764,6 +1823,9 @@ impl Scene {
             | Request::RemoveWorkspace { .. }
             | Request::HideApplication { .. }
             | Request::QuitApplication { .. }
+            | Request::HideOtherApplications { .. }
+            | Request::ShowAllApplications {}
+            | Request::LayOutWindow { .. }
             | Request::ForceQuitApplication { .. }
             | Request::FocusShellSurface { .. } => self.shell_request(client, request),
             Request::Pong { serial } => {
@@ -1914,6 +1976,13 @@ impl Scene {
                 node.requested = bounded([requested, vec![rect]].concat());
                 Ok(())
             }
+            Request::MaterialRegion {
+                surface,
+                index,
+                last,
+                rect,
+                radius,
+            } => self.material_region(key(surface), index, last, rect, radius),
             Request::SetInputRegion { surface, region } => {
                 let node = self
                     .nodes
@@ -1959,6 +2028,7 @@ impl Scene {
                         surface: key(surface),
                         pointer: self.pointer,
                         origin: node.origin,
+                        moved: false,
                     });
                     self.set_pointer_focus(None);
                 }
@@ -2174,6 +2244,7 @@ impl Scene {
                 output,
                 refresh_mhz,
                 told_output: if refresh_mhz != 0 { output } else { 0 },
+                told_workspaces: None,
                 mapped: false,
                 hidden: false,
                 dismissed: false,
@@ -2184,6 +2255,8 @@ impl Scene {
                 restore: None,
                 maximized: false,
                 unzoomed: None,
+                placed: None,
+                configures: 0,
                 limits: window::Limits::NONE,
                 input_region: None,
                 requested: Vec::new(),
@@ -2194,6 +2267,7 @@ impl Scene {
                 workspace: self.workspaces.active,
                 pointer_shape: PointerShape::Arrow,
                 pointer_image: None,
+                material: material::Material::default(),
             },
         );
         match parent {
@@ -2316,6 +2390,7 @@ impl Scene {
             fullscreen: node.fullscreen,
             maximized: node.maximized,
         };
+        self.nodes.get_mut(&key).expect("present").configures += 1;
         self.emit(key.client, event);
     }
 
@@ -2543,9 +2618,18 @@ impl Scene {
                 && (self.is_ancestor_or_self(press.surface, parent)
                     || self.grab.contains(&press.surface))
         });
+        // Or the pointer's entry onto the parent (or what it hangs from) it still rests on, from
+        // that surface's client: a menu the pointer opened by resting on its trigger, with no
+        // press behind it. Any press elsewhere since (another client's, the shell's) does not
+        // take that from it, while the pointer has not left.
+        let hover_ok = serial != 0
+            && serial == self.pointer_enter_serial
+            && self.pointer_focus.is_some_and(|focus| {
+                focus.client == key.client && self.is_ancestor_or_self(focus, parent)
+            });
         if self.locked {
             self.dismiss(key, DismissReason::Locked);
-        } else if !(chain_ok || replaces.is_some()) || !press_ok {
+        } else if !(chain_ok || replaces.is_some()) || !(press_ok || hover_ok) {
             self.dismiss(key, DismissReason::GrabDenied);
         } else {
             match replaces {
@@ -2736,6 +2820,9 @@ impl Scene {
         self.send_minimize_targets(key);
         self.send_secure_regions(key, frame.sequence);
         let node = self.nodes.get_mut(&key).expect("checked");
+        // The material list told whole before this Submit is this frame's.
+        let displayed = node.presentation.displayed().map(|frame| frame.sequence);
+        node.material.submitted(frame.sequence, displayed);
         // What the client drew into this frame since its previous one: the damage it asked for,
         // clipped to the buffer, or the whole surface without any or at a new size. It adds to
         // what the frames not yet presenting changed, shown or discarded.
@@ -3388,6 +3475,7 @@ impl Scene {
         self.forget_secrets(Some(key));
         self.forget_window(key);
         self.forget_application_window(key);
+        self.forget_place(key);
         self.forget_menus(key);
         self.forget_window_views(key);
         self.forget_minimize_targets(key);
@@ -3563,7 +3651,13 @@ impl Scene {
 
     fn list(&self, in_flight: bool) -> Vec<RenderItem> {
         let mut out = Vec::new();
+        let preview = self
+            .tile_target()
+            .and_then(|(window, output, tile)| Some((window, tile.rect(self.work_area(output)?))));
         for root in &self.roots {
+            if let Some((_, rect)) = preview.filter(|(window, _)| window == root) {
+                out.push(RenderItem::TilePreview { rect });
+            }
             self.push_tree(*root, &mut out, in_flight);
         }
         out.extend(self.drag_badge());
@@ -3578,7 +3672,8 @@ impl Scene {
                     }
                     RenderItem::Cover { .. }
                     | RenderItem::View { .. }
-                    | RenderItem::DragBadge { .. } => false,
+                    | RenderItem::DragBadge { .. }
+                    | RenderItem::TilePreview { .. } => false,
                 });
                 if !covered {
                     covers.push(RenderItem::Cover {
@@ -3627,6 +3722,7 @@ impl Scene {
                 RenderItem::Surface { rect, .. }
                 | RenderItem::Cover { rect, .. }
                 | RenderItem::DragBadge { rect, .. }
+                | RenderItem::TilePreview { rect }
                 | RenderItem::View { clip: rect, .. } => rect.intersects(output.rect),
             })?;
         match top {
@@ -3872,6 +3968,10 @@ impl Scene {
             self.appeared(key, change);
         }
         self.nodes.get_mut(&key).expect("present").hidden = true;
+        // Into a dock that hides: it comes up for the window to go into it (ADR 0034).
+        if change == appearances::Change::Minimized {
+            self.hold_dock();
+        }
         self.dismiss_group_popups(key, DismissReason::ParentHidden);
         self.withdraw_input(key);
         if self.focus.is_some_and(|f| self.root_of(f) == key) {
@@ -3927,6 +4027,7 @@ impl Scene {
                 surface: key,
                 pointer: current,
                 origin: current,
+                moved: false,
             },
             origin.0,
             origin.1,
@@ -3952,6 +4053,7 @@ impl Scene {
             return;
         }
         let size = node.limits.clamp(size);
+        self.forget_layout(key);
         self.reconfigure(key, None, size);
         // Maximized or tiled, its frame goes there animated (ADR 0016).
         self.appeared(key, appearances::Change::Zoomed);
@@ -4174,9 +4276,11 @@ impl Scene {
                 self.pointer_event(old, serial, PointerKind::Leave, 0);
             }
         }
+        self.pointer_enter_serial = 0;
         if let Some(new) = target {
             let serial = self.next_serial();
             self.pointer_event(new, serial, PointerKind::Enter, 0);
+            self.pointer_enter_serial = serial;
         }
         self.pointer_focus = target;
     }
@@ -4193,12 +4297,20 @@ impl Scene {
     pub fn pointer_motion(&mut self, x: i32, y: i32) {
         self.user_input();
         self.pointer = (x, y);
+        // The dock that hides comes up at the bottom edge and goes once left (ADR 0034).
+        self.follow_dock_hiding();
         if self.dragging() {
             self.drag_motion();
             return;
         }
         self.follow_capture_target();
-        if let Some(moving) = self.moving {
+        if let Some(mut moving) = self.moving {
+            // Dragged away, a tiled window takes back the size it had (ADR 0016, decision 12).
+            if !moving.moved && (x, y) != moving.pointer {
+                moving.moved = true;
+                moving = self.untile_for_drag(moving);
+                self.moving = Some(moving);
+            }
             self.move_window(moving, x, y);
             return;
         }
@@ -4229,6 +4341,10 @@ impl Scene {
             return None;
         }
         let key = self.pointer_focus?;
+        // A client that does not answer has no say over the pointer: the wait cursor is shown.
+        if self.busy(key.client) {
+            return None;
+        }
         self.live(key)?.pointer_image.map(|image| (key, image))
     }
 
@@ -4276,6 +4392,11 @@ impl Scene {
         }
         if let Some(edges) = self.resizing.map(|r| r.edges).or(self.resize_hover) {
             return edges.pointer_shape();
+        }
+        // Over a client that has not answered for a while, the compositor's own wait cursor,
+        // whatever the client asked for (docs/adr/0067-hangs-and-force-quit.mdx, decision 1).
+        if self.pointer_focus.is_some_and(|key| self.busy(key.client)) {
+            return PointerShape::Wait;
         }
         self.pointer_focus
             .and_then(|key| self.live(key))
@@ -4463,9 +4584,12 @@ impl Scene {
             if let Some(moving) = self.moving {
                 if self.buttons_down == 0 {
                     // The move owned the pointer; the window that started it gets no capture.
+                    // Released over a tile previewed, the window takes it.
+                    let tile = self.tile_target();
                     self.moving = None;
                     self.capture = None;
                     self.reconstrain_children(moving.surface);
+                    self.tile_on_release(tile);
                     self.refresh_pointer_focus();
                 }
                 return;
@@ -4482,6 +4606,10 @@ impl Scene {
                 self.pointer_event(target, serial, PointerKind::Release, button);
             }
             if self.buttons_down == 0 {
+                let at = self.pointer;
+                if let Some(press) = self.last_press.as_mut().filter(|press| press.pointer) {
+                    press.released = Some((at, serial));
+                }
                 self.capture = None;
                 self.refresh_pointer_focus();
             }
@@ -4507,6 +4635,7 @@ impl Scene {
             surface: target,
             pointer,
             at: self.pointer,
+            released: None,
         });
         self.activation.insert(target.client, serial);
     }
@@ -4942,6 +5071,7 @@ impl Scene {
         let mut started = 0;
         let mut arriving = Vec::new();
         let mut presenting = Vec::new();
+        let active = self.workspaces.active;
         for (key, node) in self.nodes.iter_mut() {
             if frame.is_some_and(|output| node.output != output) {
                 continue;
@@ -4957,8 +5087,14 @@ impl Scene {
                 // Relative to the frame displayed now: everything the client drew since.
                 node.presenting_damage = node.unshown.take().unwrap_or(SurfaceDamage::Whole);
                 started += 1;
-                // Its first frame: it arrives in the frame being composed.
-                if !node.mapped && !node.dismissed {
+                // Its first frame: it arrives in the frame being composed, unless it is not
+                // shown (a window reopened minimized or on another desktop at login, docs/adr/
+                // 0069-windows-come-back-where-they-were.mdx).
+                if !node.mapped
+                    && !node.dismissed
+                    && !node.hidden
+                    && (node.parent.is_some() || node.workspace == active)
+                {
                     arriving.push(*key);
                 }
             }
@@ -5104,6 +5240,11 @@ impl Scene {
                 if self.locked && layer_of(&node.role) == Layer::Lock && self.focus.is_none() {
                     self.set_focus(Some(key));
                 } else if matches!(node.role, Role::Toplevel | Role::Dialog) {
+                    // Opened at login, it takes its place in the order kept (docs/adr/0070-
+                    // windows-come-back-where-they-were.mdx).
+                    if self.arrive_in_order(key) {
+                        continue;
+                    }
                     // Focus-stealing prevention: a window mapped after the user interacted with
                     // another client stays behind the focused window and gets no keyboard focus.
                     let activated = self
@@ -5142,6 +5283,8 @@ impl Scene {
         self.tell_refreshes();
         // The shell is told what changed of windows and workspaces since it was last told.
         self.tell_shell();
+        // Each toplevel, the workspaces and the one it is on, where they changed (ADR 0016).
+        self.tell_surface_workspaces();
         // Settings, what changed of the displays (ADR 0018).
         self.tell_displays();
         // Then the active window's menus, once it knows the window (ADR 0021).
@@ -5224,15 +5367,20 @@ pub use autofill::{
 pub use shortcuts::InputSourceShortcut;
 mod workspaces;
 pub use workspaces::MAX_WORKSPACES;
+mod places;
+pub use places::{LaunchedWindow, Placing, WindowPlace};
 mod shell;
 pub use shell::{ShellWindowState, MAX_APP_ID_BYTES, MAX_TITLE_BYTES};
+mod material;
+pub use material::MaterialRegion;
 mod lock;
 pub use lock::{Secret, Submitted};
 mod launch;
 pub use launch::LaunchRequest;
 mod dock;
+mod dock_hiding;
 mod drag;
-pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, PING_TIMEOUT};
+pub use dock::{ApplicationList, ApplicationListChange, UrlRequest, BUSY_AFTER, PING_TIMEOUT};
 pub use drag::{
     negotiate_action, OpenFilesRequest, TrashRequest, DRAG_BADGE_OFFSET, DRAG_BADGE_SIDE,
     DRAG_VERSION, MAX_OPEN_DROPS, VANISH_VERSION, VOLUMES_VERSION,
@@ -5292,6 +5440,7 @@ pub use controls::{
 pub use key_repeat::{REPEAT_DELAY, REPEAT_INTERVAL};
 pub use screenshots::CaptureRequest;
 pub use swipes::{SwipeDrive, SwipeRelease, SwipeRest, TrackpadGestures};
+pub mod tiling;
 pub mod window;
 pub use appearances::{Appearance, Change as AppearanceChange, Kind as AppearanceKind};
 pub use menus::{MenuEntry, Menus};

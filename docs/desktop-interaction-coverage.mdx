@@ -51,7 +51,7 @@ Sources: [ADR 0008](./adr/0008-input-method) and [ADR 0041](./adr/0041-input-met
 | A range selected inside the composition | `text-input` "converting it…"; **added:** `ime-preedit` "yz selected…" | O, F, D | — |
 | Several segments of different styles at once; the error style | `text-input` "converting it…" (converting and composing); **added:** `ime-preedit` (composing with converting, converting with error) | O (`composition` segments), D | How they are drawn (`renderer.cpp`) has no pixel check. The real engine never sends `Error`. |
 | Commit | `ime-*` commit steps; `input-method`; `shell-candidates`; `text-input` | O, D | `focus_input` is not asserted after a commit in the real-engine steps (focus does not move). |
-| Cancel (Escape) | `shell-candidates` "Escape cancels…" (development input method); `text-editing-mac` "Escape cancels it" (dead key); **added:** `ime-preedit` (empty transaction), `ime-japanese-interrupted` (the real engine) | O, F, D, `composition` | The emoji search's Escape is not covered. |
+| Cancel (Escape) | `shell-candidates` "Escape cancels…" (development input method); `text-editing-mac` "Escape cancels it" (dead key); **added:** `ime-preedit` (empty transaction), `ime-japanese-interrupted` (the real engine) | O, F, D, `composition`; **added:** `ime-emoji(-scaled)`, Escape on emoji's search after a word (the real engine): the word gone, the text as it was in one change, nothing committed, the layout typing again | — |
 | A press elsewhere in the field mid-composition | **added:** `ime-preedit`, `ime-japanese-interrupted` | O, F, D, `transactions`, `composition` | **Bug fixed.** The host ended the composition, as Android's `finishComposingText` does, but the engine kept it. The next key put it in again at the caret: あい composed, a press at the start, then u gave あいうあい. The session's frontend now resets the engine when the field tells a state none of the engine's changes made (`Composing` in `crates/oxyos-compositor/src/input_methods.rs`, with unit tests). |
 | Focus moved to another field mid-composition | **added:** `ime-preedit` "a press in the email field…" | O, F, D | Not with the real engine. |
 | The window loses the keyboard mid-composition | **added:** `ime-japanese-interrupted` (Super+F8) | O, F, D, `composition` | **Bug fixed.** The host kept the composition while the engine was reset with the field's deactivation, so the next composition replaced it. The host now ends it when its surface loses the keyboard (`textinput.cpp`). |
@@ -63,7 +63,7 @@ Sources: [ADR 0008](./adr/0008-input-method) and [ADR 0041](./adr/0041-input-met
 | The reader says candidates | `shell-candidates*`, `ime-japanese*`, scaled `ime-*` | speech (exact), `at` | `ime-pinyin` and `ime-hangul` at 1 have none. |
 | The reader says a commit as typed text | **added:** every scaled `ime-*` with the reader, and `ime-candidates-follow(-scaled)` | speech (exact) | **Bug fixed.** A field focused by a press was never the assistive technology's focus, so the reader neither said it nor echoed any typing, a commit included. The host now gives a focused field that focus however it took it, and tells the assistive technology the text without the composition, so the keys that compose are not echoed and the commit is said (ADR 0041, decision 5; ADR 0037, decision 7). |
 | Dead keys while an input method is current | — | — | Not covered. |
-| Secure fields never reach an input method | `input-method`, `text-input`, `secure-field`; scene `a_password_never_reaches_the_input_method` | O, F, D | Not with the real engine. `secure-field` has no `react`. |
+| Secure fields never reach an input method | `input-method`, `text-input`, `secure-field`; scene `a_password_never_reaches_the_input_method` | O, F, D (**added:** `secure-field`'s `react` in every step, exact: a seven-letter commit is one `change` and no `keyPress`, as React Native's input connection reports a commit longer than two units) | Not with the real engine. |
 
 ## 2. Text selection, caret and editing
 
@@ -284,11 +284,15 @@ These are listed for their owners to decide. This change fixes none of them.
 8. **A text field's menu from the keyboard:** `text-field-menu-keys(-scaled)`, with the fix in `navigationKey`.
 9. **Candidates following a window moved and resized, and the reader saying a commit:** `ime-candidates-follow(-scaled)`; a field focused by a press is the reader's focus now, and a composition is not echoed.
 
+10. **Escape in menus, and every step's deliveries** (15 November 2026): Escape in `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys` (each at both scales) now asserts `focus_surface`, `delivered` and `react`: the keyboard back on the window with one `focus.in`, the key itself taken by the menu once (`key@` its menu) and nothing else delivered. `keyboard-popover`, `live-regions`, `accessibility-collections` and `tabs-keys` assert `react` and `delivered` in every step. Each value was read from a run and checked against the step: one press and one release a key (two with Shift), one `blur` and one `focus` a move, a typed letter one `keyPress`, `change`, `selectionChange` and `text_input`, and the menu bar offered every key but Tab as a shortcut first, as everywhere else.
+
+11. **Tab round a window's stops, both ways** (15 November 2026): `tabs-keys(-scaled)` goes on past its first stop with Shift+Tab to the last, and past its last with Tab to the first, as a Mac's full keyboard access does, the focus, what is said and every event exact. **Space choosing a menu's row**, as Return does: `menu-type-select(-scaled)`.
+
 **Open, most important first:**
 
 1. A scale change with a popup open at 1.25 or on mixed displays, and a flip at the output's edge after a move. Neither has a scenario.
-2. In `menu-bar-pointer`, `menu-bar-morph`, `battery-menu`, `backup-menu`, `dock-menu`, `keyboard-popover` and `dropsea-list-keys`, Escape is asserted without `focus_surface`, `delivered` or `react`. An item's shortcut with its menu open, and Space choosing a row, are untested.
+2. An item's shortcut with its menu open, and Space choosing a row, are untested.
 3. The reader crossing surfaces. The order is when trees arrived, undocumented.
-4. A forward Tab wrap in a window. `react` is missing from `keyboard-popover`, `live-regions`, `accessibility-collections`, `tabs-keys` and the settings readers.
+4. `react` is missing from the settings readers.
 5. `AccessibilityInfo` saying no reader runs, and unknown native components drawn as plain views.
 6. Time budgets for input methods, keystrokes, menus, popups, momentum and the reader. The gate holds none of them.

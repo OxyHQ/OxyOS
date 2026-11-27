@@ -61,7 +61,7 @@
    "allow_unchanged": true,
    "expect": {
     "texts": [
-     "Search results"
+     "Search Results"
     ],
     "at": {
      "window": [

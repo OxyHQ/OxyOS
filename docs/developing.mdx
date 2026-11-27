@@ -32,9 +32,33 @@ built. The first run takes about half an hour (Skia and Hermes). Everything goes
 | --- | --- | --- |
 | `node/`, `bun/` | Node and bun | `tools/dev/pins`: version and SHA-256 |
 | `~/.cargo`, `~/.rustup` | rustup, when the machine has none; it installs the Rust `rust-toolchain.toml` names | `tools/dev/pins`: version and SHA-256 |
-| `src/Bloom`, `src/Dropsea`, `src/Atlas` | the applications, with their packages installed (`bun install --frozen-lockfile`) | `tools/dev/pins`: commit; their lockfiles |
-| `toolchain/` | the Bloom host's toolchain (`tools/rn-host-spike/toolchain.sh`): Clang 19 and LLD from Debian's archive, cmake and ninja, FreeType's, HarfBuzz's and ICU's headers, Skia, and per React Native version its Hermes, third-party sources, codegen and text input; `cmake-vars.txt` names them for the host's CMake | Skia's commit (`SKIA_REVISION`), the Hermes tag React Native names, `toolchain-requirements.txt` and `third-party.sha256` (SHA-256), apt's signatures |
+| `checkouts/` | the applications, a checkout for each pinned commit (below), with its packages installed (`bun install --frozen-lockfile`) | `tools/dev/pins`: commit; their lockfiles |
+| `toolchain/` | the Bloom host's toolchain (`tools/rn-host-spike/toolchain.sh`): Clang 19 and LLD from Debian's archive, cmake and ninja, FreeType's, HarfBuzz's and ICU's headers, Skia, and per React Native version its Hermes, third-party sources, codegen and text input; `cmake-vars/` names them for the host's CMake, a file for each Bloom checkout (`OXYOS_CMAKE_VARS`) | Skia's commit (`SKIA_REVISION`), the Hermes tag React Native names, `toolchain-requirements.txt` and `third-party.sha256` (SHA-256), apt's signatures |
 | `input-methods/` | the input methods' engine (`tools/input-methods/build.sh`, [ADR 0041](./adr/0041-input-methods)) | Debian's source tarballs by SHA-256 |
+
+### A checkout for each pinned commit
+
+Several builds run at once on one machine: the gate's runners, a deploy, and trees on branches whose
+`tools/dev/pins` name other commits. Each pinned commit of Bloom, Dropsea and Atlas therefore has a
+checkout of its own, and nothing changes it once it is made:
+
+- `checkouts/NAME.git`: one clone of the application, fetched a commit at a time (`--depth 1`);
+- `checkouts/NAME/COMMIT`: a worktree of it at that commit, its packages installed once;
+  `COMMIT.ready` says it is complete, `COMMIT.used` when a bootstrap last named it;
+- `toolchain/cmake-vars/`: what the host's CMake is told for each Bloom checkout (its React Native's
+  paths), so two Bloom pins never share that file either.
+
+Before, all builds shared one checkout (`src/Bloom`), and a bootstrap for a tree with another pin
+switched it under a running build: on 11 November 2026 a gate's packages failed to bundle because
+another tree's bootstrap had moved the checkout from Bloom e79ca5be to 69df4a88 mid-build.
+
+The bootstrap removes a checkout that no bootstrap named for `OXYOS_CHECKOUT_KEEP_DAYS` days (3 by
+default), with its `cmake-vars` file and the clone's objects only it used. A build lasts hours, so
+nothing still uses it, and a tree that pins it again has it made again. bun installs each
+checkout's packages as hard links into its own cache (`~/.bun/install/cache`), so a second checkout
+of a nearby commit costs little disk. A cache from before this change still has `src/Bloom`,
+`src/Dropsea` and `src/Atlas`: trees on branches made before it go on using them, and they can be
+removed once no such tree builds here.
 
 To use the same tools in a shell (Node, bun, cargo on `PATH`; `BLOOM_DIR` and the rest set):
 
@@ -89,8 +113,8 @@ it (Dropsea's and Atlas's from their checkouts), then runs every scenario of the
 4. With a GPU (a render node and a Vulkan device that is not the CPU): the one-GPU checks
    ([ADR 0031](./adr/0031-gpu-buffers), decision 14: the device chosen on fake sysfs trees, the
    painter never opening a decoy driver, and, under `strace`, only the nodes of a GPU driving a
-   display opened), `gpu-client` with `tools/oxyos-gpu-client` as its client, and the session
-   composed on the GPU alone (`--gpu-only`). Without one this is said and skipped.
+   display opened), `gpu-client` with `tools/oxyos-gpu-client` as its client, and it and the
+   session composed on the GPU alone (`--gpu-only`). Without one this is said and skipped.
 
 A scenario in `tools/gate/quarantine` (flaky on main under load, its issue open) still runs and is
 retried, but failing twice is reported, not counted; it leaves the quarantine with its fix.
@@ -104,12 +128,21 @@ a run that passes leaves nothing there.
 
 A pull request is merged by putting it in the merge queue: `gh pr merge N --auto` (or the merge
 button), once its fast checks pass: the **Native foundation** jobs (`verify` and `passwd-tools`, on
-x86-64 and AArch64, required). The queue then runs the gate, the **Scenarios** check
+x86-64 and AArch64) and the **Applications** job (`apps-tests`, `.github/workflows/apps.yml`: the
+applications' and the platform API's type check and unit tests, and the browser preview's build),
+all required and run on every pull request, whatever it touches. The queue then runs the gate, the **Scenarios** check
 (`.github/workflows/scenarios.yml`), on each entry's combined tree: main with the pull requests
 ahead of it and its own, so pull requests merged separately cannot break main together. A run that
 passes merges the entry (a merge commit); one that fails takes the pull request out of the queue, its
 failure in the run's log and its records on the gate's machine, and the pull request goes back in
 once fixed.
+
+The Native foundation's x86-64 legs can race between Seldon's `seldon-ci` pool and GitHub-hosted
+runners (OxyHQ/oxy `docs/engineering/build-and-deploy.md#ci-on-seldon`), on pull requests and queue
+entries, when the repository variable `CI_SELDON_RACE` is `true`; their AArch64 legs, Applications
+and Scenarios never move. A raced leg's name can then carry a cancelled loser or a failed Seldon lane
+next to the run that passed, so **Native foundation complete**, the workflow's own gate, is the check
+that judges the whole workflow.
 
 On a pull request the gate runs only when asked: the `gate` label (each push then runs it again), or
 the workflow dispatched for a branch (`gh workflow run scenarios.yml --ref BRANCH`). Otherwise it is
@@ -216,14 +249,20 @@ On 8 November 2026 four such jobs held the queue for hours.
 - A runner is restarted or stopped only once idle: `sudo sh tools/gate/restart-runner.sh N
   [restart|stop]` waits until runner N has no job (no `Runner.Worker` in its service), then acts. Never
   move a runner's directory or cache, or register it again, but after stopping it through this.
-- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, every ten minutes, on a
-  GitHub-hosted runner with that run's token: Actions on this repository alone, no secret on the
-  gate's machine) force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
-  one in progress longer than its `timeout-minutes` and a quarter of an hour, one whose running step
-  started more than an hour ago (the gate's longest takes 25 to 40 minutes), and an older job on a
-  runner that has started a newer one. It also cancels the merge queue's runs that no entry waits
+- The **Gate watchdog** workflow (`.github/workflows/gate-watchdog.yml`, on a GitHub-hosted runner
+  with that run's token: Actions on this repository alone, no secret on the gate's machine) runs
+  whenever the merge queue changes (a group built, an entry taken out) and on a ten-minute schedule
+  as a backstop: GitHub ran that schedule every four to eight hours, and on 10 November 2026 four
+  superseded merge queue runs held four of the five merge runners for 80 minutes. It force-cancels a Scenarios job that cannot end by itself (`tools/gate/watchdog.py`):
+  one in progress longer than its `timeout-minutes` and a quarter of an hour, and an older job on a
+  runner that has started a newer one; never by a step's age, since the scenarios are one step that
+  takes over an hour when the runners' gates run together. It also cancels the merge queue's runs that no entry waits
   for any more (a group superseded when the queue changed: an entry removed or another put ahead),
-  which GitHub leaves running on runners the queue needs. `--dry-run` says what it would end.
+  which GitHub leaves running on runners the queue needs: a run whose commit no entry's group has
+  and whose pull request is out of the queue or has another group built, never one whose entry is
+  waiting for its group to be built (GitHub may still count it: cancelled, it fails the entry and
+  takes it out), the run asking, one younger than two minutes or any when the queue cannot be read
+  (`tools/gate/test_watchdog.py`, on GitHub's recorded answers). `--dry-run` says what it would end.
 
 ### Images on the gate's machine
 

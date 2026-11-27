@@ -64,6 +64,10 @@ plymouth
 fontconfig
 
 # System services
+# Crash evidence (docs/adr/0068-crash-evidence-and-kernel-panics.mdx): systemd-coredump keeps a
+# native crash's core and its backtrace, which the session's reports read, for every part of OxyOS
+# that is not a Bloom application (those write their own).
+systemd-coredump
 network-manager
 pipewire-audio
 upower

@@ -48,8 +48,11 @@ class Memory {
   static Memory& get();
 
   // The JavaScript runtimes the account names: each a function that gives the runtime (or null,
-  // one not made yet), called on the loop's thread, which runs them.
-  void addRuntime(const char* name, std::function<facebook::jsi::Runtime*()> runtime);
+  // one not made yet), called on the thread that runs it. `onItsThread` runs a task there (React
+  // Native's runtime, on JavaScript's thread, js-thread.h); none: the loop's thread, which runs it
+  // (worklets' UI runtime).
+  void addRuntime(const char* name, std::function<facebook::jsi::Runtime*()> runtime,
+                  std::function<void(std::function<void()>)> onItsThread = nullptr);
   // What gives back the painter's spare buffers (Window::trimBuffers): the bytes freed.
   void setBufferTrim(std::function<uint64_t()> trim) { trimBuffers_ = std::move(trim); }
 
@@ -60,11 +63,19 @@ class Memory {
   // Trims when due (the loop calls it every turn); true when it did.
   bool tick(Clock::time_point now);
 
-  // The account, in MiB (rounded to a tenth): what the report's `memory` line holds.
+  // The account, in MiB (rounded to a tenth): what the report's `memory` line holds. A runtime run on
+  // another thread is not in it: tick adds it there (heapOf).
   folly::dynamic account() const;
 
  private:
-  std::vector<std::pair<const char*, std::function<facebook::jsi::Runtime*()>>> runtimes_;
+  struct Runtime {
+    const char* name;
+    std::function<facebook::jsi::Runtime*()> runtime;
+    std::function<void(std::function<void()>)> onItsThread;
+  };
+  // Adds what runtime `runtime` holds to `account`, on its thread.
+  static void heapOf(const Runtime& runtime, folly::dynamic& account);
+  std::vector<Runtime> runtimes_;
   std::function<uint64_t()> trimBuffers_;
   std::optional<Clock::time_point> lastWork_;
   bool trimmed_ = true;  // nothing to give back before the first work

@@ -99,6 +99,15 @@
     }
   },
   {
+    "id": "settings:desktop-dock",
+    "url": "oxyos-settings://desktop-dock",
+    "titles": { "en": "Desktop & Dock", "es": "Escritorio y Dock" },
+    "keywords": {
+      "en": ["desktop", "dock", "hide the dock", "show the dock", "automatically hide", "autohide", "dock hiding"],
+      "es": ["escritorio", "dock", "ocultar el dock", "mostrar el dock", "ocultar automáticamente", "ocultar dock"]
+    }
+  },
+  {
     "id": "settings:displays",
     "url": "oxyos-settings://displays",
     "titles": { "en": "Displays", "es": "Pantallas" },

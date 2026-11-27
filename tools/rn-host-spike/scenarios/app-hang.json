@@ -1,0 +1,180 @@
+{
+ "about": "A hung application, visible and ended in one keystroke (docs/adr/0067-hangs-and-force-quit.mdx), as on a Mac. Hang Probe (sample/HangProbe.tsx), installed and opened from the dock, runs its JavaScript thread for 30 s when its button is pressed, so it reads no event and answers no Ping. The pointer moving over it pings it; 2 s unanswered, the compositor shows its own wait cursor there; 5 s, it is not responding. Super+Alt+Escape (⌥⌘⎋): Force Quit Applications lists it, Not Responding, chosen, the keyboard on Force Quit; Return ends it after its hang's report (SIGQUIT: the host writes its JavaScript thread's stack), which the crash reports keep, saying the hang; no \"quit unexpectedly\" is said. With the compositor not showing the wait cursor, or the shortcut reaching the application, or the report missing, the run fails. At 1 (1280 × 720).",
+ "locale": "en_US.UTF-8",
+ "module": "EditingProbe",
+ "window": [
+  600,
+  360
+ ],
+ "shell": "OxyOSShell",
+ "app": {
+  "id": "so.oxy.allo",
+  "title": "Allo"
+ },
+ "installed": [
+  {
+   "package": "so.oxy.hangprobe",
+   "entry": [
+    "X-OxyOS-Pinned=4"
+   ]
+  }
+ ],
+ "applications_launched": [
+  {
+   "id": "so.oxy.hangprobe",
+   "origin": "installed 1",
+   "settings": false
+  }
+ ],
+ "steps": [
+  {
+   "name": "Hang Probe from the dock: its window, its buttons",
+   "do": [
+    "press_named",
+    "Hang Probe"
+   ],
+   "until_named": [
+    "Hang 30 Seconds",
+    15000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "absent": [
+      "Force Quit Applications"
+     ]
+    }
+   }
+  },
+  {
+   "name": "its button: it takes the press, then hangs",
+   "do": [
+    "press_named",
+    "Hang 30 Seconds"
+   ],
+   "allow_unchanged": true,
+   "expect": {}
+  },
+  {
+   "name": "the pointer moves over it: pinged, and not answered yet the application's cursor still",
+   "do": [
+    "move_named",
+    "Hang 4.5 Seconds"
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pointer_shape": "Arrow"
+   }
+  },
+  {
+   "name": "2 s unanswered: the compositor's wait cursor over it, whatever it asked for",
+   "do": [
+    "wait",
+    2500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pointer_shape": "Wait",
+    "pointer_image": null
+   }
+  },
+  {
+   "name": "5 s unanswered: not responding (the dock's menu and Force Quit say so)",
+   "do": [
+    "wait",
+    3000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "pointer_shape": "Wait"
+   }
+  },
+  {
+   "name": "Super+Alt+Escape: Force Quit Applications, Hang Probe Not Responding and chosen, the keyboard on Force Quit; the key reaches no application",
+   "do": [
+    "key",
+    [
+     125,
+     56,
+     1
+    ]
+   ],
+   "until_named": [
+    "Force Quit Applications",
+    15000
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "texts": [
+      "Force Quit Applications",
+      "If an app doesn’t respond for a while, select its name and click Force Quit.",
+      "Hang Probe",
+      "Not Responding",
+      "Force Quit",
+      "Cancel"
+     ],
+     "keyboard_focus": {
+      "target": "system-sheet-accept"
+     }
+    },
+    "at": {
+     "shell": [
+      {
+       "role": "Radio",
+       "name": "Hang Probe, Not Responding"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "Return: Force Quit; its hang's report first, then it ends",
+   "do": [
+    "key",
+    [
+     28
+    ]
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "in_shell": {
+     "absent": [
+      "Force Quit Applications"
+     ]
+    }
+   }
+  },
+  {
+   "name": "its report says the hang and what its JavaScript thread was doing; nothing says it quit unexpectedly",
+   "do": [
+    "wait",
+    1500
+   ],
+   "allow_unchanged": true,
+   "expect": {
+    "crash_reports": [
+     {
+      "application": "so.oxy.hangprobe",
+      "contains": [
+       "Hang Probe stopped responding and was force quit.",
+       "Reason:       hang: no response for",
+       "[host] hang: asked by process"
+      ]
+     }
+    ],
+    "in_shell": {
+     "absent": [
+      "Hang Probe quit unexpectedly",
+      "Force Quit Applications"
+     ]
+    }
+   }
+  }
+ ],
+ "home": {
+  "items": {
+   "notes.txt": "keep me"
+  }
+ }
+}

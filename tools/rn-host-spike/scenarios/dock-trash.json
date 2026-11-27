@@ -39,7 +39,7 @@
         "in_shell": {
           "texts": [
             "Abrir",
-            "Vaciar Papelera"
+            "Vaciar la Papelera…"
           ]
         },
         "at": {
@@ -50,7 +50,7 @@
             },
             {
               "role": "MenuItem",
-              "name": "Vaciar Papelera",
+              "name": "Vaciar la Papelera…",
               "state": []
             }
           ]
@@ -81,7 +81,7 @@
           "shell": [
             {
               "role": "MenuItem",
-              "name": "Vaciar Papelera",
+              "name": "Vaciar la Papelera…",
               "state": [
                 "focused"
               ]
@@ -169,14 +169,14 @@
         "in_shell": {
           "texts": [
             "Abrir",
-            "Vaciar Papelera"
+            "Vaciar la Papelera…"
           ]
         },
         "at": {
           "shell": [
             {
               "role": "MenuItem",
-              "name": "Vaciar Papelera",
+              "name": "Vaciar la Papelera…",
               "state": [
                 "disabled"
               ]
@@ -200,7 +200,7 @@
         },
         "in_shell": {
           "absent": [
-            "Vaciar Papelera"
+            "Vaciar la Papelera…"
           ]
         }
       }

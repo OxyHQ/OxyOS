@@ -30,6 +30,7 @@ import {
 import { accountsFrom, type Accounts } from '../../../apps/login/src/model';
 import { enrollAnswerFrom, platformFrom, stageFrom } from '../../../apps/login/src/setup';
 import { isPowerKey, loginPowerRequest } from '../../../apps/login/src/power';
+import { endedBecauseOfAProblem, LAST_SESSION_REQUEST } from '../../../apps/login/src/lastSession';
 import { SetupAssistantFrame } from './SetupAssistant';
 import { Wallpaper } from '../../../apps/shell/src/components/Wallpaper';
 import { useMinuteClock } from '../../../apps/shell/src/useMinuteClock';
@@ -180,6 +181,12 @@ export default function LoginSession() {
     );
     return () => subscription.remove();
   }, []);
+  // The last session ended because of a problem (docs/adr/0065): asked once, as the screen is shown.
+  const [lastSessionProblem, setLastSessionProblem] = React.useState(false);
+  React.useEffect(() => {
+    if (!system) return;
+    askSession(LAST_SESSION_REQUEST).then((answer) => setLastSessionProblem(endedBecauseOfAProblem(answer)));
+  }, []);
   // The catalog's default, as the login screen's session tells it (docs/adr/0048-wallpapers.mdx).
   const wallpaper = useShellWallpaper(state?.wallpaper);
   const actions: LoginActions = {
@@ -195,6 +202,7 @@ export default function LoginSession() {
     // Sleep, Restart and Shut Down at the foot, at once (nobody is signed in), citing the press.
     power: system ? (action) => askSession(loginPowerRequest(action)) : undefined,
     powerKey,
+    lastSessionProblem,
   };
   const { Surface, Masked } = oxyosShell;
   return (

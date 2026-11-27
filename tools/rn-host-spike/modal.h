@@ -16,14 +16,26 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
 
 namespace oxyos {
 
 // The size the host lays its window's surface out at, which every modal is laid out at (ModalHost),
-// kept in Fabric's context container under kModalScreenKey for the modal's descriptor. JavaScript
-// runs on the host's one thread, which alone reads and writes it.
+// kept in Fabric's context container under kModalScreenKey for the modal's descriptor: written by the
+// UI thread as it lays the window out, read by whichever thread commits a new modal (JavaScript's).
 struct ModalScreen {
+  void set(facebook::react::Size value) {
+    std::lock_guard lock(mutex);
+    size = value;
+  }
+  facebook::react::Size get() const {
+    std::lock_guard lock(mutex);
+    return size;
+  }
+
+ private:
+  mutable std::mutex mutex;
   facebook::react::Size size;
 };
 inline constexpr const char* kModalScreenKey = "OxyOSModalScreen";

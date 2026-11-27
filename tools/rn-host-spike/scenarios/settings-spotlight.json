@@ -62,11 +62,11 @@
   {
    "name": "Applications' switch pressed off: kept by the search service at once",
    "do": [
-    "press_output",
-    [
-     1020,
-     197
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Aplicaciones"
+    }
    ],
    "allow_unchanged": true,
    "expect": {
@@ -97,11 +97,11 @@
   {
    "name": "pressed on again",
    "do": [
-    "press_output",
-    [
-     1020,
-     197
-    ]
+    "press_named",
+    {
+     "role": "Switch",
+     "name": "Aplicaciones"
+    }
    ],
    "allow_unchanged": true,
    "expect": {

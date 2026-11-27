@@ -396,9 +396,10 @@ export const Launchpad = memo(function Launchpad({
   return (
     <Box
       testID="shell-launchpad"
-      // A dialog named Launchpad, said by its title as it opens, as VoiceOver says Launchpad.
+      // A dialog named Applications (the one name the shell gives this view), said by its title
+      // as it opens, as VoiceOver says Launchpad.
       accessibilityRole="dialog"
-      accessibilityLabel="Launchpad"
+      accessibilityLabel={messages.topBar.applications}
       className="absolute inset-0 items-center overflow-hidden"
       style={{ zIndex: 20, display: open ? "flex" : "none" }}
     >

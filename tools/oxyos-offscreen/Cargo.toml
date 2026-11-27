@@ -22,7 +22,7 @@ oxyos-priority = { path = "../../crates/oxyos-priority" }
 oxyos-power = { path = "../../crates/oxyos-power" }
 # The development backup service, played on a run's own folders (`--play-backup`,
 # docs/adr/0059-backups.mdx), and its socket, which a step asks.
-oxyos-backupd = { path = "../oxyos-backupd" }
+oxyos-backup = { path = "../../crates/oxyos-backup" }
 oxyos-install = { path = "../../crates/oxyos-install" }
 oxyos-compositor = { path = "../../crates/oxyos-compositor" }
 # Wi-Fi Diagnostics' probe of the played network (`--network-bus`, docs/adr/0038-networks.mdx).
@@ -54,6 +54,8 @@ oxyos-files = { path = "../../crates/oxyos-files", default-features = false }
 # Virtual devices for `--launch --uinput`: the director types and points through the kernel.
 evdev = "0.13"
 rustix = { version = "1.1.6", default-features = false, features = ["std", "event", "time", "pipe", "process"] }
+# A repeated load ends its group when the run ends it (`--load repeat`, load.rs).
+signal-hook = { version = "0.3", default-features = false }
 
 [dev-dependencies]
 # The session's connection to BlueZ, tested against the played one (tests/bluetooth_*.rs).

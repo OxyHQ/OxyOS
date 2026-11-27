@@ -45,7 +45,7 @@ State::Shared ModalHostViewComponentDescriptor::createInitialState(const Props::
                                                                    const ShadowNodeFamily::Shared& family) const {
   Size size{};
   if (auto screen = contextContainer_->find<std::shared_ptr<ModalScreen>>(kModalScreenKey); screen && *screen) {
-    size = (*screen)->size;
+    size = (*screen)->get();
   }
   return std::make_shared<ModalHostViewShadowNode::ConcreteState>(
       std::make_shared<const ModalHostViewState>(ModalHostViewState(size)), family);

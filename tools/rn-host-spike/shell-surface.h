@@ -141,6 +141,10 @@ class ShellSurfaceHost {
   void sync();
   // The tree changed: every region draws again once its previous frame is answered.
   void changed();
+  // Whether a region's last frame had a ring spinning (progress-bar.h); turn(): each such region
+  // draws again (true if one is ready to).
+  bool spinning() const;
+  bool turn();
   // Every region draws again whole (another painter took over).
   void redrawWhole();
   // Draws and presents the regions that changed, and publishes their accessibility.
@@ -200,6 +204,8 @@ class ShellSurfaceHost {
     bool moves = false;
     // The view a swipe drives it is, as last told (OXYOS_GESTURE_OVERLAY_*).
     uint8_t gesture = 0;
+    // A ring spun in its last frame (progress-bar.h).
+    bool spins = false;
   };
   // The region asking for the keyboard: of several, the newest.
   std::optional<facebook::react::Tag> keyboardTag() const;
