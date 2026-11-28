@@ -19,7 +19,6 @@ import alia from "../assets/apps/alia.svg?raw";
 import allo from "../assets/apps/allo.png";
 import clarity from "../assets/apps/clarity.png";
 import noted from "../assets/apps/noted.png";
-import schedio from "../assets/apps/schedio.png";
 import codea from "../assets/apps/codea.png";
 import homiio from "../assets/apps/homiio.png";
 import moovo from "../assets/apps/moovo.png";
@@ -55,7 +54,6 @@ const applications: ShellApplication[] = [
   raster("allo", "Allo", allo, true),
   raster("clarity", "Clarity", clarity, true),
   raster("noted", "Noted", noted, true),
-  raster("schedio", "Schedio", schedio, true),
   raster("codea", "Codea", codea, true),
   raster("homiio", "Homiio", homiio),
   raster("moovo", "Moovo", moovo),
@@ -335,15 +333,6 @@ function previewDocuments(now: number): SearchItem[] {
       url: "inbox://message/1",
       snippet: "The sections look right. Can the preview show the file's tags too?",
       modified: now - 3 * 60 * 60 * 1000,
-    },
-    {
-      id: "schedio:event-1",
-      category: "event",
-      title: "Spotlight review",
-      application: "schedio",
-      url: "schedio://event/1",
-      location: "Schedio",
-      modified: now - DAY,
     },
   ];
 }

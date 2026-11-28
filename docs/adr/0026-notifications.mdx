@@ -20,7 +20,7 @@ An application cannot tell the person anything while they are in another one. A 
 
 OxyOS had the surface for it and nothing else: the protocol's `ShellKind::Notification` (its layer, above panels and overlays) and its motion (ADR 0011: it slides in from beside itself, 250 ms, and fades out, 200 ms). No application could post, nothing kept notifications, the shell drew none and nothing reached the application back.
 
-The Oxy applications already post notifications: every Expo application among them (Allo, Mention, Inbox, Alia, Homiio, Mercaria, Noted, Clarity, Schedio, Syra, Peable, Moovo, the Authenticator, and the Oxy SDK's `@oxy.so/services`) depends on `expo-notifications` (`~58.1.6` in most), none on Notifee. They call `scheduleNotificationAsync` with a `null` trigger for local notifications (Allo's and Mention's `createNotification`), `setNotificationHandler` for how one shows while they are in front, `addNotificationResponseReceivedListener` and `getLastNotificationResponse` for presses, and `setNotificationCategoryAsync` for actions.
+The Oxy applications already post notifications: every Expo application among them (Allo, Mention, Inbox, Alia, Homiio, Mercaria, Noted, Clarity, Syra, Peable, Moovo, the Authenticator, and the Oxy SDK's `@oxy.so/services`) depends on `expo-notifications` (`~58.1.6` in most), none on Notifee. They call `scheduleNotificationAsync` with a `null` trigger for local notifications (Allo's and Mention's `createNotification`), `setNotificationHandler` for how one shows while they are in front, `addNotificationResponseReceivedListener` and `getLastNotificationResponse` for presses, and `setNotificationCategoryAsync` for actions.
 
 ## Decision
 
